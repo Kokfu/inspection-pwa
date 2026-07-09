@@ -17,7 +17,7 @@
 	handle {
 		root * /srv/www
 
-		@hashed_assets path_regexp hashed ^/assets/.+\.[a-fA-F0-9]{8,}\.(js|css|woff2?|png|jpg|jpeg|svg|webp)$
+		@hashed_assets path /assets/*
 		header @hashed_assets Cache-Control "public, max-age=31536000, immutable"
 
 		@html path / /index.html

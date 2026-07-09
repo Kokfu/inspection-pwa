@@ -14,7 +14,11 @@ coverage/
 *.pem
 *.key
 *.crt
+*.cer
+*.der
+*.p12
 *.pfx
+*.jks
 
 # Logs
 *.log
@@ -29,4 +33,3 @@ runtime.local/
 Thumbs.db
 .vscode/
 .idea/
-
