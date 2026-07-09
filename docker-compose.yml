@@ -1,0 +1,73 @@
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: infra/reverse-proxy/Dockerfile
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ${INSPECTION_PROXY_LOGS_PATH:-C:/InspectionSystem/runtime/logs/proxy}:/var/log/caddy
+    networks:
+      - public
+      - internal
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      API_PORT: ${API_PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL:-postgres://inspection_app:replace-with-a-real-secret-outside-git@postgres:5432/inspection}
+      UPLOADS_PATH: /srv/uploads
+      LOGS_PATH: /srv/logs
+      AUTH_REQUIRED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ${INSPECTION_UPLOADS_PATH:-C:/InspectionSystem/runtime/uploads}:/srv/uploads
+      - ${INSPECTION_API_LOGS_PATH:-C:/InspectionSystem/runtime/logs/api}:/srv/logs
+      - ${INSPECTION_RESTORE_STAGING_PATH:-C:/InspectionSystem/runtime/restore-staging}:/srv/restore-staging
+      - ${INSPECTION_OPERATIONAL_PATH:-C:/InspectionSystem/runtime/operational}:/srv/operational
+    networks:
+      - internal
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-inspection}
+      POSTGRES_USER: ${POSTGRES_USER:-inspection_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-with-a-real-secret-outside-git}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+networks:
+  public:
+  internal:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+

@@ -1,0 +1,7 @@
+# Optional local-development override example.
+# Copy to docker-compose.override.yml if needed. Do not commit real secrets.
+services:
+  proxy:
+    ports:
+      - "8080:80"
+
