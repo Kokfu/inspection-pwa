@@ -54,3 +54,41 @@ Network timeout does not prove rejection. Preserve the local outbox item and ret
 
 Do not call this browser-level Background Sync unless actual Service Worker Background Sync is implemented and verified.
 
+## Phase 2 Test Record Slice
+
+Phase 2 implements one generic `testRecord` entity only. It is not a real inspection workflow.
+
+Frontend local fields:
+
+- `clientUuid`
+- `title`
+- `notes`
+- `createdAt`
+- `localCreatedAt`
+- `localUpdatedAt`
+- `lastSyncedAt`
+- `syncStatus`
+- `lastSyncError`
+
+`Save Draft` writes only to IndexedDB with `syncStatus = Draft` and does not create an outbox item.
+
+`Submit Local` writes the record to IndexedDB with `syncStatus = Pending` and creates one `syncOutbox` item with:
+
+- `entityType = testRecord`
+- `action = create`
+
+The API route is exposed through Caddy as `POST /api/sync` and received by the API container as `POST /sync`.
+
+The Phase 2 PostgreSQL table is created by the API startup migration runner using non-destructive `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements. The matching SQL file is stored at `apps/api/migrations/001_create_test_records.sql`.
+
+## Temporary Local Auth Bypass
+
+Phase 2 sync uses an explicit local-development bypass:
+
+```text
+ALLOW_PHASE2_UNAUTHENTICATED_SYNC=false
+```
+
+The committed/default value is false. Local `.env` may set it to true for testing only.
+
+This is a temporary Phase 2 local-development bypass only. Do not expose the app publicly while this is enabled. Production deployment is prohibited until real authentication and authorization are implemented.

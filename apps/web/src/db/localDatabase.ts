@@ -9,19 +9,39 @@ export type LocalDraft = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: string;
+  entityType: "testRecord";
   entityId: string;
-  action: "create" | "update" | "delete";
+  action: "create";
   payload: unknown;
   createdAt: string;
   attempts: number;
   lastAttemptAt?: string;
   lastError?: string;
-  status: "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
+  status: "Pending" | "Syncing" | "Failed" | "Completed";
+};
+
+export type TestRecordSyncStatus =
+  | "Draft"
+  | "Pending"
+  | "Syncing"
+  | "Synced"
+  | "Failed";
+
+export type TestRecord = {
+  clientUuid: string;
+  title: string;
+  notes: string;
+  createdAt: string;
+  localCreatedAt: string;
+  localUpdatedAt: string;
+  lastSyncedAt?: string;
+  syncStatus: TestRecordSyncStatus;
+  lastSyncError?: string;
 };
 
 export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   drafts: EntityTable<LocalDraft, "id">;
+  testRecords: EntityTable<TestRecord, "clientUuid">;
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
 };
 
@@ -30,7 +50,12 @@ localDatabase.version(1).stores({
   syncOutbox: "operationId, entityType, entityId, status, createdAt"
 });
 
+localDatabase.version(2).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt"
+});
+
 export async function initializeLocalDatabase() {
   await localDatabase.open();
 }
-

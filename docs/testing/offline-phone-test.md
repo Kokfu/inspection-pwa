@@ -17,3 +17,17 @@ Run this only against a production build served over HTTPS.
 13. Restore internet.
 14. Sync and confirm exactly one server record for each local UUID.
 
+## Phase 2 Browser Variant
+
+Before real phone testing, verify the generic test-record slice in a production build:
+
+1. Open `https://localhost`.
+2. Create a Draft.
+3. Refresh and confirm the Draft remains.
+4. Submit a local record.
+5. Confirm it becomes Pending.
+6. Stop the API container or disconnect the network.
+7. Confirm inputs still accept typing and local save still works.
+8. Restart the API container.
+9. Press Sync.
+10. Confirm the record becomes Synced only after exact UUID confirmation.

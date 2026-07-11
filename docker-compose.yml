@@ -31,6 +31,7 @@ services:
       UPLOADS_PATH: /srv/uploads
       LOGS_PATH: /srv/logs
       AUTH_REQUIRED: "true"
+      ALLOW_PHASE2_UNAUTHENTICATED_SYNC: ${ALLOW_PHASE2_UNAUTHENTICATED_SYNC:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,4 +71,3 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
-

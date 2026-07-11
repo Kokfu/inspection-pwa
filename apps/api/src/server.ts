@@ -1,5 +1,6 @@
 import express from "express";
 import { loadConfig } from "./config/env.js";
+import { runMigrations } from "./db/migrations.js";
 import { authRequired } from "./middleware/authRequired.js";
 import { healthRouter } from "./routes/health.js";
 import { syncRouter } from "./routes/sync.js";
@@ -18,7 +19,20 @@ app.use((_request, response) => {
   response.status(404).json({ error: "NOT_FOUND" });
 });
 
+app.use(
+  (
+    error: unknown,
+    _request: express.Request,
+    response: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error(error);
+    response.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
+  }
+);
+
+await runMigrations();
+
 app.listen(config.port, () => {
   console.log(`inspection-api listening on ${config.port}`);
 });
-
