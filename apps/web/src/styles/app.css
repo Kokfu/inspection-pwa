@@ -88,7 +88,8 @@ dd {
 }
 
 .auth-panel,
-.record-form {
+.record-form,
+.server-records {
   display: grid;
   gap: 16px;
 }
@@ -143,6 +144,12 @@ dd {
   font-size: 1.1rem;
 }
 
+.record-item h3,
+.server-records h2 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+}
+
 .record-item dl {
   margin: 0;
 }
@@ -152,5 +159,26 @@ dd {
 }
 
 .error-text {
+  color: #9c2f2f;
+}
+
+.server-records {
+  border-top: 2px solid #d6e1e3;
+  padding-top: 18px;
+}
+
+.server-records-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.server-records-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.server-records-message {
   color: #9c2f2f;
 }

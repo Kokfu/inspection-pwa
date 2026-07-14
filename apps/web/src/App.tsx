@@ -11,6 +11,11 @@ import { initializeLocalDatabase } from "./db/localDatabase";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
+  loadServerTestRecords,
+  type ServerTestRecord
+} from "./records/serverTestRecordApi";
+import { ServerTestRecordList } from "./records/ServerTestRecordList";
+import {
   listTestRecords,
   saveDraft,
   submitLocal
@@ -33,6 +38,9 @@ export function App() {
   const [syncMessage, setSyncMessage] = useState("");
   const [authUser, setAuthUser] = useState<AuthUser>();
   const [authMessage, setAuthMessage] = useState("Checking server sign-in");
+  const [serverRecords, setServerRecords] = useState<ServerTestRecord[]>([]);
+  const [serverRecordsMessage, setServerRecordsMessage] = useState("");
+  const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
 
   useEffect(() => {
     void initializeLocalDatabase().then(async () => {
@@ -93,6 +101,25 @@ export function App() {
     await logout();
     setAuthUser(undefined);
     setAuthMessage("Signed out. Local records remain on this device.");
+    setServerRecords([]);
+    setServerRecordsMessage("");
+  }
+
+  async function handleLoadServerRecords() {
+    setServerRecordsLoading(true);
+    setServerRecordsMessage("");
+
+    try {
+      setServerRecords(await loadServerTestRecords());
+    } catch (error) {
+      setServerRecordsMessage(
+        error instanceof Error
+          ? error.message
+          : "Server records are currently unavailable"
+      );
+    } finally {
+      setServerRecordsLoading(false);
+    }
   }
 
   return (
@@ -144,6 +171,15 @@ export function App() {
           {syncMessage ? <p>{syncMessage}</p> : null}
         </div>
         <TestRecordList records={records} />
+      </section>
+      <section className="workspace" aria-label="Read-only server records">
+        <ServerTestRecordList
+          records={serverRecords}
+          isLoading={serverRecordsLoading}
+          message={serverRecordsMessage}
+          canLoad={Boolean(authUser)}
+          onLoad={handleLoadServerRecords}
+        />
       </section>
     </main>
   );

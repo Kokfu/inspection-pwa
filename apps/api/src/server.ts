@@ -5,6 +5,7 @@ import { currentUser } from "./middleware/currentUser.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { syncRouter } from "./routes/sync.js";
+import { testRecordsRouter } from "./routes/testRecords.js";
 
 const config = loadConfig();
 const app = express();
@@ -16,6 +17,7 @@ app.use(healthRouter);
 app.use(currentUser);
 app.use(authRouter);
 app.use(syncRouter);
+app.use(testRecordsRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: "NOT_FOUND" });

@@ -83,6 +83,14 @@ Beginning in Phase 3, `/sync` requires an authenticated server session with the 
 
 The Phase 2 PostgreSQL table is created by the API startup migration runner using non-destructive `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements. The matching SQL file is stored at `apps/api/migrations/001_create_test_records.sql`.
 
+## Phase 3.5 Server Record Listing
+
+`GET /api/test-records` is a read-only server projection for authenticated users. Caddy removes the `/api` prefix before forwarding the request to `GET /test-records` in the API container.
+
+The route returns at most 100 generic test records in deterministic newest-first order. Its response exposes only `clientUuid`, `title`, `notes`, and `createdAt`.
+
+Server records are shown separately from IndexedDB records and are not imported into IndexedDB in Phase 3.5. A failed server listing request must not change local records, local statuses, or outbox items.
+
 ## Temporary Local Auth Bypass
 
 Phase 2 used an explicit local-development bypass:
