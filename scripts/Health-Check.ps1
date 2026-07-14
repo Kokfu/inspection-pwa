@@ -17,19 +17,18 @@ Write-Host "URL: $HealthUrl"
 # Local Caddy uses a local/self-signed certificate unless its root CA is trusted.
 # For localhost validation only, allow curl.exe -k.
 # Production checks should use -StrictCertificateCheck with the real HTTPS domain.
-$curlArgs = @("-fsS", $HealthUrl)
+$BaseUri = [System.Uri]$BaseUrl
+$IsLocalHttps = $BaseUri.Scheme -eq "https" -and @("localhost", "127.0.0.1") -contains $BaseUri.Host
 
-if (-not $StrictCertificateCheck -and $BaseUrl -match "^https://(localhost|127\.0\.0\.1)(:\d+)?$") {
-    $curlArgs = @("-k") + $curlArgs
+if (-not $StrictCertificateCheck -and $IsLocalHttps) {
+    & curl.exe -k -fsS $HealthUrl
 }
-
-$response = & curl.exe @curlArgs
+else {
+    & curl.exe -fsS $HealthUrl
+}
 
 if ($LASTEXITCODE -ne 0) {
     throw "Health check failed with curl exit code $LASTEXITCODE"
 }
-
-Write-Host "Health response:"
-Write-Host $response
 
 Write-Host "Health check passed."

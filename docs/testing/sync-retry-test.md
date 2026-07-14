@@ -13,13 +13,15 @@
 
 ## Phase 2 Local Setup
 
-For Phase 2 local sync testing only, set this in local `.env`:
+For Phase 2 local sync testing only, this older bypass existed:
 
 ```text
 ALLOW_PHASE2_UNAUTHENTICATED_SYNC=true
 ```
 
 Do not commit `.env`. Do not expose the app publicly while this temporary bypass is true.
+
+Beginning in Phase 3, sync testing should use a real local admin or inspector session. `/api/sync` should reject unauthenticated requests, and local IndexedDB records should remain retryable after that rejection.
 
 ## Phase 2 Duplicate Retry
 
@@ -37,3 +39,15 @@ Do not commit `.env`. Do not expose the app publicly while this temporary bypass
 4. Confirm both are changed to `Failed`.
 5. Confirm `lastError` / `lastSyncError` says `Recovered from interrupted sync`.
 6. Press Sync and confirm the recovered item is retryable.
+
+## Phase 3 Authenticated Sync
+
+1. Start the Docker stack.
+2. Create a local admin account with the operational admin creation command and runtime-only environment variables.
+3. Confirm unauthenticated `POST /api/sync` returns 401.
+4. Sign in through the PWA.
+5. Submit one local test record and press Sync.
+6. Confirm the record is marked `Synced` only after its exact UUID appears in `acceptedIds` or `duplicateIds`.
+7. Log out.
+8. Confirm pressing Sync no longer uploads and the local item remains `Failed` or retryable.
+9. Confirm typing, Save Draft, and Submit Local still work while the API is unavailable or the user is logged out.

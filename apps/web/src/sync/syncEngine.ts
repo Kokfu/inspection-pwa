@@ -120,6 +120,7 @@ export async function syncPendingTestRecords() {
     const response = await fetch("/api/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({
         items: items.map((item) => ({
           operationId: item.operationId,
@@ -130,6 +131,10 @@ export async function syncPendingTestRecords() {
         }))
       })
     });
+
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("Sign in required before server sync");
+    }
 
     if (!response.ok) {
       throw new Error(`Sync request failed: ${response.status}`);

@@ -87,11 +87,22 @@ dd {
   font-weight: 700;
 }
 
+.auth-panel,
 .record-form {
   display: grid;
   gap: 16px;
 }
 
+.auth-panel {
+  margin-bottom: 18px;
+}
+
+.auth-panel h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.auth-panel label,
 .record-form label {
   display: grid;
   gap: 6px;

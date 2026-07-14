@@ -1,4 +1,12 @@
 import { useEffect, useState } from "react";
+import { AuthStatus } from "./auth/AuthStatus";
+import {
+  getCurrentUser,
+  login,
+  logout,
+  type AuthUser
+} from "./auth/authApi";
+import { LoginForm } from "./auth/LoginForm";
 import { initializeLocalDatabase } from "./db/localDatabase";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
@@ -23,6 +31,8 @@ export function App() {
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
   const [records, setRecords] = useState<TestRecordView[]>([]);
   const [syncMessage, setSyncMessage] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser>();
+  const [authMessage, setAuthMessage] = useState("Checking server sign-in");
 
   useEffect(() => {
     void initializeLocalDatabase().then(async () => {
@@ -31,6 +41,14 @@ export function App() {
       setRecords(await listTestRecords());
       if (recovered > 0) {
         setSyncMessage("Recovered interrupted sync; record is retryable");
+      }
+
+      try {
+        const user = await getCurrentUser();
+        setAuthUser(user);
+        setAuthMessage(user ? "" : "Sign in required before server sync");
+      } catch {
+        setAuthMessage("Server unavailable; local save still works");
       }
     });
   }, []);
@@ -65,6 +83,18 @@ export function App() {
     await refreshRecords();
   }
 
+  async function handleLogin(username: string, password: string) {
+    const user = await login(username, password);
+    setAuthUser(user);
+    setAuthMessage("");
+  }
+
+  async function handleLogout() {
+    await logout();
+    setAuthUser(undefined);
+    setAuthMessage("Signed out. Local records remain on this device.");
+  }
+
   return (
     <main className="app-shell">
       <section className="status-panel" aria-labelledby="app-title">
@@ -87,6 +117,20 @@ export function App() {
         <button type="button" onClick={checkApiHealth}>
           Check API
         </button>
+      </section>
+      <section className="workspace" aria-label="Server sign-in">
+        {authUser ? (
+          <AuthStatus
+            user={authUser}
+            message={authMessage}
+            onLogout={handleLogout}
+          />
+        ) : (
+          <>
+            <AuthStatus message={authMessage} onLogout={handleLogout} />
+            <LoginForm onLogin={handleLogin} />
+          </>
+        )}
       </section>
       <section className="workspace" aria-label="Generic test record workspace">
         <TestRecordForm

@@ -79,16 +79,18 @@ Frontend local fields:
 
 The API route is exposed through Caddy as `POST /api/sync` and received by the API container as `POST /sync`.
 
+Beginning in Phase 3, `/sync` requires an authenticated server session with the `admin` or `inspector` role. Authentication failure must not delete or mark local IndexedDB records as synced. The client leaves affected outbox items local and retryable.
+
 The Phase 2 PostgreSQL table is created by the API startup migration runner using non-destructive `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements. The matching SQL file is stored at `apps/api/migrations/001_create_test_records.sql`.
 
 ## Temporary Local Auth Bypass
 
-Phase 2 sync uses an explicit local-development bypass:
+Phase 2 used an explicit local-development bypass:
 
 ```text
 ALLOW_PHASE2_UNAUTHENTICATED_SYNC=false
 ```
 
-The committed/default value is false. Local `.env` may set it to true for testing only.
+The committed/default value is false. Phase 3 protects `/sync` with server-side sessions and roles. The bypass is deprecated, ignored in production, and must not be used for public deployment.
 
-This is a temporary Phase 2 local-development bypass only. Do not expose the app publicly while this is enabled. Production deployment is prohibited until real authentication and authorization are implemented.
+Do not expose the app publicly while any unauthenticated sync bypass is enabled.

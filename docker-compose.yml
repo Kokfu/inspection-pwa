@@ -32,6 +32,8 @@ services:
       LOGS_PATH: /srv/logs
       AUTH_REQUIRED: "true"
       ALLOW_PHASE2_UNAUTHENTICATED_SYNC: ${ALLOW_PHASE2_UNAUTHENTICATED_SYNC:-false}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-inspection_session}
+      SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-12}
     depends_on:
       postgres:
         condition: service_healthy
