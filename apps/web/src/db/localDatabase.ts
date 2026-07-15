@@ -9,7 +9,7 @@ export type LocalDraft = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord";
+  entityType: "testRecord" | "inspection";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -18,6 +18,38 @@ export type SyncOutboxItem = {
   lastAttemptAt?: string;
   lastError?: string;
   status: "Pending" | "Syncing" | "Failed" | "Completed";
+};
+
+export type InspectionRecord = {
+  clientUuid: string;
+  jobId: string;
+  templateId: string;
+  templateVersion: number;
+  templateSnapshot: {
+    name: string;
+    version: number;
+    section: string;
+    items: Array<{
+      id: string;
+      label: string;
+      responseType: "status" | "number" | "text";
+      required: boolean;
+    }>;
+  };
+  header: { title: string; locationNotes: string; performedAt: string };
+  responses: Array<{
+    templateItemId: string;
+    label: string;
+    responseType: "status" | "number" | "text";
+    value: string;
+    remarks: string;
+    sortOrder: number;
+  }>;
+  localCreatedAt: string;
+  localUpdatedAt: string;
+  lastSyncedAt?: string;
+  syncStatus: TestRecordSyncStatus | "Conflict";
+  lastSyncError?: string;
 };
 
 export type TestRecordSyncStatus =
@@ -42,6 +74,7 @@ export type TestRecord = {
 export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   drafts: EntityTable<LocalDraft, "id">;
   testRecords: EntityTable<TestRecord, "clientUuid">;
+  inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
 };
 
@@ -53,6 +86,13 @@ localDatabase.version(1).stores({
 localDatabase.version(2).stores({
   drafts: "id, entityType, updatedAt",
   testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt"
+});
+
+localDatabase.version(3).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, templateId, localUpdatedAt",
   syncOutbox: "operationId, entityType, entityId, status, createdAt"
 });
 

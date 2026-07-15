@@ -91,6 +91,12 @@ The route returns at most 100 generic test records in deterministic newest-first
 
 Server records are shown separately from IndexedDB records and are not imported into IndexedDB in Phase 3.5. A failed server listing request must not change local records, local statuses, or outbox items.
 
+## Phase 4A Inspection Skeleton
+
+Phase 4A adds a separate `inspection/create` sync entity while retaining the generic `testRecord/create` regression path. A submitted local inspection is written with its outbox item in the same IndexedDB transaction. The server inserts an inspection and its checklist responses in one PostgreSQL transaction and confirms only the exact client UUID it accepted or recognized as a duplicate.
+
+The seeded sample job and template contain generic labels only. PDF generation will be server-side in a later phase, based on approved structured PostgreSQL inspection data.
+
 ## Temporary Local Auth Bypass
 
 Phase 2 used an explicit local-development bypass:

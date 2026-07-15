@@ -7,7 +7,13 @@ import {
   type AuthUser
 } from "./auth/authApi";
 import { LoginForm } from "./auth/LoginForm";
-import { initializeLocalDatabase } from "./db/localDatabase";
+import { initializeLocalDatabase, type InspectionRecord } from "./db/localDatabase";
+import { InspectionForm } from "./inspections/InspectionForm";
+import { InspectionList } from "./inspections/InspectionList";
+import { listInspectionRecords, saveInspectionDraft, submitLocalInspection } from "./inspections/inspectionRepository";
+import type { InspectionFormValues } from "./inspections/inspectionTypes";
+import { loadServerInspections, type ServerInspectionSummary } from "./inspections/serverInspectionApi";
+import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
@@ -41,12 +47,19 @@ export function App() {
   const [serverRecords, setServerRecords] = useState<ServerTestRecord[]>([]);
   const [serverRecordsMessage, setServerRecordsMessage] = useState("");
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
+  const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
+  const [activeInspectionDraft, setActiveInspectionDraft] = useState<InspectionRecord>();
+  const [inspectionSyncMessage, setInspectionSyncMessage] = useState("");
+  const [serverInspections, setServerInspections] = useState<ServerInspectionSummary[]>([]);
+  const [serverInspectionsMessage, setServerInspectionsMessage] = useState("");
+  const [serverInspectionsLoading, setServerInspectionsLoading] = useState(false);
 
   useEffect(() => {
     void initializeLocalDatabase().then(async () => {
       const recovered = await recoverInterruptedSync();
       setDatabaseReady(true);
       setRecords(await listTestRecords());
+      setInspections(await listInspectionRecords());
       if (recovered > 0) {
         setSyncMessage("Recovered interrupted sync; record is retryable");
       }
@@ -63,6 +76,10 @@ export function App() {
 
   async function refreshRecords() {
     setRecords(await listTestRecords());
+  }
+
+  async function refreshInspections() {
+    setInspections(await listInspectionRecords());
   }
 
   async function checkApiHealth() {
@@ -103,6 +120,40 @@ export function App() {
     setAuthMessage("Signed out. Local records remain on this device.");
     setServerRecords([]);
     setServerRecordsMessage("");
+    setServerInspections([]);
+    setServerInspectionsMessage("");
+  }
+
+  async function handleSaveInspectionDraft(values: InspectionFormValues) {
+    const record = await saveInspectionDraft(values, activeInspectionDraft);
+    setActiveInspectionDraft(record);
+    await refreshInspections();
+  }
+
+  async function handleSubmitLocalInspection(values: InspectionFormValues) {
+    await submitLocalInspection(values, activeInspectionDraft);
+    setActiveInspectionDraft(undefined);
+    await refreshInspections();
+    setInspectionSyncMessage("Inspection is pending sync");
+  }
+
+  async function handleInspectionSync() {
+    const result = await syncPendingTestRecords();
+    setInspectionSyncMessage(result.message);
+    await refreshInspections();
+    await refreshRecords();
+  }
+
+  async function handleLoadServerInspections() {
+    setServerInspectionsLoading(true);
+    setServerInspectionsMessage("");
+    try {
+      setServerInspections(await loadServerInspections());
+    } catch (error) {
+      setServerInspectionsMessage(error instanceof Error ? error.message : "Server inspections are currently unavailable");
+    } finally {
+      setServerInspectionsLoading(false);
+    }
   }
 
   async function handleLoadServerRecords() {
@@ -179,6 +230,30 @@ export function App() {
           message={serverRecordsMessage}
           canLoad={Boolean(authUser)}
           onLoad={handleLoadServerRecords}
+        />
+      </section>
+      <section className="workspace" aria-label="Inspection workspace">
+        <InspectionForm
+          draft={activeInspectionDraft}
+          onSaveDraft={handleSaveInspectionDraft}
+          onSubmitLocal={handleSubmitLocalInspection}
+        />
+        <div className="sync-panel">
+          <button type="button" onClick={handleInspectionSync}>Sync Pending</button>
+          {inspectionSyncMessage ? <p>{inspectionSyncMessage}</p> : null}
+        </div>
+        <InspectionList
+          records={inspections}
+          onResumeDraft={setActiveInspectionDraft}
+        />
+      </section>
+      <section className="workspace" aria-label="Read-only server inspections">
+        <ServerInspectionList
+          inspections={serverInspections}
+          loading={serverInspectionsLoading}
+          message={serverInspectionsMessage}
+          canLoad={Boolean(authUser)}
+          onLoad={handleLoadServerInspections}
         />
       </section>
     </main>

@@ -37,6 +37,18 @@ textarea {
   resize: vertical;
 }
 
+select {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid #b9c9cd;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #163238;
+  background: #ffffff;
+  font: inherit;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -89,6 +101,7 @@ dd {
 
 .auth-panel,
 .record-form,
+.inspection-form,
 .server-records {
   display: grid;
   gap: 16px;
@@ -104,7 +117,8 @@ dd {
 }
 
 .auth-panel label,
-.record-form label {
+.record-form label,
+.inspection-form label {
   display: grid;
   gap: 6px;
   font-weight: 700;
@@ -181,4 +195,25 @@ dd {
 
 .server-records-message {
   color: #9c2f2f;
+}
+
+.inspection-form fieldset {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  border: 1px solid #d6e1e3;
+  padding: 16px;
+}
+
+.inspection-form legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.checklist-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  border-top: 1px solid #d6e1e3;
+  padding-top: 14px;
 }

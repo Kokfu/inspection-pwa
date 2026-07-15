@@ -45,8 +45,9 @@ Authentication routes:
 - `POST /auth/logout` requires a valid session and revokes it.
 - `POST /sync` requires a valid session with the `admin` or `inspector` role.
 - `GET /test-records` requires a valid session with the `admin` or `inspector` role.
+- `GET /inspections` requires a valid session with the `admin` or `inspector` role.
 
-The browser accesses these routes through Caddy as `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, `/api/sync`, and `/api/test-records`.
+The browser accesses these routes through Caddy as `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, `/api/sync`, `/api/test-records`, and `/api/inspections`.
 
 The Phase 3.5 server-record listing returns a bounded, read-only generic record projection. It does not expose database IDs, user/session data, audit events, or internal timestamps.
 

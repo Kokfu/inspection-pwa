@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { requireRole } from "../middleware/requireRole.js";
+import { syncInspections } from "../sync/inspectionSync.js";
 import { syncTestRecords } from "../sync/testRecordSync.js";
 
 export const syncRouter = Router();
@@ -56,11 +57,40 @@ syncRouter.post(
         return;
       }
 
-      const result = await syncTestRecords(items);
+      const testRecordItems = items.filter(
+        (item): item is Parameters<typeof syncTestRecords>[0][number] =>
+          typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "testRecord"
+      );
+      const inspectionItems = items.filter(
+        (item): item is Parameters<typeof syncInspections>[0][number] =>
+          typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "inspection"
+      );
+      const unsupportedItems = items.filter(
+        (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
+      );
+      const [testRecordResult, inspectionResult] = await Promise.all([
+        syncTestRecords(testRecordItems),
+        syncInspections(inspectionItems, request.currentUser?.id)
+      ]);
+      const result = {
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds],
+        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds],
+        failed: [
+          ...testRecordResult.failed,
+          ...inspectionResult.failed,
+          ...unsupportedItems.map((item) => ({
+            id: typeof (item as { entityId?: unknown })?.entityId === "string" ? (item as { entityId: string }).entityId : "unknown",
+            code: "VALIDATION_ERROR",
+            message: "entityType is unsupported"
+          }))
+        ]
+      };
       await auditLog({
         actorUserId: request.currentUser?.id,
         action: "sync_write",
-        entityType: "testRecord",
+        entityType: "sync",
         result: result.failed.length > 0 ? "failure" : "success",
         reason: `accepted=${result.acceptedIds.length}; duplicate=${result.duplicateIds.length}; failed=${result.failed.length}`
       });

@@ -4,6 +4,7 @@ import { runMigrations } from "./db/migrations.js";
 import { currentUser } from "./middleware/currentUser.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
+import { inspectionsRouter } from "./routes/inspections.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -18,6 +19,7 @@ app.use(currentUser);
 app.use(authRouter);
 app.use(syncRouter);
 app.use(testRecordsRouter);
+app.use(inspectionsRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: "NOT_FOUND" });

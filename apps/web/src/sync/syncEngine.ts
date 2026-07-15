@@ -29,18 +29,23 @@ export async function recoverInterruptedSync() {
     .where("status")
     .equals("Syncing")
     .toArray();
-  const syncingRecords = await localDatabase.testRecords
+  const syncingTestRecords = await localDatabase.testRecords
+    .where("syncStatus")
+    .equals("Syncing")
+    .toArray();
+  const syncingInspections = await localDatabase.inspectionRecords
     .where("syncStatus")
     .equals("Syncing")
     .toArray();
 
-  if (syncingItems.length === 0 && syncingRecords.length === 0) {
+  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0) {
     return 0;
   }
 
   await localDatabase.transaction(
     "rw",
     localDatabase.testRecords,
+    localDatabase.inspectionRecords,
     localDatabase.syncOutbox,
     async () => {
       await Promise.all(
@@ -53,8 +58,16 @@ export async function recoverInterruptedSync() {
         )
       );
       await Promise.all(
-        syncingRecords.map((record) =>
+        syncingTestRecords.map((record) =>
           localDatabase.testRecords.update(record.clientUuid, {
+            syncStatus: "Failed",
+            lastSyncError: interruptedSyncMessage
+          })
+        )
+      );
+      await Promise.all(
+        syncingInspections.map((record) =>
+          localDatabase.inspectionRecords.update(record.clientUuid, {
             syncStatus: "Failed",
             lastSyncError: interruptedSyncMessage
           })
@@ -63,10 +76,10 @@ export async function recoverInterruptedSync() {
     }
   );
 
-  return syncingItems.length + syncingRecords.length;
+  return syncingItems.length + syncingTestRecords.length + syncingInspections.length;
 }
 
-export async function syncPendingTestRecords() {
+export async function syncPendingRecords() {
   if (syncInProgress) {
     return { started: false, message: "Sync already running" };
   }
@@ -82,7 +95,6 @@ export async function syncPendingTestRecords() {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter(shouldSync)
-      .filter((item) => item.entityType === "testRecord");
 
     if (items.length === 0) {
       return { started: true, message: "No pending records" };
@@ -92,8 +104,9 @@ export async function syncPendingTestRecords() {
     const entityIds = items.map((item) => item.entityId);
 
     await localDatabase.transaction(
-      "rw",
-      localDatabase.testRecords,
+    "rw",
+    localDatabase.testRecords,
+    localDatabase.inspectionRecords,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -106,14 +119,12 @@ export async function syncPendingTestRecords() {
             })
           )
         );
-        await Promise.all(
-          entityIds.map((clientUuid) =>
-            localDatabase.testRecords.update(clientUuid, {
-              syncStatus: "Syncing",
-              lastSyncError: undefined
-            })
-          )
-        );
+        await Promise.all(items.map((item) => {
+          const update = { syncStatus: "Syncing" as const, lastSyncError: undefined };
+          return item.entityType === "inspection"
+            ? localDatabase.inspectionRecords.update(item.entityId, update)
+            : localDatabase.testRecords.update(item.entityId, update);
+        }));
       }
     );
 
@@ -149,18 +160,24 @@ export async function syncPendingTestRecords() {
     const syncedAt = new Date().toISOString();
 
     await localDatabase.transaction(
-      "rw",
-      localDatabase.testRecords,
+    "rw",
+    localDatabase.testRecords,
+    localDatabase.inspectionRecords,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
           items.map(async (item) => {
             if (confirmedIds.has(item.entityId)) {
-              await localDatabase.testRecords.update(item.entityId, {
-                syncStatus: "Synced",
+              const update = {
+                syncStatus: "Synced" as const,
                 lastSyncedAt: syncedAt,
                 lastSyncError: undefined
-              });
+              };
+              if (item.entityType === "inspection") {
+                await localDatabase.inspectionRecords.update(item.entityId, update);
+              } else {
+                await localDatabase.testRecords.update(item.entityId, update);
+              }
               await localDatabase.syncOutbox.update(item.operationId, {
                 status: "Completed",
                 lastError: undefined
@@ -171,10 +188,15 @@ export async function syncPendingTestRecords() {
             const failed = failedById.get(item.entityId);
             const message =
               failed?.message ?? "Server did not confirm this record UUID";
-            await localDatabase.testRecords.update(item.entityId, {
-              syncStatus: "Failed",
+            const update = {
+              syncStatus: "Failed" as const,
               lastSyncError: message
-            });
+            };
+            if (item.entityType === "inspection") {
+              await localDatabase.inspectionRecords.update(item.entityId, update);
+            } else {
+              await localDatabase.testRecords.update(item.entityId, update);
+            }
             await localDatabase.syncOutbox.update(item.operationId, {
               status: "Failed",
               lastError: message
@@ -196,6 +218,7 @@ export async function syncPendingTestRecords() {
     await localDatabase.transaction(
       "rw",
       localDatabase.testRecords,
+      localDatabase.inspectionRecords,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -205,10 +228,15 @@ export async function syncPendingTestRecords() {
               lastAttemptAt: failedAt,
               lastError: message
             });
-            await localDatabase.testRecords.update(item.entityId, {
-              syncStatus: "Failed",
+            const update = {
+              syncStatus: "Failed" as const,
               lastSyncError: message
-            });
+            };
+            if (item.entityType === "inspection") {
+              await localDatabase.inspectionRecords.update(item.entityId, update);
+            } else {
+              await localDatabase.testRecords.update(item.entityId, update);
+            }
           })
         );
       }
@@ -219,3 +247,5 @@ export async function syncPendingTestRecords() {
     syncInProgress = false;
   }
 }
+
+export const syncPendingTestRecords = syncPendingRecords;
