@@ -1,4 +1,8 @@
 import Dexie, { type EntityTable } from "dexie";
+import {
+  normalizeInspectionTemplateSnapshot,
+  type InspectionTemplateSnapshot
+} from "../inspections/inspectionTypes";
 
 export type LocalDraft = {
   id: string;
@@ -18,6 +22,8 @@ export type SyncOutboxItem = {
   lastAttemptAt?: string;
   lastError?: string;
   status: "Pending" | "Syncing" | "Failed" | "Completed";
+  activeKey?: string;
+  completedAt?: string;
 };
 
 export type InspectionRecord = {
@@ -25,17 +31,7 @@ export type InspectionRecord = {
   jobId: string;
   templateId: string;
   templateVersion: number;
-  templateSnapshot: {
-    name: string;
-    version: number;
-    section: string;
-    items: Array<{
-      id: string;
-      label: string;
-      responseType: "status" | "number" | "text";
-      required: boolean;
-    }>;
-  };
+  templateSnapshot: InspectionTemplateSnapshot;
   header: { title: string; locationNotes: string; performedAt: string };
   responses: Array<{
     templateItemId: string;
@@ -94,6 +90,57 @@ localDatabase.version(3).stores({
   testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
   inspectionRecords: "clientUuid, syncStatus, jobId, templateId, localUpdatedAt",
   syncOutbox: "operationId, entityType, entityId, status, createdAt"
+});
+
+localDatabase.version(4).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, templateId, localUpdatedAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey"
+}).upgrade(async (transaction) => {
+  const inspections = transaction.table("inspectionRecords");
+  const outbox = transaction.table("syncOutbox");
+
+  await inspections.toCollection().modify((record: InspectionRecord) => {
+    record.templateSnapshot = normalizeInspectionTemplateSnapshot(
+      record.templateSnapshot,
+      record.templateId,
+      record.templateVersion
+    );
+  });
+
+  const existingItems = await outbox.toArray() as SyncOutboxItem[];
+  const activeByInspection = new Map<string, SyncOutboxItem[]>();
+  for (const item of existingItems) {
+    if (item.entityType !== "inspection" || item.action !== "create" || item.status === "Completed") {
+      continue;
+    }
+    const items = activeByInspection.get(item.entityId) ?? [];
+    items.push(item);
+    activeByInspection.set(item.entityId, items);
+  }
+
+  for (const [inspectionId, items] of activeByInspection) {
+    const ordered = items.slice().sort((left, right) => {
+      const leftTime = left.lastAttemptAt ?? left.createdAt;
+      const rightTime = right.lastAttemptAt ?? right.createdAt;
+      return rightTime.localeCompare(leftTime) || right.operationId.localeCompare(left.operationId);
+    });
+    const [canonical, ...superseded] = ordered;
+
+    for (const item of superseded) {
+      await outbox.update(item.operationId, {
+        status: "Completed",
+        activeKey: undefined,
+        completedAt: item.completedAt ?? new Date().toISOString(),
+        lastError: "Superseded duplicate active inspection outbox item during local upgrade"
+      });
+    }
+
+    await outbox.update(canonical.operationId, {
+      activeKey: `inspection:create:${inspectionId}`
+    });
+  }
 });
 
 export async function initializeLocalDatabase() {

@@ -1,6 +1,6 @@
 import { localDatabase, type InspectionRecord, type SyncOutboxItem } from "../db/localDatabase";
-import { sampleInspectionJob, sampleInspectionTemplate } from "./sampleInspection";
-import type { InspectionFormValues, InspectionResponse } from "./inspectionTypes";
+import { sampleInspectionJob, sampleInspectionTemplate, sampleInspectionTemplateSnapshot } from "./sampleInspection";
+import { snapshotItems, type InspectionFormValues, type InspectionResponse } from "./inspectionTypes";
 
 function nowIso() {
   return new Date().toISOString();
@@ -10,17 +10,18 @@ function responsesFrom(
   values: InspectionFormValues,
   existing?: InspectionRecord
 ): InspectionResponse[] {
-  return sampleInspectionTemplate.items.map((item, index) => ({
-    templateItemId: item.id,
+  const snapshot = existing?.templateSnapshot ?? sampleInspectionTemplateSnapshot;
+  return snapshotItems(snapshot).map((item) => ({
+    templateItemId: item.itemId,
     label:
-      existing?.responses.find((response) => response.templateItemId === item.id)
+      existing?.responses.find((response) => response.templateItemId === item.itemId)
         ?.label ?? item.label,
     responseType:
-      existing?.responses.find((response) => response.templateItemId === item.id)
+      existing?.responses.find((response) => response.templateItemId === item.itemId)
         ?.responseType ?? item.responseType,
-    value: values.responses[item.id]?.value ?? "",
-    remarks: values.responses[item.id]?.remarks ?? "",
-    sortOrder: index + 1
+    value: values.responses[item.itemId]?.value ?? "",
+    remarks: values.responses[item.itemId]?.remarks ?? "",
+    sortOrder: item.sortOrder
   }));
 }
 
@@ -35,13 +36,7 @@ function createRecord(
     jobId: existing?.jobId ?? sampleInspectionJob.id,
     templateId: existing?.templateId ?? sampleInspectionTemplate.id,
     templateVersion: existing?.templateVersion ?? sampleInspectionTemplate.version,
-    templateSnapshot:
-      existing?.templateSnapshot ?? {
-        name: sampleInspectionTemplate.name,
-        version: sampleInspectionTemplate.version,
-        section: sampleInspectionTemplate.section,
-        items: sampleInspectionTemplate.items
-      },
+    templateSnapshot: existing?.templateSnapshot ?? sampleInspectionTemplateSnapshot,
     header: {
       title: values.title.trim(),
       locationNotes: values.locationNotes,
@@ -98,6 +93,7 @@ export async function submitLocalInspection(
   }
 
   const record = createRecord(values, "Pending", existing);
+  const activeKey = `inspection:create:${record.clientUuid}`;
   const outboxItem: SyncOutboxItem = {
     operationId: crypto.randomUUID(),
     entityType: "inspection",
@@ -106,7 +102,8 @@ export async function submitLocalInspection(
     payload: toPayload(record),
     createdAt: record.localCreatedAt,
     attempts: 0,
-    status: "Pending"
+    status: "Pending",
+    activeKey
   };
 
   await localDatabase.transaction(
@@ -115,19 +112,13 @@ export async function submitLocalInspection(
     localDatabase.syncOutbox,
     async () => {
       await localDatabase.inspectionRecords.put(record);
-      const existingOutbox = await localDatabase.syncOutbox
-        .where("entityId")
-        .equals(record.clientUuid)
-        .filter(
-          (item) =>
-            item.entityType === "inspection" && item.status !== "Completed"
-        )
-        .first();
+      const existingOutbox = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
 
       if (existingOutbox) {
         await localDatabase.syncOutbox.update(existingOutbox.operationId, {
           payload: outboxItem.payload,
           status: "Pending",
+          activeKey,
           lastError: undefined
         });
       } else {

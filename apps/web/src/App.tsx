@@ -32,6 +32,7 @@ import type {
 } from "./records/testRecordTypes";
 import {
   recoverInterruptedSync,
+  pruneCompletedOutboxItems,
   syncPendingTestRecords
 } from "./sync/syncEngine";
 
@@ -58,6 +59,7 @@ export function App() {
     void initializeLocalDatabase().then(async () => {
       const recovered = await recoverInterruptedSync();
       setDatabaseReady(true);
+      void pruneCompletedOutboxItems().catch(() => undefined);
       setRecords(await listTestRecords());
       setInspections(await listInspectionRecords());
       if (recovered > 0) {

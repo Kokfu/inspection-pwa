@@ -14,7 +14,6 @@ type InspectionPayload = {
   jobId: string;
   templateId: string;
   templateVersion: number;
-  templateSnapshot: Record<string, unknown>;
   header: {
     title: string;
     locationNotes: string;
@@ -25,6 +24,37 @@ type InspectionPayload = {
     value: string;
     remarks: string;
     sortOrder: number;
+  }>;
+};
+
+type TemplateItemRow = {
+  section_id: string;
+  section_name: string;
+  section_sort_order: number;
+  item_id: string;
+  label: string;
+  response_type: "status" | "number" | "text";
+  required: boolean;
+  options: unknown;
+  item_sort_order: number;
+};
+
+type CanonicalTemplateSnapshot = {
+  templateId: string;
+  templateVersion: number;
+  templateName: string;
+  sections: Array<{
+    sectionId: string;
+    sectionName: string;
+    sortOrder: number;
+    items: Array<{
+      itemId: string;
+      label: string;
+      responseType: "status" | "number" | "text";
+      required: boolean;
+      sortOrder: number;
+      options: string[];
+    }>;
   }>;
 };
 
@@ -43,6 +73,12 @@ function failure(id: string, code: string, message: string): SyncFailure {
   return { id, code, message };
 }
 
+function stringOptions(value: unknown): string[] {
+  return Array.isArray(value) && value.every((option) => typeof option === "string")
+    ? value
+    : [];
+}
+
 function validateItem(item: SyncRequestItem): {
   payload?: InspectionPayload;
   failure?: SyncFailure;
@@ -59,11 +95,11 @@ function validateItem(item: SyncRequestItem): {
     return { failure: failure(fallbackId, "VALIDATION_ERROR", "Inspection payload is invalid") };
   }
 
-  const { clientUuid, jobId, templateId, templateVersion, templateSnapshot, header, responses } = item.payload;
+  const { clientUuid, jobId, templateId, templateVersion, header, responses } = item.payload;
   if (!isUuid(clientUuid) || clientUuid !== item.entityId || !isUuid(jobId) || !isUuid(templateId)) {
     return { failure: failure(item.entityId, "VALIDATION_ERROR", "Inspection identifiers are invalid") };
   }
-  if (typeof templateVersion !== "number" || !Number.isInteger(templateVersion) || templateVersion < 1 || !isRecord(templateSnapshot)) {
+  if (typeof templateVersion !== "number" || !Number.isInteger(templateVersion) || templateVersion < 1) {
     return { failure: failure(item.entityId, "VALIDATION_ERROR", "Template data is invalid") };
   }
   if (!isRecord(header) || typeof header.title !== "string" || header.title.trim().length === 0 || header.title.length > 200 || typeof header.locationNotes !== "string" || header.locationNotes.length > 1000 || typeof header.performedAt !== "string" || Number.isNaN(Date.parse(header.performedAt))) {
@@ -96,7 +132,6 @@ function validateItem(item: SyncRequestItem): {
       jobId,
       templateId,
       templateVersion,
-      templateSnapshot,
       header: {
         title: header.title.trim(),
         locationNotes: header.locationNotes,
@@ -105,6 +140,50 @@ function validateItem(item: SyncRequestItem): {
       responses: normalizedResponses
     }
   };
+}
+
+function buildCanonicalSnapshot(
+  templateId: string,
+  templateVersion: number,
+  templateName: string,
+  items: TemplateItemRow[]
+): CanonicalTemplateSnapshot {
+  const sections = new Map<string, CanonicalTemplateSnapshot["sections"][number]>();
+  for (const item of items) {
+    const section = sections.get(item.section_id) ?? {
+      sectionId: item.section_id,
+      sectionName: item.section_name,
+      sortOrder: item.section_sort_order,
+      items: []
+    };
+    section.items.push({
+      itemId: item.item_id,
+      label: item.label,
+      responseType: item.response_type,
+      required: item.required,
+      sortOrder: item.item_sort_order,
+      options: stringOptions(item.options)
+    });
+    sections.set(item.section_id, section);
+  }
+
+  return {
+    templateId,
+    templateVersion,
+    templateName,
+    sections: [...sections.values()]
+  };
+}
+
+function responseValueIsValid(response: InspectionPayload["responses"][number], item: TemplateItemRow) {
+  if (item.response_type === "status") {
+    const options = stringOptions(item.options);
+    return options.length > 0 && options.includes(response.value);
+  }
+  if (item.response_type === "number") {
+    return Number.isFinite(Number(response.value));
+  }
+  return item.response_type === "text";
 }
 
 export async function syncInspections(items: SyncRequestItem[], actorUserId?: number): Promise<SyncResult> {
@@ -128,74 +207,99 @@ export async function syncInspections(items: SyncRequestItem[], actorUserId?: nu
         continue;
       }
 
-      const job = await client.query<{ template_id: string }>(
-        "SELECT template_id FROM inspection_jobs WHERE id = $1 AND status = 'open'",
+      const jobAndTemplate = await client.query<{ template_id: string; version: number; name: string }>(
+        `
+          SELECT job.template_id, template.version, template.name
+          FROM inspection_jobs job
+          INNER JOIN inspection_templates template ON template.id = job.template_id
+          WHERE job.id = $1 AND job.status = 'open'
+        `,
         [payload.jobId]
       );
-      if (job.rowCount !== 1 || job.rows[0].template_id !== payload.templateId) {
+      if (jobAndTemplate.rowCount !== 1 || jobAndTemplate.rows[0].template_id !== payload.templateId || jobAndTemplate.rows[0].version !== payload.templateVersion) {
         await client.query("ROLLBACK");
-        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is unavailable"));
+        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job or template is unavailable"));
         continue;
       }
 
-      const template = await client.query<{ version: number }>(
-        "SELECT version FROM inspection_templates WHERE id = $1",
+      const templateItems = await client.query<TemplateItemRow>(
+        `
+          SELECT
+            section.id AS section_id,
+            section.title AS section_name,
+            section.sort_order AS section_sort_order,
+            item.id AS item_id,
+            item.label,
+            item.response_type,
+            item.required,
+            item.options,
+            item.sort_order AS item_sort_order
+          FROM inspection_template_sections section
+          INNER JOIN inspection_template_items item ON item.section_id = section.id
+          WHERE section.template_id = $1
+          ORDER BY section.sort_order, item.sort_order
+        `,
         [payload.templateId]
       );
-      const itemIds = payload.responses.map((response) => response.templateItemId);
-      const templateItems = await client.query<{ id: string; response_type: string }>(
-        `
-          SELECT item.id, item.response_type
-          FROM inspection_template_items item
-          INNER JOIN inspection_template_sections section ON section.id = item.section_id
-          WHERE section.template_id = $1 AND item.id = ANY($2::uuid[])
-        `,
-        [payload.templateId, itemIds]
-      );
-      if (template.rowCount !== 1 || template.rows[0].version !== payload.templateVersion || templateItems.rowCount !== itemIds.length) {
+      if (templateItems.rowCount === 0) {
         await client.query("ROLLBACK");
-        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection template is unavailable"));
+        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection template has no checklist items"));
         continue;
       }
 
-      const responseTypes = new Map(templateItems.rows.map((item) => [item.id, item.response_type]));
-      const hasInvalidValue = payload.responses.some((response) => {
-        const responseType = responseTypes.get(response.templateItemId);
-        if (responseType === "status") {
-          return !["pass", "fail", "not_applicable"].includes(response.value);
-        }
-        if (responseType === "number") {
-          return !Number.isFinite(Number(response.value));
-        }
-        return responseType !== "text";
+      const itemById = new Map(templateItems.rows.map((templateItem) => [templateItem.item_id, templateItem]));
+      const suppliedIds = new Set(payload.responses.map((response) => response.templateItemId));
+      const requiredItemsArePresent = templateItems.rows
+        .filter((templateItem) => templateItem.required)
+        .every((templateItem) => suppliedIds.has(templateItem.item_id));
+      const responsesAreValid = requiredItemsArePresent && payload.responses.every((response) => {
+        const templateItem = itemById.get(response.templateItemId);
+        return templateItem !== undefined && responseValueIsValid(response, templateItem);
       });
-      if (hasInvalidValue) {
+      if (!responsesAreValid) {
         await client.query("ROLLBACK");
-        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection response value is invalid"));
+        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection checklist responses are incomplete or invalid"));
         continue;
       }
 
-      await client.query(
+      const canonicalSnapshot = buildCanonicalSnapshot(
+        payload.templateId,
+        payload.templateVersion,
+        jobAndTemplate.rows[0].name,
+        templateItems.rows
+      );
+      const insert = await client.query(
         `
           INSERT INTO inspections (
             id, client_uuid, job_id, template_id, template_version,
             template_snapshot, header, performed_at, created_by_user_id
           )
           VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (client_uuid) DO NOTHING
+          RETURNING id
         `,
         [
           payload.clientUuid,
           payload.jobId,
           payload.templateId,
           payload.templateVersion,
-          payload.templateSnapshot,
+          canonicalSnapshot,
           payload.header,
           payload.header.performedAt,
           actorUserId ?? null
         ]
       );
+      if (insert.rowCount === 0) {
+        await client.query("ROLLBACK");
+        result.duplicateIds.push(payload.clientUuid);
+        continue;
+      }
 
       for (const response of payload.responses) {
+        const templateItem = itemById.get(response.templateItemId);
+        if (!templateItem) {
+          throw new Error("Validated template item is missing");
+        }
         await client.query(
           `
             INSERT INTO inspection_responses (
@@ -203,7 +307,7 @@ export async function syncInspections(items: SyncRequestItem[], actorUserId?: nu
             )
             VALUES ($1, $2, $3, $4, $5)
           `,
-          [payload.clientUuid, response.templateItemId, response.value, response.remarks, response.sortOrder]
+          [payload.clientUuid, response.templateItemId, response.value, response.remarks, templateItem.item_sort_order]
         );
       }
 

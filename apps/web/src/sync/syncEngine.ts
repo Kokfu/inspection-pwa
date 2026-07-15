@@ -14,6 +14,7 @@ type SyncResponse = {
 
 let syncInProgress = false;
 const interruptedSyncMessage = "Recovered from interrupted sync";
+const completedOutboxRetentionMs = 30 * 24 * 60 * 60 * 1000;
 
 function shouldSync(item: SyncOutboxItem) {
   return item.status === "Pending" || item.status === "Failed";
@@ -21,6 +22,34 @@ function shouldSync(item: SyncOutboxItem) {
 
 function failureMessage(error: unknown) {
   return error instanceof Error ? error.message : "Sync failed";
+}
+
+/** Best-effort maintenance: only completed operations older than 30 days may be removed. */
+export async function pruneCompletedOutboxItems(now = Date.now()) {
+  const cutoff = now - completedOutboxRetentionMs;
+  const completedItems = await localDatabase.syncOutbox
+    .where("status")
+    .equals("Completed")
+    .toArray();
+  const expiredOperationIds = completedItems
+    .filter((item) => Date.parse(item.completedAt ?? item.lastAttemptAt ?? item.createdAt) < cutoff)
+    .map((item) => item.operationId);
+
+  if (expiredOperationIds.length === 0) {
+    return 0;
+  }
+
+  let removed = 0;
+  await localDatabase.transaction("rw", localDatabase.syncOutbox, async () => {
+    for (const operationId of expiredOperationIds) {
+      const current = await localDatabase.syncOutbox.get(operationId);
+      if (current?.status === "Completed") {
+        await localDatabase.syncOutbox.delete(operationId);
+        removed += 1;
+      }
+    }
+  });
+  return removed;
 }
 
 export async function recoverInterruptedSync() {
@@ -180,6 +209,8 @@ export async function syncPendingRecords() {
               }
               await localDatabase.syncOutbox.update(item.operationId, {
                 status: "Completed",
+                activeKey: undefined,
+                completedAt: syncedAt,
                 lastError: undefined
               });
               return;
@@ -205,6 +236,8 @@ export async function syncPendingRecords() {
         );
       }
     );
+
+    void pruneCompletedOutboxItems().catch(() => undefined);
 
     return { started: true, message: "Sync finished" };
   } catch (error) {

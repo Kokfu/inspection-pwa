@@ -14,7 +14,7 @@ export function InspectionList({ records, onResumeDraft }: InspectionListProps) 
     {records.map((record) => <li key={record.clientUuid} className="record-item">
       <div>
         <h3>{record.header.title || "Untitled inspection draft"}</h3>
-        <p>{record.templateSnapshot.name} / {record.templateSnapshot.section}</p>
+        <p>{record.templateSnapshot.templateName} / {record.templateSnapshot.sections.map((section) => section.sectionName).join(", ")}</p>
         {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}
       </div>
       <dl>

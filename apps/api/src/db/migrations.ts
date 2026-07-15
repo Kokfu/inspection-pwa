@@ -126,19 +126,19 @@ export async function runMigrations() {
   await pool.query(`
     INSERT INTO inspection_templates (id, code, name, version, is_sample)
     VALUES ('00000000-0000-4000-8000-000000000401', 'SAMPLE-INSPECTION-V1', 'Sample Inspection Template', 1, true)
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT DO NOTHING;
     INSERT INTO inspection_template_sections (id, template_id, title, sort_order)
     VALUES ('00000000-0000-4000-8000-000000000402', '00000000-0000-4000-8000-000000000401', 'Sample Inspection Section', 1)
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT DO NOTHING;
     INSERT INTO inspection_template_items (id, section_id, label, response_type, required, options, sort_order)
     VALUES
       ('00000000-0000-4000-8000-000000000403', '00000000-0000-4000-8000-000000000402', 'General condition', 'status', true, '["pass", "fail", "not_applicable"]'::jsonb, 1),
       ('00000000-0000-4000-8000-000000000404', '00000000-0000-4000-8000-000000000402', 'Sample measurement', 'number', true, '[]'::jsonb, 2),
       ('00000000-0000-4000-8000-000000000405', '00000000-0000-4000-8000-000000000402', 'Safety check', 'status', true, '["pass", "fail", "not_applicable"]'::jsonb, 3),
       ('00000000-0000-4000-8000-000000000406', '00000000-0000-4000-8000-000000000402', 'Additional observation', 'text', false, '[]'::jsonb, 4)
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT DO NOTHING;
     INSERT INTO inspection_jobs (id, template_id, job_reference, title, status, is_sample)
     VALUES ('00000000-0000-4000-8000-000000000410', '00000000-0000-4000-8000-000000000401', 'SAMPLE-JOB-001', 'Sample Inspection Job', 'open', true)
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT DO NOTHING;
   `);
 }

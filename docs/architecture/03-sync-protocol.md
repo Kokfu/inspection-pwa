@@ -97,6 +97,16 @@ Phase 4A adds a separate `inspection/create` sync entity while retaining the gen
 
 The seeded sample job and template contain generic labels only. PDF generation will be server-side in a later phase, based on approved structured PostgreSQL inspection data.
 
+## Phase 4B Inspection Hardening
+
+The API loads the job, template, sections, and checklist items from PostgreSQL for every inspection sync. The database template is authoritative: every required item must have exactly one valid response, unknown items are rejected, and an inspection with invalid checklist data is not inserted.
+
+The server constructs and stores the canonical `templateSnapshot` from that template data. It does not treat the client-supplied snapshot as authoritative. Local Draft resume renders from the stored snapshot so a future template change cannot silently change the saved inspection's labels, ordering, response types, or required flags.
+
+For `inspection/create`, IndexedDB allows one active outbox operation per inspection UUID. Pending, Syncing, and Failed entries use the unique `activeKey` value `inspection:create:<clientUuid>`. Existing duplicate active entries are reconciled during the Dexie v4 upgrade by retaining the most recently attempted (then newest operation-ID) entry as active and retaining other entries as Completed records marked as superseded; no payload is deleted.
+
+Completed outbox entries are retained for 30 days. Cleanup is best effort, only removes Completed entries older than that threshold, and never removes Pending, Failed, or Syncing work.
+
 ## Temporary Local Auth Bypass
 
 Phase 2 used an explicit local-development bypass:
