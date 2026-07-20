@@ -1,4 +1,11 @@
+import { readFile } from "node:fs/promises";
 import { pool } from "./pool.js";
+import { seedMasterServiceReport } from "./seedMasterServiceReport.js";
+
+const masterServiceReportMigrationUrl = new URL(
+  "../../migrations/004_master_service_report_v1.sql",
+  import.meta.url
+);
 
 export async function runMigrations() {
   await pool.query(`
@@ -141,4 +148,8 @@ export async function runMigrations() {
     VALUES ('00000000-0000-4000-8000-000000000410', '00000000-0000-4000-8000-000000000401', 'SAMPLE-JOB-001', 'Sample Inspection Job', 'open', true)
     ON CONFLICT DO NOTHING;
   `);
+
+  const masterServiceReportMigrationSql = await readFile(masterServiceReportMigrationUrl, "utf8");
+  await pool.query(masterServiceReportMigrationSql);
+  await seedMasterServiceReport(pool);
 }

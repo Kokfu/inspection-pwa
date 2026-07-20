@@ -14,6 +14,11 @@ import { listInspectionRecords, saveInspectionDraft, submitLocalInspection } fro
 import type { InspectionFormValues } from "./inspections/inspectionTypes";
 import { loadServerInspections, type ServerInspectionSummary } from "./inspections/serverInspectionApi";
 import { ServerInspectionList } from "./inspections/ServerInspectionList";
+import { ReferenceDataStatus } from "./referenceData/ReferenceDataStatus";
+import {
+  getReferenceCacheSummary,
+  refreshInspectionReferenceData
+} from "./referenceData/referenceDataCache";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
@@ -38,6 +43,13 @@ import {
 
 type ApiHealth = "Not checked" | "Reachable" | "Unavailable";
 
+const emptyReferenceCache = {
+  catalogAvailable: false,
+  systemCount: 0,
+  customerCount: 0,
+  fetchedAt: undefined as string | undefined
+};
+
 export function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
@@ -54,6 +66,9 @@ export function App() {
   const [serverInspections, setServerInspections] = useState<ServerInspectionSummary[]>([]);
   const [serverInspectionsMessage, setServerInspectionsMessage] = useState("");
   const [serverInspectionsLoading, setServerInspectionsLoading] = useState(false);
+  const [referenceCache, setReferenceCache] = useState(emptyReferenceCache);
+  const [referenceCacheMessage, setReferenceCacheMessage] = useState("");
+  const [referenceCacheLoading, setReferenceCacheLoading] = useState(false);
 
   useEffect(() => {
     void initializeLocalDatabase().then(async () => {
@@ -62,6 +77,7 @@ export function App() {
       void pruneCompletedOutboxItems().catch(() => undefined);
       setRecords(await listTestRecords());
       setInspections(await listInspectionRecords());
+      setReferenceCache(await getReferenceCacheSummary());
       if (recovered > 0) {
         setSyncMessage("Recovered interrupted sync; record is retryable");
       }
@@ -70,6 +86,15 @@ export function App() {
         const user = await getCurrentUser();
         setAuthUser(user);
         setAuthMessage(user ? "" : "Sign in required before server sync");
+        if (user) {
+          try {
+            await refreshInspectionReferenceData();
+            setReferenceCache(await getReferenceCacheSummary());
+            setReferenceCacheMessage("Reference data cached for offline use");
+          } catch {
+            setReferenceCacheMessage("Reference refresh failed; existing offline cache remains available");
+          }
+        }
       } catch {
         setAuthMessage("Server unavailable; local save still works");
       }
@@ -114,6 +139,25 @@ export function App() {
     const user = await login(username, password);
     setAuthUser(user);
     setAuthMessage("");
+    await handleRefreshReferenceData();
+  }
+
+  async function handleRefreshReferenceData() {
+    setReferenceCacheLoading(true);
+    setReferenceCacheMessage("");
+    try {
+      await refreshInspectionReferenceData();
+      setReferenceCache(await getReferenceCacheSummary());
+      setReferenceCacheMessage("Reference data cached for offline use");
+    } catch (error) {
+      setReferenceCacheMessage(
+        error instanceof Error
+          ? `${error.message}; existing offline cache remains available`
+          : "Reference refresh failed; existing offline cache remains available"
+      );
+    } finally {
+      setReferenceCacheLoading(false);
+    }
   }
 
   async function handleLogout() {
@@ -224,6 +268,15 @@ export function App() {
           {syncMessage ? <p>{syncMessage}</p> : null}
         </div>
         <TestRecordList records={records} />
+      </section>
+      <section className="workspace" aria-label="Inspection reference data">
+        <ReferenceDataStatus
+          {...referenceCache}
+          canRefresh={Boolean(authUser)}
+          loading={referenceCacheLoading}
+          message={referenceCacheMessage}
+          onRefresh={handleRefreshReferenceData}
+        />
       </section>
       <section className="workspace" aria-label="Read-only server records">
         <ServerTestRecordList

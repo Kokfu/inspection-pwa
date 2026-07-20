@@ -11,7 +11,7 @@ WORKDIR /app
 COPY apps/api/package.json ./
 RUN npm install --omit=dev
 COPY --from=build /app/apps/api/dist ./dist
+COPY --from=build /app/apps/api/migrations ./migrations
 USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]
-

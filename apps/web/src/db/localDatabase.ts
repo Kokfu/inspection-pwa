@@ -11,6 +11,14 @@ export type LocalDraft = {
   updatedAt: string;
 };
 
+export type ReferenceCacheEntry = {
+  key: string;
+  payload: unknown;
+  version: string;
+  fetchedAt: string;
+  expiresAt: string;
+};
+
 export type SyncOutboxItem = {
   operationId: string;
   entityType: "testRecord" | "inspection";
@@ -72,6 +80,7 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
+  referenceData: EntityTable<ReferenceCacheEntry, "key">;
 };
 
 localDatabase.version(1).stores({
@@ -141,6 +150,14 @@ localDatabase.version(4).stores({
       activeKey: `inspection:create:${inspectionId}`
     });
   }
+});
+
+localDatabase.version(5).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, templateId, localUpdatedAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
+  referenceData: "key, version, fetchedAt, expiresAt"
 });
 
 export async function initializeLocalDatabase() {
