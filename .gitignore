@@ -33,3 +33,6 @@ runtime.local/
 Thumbs.db
 .vscode/
 .idea/
+
+#Phase 5
+client-input-private/
