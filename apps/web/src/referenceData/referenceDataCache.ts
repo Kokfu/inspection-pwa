@@ -1,4 +1,6 @@
 import { localDatabase, type ReferenceCacheEntry } from "../db/localDatabase";
+import { loadInspectionJobs } from "../jobs/jobApi";
+import type { InspectionJob } from "../jobs/jobTypes";
 import {
   loadCustomerConfiguration,
   loadInspectionCatalog,
@@ -27,6 +29,10 @@ function configurationKey(customerId: string) {
   return `customer-configuration:${customerId}`;
 }
 
+function inspectionJobsKey(userId: number) {
+  return `inspection-jobs:user:${userId}`;
+}
+
 function entry(key: string, payload: unknown, version: string, fetchedAt: string): ReferenceCacheEntry {
   return {
     key,
@@ -37,10 +43,14 @@ function entry(key: string, payload: unknown, version: string, fetchedAt: string
   };
 }
 
-export async function refreshInspectionReferenceData() {
-  const [catalog, customers] = await Promise.all([
+export async function refreshInspectionReferenceData(
+  userId: number,
+  canCommit: () => boolean = () => true
+) {
+  const [catalog, customers, jobs] = await Promise.all([
     loadInspectionCatalog(),
-    loadReferenceCustomers()
+    loadReferenceCustomers(),
+    loadInspectionJobs()
   ]);
   const configurations = await Promise.all(
     customers.map((customer) => loadCustomerConfiguration(customer.id))
@@ -49,6 +59,7 @@ export async function refreshInspectionReferenceData() {
   const entries = [
     entry(catalogKey, catalog, `${catalog.code}:${catalog.version}`, fetchedAt),
     entry(customersKey, customers, fetchedAt, fetchedAt),
+    entry(inspectionJobsKey(userId), jobs, fetchedAt, fetchedAt),
     ...configurations.map((configuration) => entry(
       configurationKey(configuration.customer.id),
       configuration,
@@ -58,18 +69,36 @@ export async function refreshInspectionReferenceData() {
   ];
   const desiredKeys = new Set(entries.map((cacheEntry) => cacheEntry.key));
 
+  if (!canCommit()) {
+    throw new Error("AUTH_OPERATION_SUPERSEDED");
+  }
+
   await localDatabase.transaction("rw", localDatabase.referenceData, async () => {
+    if (!canCommit()) {
+      throw new Error("AUTH_OPERATION_SUPERSEDED");
+    }
     const existingKeys = await localDatabase.referenceData.toCollection().primaryKeys();
     const obsoleteManagedKeys = existingKeys.filter(
       (key): key is string => typeof key === "string"
         && isManagedReferenceKey(key)
         && !desiredKeys.has(key)
     );
+    if (!canCommit()) {
+      throw new Error("AUTH_OPERATION_SUPERSEDED");
+    }
     await localDatabase.referenceData.bulkDelete(obsoleteManagedKeys);
+    if (!canCommit()) {
+      throw new Error("AUTH_OPERATION_SUPERSEDED");
+    }
     await localDatabase.referenceData.bulkPut(entries);
   });
 
-  return { customerCount: customers.length, configurationCount: configurations.length, fetchedAt };
+  return {
+    customerCount: customers.length,
+    configurationCount: configurations.length,
+    jobCount: jobs.length,
+    fetchedAt
+  };
 }
 
 export async function getCachedInspectionCatalog() {
@@ -86,6 +115,10 @@ export async function getCachedCustomerConfiguration(customerId: string) {
   return (await localDatabase.referenceData.get(configurationKey(customerId)))?.payload as
     | CustomerConfigurationResponse
     | undefined;
+}
+
+export async function getCachedInspectionJobs(userId: number) {
+  return ((await localDatabase.referenceData.get(inspectionJobsKey(userId)))?.payload ?? []) as InspectionJob[];
 }
 
 export async function getReferenceCacheSummary() {

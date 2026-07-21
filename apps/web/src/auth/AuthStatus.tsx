@@ -1,26 +1,39 @@
-import type { AuthUser } from "./authApi";
+import type { ClientAuthState } from "./authStateTypes";
 
 type AuthStatusProps = {
-  user?: AuthUser;
-  message: string;
+  state: ClientAuthState;
   onLogout: () => Promise<void>;
+  onRevalidate: () => Promise<void>;
 };
 
-export function AuthStatus({ user, message, onLogout }: AuthStatusProps) {
+export function AuthStatus({ state, onLogout, onRevalidate }: AuthStatusProps) {
   return (
     <section className="auth-panel" aria-label="Authentication status">
       <h2>Server Access</h2>
-      {user ? (
+      {state.status === "verified" ? (
         <>
           <p>
-            Signed in as <strong>{user.username}</strong> ({user.role})
+            Signed in as <strong>{state.user.username}</strong> ({state.user.role}) - Verified
           </p>
           <button type="button" onClick={onLogout}>
             Logout
           </button>
         </>
+      ) : state.status === "offline-unverified" ? (
+        <>
+          <p>
+            Offline mode - last verified as <strong>{state.user.username}</strong> at {new Date(state.lastVerifiedAt).toLocaleString()}
+          </p>
+          <p>Reconnect to verify your session before using server actions.</p>
+          <div className="inline-actions">
+            <button type="button" onClick={onRevalidate}>Verify Session</button>
+            <button type="button" onClick={onLogout}>Logout</button>
+          </div>
+        </>
+      ) : state.status === "checking" ? (
+        <p>Checking server sign-in</p>
       ) : (
-        <p>{message || "Sign in required before server sync"}</p>
+        <p>{state.message}</p>
       )}
     </section>
   );

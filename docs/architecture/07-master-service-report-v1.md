@@ -56,7 +56,7 @@ Enabled systems reference the fixed catalog for the selected template version. P
 
 Locations carry stable keys, display order, an optional zone, a positive preset row count, and sanitized row preset metadata. The two tracked demo customers contain no real customer information and exist only to prove single-zone and multi-zone configuration shapes.
 
-Inspection jobs have nullable customer, configuration-revision, and configuration-snapshot fields so existing sample jobs remain compatible. Future Master V1 jobs must write the full enabled-system/zone/location snapshot when created.
+Inspection jobs retain the legacy Phase 4 template path while Master V1 jobs use a separately constrained Master template identity. Each Master V1 job writes the full enabled-system/zone/location snapshot when created, and PostgreSQL prevents that stored configuration identity or snapshot from being changed later.
 
 ## Offline Reference Cache
 

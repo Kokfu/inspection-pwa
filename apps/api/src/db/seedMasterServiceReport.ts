@@ -5,6 +5,50 @@ const demoSingleCustomerId = "00000000-0000-4000-8000-000000000510";
 const demoSingleRevisionId = "00000000-0000-4000-8000-000000000511";
 const demoMultiCustomerId = "00000000-0000-4000-8000-000000000520";
 const demoMultiRevisionId = "00000000-0000-4000-8000-000000000521";
+const demoSingleJobId = "00000000-0000-4000-8000-000000000580";
+const demoMultiJobId = "00000000-0000-4000-8000-000000000590";
+
+type SnapshotCustomerRow = {
+  id: string;
+  code: string;
+  displayName: string;
+};
+
+type SnapshotConfigurationRow = {
+  revisionId: string;
+  revisionNumber: number;
+  templateId: string;
+  templateCode: string;
+  templateName: string;
+  templateVersion: number;
+};
+
+type SnapshotSystemRow = {
+  enabledSystemId: string;
+  systemKey: string;
+  displayName: string;
+  sortOrder: number;
+  definitionStatus: "confirmed";
+};
+
+type SnapshotZoneRow = {
+  id: string;
+  enabledSystemId: string;
+  key: string;
+  displayName: string;
+  sortOrder: number;
+};
+
+type SnapshotLocationRow = {
+  id: string;
+  enabledSystemId: string;
+  zoneId: string | null;
+  key: string;
+  displayName: string;
+  presetRowCount: number;
+  rowPreset: unknown;
+  sortOrder: number;
+};
 
 async function seedTemplate(client: PoolClient) {
   await client.query(
@@ -215,12 +259,180 @@ async function seedDemoConfigurations(client: PoolClient) {
   }
 }
 
+async function buildJobConfigurationSnapshot(
+  client: PoolClient,
+  customerId: string,
+  revisionId: string
+) {
+  const customerResult = await client.query<SnapshotCustomerRow>(
+    `
+      SELECT id, customer_code AS code, display_name AS "displayName"
+      FROM customers
+      WHERE id = $1
+    `,
+    [customerId]
+  );
+  const configurationResult = await client.query<SnapshotConfigurationRow>(
+    `
+      SELECT
+        revision.id AS "revisionId",
+        revision.revision AS "revisionNumber",
+        template.id AS "templateId",
+        template.code AS "templateCode",
+        template.name AS "templateName",
+        template.version AS "templateVersion"
+      FROM customer_configuration_revisions revision
+      INNER JOIN master_service_report_templates template
+        ON template.id = revision.template_version_id
+      WHERE revision.id = $1 AND revision.customer_id = $2
+    `,
+    [revisionId, customerId]
+  );
+  const systemsResult = await client.query<SnapshotSystemRow>(
+    `
+      SELECT
+        enabled.id AS "enabledSystemId",
+        enabled.system_key AS "systemKey",
+        system.display_name AS "displayName",
+        enabled.sort_order AS "sortOrder",
+        system.definition_status AS "definitionStatus"
+      FROM customer_enabled_systems enabled
+      INNER JOIN master_service_report_systems system
+        ON system.template_version_id = enabled.template_version_id
+       AND system.system_key = enabled.system_key
+      WHERE enabled.configuration_revision_id = $1
+        AND system.definition_status = 'confirmed'
+      ORDER BY enabled.sort_order
+    `,
+    [revisionId]
+  );
+  const enabledSystemIds = systemsResult.rows.map((system) => system.enabledSystemId);
+  const zonesResult = enabledSystemIds.length === 0
+    ? { rows: [] as SnapshotZoneRow[] }
+    : await client.query<SnapshotZoneRow>(
+        `
+          SELECT
+            id,
+            enabled_system_id AS "enabledSystemId",
+            zone_key AS key,
+            display_name AS "displayName",
+            sort_order AS "sortOrder"
+          FROM customer_system_zones
+          WHERE enabled_system_id = ANY($1::uuid[])
+          ORDER BY enabled_system_id, sort_order
+        `,
+        [enabledSystemIds]
+      );
+  const locationsResult = enabledSystemIds.length === 0
+    ? { rows: [] as SnapshotLocationRow[] }
+    : await client.query<SnapshotLocationRow>(
+        `
+          SELECT
+            id,
+            enabled_system_id AS "enabledSystemId",
+            zone_id AS "zoneId",
+            location_key AS key,
+            display_name AS "displayName",
+            preset_row_count AS "presetRowCount",
+            row_preset AS "rowPreset",
+            sort_order AS "sortOrder"
+          FROM customer_system_locations
+          WHERE enabled_system_id = ANY($1::uuid[])
+          ORDER BY enabled_system_id, sort_order
+        `,
+        [enabledSystemIds]
+      );
+
+  const customer = customerResult.rows[0];
+  const configuration = configurationResult.rows[0];
+  if (!customer || !configuration) {
+    throw new Error("Demo job configuration is unavailable");
+  }
+
+  return {
+    schemaVersion: 1,
+    customer,
+    configuration: {
+      revisionId: configuration.revisionId,
+      revisionNumber: configuration.revisionNumber
+    },
+    template: {
+      id: configuration.templateId,
+      code: configuration.templateCode,
+      name: configuration.templateName,
+      version: configuration.templateVersion
+    },
+    enabledSystems: systemsResult.rows.map((system) => ({
+      ...system,
+      zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.enabledSystemId),
+      locations: locationsResult.rows.filter(
+        (location) => location.enabledSystemId === system.enabledSystemId
+      )
+    }))
+  };
+}
+
+async function seedDemoJob(
+  client: PoolClient,
+  values: {
+    id: string;
+    reference: string;
+    title: string;
+    customerId: string;
+    revisionId: string;
+  }
+) {
+  const snapshot = await buildJobConfigurationSnapshot(
+    client,
+    values.customerId,
+    values.revisionId
+  );
+  await client.query(
+    `
+      INSERT INTO inspection_jobs (
+        id, template_id, master_template_version_id, job_reference, title,
+        status, is_sample, customer_id, customer_configuration_revision_id,
+        configuration_snapshot
+      )
+      VALUES ($1, NULL, $2, $3, $4, 'open', true, $5, $6, $7)
+      ON CONFLICT DO NOTHING
+    `,
+    [
+      values.id,
+      masterServiceReportV1.id,
+      values.reference,
+      values.title,
+      values.customerId,
+      values.revisionId,
+      JSON.stringify(snapshot)
+    ]
+  );
+}
+
+async function seedDemoJobs(client: PoolClient) {
+  await seedDemoJob(client, {
+    id: demoSingleJobId,
+    reference: "DEMO-JOB-SINGLE-001",
+    title: "Demo Single-Zone Job",
+    customerId: demoSingleCustomerId,
+    revisionId: demoSingleRevisionId
+  });
+  await seedDemoJob(client, {
+    id: demoMultiJobId,
+    reference: "DEMO-JOB-MULTI-001",
+    title: "Demo Multi-Zone Job",
+    customerId: demoMultiCustomerId,
+    revisionId: demoMultiRevisionId
+  });
+}
+
 export async function seedMasterServiceReport(pool: Pool) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await seedTemplate(client);
     await seedDemoConfigurations(client);
+    await seedDemoJobs(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);

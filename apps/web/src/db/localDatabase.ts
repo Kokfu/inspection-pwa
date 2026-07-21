@@ -19,6 +19,15 @@ export type ReferenceCacheEntry = {
   expiresAt: string;
 };
 
+export type DeviceAuthState = {
+  key: "device-auth";
+  userId?: number;
+  username?: string;
+  role?: "admin" | "inspector";
+  lastVerifiedAt?: string;
+  serverLogoutPending: boolean;
+};
+
 export type SyncOutboxItem = {
   operationId: string;
   entityType: "testRecord" | "inspection";
@@ -37,6 +46,7 @@ export type SyncOutboxItem = {
 export type InspectionRecord = {
   clientUuid: string;
   jobId: string;
+  systemKey?: string;
   templateId: string;
   templateVersion: number;
   templateSnapshot: InspectionTemplateSnapshot;
@@ -81,6 +91,7 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
   referenceData: EntityTable<ReferenceCacheEntry, "key">;
+  authState: EntityTable<DeviceAuthState, "key">;
 };
 
 localDatabase.version(1).stores({
@@ -158,6 +169,15 @@ localDatabase.version(5).stores({
   inspectionRecords: "clientUuid, syncStatus, jobId, templateId, localUpdatedAt",
   syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
   referenceData: "key, version, fetchedAt, expiresAt"
+});
+
+localDatabase.version(6).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, systemKey, [jobId+systemKey], templateId, localUpdatedAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
+  referenceData: "key, version, fetchedAt, expiresAt",
+  authState: "key"
 });
 
 export async function initializeLocalDatabase() {

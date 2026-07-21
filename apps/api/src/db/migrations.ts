@@ -6,6 +6,10 @@ const masterServiceReportMigrationUrl = new URL(
   "../../migrations/004_master_service_report_v1.sql",
   import.meta.url
 );
+const technicianJobNavigationMigrationUrl = new URL(
+  "../../migrations/005_technician_job_navigation.sql",
+  import.meta.url
+);
 
 export async function runMigrations() {
   await pool.query(`
@@ -151,5 +155,7 @@ export async function runMigrations() {
 
   const masterServiceReportMigrationSql = await readFile(masterServiceReportMigrationUrl, "utf8");
   await pool.query(masterServiceReportMigrationSql);
+  const technicianJobNavigationMigrationSql = await readFile(technicianJobNavigationMigrationUrl, "utf8");
+  await pool.query(technicianJobNavigationMigrationSql);
   await seedMasterServiceReport(pool);
 }
