@@ -10,6 +10,10 @@ const technicianJobNavigationMigrationUrl = new URL(
   "../../migrations/005_technician_job_navigation.sql",
   import.meta.url
 );
+const masterSystemInspectionMigrationUrl = new URL(
+  "../../migrations/006_master_system_inspections.sql",
+  import.meta.url
+);
 
 export async function runMigrations() {
   await pool.query(`
@@ -157,5 +161,7 @@ export async function runMigrations() {
   await pool.query(masterServiceReportMigrationSql);
   const technicianJobNavigationMigrationSql = await readFile(technicianJobNavigationMigrationUrl, "utf8");
   await pool.query(technicianJobNavigationMigrationSql);
+  const masterSystemInspectionMigrationSql = await readFile(masterSystemInspectionMigrationUrl, "utf8");
+  await pool.query(masterSystemInspectionMigrationSql);
   await seedMasterServiceReport(pool);
 }

@@ -70,6 +70,23 @@ async function seedTemplate(client: PoolClient) {
       JSON.stringify(masterServiceReportV1.reportBoilerplate)
     ]
   );
+  const templateVerified = await client.query<{ matches: boolean }>(
+    `SELECT code = $2 AND name = $3 AND version = $4 AND selection_policy = $5
+      AND header_definition = $6::jsonb AND report_boilerplate = $7::jsonb AS matches
+     FROM master_service_report_templates WHERE id = $1`,
+    [
+      masterServiceReportV1.id,
+      masterServiceReportV1.code,
+      masterServiceReportV1.name,
+      masterServiceReportV1.version,
+      masterServiceReportV1.selectionPolicy,
+      JSON.stringify(masterServiceReportV1.header),
+      JSON.stringify(masterServiceReportV1.reportBoilerplate)
+    ]
+  );
+  if (templateVerified.rowCount !== 1 || !templateVerified.rows[0].matches) {
+    throw new Error("Published Master V1 template differs from the tracked definition");
+  }
 
   for (const system of masterServiceReportV1.systems) {
     await client.query(
@@ -79,11 +96,7 @@ async function seedTemplate(client: PoolClient) {
           sort_order, definition_status, definition
         )
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (template_version_id, system_key) DO UPDATE SET
-          display_name = EXCLUDED.display_name,
-          sort_order = EXCLUDED.sort_order,
-          definition_status = EXCLUDED.definition_status,
-          definition = EXCLUDED.definition
+        ON CONFLICT (template_version_id, system_key) DO NOTHING
       `,
       [
         masterServiceReportV1.id,
@@ -94,6 +107,16 @@ async function seedTemplate(client: PoolClient) {
         JSON.stringify(system)
       ]
     );
+    const verified = await client.query<{ matches: boolean }>(
+      `SELECT display_name = $3 AND sort_order = $4 AND definition_status = $5
+        AND definition = $6::jsonb AS matches
+       FROM master_service_report_systems
+       WHERE template_version_id = $1 AND system_key = $2`,
+      [masterServiceReportV1.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]
+    );
+    if (verified.rowCount !== 1 || !verified.rows[0].matches) {
+      throw new Error(`Published Master V1 system ${system.key} differs from the tracked definition`);
+    }
   }
 }
 

@@ -65,6 +65,7 @@ select {
 
 .status-panel,
 .app-header,
+.app-navigation,
 .technician-home,
 .development-tools,
 .workspace {
@@ -148,11 +149,54 @@ dd {
 
 .form-actions,
 .sync-panel,
-.inline-actions {
+.inline-actions,
+.app-navigation {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+}
+
+.app-navigation {
+  border-bottom: 1px solid #d6e1e3;
+  padding-bottom: 14px;
+}
+
+.active-navigation {
+  background: #174e5f;
+}
+
+.login-view {
+  display: grid;
+  gap: 18px;
+  padding-top: 24px;
+}
+
+.login-view .auth-panel {
+  margin: 0;
+}
+
+.session-strip {
+  border-bottom: 1px solid #d6e1e3;
+  padding-bottom: 14px;
+}
+
+.session-strip .auth-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.session-strip .auth-panel h2 {
+  color: #4f6f76;
+  font-size: 0.85rem;
+}
+
+.session-strip .auth-panel p {
+  margin: 0;
 }
 
 .technician-home {
@@ -228,6 +272,28 @@ dd {
   color: #315e42;
 }
 
+.list-heading,
+.inspection-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.list-heading h3,
+.inspection-context h2,
+.inspection-context p {
+  margin-top: 0;
+}
+
+.secondary-metadata,
+.list-heading span,
+.status-caption {
+  color: #4f6f76;
+  font-size: 0.9rem;
+}
+
 .secondary-command {
   width: fit-content;
   min-height: 38px;
@@ -260,19 +326,24 @@ dd {
 }
 
 .development-tools {
-  border-top: 1px solid #b9c9cd;
-  padding-top: 16px;
-}
-
-.development-tools summary {
-  cursor: pointer;
-  font-weight: 700;
+  display: grid;
+  gap: 24px;
 }
 
 .development-tools-content {
   display: grid;
   gap: 28px;
   padding-top: 24px;
+}
+
+.development-header {
+  border-left: 4px solid #9c2f2f;
+  padding: 4px 0 4px 16px;
+}
+
+.development-header h2,
+.development-header p:last-child {
+  margin-bottom: 0;
 }
 
 @media (max-width: 560px) {
@@ -288,6 +359,16 @@ dd {
   .location-list li {
     align-items: start;
     grid-template-columns: 1fr;
+  }
+
+  .app-navigation {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-navigation button {
+    width: 100%;
+    padding: 0 10px;
   }
 }
 
@@ -375,4 +456,120 @@ dd {
   gap: 12px;
   border-top: 1px solid #d6e1e3;
   padding-top: 14px;
+}
+
+.hose-reel-form,
+.hose-reel-form fieldset,
+.hose-check-row,
+.measurement-card,
+.hose-row-card {
+  display: grid;
+  gap: 12px;
+}
+
+.hose-reel-form {
+  width: min(720px, 100%);
+}
+
+.inspection-context {
+  border-bottom: 1px solid #d6e1e3;
+  padding-bottom: 16px;
+}
+
+.inspection-context > div:last-child {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.inspection-status {
+  color: #315e42;
+}
+
+.status-failed {
+  color: #9c2f2f;
+}
+
+.status-pending,
+.status-syncing {
+  color: #6f531b;
+}
+
+.hose-reel-form fieldset,
+.hose-row-card,
+.measurement-card {
+  margin: 0;
+  border: 1px solid #d6e1e3;
+  padding: 14px;
+}
+
+.hose-row-card {
+  border-left: 4px solid #7ea49c;
+}
+
+.hose-check-row {
+  border-top: 1px solid #d6e1e3;
+  padding-top: 12px;
+}
+
+.validation-summary {
+  display: grid;
+  gap: 12px;
+  border-left: 4px solid #9c2f2f;
+  padding: 14px 16px;
+  background: #fff4f2;
+}
+
+.validation-summary h3,
+.validation-summary ul {
+  margin: 0;
+}
+
+.validation-summary ul {
+  padding-left: 22px;
+}
+
+.field-invalid {
+  border-color: #b94949 !important;
+  box-shadow: 0 0 0 2px rgba(185, 73, 73, 0.12);
+}
+
+.success-message {
+  border-left: 4px solid #315e42;
+  padding: 10px 14px;
+  color: #244c34;
+  background: #edf7ef;
+}
+
+.sticky-form-actions {
+  position: sticky;
+  bottom: 0;
+  border-top: 1px solid #d6e1e3;
+  padding: 12px 0;
+  background: #f7faf8;
+}
+
+.result-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.result-buttons button {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.selected-good { background: #315e42; }
+.selected-poor { background: #9c2f2f; }
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.checkbox-label input {
+  width: 20px;
+  height: 20px;
 }

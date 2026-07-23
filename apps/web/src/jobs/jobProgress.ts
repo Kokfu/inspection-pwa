@@ -1,4 +1,5 @@
 import type { InspectionRecord } from "../db/localDatabase";
+import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 
 export type SystemProgress =
   | "Not Started"
@@ -22,5 +23,14 @@ export function deriveSystemProgress(
   if (latest.syncStatus === "Pending") return "Pending Sync";
   if (latest.syncStatus === "Syncing") return "Syncing";
   if (latest.syncStatus === "Synced") return "Completed";
+  return "Needs Attention";
+}
+
+export function deriveMasterSystemProgress(record: MasterSystemInspectionRecord | undefined): SystemProgress {
+  if (!record) return "Not Started";
+  if (record.syncStatus === "Draft") return "Draft";
+  if (record.syncStatus === "Pending") return "Pending Sync";
+  if (record.syncStatus === "Syncing") return "Syncing";
+  if (record.syncStatus === "Synced") return "Completed";
   return "Needs Attention";
 }

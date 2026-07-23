@@ -2,6 +2,7 @@ import { Router } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { syncInspections } from "../sync/inspectionSync.js";
+import { syncMasterSystemInspections } from "../sync/masterSystemInspectionSync.js";
 import { syncTestRecords } from "../sync/testRecordSync.js";
 
 export const syncRouter = Router();
@@ -67,19 +68,25 @@ syncRouter.post(
           typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "inspection"
       );
-      const unsupportedItems = items.filter(
-        (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
+      const masterSystemInspectionItems = items.filter(
+        (item) => typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "masterSystemInspection"
       );
-      const [testRecordResult, inspectionResult] = await Promise.all([
+      const unsupportedItems = items.filter(
+        (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item) && !masterSystemInspectionItems.includes(item)
+      );
+      const [testRecordResult, inspectionResult, masterSystemInspectionResult] = await Promise.all([
         syncTestRecords(testRecordItems),
-        syncInspections(inspectionItems, request.currentUser?.id)
+        syncInspections(inspectionItems, request.currentUser?.id),
+        syncMasterSystemInspections(masterSystemInspectionItems, request.currentUser?.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds],
-        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...masterSystemInspectionResult.acceptedIds],
+        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...masterSystemInspectionResult.duplicateIds],
         failed: [
           ...testRecordResult.failed,
           ...inspectionResult.failed,
+          ...masterSystemInspectionResult.failed,
           ...unsupportedItems.map((item) => ({
             id: typeof (item as { entityId?: unknown })?.entityId === "string" ? (item as { entityId: string }).entityId : "unknown",
             code: "VALIDATION_ERROR",

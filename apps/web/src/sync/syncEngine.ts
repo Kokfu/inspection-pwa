@@ -66,8 +66,12 @@ export async function recoverInterruptedSync() {
     .where("syncStatus")
     .equals("Syncing")
     .toArray();
+  const syncingMasterSystemInspections = await localDatabase.masterSystemInspections
+    .where("syncStatus")
+    .equals("Syncing")
+    .toArray();
 
-  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0) {
+  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0 && syncingMasterSystemInspections.length === 0) {
     return 0;
   }
 
@@ -75,6 +79,7 @@ export async function recoverInterruptedSync() {
     "rw",
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
+    localDatabase.masterSystemInspections,
     localDatabase.syncOutbox,
     async () => {
       await Promise.all(
@@ -102,10 +107,18 @@ export async function recoverInterruptedSync() {
           })
         )
       );
+      await Promise.all(
+        syncingMasterSystemInspections.map((record) =>
+          localDatabase.masterSystemInspections.update(record.clientUuid, {
+            syncStatus: "Failed",
+            lastSyncError: interruptedSyncMessage
+          })
+        )
+      );
     }
   );
 
-  return syncingItems.length + syncingTestRecords.length + syncingInspections.length;
+  return syncingItems.length + syncingTestRecords.length + syncingInspections.length + syncingMasterSystemInspections.length;
 }
 
 export async function syncPendingRecords() {
@@ -130,12 +143,11 @@ export async function syncPendingRecords() {
     }
 
     const ids = items.map((item) => item.operationId);
-    const entityIds = items.map((item) => item.entityId);
-
     await localDatabase.transaction(
     "rw",
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
+    localDatabase.masterSystemInspections,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -150,9 +162,9 @@ export async function syncPendingRecords() {
         );
         await Promise.all(items.map((item) => {
           const update = { syncStatus: "Syncing" as const, lastSyncError: undefined };
-          return item.entityType === "inspection"
-            ? localDatabase.inspectionRecords.update(item.entityId, update)
-            : localDatabase.testRecords.update(item.entityId, update);
+          if (item.entityType === "inspection") return localDatabase.inspectionRecords.update(item.entityId, update);
+          if (item.entityType === "masterSystemInspection") return localDatabase.masterSystemInspections.update(item.entityId, update);
+          return localDatabase.testRecords.update(item.entityId, update);
         }));
       }
     );
@@ -192,6 +204,7 @@ export async function syncPendingRecords() {
     "rw",
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
+    localDatabase.masterSystemInspections,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -204,6 +217,8 @@ export async function syncPendingRecords() {
               };
               if (item.entityType === "inspection") {
                 await localDatabase.inspectionRecords.update(item.entityId, update);
+              } else if (item.entityType === "masterSystemInspection") {
+                await localDatabase.masterSystemInspections.update(item.entityId, update);
               } else {
                 await localDatabase.testRecords.update(item.entityId, update);
               }
@@ -225,6 +240,8 @@ export async function syncPendingRecords() {
             };
             if (item.entityType === "inspection") {
               await localDatabase.inspectionRecords.update(item.entityId, update);
+            } else if (item.entityType === "masterSystemInspection") {
+              await localDatabase.masterSystemInspections.update(item.entityId, update);
             } else {
               await localDatabase.testRecords.update(item.entityId, update);
             }
@@ -252,6 +269,7 @@ export async function syncPendingRecords() {
       "rw",
       localDatabase.testRecords,
       localDatabase.inspectionRecords,
+      localDatabase.masterSystemInspections,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -267,6 +285,8 @@ export async function syncPendingRecords() {
             };
             if (item.entityType === "inspection") {
               await localDatabase.inspectionRecords.update(item.entityId, update);
+            } else if (item.entityType === "masterSystemInspection") {
+              await localDatabase.masterSystemInspections.update(item.entityId, update);
             } else {
               await localDatabase.testRecords.update(item.entityId, update);
             }

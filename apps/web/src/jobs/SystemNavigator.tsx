@@ -5,6 +5,7 @@ type SystemNavigatorProps = {
   system: JobSystemSnapshot;
   progress: SystemProgress;
   onBack: () => void;
+  onOpenHoseReel?: () => void;
 };
 
 function presetDescription(rowPreset: unknown) {
@@ -19,7 +20,7 @@ function presetDescription(rowPreset: unknown) {
   return undefined;
 }
 
-export function SystemNavigator({ system, progress, onBack }: SystemNavigatorProps) {
+export function SystemNavigator({ system, progress, onBack, onOpenHoseReel }: SystemNavigatorProps) {
   const zones = system.zones.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const locations = system.locations.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const unzonedLocations = locations.filter((location) => location.zoneId === null);
@@ -69,6 +70,6 @@ export function SystemNavigator({ system, progress, onBack }: SystemNavigatorPro
     {zones.length === 0 && locations.length === 0 ? (
       <p className="empty-state">This system has no configured zones or locations.</p>
     ) : null}
-    <p className="form-message">Detailed inspection entry begins in Phase 5A3.</p>
+    {system.systemKey === "hose_reel" && onOpenHoseReel ? <button type="button" onClick={onOpenHoseReel}>Open Hose Reel Inspection</button> : <p className="form-message">Detailed inspection entry is not available for this system yet.</p>}
   </section>;
 }

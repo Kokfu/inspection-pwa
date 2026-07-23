@@ -1,5 +1,9 @@
 # Sync Protocol
 
+## Master System Inspection Entity
+
+Phase 5A3 adds `masterSystemInspection` with action `create`. A Hose Reel submission writes the dedicated local inspection record and active outbox operation atomically. The API keeps the standard `acceptedIds`, `duplicateIds`, and `failed` response contract; the client marks only exact confirmed UUIDs Synced. Each Master-system item is processed in its own database transaction and uses a canonical SHA-256 fingerprint for idempotent replay.
+
 ## Principle
 
 The device is the first write location. PostgreSQL becomes the shared authoritative location after the server confirms a sync item.

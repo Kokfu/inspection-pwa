@@ -7,6 +7,7 @@ import { healthRouter } from "./routes/health.js";
 import { inspectionsRouter } from "./routes/inspections.js";
 import { inspectionReferenceRouter } from "./routes/inspectionReference.js";
 import { inspectionJobsRouter } from "./routes/inspectionJobs.js";
+import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -24,6 +25,7 @@ app.use(testRecordsRouter);
 app.use(inspectionsRouter);
 app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
+app.use(masterSystemInspectionsRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: "NOT_FOUND" });
