@@ -27,3 +27,20 @@ The fingerprint is SHA-256 over a canonical JSON representation of client UUID, 
 The same UUID and fingerprint is an idempotent duplicate. The same UUID with changed authoritative payload is `IDEMPOTENCY_CONFLICT`. A different UUID for an existing job/Hose Reel group is `ACTIVE_INSPECTION_EXISTS`.
 
 The authenticated session user is always the authoritative syncing actor. The locally captured creator is stored separately as a clearly labelled `device_reported` snapshot, not as a verified server user attribution; the two identities may differ in this phase. Server acceptance time is server-generated; `performedAt` remains the business inspection timestamp.
+
+## Definition-driven controls
+
+Phase 5A4 keeps the Hose Reel form as a system-specific composition while resolving its repeated controls from the immutable published definition. `ResultSelector`, `MeasurementValueInput`, and `RemarksField` consume typed runtime metadata and contain no Hose Reel response schema logic.
+
+Published MFE-FSSR V1 JSON remains unchanged. Its ordered `allowedValues` are resolved through an immutable V1 compatibility adapter:
+
+* `good` is stored as the stable machine value and displayed as `Good`;
+* `poor` is stored as the stable machine value and displayed as `Poor`;
+* unanswered Draft results remain `null`;
+* unknown V1 values fail closed.
+
+The adapter also supplies the existing Phase 5A3 submission requiredness and protocol text limits without altering the published seed. New Draft snapshots freeze the resolved options, labels, measurement definitions and units, and remarks metadata beside the original published definition. Existing snapshots without resolved metadata are interpreted locally from their frozen V1 definition and are not rewritten merely by opening them. Old cached catalog data uses the same local fallback and therefore does not require an online refresh.
+
+Local submission validates against the frozen snapshot controls. Server sync independently resolves controls from the authoritative published definition stored in PostgreSQL; client snapshot metadata is never server authority. Runtime display metadata is excluded from the established request fingerprint, so pre-5A4 Pending payloads retain their Phase 5A3 idempotency semantics.
+
+Future result options require a new published template version and a version-specific compatibility rule or native explicit option metadata. MFE-FSSR V1 does not support N/A.

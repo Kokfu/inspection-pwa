@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { controlsForHoseReelSnapshot } from "../inspectionControls/definitionResolver";
+import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
+import { RemarksField } from "../inspectionControls/RemarksField";
+import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
   addHoseReelRow,
   getHoseReelSubmitIssues
 } from "./hoseReelRepository";
 import {
-  hoseReelChecklistItems,
   type GoodPoor,
   type HoseReelResponses,
   type MasterSystemInspectionRecord
@@ -26,39 +29,13 @@ const statusLabels = {
   Failed: "Needs Attention"
 } as const;
 
-const setResult = (value: GoodPoor | null, next: GoodPoor) =>
-  value === next ? null : next;
-
-function ResultButtons({
-  value,
-  onChange,
-  readOnly
-}: {
-  value: GoodPoor | null;
-  onChange: (value: GoodPoor | null) => void;
-  readOnly: boolean;
-}) {
-  return (
-    <div className="result-buttons" aria-label="Result">
-      <button
-        type="button"
-        className={value === "good" ? "selected-good" : "secondary-command"}
-        disabled={readOnly}
-        onClick={() => onChange(setResult(value, "good"))}
-      >
-        Good
-      </button>
-      <button
-        type="button"
-        className={value === "poor" ? "selected-poor" : "secondary-command"}
-        disabled={readOnly}
-        onClick={() => onChange(setResult(value, "poor"))}
-      >
-        Poor
-      </button>
-    </div>
-  );
-}
+const rowResultFields = {
+  drum: "drumResult",
+  hose: "hoseResult",
+  nozzle: "nozzleResult",
+  valve: "valveResult",
+  nozzle_box: "nozzleBoxResult"
+} as const;
 
 export function HoseReelInspectionForm({
   record,
@@ -70,9 +47,24 @@ export function HoseReelInspectionForm({
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const controlResolution = useMemo(() => {
+    try {
+      return { controls: controlsForHoseReelSnapshot(record.inspectionSnapshot) };
+    } catch (error) {
+      return {
+        controls: undefined,
+        error: error instanceof Error
+          ? error.message
+          : "Inspection controls are unavailable"
+      };
+    }
+  }, [record.inspectionSnapshot]);
+  const controls = controlResolution.controls;
   const validationIssues = useMemo(
-    () => showValidation ? getHoseReelSubmitIssues(responses) : [],
-    [responses, showValidation]
+    () => showValidation && controls
+      ? getHoseReelSubmitIssues(responses, record.inspectionSnapshot)
+      : [],
+    [controls, record.inspectionSnapshot, responses, showValidation]
   );
   const invalidTargets = useMemo(
     () => new Set(validationIssues.map((issue) => issue.targetId)),
@@ -157,7 +149,11 @@ export function HoseReelInspectionForm({
   }
 
   async function submit() {
-    const issues = getHoseReelSubmitIssues(responses);
+    if (!controls) {
+      setMessage(controlResolution.error ?? "Inspection controls are unavailable");
+      return;
+    }
+    const issues = getHoseReelSubmitIssues(responses, record.inspectionSnapshot);
     setShowValidation(true);
     if (issues.length > 0) {
       setMessage("");
@@ -177,6 +173,40 @@ export function HoseReelInspectionForm({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Inspection could not be submitted");
     }
+  }
+
+  if (!controls) {
+    return (
+      <section className="hose-reel-form" aria-labelledby="hose-reel-form-title">
+        <button type="button" className="secondary-command" onClick={onClose}>
+          Back to Systems
+        </button>
+        <h2 id="hose-reel-form-title">Hose Reel inspection unavailable</h2>
+        <p className="error-text" role="alert">
+          {controlResolution.error ?? "The frozen inspection definition is invalid."}
+        </p>
+      </section>
+    );
+  }
+
+  const jockeyDefinition = controls.measurements.find(
+    (item) => item.key === "jockey_pump_pressure"
+  );
+  const standbyDefinition = controls.measurements.find(
+    (item) => item.key === "standby_pump_cut_in"
+  );
+  if (!jockeyDefinition || !standbyDefinition) {
+    return (
+      <section className="hose-reel-form" aria-labelledby="hose-reel-form-title">
+        <button type="button" className="secondary-command" onClick={onClose}>
+          Back to Systems
+        </button>
+        <h2 id="hose-reel-form-title">Hose Reel inspection unavailable</h2>
+        <p className="error-text" role="alert">
+          Required measurement controls are missing from the frozen definition.
+        </p>
+      </section>
+    );
   }
 
   return (
@@ -223,123 +253,124 @@ export function HoseReelInspectionForm({
 
       <fieldset disabled={readOnly}>
         <legend>Water Tank</legend>
-        {hoseReelChecklistItems.slice(0, 4).map(([key, label]) => (
+        {controls.checklist.waterTank.map((definition) => (
           <div
-            className={`hose-check-row ${invalidTargets.has(`check-${key}`) ? "field-invalid" : ""}`}
-            id={`check-${key}`}
-            key={key}
+            className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
+            id={`check-${definition.key}`}
+            key={definition.key}
           >
-            <strong>{label}</strong>
-            <ResultButtons
-              value={responses.checklist[key]?.result ?? null}
+            <strong>{definition.label}</strong>
+            <ResultSelector<GoodPoor>
+              definition={definition.result}
+              label={`${definition.label} result`}
+              value={responses.checklist[definition.key]?.result ?? null}
               readOnly={readOnly}
-              onChange={(result) => updateChecklist(key, { result })}
+              onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <label>
-              Remarks
-              <textarea
-                value={responses.checklist[key]?.remarks ?? ""}
-                onChange={(event) => updateChecklist(key, { remarks: event.target.value })}
-              />
-            </label>
+            <RemarksField
+              label="Remarks"
+              definition={definition.remarks}
+              value={responses.checklist[definition.key]?.remarks ?? ""}
+              readOnly={readOnly}
+              onChange={(remarks) => updateChecklist(definition.key, { remarks })}
+            />
           </div>
         ))}
       </fieldset>
 
       <fieldset disabled={readOnly}>
         <legend>Pump House</legend>
-        {hoseReelChecklistItems.slice(4).map(([key, label]) => (
+        {controls.checklist.pumpHouse.map((definition) => (
           <div
-            className={`hose-check-row ${invalidTargets.has(`check-${key}`) ? "field-invalid" : ""}`}
-            id={`check-${key}`}
-            key={key}
+            className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
+            id={`check-${definition.key}`}
+            key={definition.key}
           >
-            <strong>{label}</strong>
-            <ResultButtons
-              value={responses.checklist[key]?.result ?? null}
+            <strong>{definition.label}</strong>
+            <ResultSelector<GoodPoor>
+              definition={definition.result}
+              label={`${definition.label} result`}
+              value={responses.checklist[definition.key]?.result ?? null}
               readOnly={readOnly}
-              onChange={(result) => updateChecklist(key, { result })}
+              onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <label>
-              Remarks
-              <textarea
-                value={responses.checklist[key]?.remarks ?? ""}
-                onChange={(event) => updateChecklist(key, { remarks: event.target.value })}
-              />
-            </label>
+            <RemarksField
+              label="Remarks"
+              definition={definition.remarks}
+              value={responses.checklist[definition.key]?.remarks ?? ""}
+              readOnly={readOnly}
+              onChange={(remarks) => updateChecklist(definition.key, { remarks })}
+            />
           </div>
         ))}
         <div
           className={`measurement-card ${invalidTargets.has("jockey-measurement") ? "field-invalid" : ""}`}
           id="jockey-measurement"
         >
-          <strong>Jockey Correct Cut In / Cut Out PSI</strong>
-          <label>
-            Cut In
-            <input
-              type="number"
-              value={responses.measurements.jockey_pump_pressure.values.cut_in ?? ""}
-              onChange={(event) => updateJockey({
+          <strong>{jockeyDefinition.label}</strong>
+          {jockeyDefinition.values.map((definition) => (
+            <MeasurementValueInput
+              definition={definition}
+              key={definition.key}
+              value={responses.measurements.jockey_pump_pressure.values[
+                definition.key as keyof HoseReelResponses["measurements"]["jockey_pump_pressure"]["values"]
+              ]}
+              readOnly={readOnly}
+              onChange={(value) => updateJockey({
                 values: {
                   ...responses.measurements.jockey_pump_pressure.values,
-                  cut_in: event.target.value === "" ? null : Number(event.target.value)
+                  [definition.key]: value
                 }
               })}
             />
-          </label>
-          <label>
-            Cut Out
-            <input
-              type="number"
-              value={responses.measurements.jockey_pump_pressure.values.cut_out ?? ""}
-              onChange={(event) => updateJockey({
-                values: {
-                  ...responses.measurements.jockey_pump_pressure.values,
-                  cut_out: event.target.value === "" ? null : Number(event.target.value)
-                }
-              })}
-            />
-          </label>
-          <ResultButtons
+          ))}
+          <ResultSelector<GoodPoor>
+            definition={jockeyDefinition.result}
+            label={`${jockeyDefinition.label} result`}
             value={responses.measurements.jockey_pump_pressure.result}
             readOnly={readOnly}
             onChange={(result) => updateJockey({ result })}
           />
-          <label>
-            Remarks
-            <textarea
-              value={responses.measurements.jockey_pump_pressure.remarks}
-              onChange={(event) => updateJockey({ remarks: event.target.value })}
-            />
-          </label>
+          <RemarksField
+            label="Remarks"
+            definition={jockeyDefinition.remarks}
+            value={responses.measurements.jockey_pump_pressure.remarks}
+            readOnly={readOnly}
+            onChange={(remarks) => updateJockey({ remarks })}
+          />
         </div>
         <div
           className={`measurement-card ${invalidTargets.has("standby-measurement") ? "field-invalid" : ""}`}
           id="standby-measurement"
         >
-          <strong>Correct Stand-By Pump Cut In PSI</strong>
-          <label>
-            Cut In
-            <input
-              type="number"
-              value={responses.measurements.standby_pump_cut_in.values.value ?? ""}
-              onChange={(event) => updateStandby({
-                values: { value: event.target.value === "" ? null : Number(event.target.value) }
+          <strong>{standbyDefinition.label}</strong>
+          {standbyDefinition.values.map((definition) => (
+            <MeasurementValueInput
+              definition={definition}
+              key={definition.key}
+              value={responses.measurements.standby_pump_cut_in.values[
+                definition.key as keyof HoseReelResponses["measurements"]["standby_pump_cut_in"]["values"]
+              ]}
+              readOnly={readOnly}
+              onChange={(value) => updateStandby({
+                values: { ...responses.measurements.standby_pump_cut_in.values, [definition.key]: value }
               })}
             />
-          </label>
-          <ResultButtons
+          ))}
+          <ResultSelector<GoodPoor>
+            definition={standbyDefinition.result}
+            label={`${standbyDefinition.label} result`}
             value={responses.measurements.standby_pump_cut_in.result}
             readOnly={readOnly}
             onChange={(result) => updateStandby({ result })}
           />
-          <label>
-            Remarks
-            <textarea
-              value={responses.measurements.standby_pump_cut_in.remarks}
-              onChange={(event) => updateStandby({ remarks: event.target.value })}
-            />
-          </label>
+          <RemarksField
+            label="Remarks"
+            definition={standbyDefinition.remarks}
+            value={responses.measurements.standby_pump_cut_in.remarks}
+            readOnly={readOnly}
+            onChange={(remarks) => updateStandby({ remarks })}
+          />
         </div>
       </fieldset>
 
@@ -398,29 +429,29 @@ export function HoseReelInspectionForm({
                   onChange={(event) => updateRow(row.rowUuid, { assetReference: event.target.value || null })}
                 />
               </label>
-              {([
-                ["drumResult", "Drum"],
-                ["hoseResult", "Hose"],
-                ["nozzleResult", "Nozzle"],
-                ["valveResult", "Valve"],
-                ["nozzleBoxResult", "Nozzle Box"]
-              ] as const).map(([field, label]) => (
-                <div className="hose-component" key={field}>
-                  <strong>{label}</strong>
-                  <ResultButtons
+              {controls.repeatableRows.resultColumns.map((definition) => {
+                const field = rowResultFields[definition.key as keyof typeof rowResultFields];
+                if (!field) return null;
+                return (
+                <div className="hose-component" key={definition.key}>
+                  <strong>{definition.label}</strong>
+                  <ResultSelector<GoodPoor>
+                    definition={definition.result}
+                    label={`${definition.label} result`}
                     value={row[field]}
                     readOnly={readOnly}
                     onChange={(result) => updateRow(row.rowUuid, { [field]: result })}
                   />
                 </div>
-              ))}
-              <label>
-                Remarks
-                <textarea
-                  value={row.remarks}
-                  onChange={(event) => updateRow(row.rowUuid, { remarks: event.target.value })}
-                />
-              </label>
+                );
+              })}
+              <RemarksField
+                label="Remarks"
+                definition={controls.repeatableRows.remarks}
+                value={row.remarks}
+                readOnly={readOnly}
+                onChange={(remarks) => updateRow(row.rowUuid, { remarks })}
+              />
               {!readOnly ? (
                 <button
                   type="button"
@@ -452,11 +483,14 @@ export function HoseReelInspectionForm({
         disabled={readOnly}
       >
         <legend>Comments</legend>
-        <textarea
+        <RemarksField
+          label="Comments"
+          definition={controls.comments}
           value={responses.comments}
-          onChange={(event) => setResponses((current) => ({
+          readOnly={readOnly}
+          onChange={(comments) => setResponses((current) => ({
             ...current,
-            comments: event.target.value
+            comments
           }))}
         />
       </fieldset>

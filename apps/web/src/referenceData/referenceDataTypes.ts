@@ -4,6 +4,7 @@ export type CatalogSystem = {
   sortOrder: number;
   definitionStatus: "confirmed" | "requires_confirmation";
   definition: unknown;
+  resolvedRuntimeControls?: unknown;
 };
 
 export type InspectionCatalog = {

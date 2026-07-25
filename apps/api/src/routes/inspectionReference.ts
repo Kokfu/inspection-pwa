@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
+import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -113,7 +114,16 @@ inspectionReferenceRouter.get(
       response.json({
         template: {
           ...template,
-          systems: systemsResult.rows
+          systems: systemsResult.rows.map((system) => system.key === "hose_reel"
+            ? {
+                ...system,
+                resolvedRuntimeControls: resolveHoseReelControls(
+                  system.definition,
+                  template.code,
+                  template.version
+                )
+              }
+            : system)
         }
       });
     } catch (error) {

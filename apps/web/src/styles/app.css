@@ -549,18 +549,25 @@ dd {
   background: #f7faf8;
 }
 
-.result-buttons {
+.result-options {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.result-buttons button {
+.result-option {
   min-height: 38px;
   padding: 0 14px;
+  border: 1px solid #a9bec2;
+  color: #174e5f;
+  background: #edf5f4;
 }
 
-.selected-good { background: #315e42; }
-.selected-poor { background: #9c2f2f; }
+.result-option--selected {
+  border-color: #174e5f;
+  color: #ffffff;
+  background: #174e5f;
+}
 
 .checkbox-label {
   display: flex;
