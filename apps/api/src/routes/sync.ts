@@ -5,6 +5,7 @@ import { syncInspections } from "../sync/inspectionSync.js";
 import { syncMasterSystemInspections } from "../sync/masterSystemInspectionSync.js";
 import { syncTestRecords } from "../sync/testRecordSync.js";
 import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
+import { syncAutomaticSprinklerInspections } from "../sync/automaticSprinklerInspectionSync.js";
 
 export const syncRouter = Router();
 
@@ -69,9 +70,17 @@ syncRouter.post(
           typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "inspection"
       );
-      const masterSystemInspectionItems = items.filter(
+      const hoseReelItems = items.filter(
         (item) => typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "masterSystemInspection"
+          && typeof (item as { payload?: unknown }).payload === "object"
+          && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "hose_reel"
+      );
+      const automaticSprinklerItems = items.filter(
+        (item) => typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "masterSystemInspection"
+          && typeof (item as { payload?: unknown }).payload === "object"
+          && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "automatic_sprinkler"
       );
       const masterSystemFormInstanceItems = items.filter(
         (item) => typeof item === "object" && item !== null &&
@@ -79,21 +88,24 @@ syncRouter.post(
       );
       const unsupportedItems = items.filter(
         (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
-          && !masterSystemInspectionItems.includes(item) && !masterSystemFormInstanceItems.includes(item)
+          && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item)
+          && !masterSystemFormInstanceItems.includes(item)
       );
-      const [testRecordResult, inspectionResult, masterSystemInspectionResult, masterSystemFormInstanceResult] = await Promise.all([
+      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, masterSystemFormInstanceResult] = await Promise.all([
         syncTestRecords(testRecordItems),
         syncInspections(inspectionItems, request.currentUser?.id),
-        syncMasterSystemInspections(masterSystemInspectionItems, request.currentUser?.id),
+        syncMasterSystemInspections(hoseReelItems, request.currentUser?.id),
+        syncAutomaticSprinklerInspections(automaticSprinklerItems, request.currentUser?.id),
         syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...masterSystemInspectionResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
-        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...masterSystemInspectionResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
+        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
         failed: [
           ...testRecordResult.failed,
           ...inspectionResult.failed,
-          ...masterSystemInspectionResult.failed,
+          ...hoseReelResult.failed,
+          ...automaticSprinklerResult.failed,
           ...masterSystemFormInstanceResult.failed,
           ...unsupportedItems.map((item) => ({
             id: typeof (item as { entityId?: unknown })?.entityId === "string" ? (item as { entityId: string }).entityId : "unknown",

@@ -1,4 +1,5 @@
 import type { InspectionRecord } from "../db/localDatabase";
+import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 
 export type SystemProgress =
@@ -27,7 +28,9 @@ export function deriveSystemProgress(
   return "Needs Attention";
 }
 
-export function deriveMasterSystemProgress(record: MasterSystemInspectionRecord | undefined): SystemProgress {
+export function deriveMasterSystemProgress(
+  record: MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | undefined
+): SystemProgress {
   if (!record) return "Not Started";
   if (record.syncStatus === "Draft") return "Draft";
   if (record.syncStatus === "Pending") return "Pending Sync";

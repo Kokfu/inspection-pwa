@@ -1,4 +1,5 @@
 import type { ClientAuthState } from "../auth/authStateTypes";
+import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -14,7 +15,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: MasterSystemInspectionRecord[];
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   loading: boolean;
@@ -30,6 +31,7 @@ type TechnicianHomeProps = {
   onBackToSystems: (job: InspectionJob) => void;
   onOpenHoseReel: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenCo2: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenAutomaticSprinkler: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -51,7 +53,8 @@ export function TechnicianHome({
   onBackToJobs,
   onBackToSystems,
   onOpenHoseReel,
-  onOpenCo2
+  onOpenCo2,
+  onOpenAutomaticSprinkler
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -119,7 +122,9 @@ export function TechnicianHome({
                   ? onOpenHoseReel(selectedJob, system)
                   : system.systemKey === "co2_fire_extinguisher"
                     ? onOpenCo2(selectedJob, system)
-                  : onSelectSystem(selectedJob, system)}
+                    : system.systemKey === "automatic_sprinkler"
+                      ? onOpenAutomaticSprinkler(selectedJob, system)
+                    : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>
                 <span className="status-label">{progress}</span>

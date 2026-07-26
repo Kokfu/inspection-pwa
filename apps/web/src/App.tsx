@@ -1,4 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { AutomaticSprinklerInspectionForm } from "./automaticSprinkler/AutomaticSprinklerInspectionForm";
+import {
+  getOrCreateAutomaticSprinklerInspection,
+  returnFailedAutomaticSprinklerToDraft,
+  saveAutomaticSprinklerDraft,
+  submitLocalAutomaticSprinkler
+} from "./automaticSprinkler/automaticSprinklerRepository";
+import type {
+  AutomaticSprinklerInspectionRecord,
+  AutomaticSprinklerResponses
+} from "./automaticSprinkler/automaticSprinklerTypes";
 import { AuthStatus } from "./auth/AuthStatus";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
@@ -78,6 +89,7 @@ type AppRoute =
   | { name: "job"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
+  | { name: "sprinkler-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
@@ -85,6 +97,7 @@ function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
+  if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
@@ -94,6 +107,7 @@ function routeFromHash(): AppRoute {
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
@@ -121,8 +135,11 @@ export function App() {
   const [serverRecordsMessage, setServerRecordsMessage] = useState("");
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
-  const [masterSystemInspections, setMasterSystemInspections] = useState<MasterSystemInspectionRecord[]>([]);
+  const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord
+  >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
+  const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [masterSystemInspectionGroups, setMasterSystemInspectionGroups] = useState<MasterSystemInspectionGroupRecord[]>([]);
   const [masterSystemFormInstances, setMasterSystemFormInstances] = useState<MasterSystemFormInstanceRecord[]>([]);
   const [activeCo2Form, setActiveCo2Form] = useState<MasterSystemFormInstanceRecord>();
@@ -324,11 +341,19 @@ export function App() {
 
   useEffect(() => {
     if (route.name === "inspection") {
-      setActiveHoseReel(
-        masterSystemInspections.find((record) => record.clientUuid === route.clientUuid)
-      );
+      const record = masterSystemInspections.find((candidate) => candidate.clientUuid === route.clientUuid);
+      setActiveHoseReel(record?.systemKey === "hose_reel" ? record : undefined);
     } else {
       setActiveHoseReel(undefined);
+    }
+  }, [masterSystemInspections, route]);
+
+  useEffect(() => {
+    if (route.name === "sprinkler-form") {
+      const record = masterSystemInspections.find((candidate) => candidate.clientUuid === route.clientUuid);
+      setActiveAutomaticSprinkler(record?.systemKey === "automatic_sprinkler" ? record : undefined);
+    } else {
+      setActiveAutomaticSprinkler(undefined);
     }
   }, [masterSystemInspections, route]);
 
@@ -353,7 +378,12 @@ export function App() {
     const records = await localDatabase.masterSystemInspections.toArray();
     setMasterSystemInspections(records);
     if (activeHoseReel) {
-      setActiveHoseReel(records.find((record) => record.clientUuid === activeHoseReel.clientUuid));
+      const record = records.find((candidate) => candidate.clientUuid === activeHoseReel.clientUuid);
+      setActiveHoseReel(record?.systemKey === "hose_reel" ? record : undefined);
+    }
+    if (activeAutomaticSprinkler) {
+      const record = records.find((candidate) => candidate.clientUuid === activeAutomaticSprinkler.clientUuid);
+      setActiveAutomaticSprinkler(record?.systemKey === "automatic_sprinkler" ? record : undefined);
     }
   }
 
@@ -508,6 +538,19 @@ export function App() {
     }
   }
 
+  async function handleOpenAutomaticSprinkler(job: InspectionJob, system: JobSystemSnapshot) {
+    try {
+      const catalog = await getCachedInspectionCatalog();
+      if (!catalog) throw new Error("Automatic Sprinkler reference data is not cached yet. Refresh jobs online first.");
+      const record = await getOrCreateAutomaticSprinklerInspection(job, system, catalog, currentUser);
+      setActiveAutomaticSprinkler(record);
+      await refreshMasterSystemInspections();
+      navigate({ name: "sprinkler-form", clientUuid: record.clientUuid });
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
+    }
+  }
+
   async function handleSaveCo2Draft(responses: Co2Responses) {
     if (!activeCo2Form) return;
     setActiveCo2Form(await saveCo2Draft(activeCo2Form, responses));
@@ -544,6 +587,27 @@ export function App() {
     if (!activeHoseReel) return;
     const record = await editFailedHoseReel(activeHoseReel);
     setActiveHoseReel(record);
+    await refreshMasterSystemInspections();
+  }
+
+  async function handleSaveAutomaticSprinklerDraft(responses: AutomaticSprinklerResponses) {
+    if (!activeAutomaticSprinkler) return;
+    const record = await saveAutomaticSprinklerDraft(activeAutomaticSprinkler, responses);
+    setActiveAutomaticSprinkler(record);
+    await refreshMasterSystemInspections();
+  }
+
+  async function handleSubmitAutomaticSprinkler(responses: AutomaticSprinklerResponses) {
+    if (!activeAutomaticSprinkler) return;
+    const record = await submitLocalAutomaticSprinkler(activeAutomaticSprinkler, responses);
+    setActiveAutomaticSprinkler(record);
+    await refreshMasterSystemInspections();
+  }
+
+  async function handleEditFailedAutomaticSprinkler() {
+    if (!activeAutomaticSprinkler) return;
+    const record = await returnFailedAutomaticSprinklerToDraft(activeAutomaticSprinkler);
+    setActiveAutomaticSprinkler(record);
     await refreshMasterSystemInspections();
   }
 
@@ -726,6 +790,18 @@ export function App() {
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
+          ) : route.name === "sprinkler-form" ? (
+            activeAutomaticSprinkler ? (
+              <AutomaticSprinklerInspectionForm
+                record={activeAutomaticSprinkler}
+                onBack={() => navigate({ name: "job", jobId: activeAutomaticSprinkler.jobId })}
+                onSaveDraft={handleSaveAutomaticSprinklerDraft}
+                onSubmitLocal={handleSubmitAutomaticSprinkler}
+                onEditFailed={handleEditFailedAutomaticSprinkler}
+              />
+            ) : (
+              <section className="workspace"><h2>Automatic Sprinkler form unavailable</h2><p>This form is not available in local device storage.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            )
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm
@@ -781,6 +857,7 @@ export function App() {
               onBackToSystems={(job) => navigate({ name: "job", jobId: job.id })}
               onOpenHoseReel={handleOpenHoseReel}
               onOpenCo2={handleOpenCo2}
+              onOpenAutomaticSprinkler={handleOpenAutomaticSprinkler}
             />
           )}
         </>

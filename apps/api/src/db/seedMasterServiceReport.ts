@@ -8,14 +8,24 @@ const demoMultiRevisionId = "00000000-0000-4000-8000-000000000521";
 const demoCo2CustomerId = "00000000-0000-4000-8000-000000000670";
 const demoCo2RevisionId = "00000000-0000-4000-8000-000000000671";
 const demoCo2EnabledSystemId = "00000000-0000-4000-8000-000000000672";
+const demoSprinklerCustomerId = "00000000-0000-4000-8000-000000000700";
+const demoSprinklerRevisionId = "00000000-0000-4000-8000-000000000701";
+const demoSprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000702";
 const demoSingleJobId = "00000000-0000-4000-8000-000000000580";
 const demoMultiJobId = "00000000-0000-4000-8000-000000000590";
 const demoCo2JobId = "00000000-0000-4000-8000-000000000679";
+const demoSprinklerJobId = "00000000-0000-4000-8000-000000000709";
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
   name: "Demo CO2 Multi-Zone Client",
   revisionId: demoCo2RevisionId
+} as const;
+const demoSprinklerCustomer = {
+  id: demoSprinklerCustomerId,
+  code: "DEMO-AUTOMATIC-SPRINKLER",
+  name: "Demo Automatic Sprinkler Client",
+  revisionId: demoSprinklerRevisionId
 } as const;
 const demoCo2Zones = [
   { id: "00000000-0000-4000-8000-000000000681", key: "zone-1", name: "Zone 1", sortOrder: 1 },
@@ -451,6 +461,44 @@ async function assertCo2FixtureMembership(client: PoolClient) {
   }
 }
 
+async function assertSprinklerFixtureMembership(client: PoolClient) {
+  const enabledSystems = await client.query<Record<string, unknown>>(
+    `SELECT enabled.id, enabled.configuration_revision_id AS "configurationRevisionId",
+        enabled.template_version_id AS "templateVersionId", enabled.system_key AS "systemKey",
+        enabled.sort_order AS "sortOrder", system.definition_status AS "definitionStatus"
+       FROM customer_enabled_systems enabled
+       INNER JOIN master_service_report_systems system
+         ON system.template_version_id = enabled.template_version_id
+        AND system.system_key = enabled.system_key
+       WHERE enabled.configuration_revision_id = $1
+       ORDER BY enabled.sort_order, enabled.id`,
+    [demoSprinklerRevisionId]
+  );
+  if (enabledSystems.rowCount !== 1) {
+    throw new Error(`Automatic Sprinkler demo configuration must contain exactly one enabled system; found ${enabledSystems.rowCount}`);
+  }
+  assertFixtureFields("Automatic Sprinkler demo enabled system membership", enabledSystems.rows[0], {
+    id: demoSprinklerEnabledSystemId,
+    configurationRevisionId: demoSprinklerRevisionId,
+    templateVersionId: masterServiceReportV1.id,
+    systemKey: "automatic_sprinkler",
+    sortOrder: 1,
+    definitionStatus: "confirmed"
+  });
+
+  const zones = await client.query<{ count: number }>(
+    "SELECT count(*)::integer AS count FROM customer_system_zones WHERE enabled_system_id = $1",
+    [demoSprinklerEnabledSystemId]
+  );
+  const locations = await client.query<{ count: number }>(
+    "SELECT count(*)::integer AS count FROM customer_system_locations WHERE enabled_system_id = $1",
+    [demoSprinklerEnabledSystemId]
+  );
+  if (zones.rows[0]?.count !== 0 || locations.rows[0]?.count !== 0) {
+    throw new Error("Automatic Sprinkler demo configuration must have zero zones and zero locations");
+  }
+}
+
 async function seedDemoConfigurations(client: PoolClient) {
   await seedCustomer(client, {
     id: demoSingleCustomerId,
@@ -465,6 +513,7 @@ async function seedDemoConfigurations(client: PoolClient) {
     revisionId: demoMultiRevisionId
   });
   await seedCustomer(client, demoCo2Customer);
+  await seedCustomer(client, demoSprinklerCustomer);
 
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
@@ -532,6 +581,14 @@ async function seedDemoConfigurations(client: PoolClient) {
     });
   }
   await assertCo2FixtureMembership(client);
+  await seedEnabledSystem(
+    client,
+    demoSprinklerEnabledSystemId,
+    demoSprinklerRevisionId,
+    "automatic_sprinkler",
+    1
+  );
+  await assertSprinklerFixtureMembership(client);
 }
 
 async function buildJobConfigurationSnapshot(
@@ -724,6 +781,84 @@ async function assertExistingCo2FixtureBeforeSeed(client: PoolClient) {
   });
 }
 
+export async function assertExistingSprinklerFixtureBeforeSeed(client: PoolClient) {
+  const footprint = await client.query<{ count: number }>(
+    `SELECT (
+        (SELECT count(*) FROM customers WHERE id = $1 OR customer_code = $2)
+        + (SELECT count(*) FROM customer_configuration_revisions WHERE id = $3)
+        + (SELECT count(*) FROM customer_enabled_systems WHERE id = $4)
+        + (SELECT count(*) FROM customer_system_zones WHERE enabled_system_id = $4)
+        + (SELECT count(*) FROM customer_system_locations WHERE enabled_system_id = $4)
+        + (SELECT count(*) FROM inspection_jobs WHERE id = $5 OR job_reference = $6)
+      )::integer AS count`,
+    [
+      demoSprinklerCustomerId,
+      demoSprinklerCustomer.code,
+      demoSprinklerRevisionId,
+      demoSprinklerEnabledSystemId,
+      demoSprinklerJobId,
+      "DEMO-JOB-SPRINKLER-001"
+    ]
+  );
+  if ((footprint.rows[0]?.count ?? 0) === 0) return;
+
+  const customer = await client.query<Record<string, unknown>>(
+    `SELECT id, customer_code AS code, display_name AS name,
+        is_demo AS "isDemo", is_active AS "isActive"
+       FROM customers WHERE id = $1`,
+    [demoSprinklerCustomerId]
+  );
+  assertFixtureFields("Existing Automatic Sprinkler demo customer", customer.rows[0], {
+    id: demoSprinklerCustomerId,
+    code: demoSprinklerCustomer.code,
+    name: demoSprinklerCustomer.name,
+    isDemo: true,
+    isActive: true
+  });
+  const revision = await client.query<Record<string, unknown>>(
+    `SELECT id, customer_id AS "customerId", template_version_id AS "templateVersionId",
+        revision, status
+       FROM customer_configuration_revisions WHERE id = $1`,
+    [demoSprinklerRevisionId]
+  );
+  assertFixtureFields("Existing Automatic Sprinkler demo configuration revision", revision.rows[0], {
+    id: demoSprinklerRevisionId,
+    customerId: demoSprinklerCustomerId,
+    templateVersionId: masterServiceReportV1.id,
+    revision: 1,
+    status: "active"
+  });
+  await assertSprinklerFixtureMembership(client);
+
+  const snapshot = await buildJobConfigurationSnapshot(
+    client,
+    demoSprinklerCustomerId,
+    demoSprinklerRevisionId
+  );
+  const job = await client.query<Record<string, unknown>>(
+    `SELECT id, template_id AS "templateId",
+        master_template_version_id AS "masterTemplateVersionId",
+        job_reference AS reference, title, status, is_sample AS "isSample",
+        customer_id AS "customerId",
+        customer_configuration_revision_id AS "configurationRevisionId",
+        configuration_snapshot AS snapshot
+       FROM inspection_jobs WHERE id = $1`,
+    [demoSprinklerJobId]
+  );
+  assertFixtureFields("Existing Automatic Sprinkler demo job", job.rows[0], {
+    id: demoSprinklerJobId,
+    templateId: null,
+    masterTemplateVersionId: masterServiceReportV1.id,
+    reference: "DEMO-JOB-SPRINKLER-001",
+    title: "Demo Automatic Sprinkler Job",
+    status: "open",
+    isSample: true,
+    customerId: demoSprinklerCustomerId,
+    configurationRevisionId: demoSprinklerRevisionId,
+    snapshot
+  });
+}
+
 async function seedDemoJob(
   client: PoolClient,
   values: {
@@ -789,6 +924,17 @@ async function seedDemoJob(
       throw new Error(`CO2 demo configuration must have exactly its deterministic job; found ${jobs.rowCount}`);
     }
   }
+  if (values.id === demoSprinklerJobId) {
+    const jobs = await client.query<{ id: string }>(
+      `SELECT id FROM inspection_jobs
+        WHERE customer_configuration_revision_id = $1
+        ORDER BY id`,
+      [demoSprinklerRevisionId]
+    );
+    if (jobs.rowCount !== 1 || jobs.rows[0]?.id !== demoSprinklerJobId) {
+      throw new Error(`Automatic Sprinkler demo configuration must have exactly its deterministic job; found ${jobs.rowCount}`);
+    }
+  }
 }
 
 async function seedDemoJobs(client: PoolClient) {
@@ -813,6 +959,13 @@ async function seedDemoJobs(client: PoolClient) {
     customerId: demoCo2CustomerId,
     revisionId: demoCo2RevisionId
   });
+  await seedDemoJob(client, {
+    id: demoSprinklerJobId,
+    reference: "DEMO-JOB-SPRINKLER-001",
+    title: "Demo Automatic Sprinkler Job",
+    customerId: demoSprinklerCustomerId,
+    revisionId: demoSprinklerRevisionId
+  });
 }
 
 export async function seedMasterServiceReport(pool: Pool) {
@@ -821,6 +974,7 @@ export async function seedMasterServiceReport(pool: Pool) {
     await client.query("BEGIN");
     await seedTemplate(client);
     await assertExistingCo2FixtureBeforeSeed(client);
+    await assertExistingSprinklerFixtureBeforeSeed(client);
     await seedDemoConfigurations(client);
     await seedDemoJobs(client);
     await client.query("COMMIT");

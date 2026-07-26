@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Automatic Sprinkler concurrency test</title>
+  </head>
+  <body>
+    <button id="reset" type="button">Reset Test Data</button>
+    <button id="initialize" type="button">Initialize</button>
+    <button id="verify" type="button">Verify</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import {
+        automaticSprinklerJobSystemKey,
+        getAutomaticSprinklerSubmitIssues,
+        getOrCreateAutomaticSprinklerInspection,
+        saveAutomaticSprinklerDraft,
+        submitLocalAutomaticSprinkler
+      } from "/src/automaticSprinkler/automaticSprinklerRepository.ts";
+      import { syncPendingRecords } from "/src/sync/syncEngine.ts";
+
+      const ids = {
+        job: "20000000-0000-4000-8000-000000000001",
+        customer: "20000000-0000-4000-8000-000000000002",
+        revision: "20000000-0000-4000-8000-000000000003",
+        template: "20000000-0000-4000-8000-000000000004",
+        enabledSystem: "20000000-0000-4000-8000-000000000005"
+      };
+      const item = (key, label, sortOrder) => ({
+        key, label, sortOrder, control: "good_poor", allowedValues: ["good", "poor"]
+      });
+      const measurement = (key, label, sortOrder, values) => ({
+        key, label, sortOrder,
+        measurements: values.map(([valueKey, valueLabel]) => ({
+          key: valueKey, label: valueLabel, unit: "PSI"
+        })),
+        result: { control: "good_poor", allowedValues: ["good", "poor"] }
+      });
+      const definition = {
+        key: "automatic_sprinkler",
+        configuration: { supportsZones: false, supportsLocations: false, supportsPresetRows: false },
+        sections: [
+          {
+            key: "water_tank",
+            blocks: [{ key: "water_tank_checks", items: [
+              item("saj_main_water_supply", "S.A.J Main Water Supply", 1),
+              item("water_level", "Water Level", 2),
+              item("automatic_refilling_facilities", "Automatic Refilling Facilities", 3),
+              item("drain_and_stop_valve_positions", "Drain Valve Closed and Stop Valves Open", 4)
+            ] }]
+          },
+          {
+            key: "pump_house",
+            blocks: [
+              { key: "pump_house_checks", items: [
+                item("pump_house_clean", "Keep Clean in Pump House", 1),
+                item("manual_start_pumps", "Manual Start Pumps", 2),
+                item("standby_pump_service_items", "Stand-by Pump Service Items", 3),
+                item("battery_charging_alternator", "Battery Charging Alternator", 4),
+                item("battery_serviceable", "Battery Serviceable", 5),
+                item("pump_phase_failure_alarm", "Pump Failure Alarm", 6),
+                item("pumps_auto_start", "Pumps Auto Start", 7),
+                item("test_and_gate_valve_positions", "Valve Positions", 8)
+              ] },
+              { key: "pump_pressure_measurements", items: [
+                measurement("jockey_pump_pressure", "Jockey Pump", 1, [["cut_in", "Cut In"], ["cut_out", "Cut Out"]]),
+                measurement("duty_pump_cut_in", "Duty Pump Cut In", 2, [["value", "Cut In"]]),
+                measurement("standby_pump_cut_in", "Stand-by Pump Cut In", 3, [["value", "Cut In"]])
+              ] }
+            ]
+          },
+          {
+            key: "main_alarm_valve",
+            blocks: [
+              { key: "main_alarm_valve_checks", items: [
+                item("breaching_inlet", "Breaching Inlet", 1),
+                item("alarm_gong", "Alarm Gong", 2),
+                item("flow_meter_valve_positions", "Flow Meter Valve Positions", 3)
+              ] },
+              { key: "alarm_valve_measurements", items: [
+                measurement("water_supply_gauge", "Water Supply Gauge", 1, [["value", "Gauge Reading"]]),
+                measurement("installation_gauge", "Installation Gauge", 2, [["value", "Gauge Reading"]])
+              ] },
+              { key: "comments", field: { control: "remarks" } }
+            ]
+          }
+        ]
+      };
+      const system = {
+        enabledSystemId: ids.enabledSystem,
+        systemKey: "automatic_sprinkler",
+        displayName: "Automatic Sprinkler System",
+        sortOrder: 1,
+        definitionStatus: "confirmed",
+        zones: [],
+        locations: []
+      };
+      const job = {
+        id: ids.job,
+        reference: "SPRINKLER-CONCURRENCY-TEST",
+        title: "Automatic Sprinkler Concurrency Test",
+        status: "open",
+        createdAt: new Date().toISOString(),
+        configurationSnapshot: {
+          schemaVersion: 1,
+          customer: { id: ids.customer, code: "TEST", displayName: "Concurrency Test" },
+          configuration: { revisionId: ids.revision, revisionNumber: 1 },
+          template: { id: ids.template, code: "MFE-FSSR", name: "Test Master", version: 1 },
+          enabledSystems: [system]
+        }
+      };
+      const catalog = {
+        id: ids.template,
+        code: "MFE-FSSR",
+        name: "Test Master",
+        version: 1,
+        selectionPolicy: "preset_only",
+        headerDefinition: {},
+        reportBoilerplate: {},
+        systems: [{
+          key: system.systemKey,
+          displayName: system.displayName,
+          sortOrder: 1,
+          definitionStatus: "confirmed",
+          definition
+        }]
+      };
+      const key = automaticSprinklerJobSystemKey(ids.job);
+      const result = document.querySelector("#result");
+      const show = (value) => { result.textContent = JSON.stringify(value, null, 2); };
+
+      document.querySelector("#reset").addEventListener("click", async () => {
+        const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
+        await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+          for (const record of records) {
+            await localDatabase.masterSystemInspections.delete(record.clientUuid);
+            const outbox = await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray();
+            await localDatabase.syncOutbox.bulkDelete(outbox.map((item) => item.operationId));
+          }
+        });
+        show({ status: "reset" });
+      });
+      document.querySelector("#initialize").addEventListener("click", async () => {
+        try {
+          const record = await getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined);
+          show({ status: "initialized", clientUuid: record.clientUuid });
+        } catch (error) {
+          show({ status: "error", name: error?.name, message: error instanceof Error ? error.message : String(error) });
+        }
+      });
+      document.querySelector("#verify").addEventListener("click", async () => {
+        const before = await getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined);
+        const concurrent = await Promise.all([
+          getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined),
+          getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined)
+        ]);
+        await saveAutomaticSprinklerDraft(before, before.responses);
+        const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
+        const outboxBeforeSubmit = await localDatabase.syncOutbox.where("entityId").equals(before.clientUuid).count();
+        const incompleteIssues = getAutomaticSprinklerSubmitIssues(before.responses, before.inspectionSnapshot);
+        const completed = structuredClone(before.responses);
+        for (const group of [completed.waterTank, completed.pumpHouse, completed.mainAlarmValve]) {
+          for (const response of Object.values(group)) response.result = "good";
+        }
+        for (const response of Object.values(completed.measurements)) {
+          response.result = "good";
+          for (const valueKey of Object.keys(response.values)) response.values[valueKey] = 10.5;
+        }
+        await submitLocalAutomaticSprinkler(before, completed);
+        await submitLocalAutomaticSprinkler(before, completed);
+        const submitted = await localDatabase.masterSystemInspections.get(before.clientUuid);
+        const outboxAfterSubmit = await localDatabase.syncOutbox.where("entityId").equals(before.clientUuid).toArray();
+        const originalFetch = window.fetch;
+        window.fetch = async () => new Response(JSON.stringify({
+          acceptedIds: [before.clientUuid],
+          duplicateIds: [],
+          failed: []
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        const syncResult = await syncPendingRecords();
+        window.fetch = originalFetch;
+        const afterSync = await localDatabase.masterSystemInspections.get(before.clientUuid);
+        const completedOutbox = await localDatabase.syncOutbox.where("entityId").equals(before.clientUuid).toArray();
+        const layout = before.inspectionSnapshot.system.resolvedControls.layout.pumpHouse
+          .map((row) => row.key);
+        const expectedLayout = [
+          "pump_house_clean", "manual_start_pumps", "jockey_pump_pressure",
+          "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items",
+          "battery_charging_alternator", "battery_serviceable",
+          "pump_phase_failure_alarm", "pumps_auto_start",
+          "test_and_gate_valve_positions"
+        ];
+        const passed = records.length === 1
+          && records[0].clientUuid === before.clientUuid
+          && concurrent.every((record) => record.clientUuid === before.clientUuid)
+          && outboxBeforeSubmit === 0
+          && incompleteIssues.length === 26
+          && layout.join(",") === expectedLayout.join(",")
+          && submitted?.syncStatus === "Pending"
+          && outboxAfterSubmit.length === 1
+          && outboxAfterSubmit[0].status === "Pending"
+          && syncResult.started
+          && afterSync?.syncStatus === "Synced"
+          && completedOutbox.length === 1
+          && completedOutbox[0].status === "Completed";
+        show({
+          status: passed ? "PASS" : "FAIL",
+          records: records.length,
+          stableUuid: concurrent.every((record) => record.clientUuid === before.clientUuid),
+          outboxBeforeSubmit,
+          incompleteIssues: incompleteIssues.length,
+          orderedLayout: layout,
+          submittedStatus: submitted?.syncStatus,
+          activeOutboxAfterRepeatedSubmit: outboxAfterSubmit.length,
+          syncMessage: syncResult.message,
+          statusAfterExactConfirmation: afterSync?.syncStatus,
+          outboxAfterExactConfirmation: completedOutbox[0]?.status
+        });
+      });
+    </script>
+  </body>
+</html>
