@@ -122,3 +122,25 @@ ALLOW_PHASE2_UNAUTHENTICATED_SYNC=false
 The committed/default value is false. Phase 3 protects `/sync` with server-side sessions and roles. The bypass is deprecated, ignored in production, and must not be used for public deployment.
 
 Do not expose the app publicly while any unauthenticated sync bypass is enabled.
+
+## Phase 5B1 CO2 Per-Location Sync
+
+CO2 uses the shared `POST /api/sync` endpoint with entity type
+`masterSystemFormInstance`, action `create`, and active key
+`masterSystemFormInstance:create:<clientUuid>`.
+
+Each operation represents one configured location beneath the single
+`jobId + co2_fire_extinguisher` parent. The server creates or resolves that
+parent transactionally and rebuilds `location:<configured-location-uuid>`
+from the frozen job snapshot.
+
+The SHA-256 request fingerprint includes client UUID, job/system identity,
+canonical instance and location identity, display sequence, template and
+configuration identity, typed responses, `performedAt`, and the untrusted
+device-reported creator snapshot. It excludes outbox/retry identifiers,
+local and server sync timestamps, UI state, and client display labels.
+
+An exact replay returns `duplicateIds`; changed data under the same UUID
+returns `IDEMPOTENCY_CONFLICT`; a different UUID for the same logical
+instance returns `INSTANCE_ALREADY_EXISTS`. Only exact accepted or duplicate
+IDs complete local children. Partial failures remain in IndexedDB.

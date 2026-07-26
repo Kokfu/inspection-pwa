@@ -4,6 +4,7 @@ import { requireRole } from "../middleware/requireRole.js";
 import { syncInspections } from "../sync/inspectionSync.js";
 import { syncMasterSystemInspections } from "../sync/masterSystemInspectionSync.js";
 import { syncTestRecords } from "../sync/testRecordSync.js";
+import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
 
 export const syncRouter = Router();
 
@@ -72,21 +73,28 @@ syncRouter.post(
         (item) => typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "masterSystemInspection"
       );
-      const unsupportedItems = items.filter(
-        (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item) && !masterSystemInspectionItems.includes(item)
+      const masterSystemFormInstanceItems = items.filter(
+        (item) => typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "masterSystemFormInstance"
       );
-      const [testRecordResult, inspectionResult, masterSystemInspectionResult] = await Promise.all([
+      const unsupportedItems = items.filter(
+        (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
+          && !masterSystemInspectionItems.includes(item) && !masterSystemFormInstanceItems.includes(item)
+      );
+      const [testRecordResult, inspectionResult, masterSystemInspectionResult, masterSystemFormInstanceResult] = await Promise.all([
         syncTestRecords(testRecordItems),
         syncInspections(inspectionItems, request.currentUser?.id),
-        syncMasterSystemInspections(masterSystemInspectionItems, request.currentUser?.id)
+        syncMasterSystemInspections(masterSystemInspectionItems, request.currentUser?.id),
+        syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...masterSystemInspectionResult.acceptedIds],
-        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...masterSystemInspectionResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...masterSystemInspectionResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
+        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...masterSystemInspectionResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
         failed: [
           ...testRecordResult.failed,
           ...inspectionResult.failed,
           ...masterSystemInspectionResult.failed,
+          ...masterSystemFormInstanceResult.failed,
           ...unsupportedItems.map((item) => ({
             id: typeof (item as { entityId?: unknown })?.entityId === "string" ? (item as { entityId: string }).entityId : "unknown",
             code: "VALIDATION_ERROR",

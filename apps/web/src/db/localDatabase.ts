@@ -1,5 +1,9 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
+import type {
+  MasterSystemFormInstanceRecord,
+  MasterSystemInspectionGroupRecord
+} from "../co2/co2Types";
 import {
   normalizeInspectionTemplateSnapshot,
   type InspectionTemplateSnapshot
@@ -31,7 +35,7 @@ export type DeviceAuthState = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -91,6 +95,8 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   masterSystemInspections: EntityTable<MasterSystemInspectionRecord, "clientUuid">;
+  masterSystemInspectionGroups: EntityTable<MasterSystemInspectionGroupRecord, "groupKey">;
+  masterSystemFormInstances: EntityTable<MasterSystemFormInstanceRecord, "clientUuid">;
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
   referenceData: EntityTable<ReferenceCacheEntry, "key">;
   authState: EntityTable<DeviceAuthState, "key">;
@@ -187,6 +193,18 @@ localDatabase.version(7).stores({
   testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
   inspectionRecords: "clientUuid, syncStatus, jobId, systemKey, [jobId+systemKey], templateId, localUpdatedAt",
   masterSystemInspections: "clientUuid, &jobSystemKey, jobId, systemKey, syncStatus, localUpdatedAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
+  referenceData: "key, version, fetchedAt, expiresAt",
+  authState: "key"
+});
+
+localDatabase.version(8).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, systemKey, [jobId+systemKey], templateId, localUpdatedAt",
+  masterSystemInspections: "clientUuid, &jobSystemKey, jobId, systemKey, syncStatus, localUpdatedAt",
+  masterSystemInspectionGroups: "groupKey, jobId, systemKey, localUpdatedAt",
+  masterSystemFormInstances: "clientUuid, &[groupKey+instanceKey], groupKey, jobId, systemKey, configuredLocationId, syncStatus, localUpdatedAt",
   syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
   referenceData: "key, version, fetchedAt, expiresAt",
   authState: "key"

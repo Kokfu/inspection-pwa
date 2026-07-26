@@ -1,6 +1,11 @@
 import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
+import type {
+  MasterSystemFormInstanceRecord,
+  MasterSystemInspectionGroupRecord
+} from "../co2/co2Types";
+import { deriveCo2ParentProgress } from "../co2/co2Progress";
 import { deriveMasterSystemProgress, deriveSystemProgress } from "./jobProgress";
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
@@ -10,6 +15,8 @@ type TechnicianHomeProps = {
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
   masterSystemInspections: MasterSystemInspectionRecord[];
+  masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
+  masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   loading: boolean;
   message: string;
   selectedJobId?: string;
@@ -22,6 +29,7 @@ type TechnicianHomeProps = {
   onBackToJobs: () => void;
   onBackToSystems: (job: InspectionJob) => void;
   onOpenHoseReel: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenCo2: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -29,6 +37,8 @@ export function TechnicianHome({
   jobs,
   inspections,
   masterSystemInspections,
+  masterSystemInspectionGroups,
+  masterSystemFormInstances,
   loading,
   message,
   selectedJobId,
@@ -40,7 +50,8 @@ export function TechnicianHome({
   onSelectSystem,
   onBackToJobs,
   onBackToSystems,
-  onOpenHoseReel
+  onOpenHoseReel,
+  onOpenCo2
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -48,9 +59,14 @@ export function TechnicianHome({
     .sort((left, right) => left.sortOrder - right.sortOrder) ?? [];
   const selectedSystem = systems.find((system) => system.systemKey === selectedSystemKey);
   const canUseServer = authState.status === "verified";
-  const progressFor = (jobId: string, systemKey: string) => systemKey === "hose_reel"
-    ? deriveMasterSystemProgress(masterSystemInspections.find((record) => record.jobSystemKey === `${jobId}:${systemKey}`))
-    : deriveSystemProgress(inspections, jobId, systemKey);
+  const progressFor = (jobId: string, systemKey: string) => {
+    if (systemKey === "hose_reel") return deriveMasterSystemProgress(masterSystemInspections.find((record) => record.jobSystemKey === `${jobId}:${systemKey}`));
+    if (systemKey === "co2_fire_extinguisher") {
+      const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
+      return deriveCo2ParentProgress(group, masterSystemFormInstances.filter((record) => record.groupKey === group?.groupKey));
+    }
+    return deriveSystemProgress(inspections, jobId, systemKey);
+  };
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
     <div className="workspace-heading">
@@ -101,6 +117,8 @@ export function TechnicianHome({
                 type="button"
                 onClick={() => system.systemKey === "hose_reel"
                   ? onOpenHoseReel(selectedJob, system)
+                  : system.systemKey === "co2_fire_extinguisher"
+                    ? onOpenCo2(selectedJob, system)
                   : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>

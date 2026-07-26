@@ -67,6 +67,7 @@ select {
 .app-header,
 .app-navigation,
 .technician-home,
+.co2-location-list,
 .development-tools,
 .workspace {
   width: min(720px, 100%);
@@ -469,6 +470,11 @@ dd {
 
 .hose-reel-form {
   width: min(720px, 100%);
+}
+
+.co2-location-list {
+  display: grid;
+  gap: 18px;
 }
 
 .inspection-context {

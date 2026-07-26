@@ -1,5 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { AuthStatus } from "./auth/AuthStatus";
+import { Co2InspectionForm } from "./co2/Co2InspectionForm";
+import { Co2LocationList } from "./co2/Co2LocationList";
+import {
+  initializeCo2InspectionGroup,
+  returnFailedCo2ToDraft,
+  saveCo2Draft,
+  submitLocalCo2
+} from "./co2/co2Repository";
+import type {
+  Co2Responses,
+  MasterSystemFormInstanceRecord,
+  MasterSystemInspectionGroupRecord
+} from "./co2/co2Types";
 import { getCurrentUser, login, logout, type AuthUser } from "./auth/authApi";
 import {
   clearLocalIdentity,
@@ -65,12 +78,14 @@ type AppRoute =
   | { name: "job"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
+  | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
 function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
+  if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
   return { name: "jobs" };
@@ -79,6 +94,7 @@ function routeFromHash(): AppRoute {
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
   return "#/jobs";
@@ -107,6 +123,9 @@ export function App() {
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<MasterSystemInspectionRecord[]>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
+  const [masterSystemInspectionGroups, setMasterSystemInspectionGroups] = useState<MasterSystemInspectionGroupRecord[]>([]);
+  const [masterSystemFormInstances, setMasterSystemFormInstances] = useState<MasterSystemFormInstanceRecord[]>([]);
+  const [activeCo2Form, setActiveCo2Form] = useState<MasterSystemFormInstanceRecord>();
   const [serverMasterSystemInspections, setServerMasterSystemInspections] = useState<ServerMasterSystemInspectionSummary[]>([]);
   const [serverMasterSystemInspectionMessage, setServerMasterSystemInspectionMessage] = useState("");
   const [serverMasterSystemInspectionLoading, setServerMasterSystemInspectionLoading] = useState(false);
@@ -284,6 +303,8 @@ export function App() {
       setRecords(await listTestRecords());
       setInspections(await listInspectionRecords());
       setMasterSystemInspections(await localDatabase.masterSystemInspections.toArray());
+      setMasterSystemInspectionGroups(await localDatabase.masterSystemInspectionGroups.toArray());
+      setMasterSystemFormInstances(await localDatabase.masterSystemFormInstances.toArray());
       setReferenceCache(await getReferenceCacheSummary());
       if (recovered > 0) {
         setSyncMessage("Recovered interrupted sync; record is retryable");
@@ -311,6 +332,12 @@ export function App() {
     }
   }, [masterSystemInspections, route]);
 
+  useEffect(() => {
+    setActiveCo2Form(route.name === "co2-form"
+      ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
+      : undefined);
+  }, [masterSystemFormInstances, route]);
+
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
 
@@ -328,6 +355,16 @@ export function App() {
     if (activeHoseReel) {
       setActiveHoseReel(records.find((record) => record.clientUuid === activeHoseReel.clientUuid));
     }
+  }
+
+  async function refreshCo2Inspections() {
+    const [groups, instances] = await Promise.all([
+      localDatabase.masterSystemInspectionGroups.toArray(),
+      localDatabase.masterSystemFormInstances.toArray()
+    ]);
+    setMasterSystemInspectionGroups(groups);
+    setMasterSystemFormInstances(instances);
+    if (activeCo2Form) setActiveCo2Form(instances.find((record) => record.clientUuid === activeCo2Form.clientUuid));
   }
 
   async function checkApiHealth() {
@@ -359,6 +396,7 @@ export function App() {
     setSyncMessage(result.message);
     await refreshRecords();
     await refreshMasterSystemInspections();
+    await refreshCo2Inspections();
   }
 
   async function handleLogin(username: string, password: string) {
@@ -442,6 +480,7 @@ export function App() {
     await refreshInspections();
     await refreshRecords();
     await refreshMasterSystemInspections();
+    await refreshCo2Inspections();
   }
 
   async function handleOpenHoseReel(job: InspectionJob, system: JobSystemSnapshot) {
@@ -455,6 +494,36 @@ export function App() {
     } catch (error) {
       setJobMessage(error instanceof Error ? error.message : "Hose Reel inspection could not be opened");
     }
+  }
+
+  async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
+    try {
+      const catalog = await getCachedInspectionCatalog();
+      if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
+      await initializeCo2InspectionGroup(job, system, catalog, currentUser);
+      await refreshCo2Inspections();
+      navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "CO2 locations could not be opened");
+    }
+  }
+
+  async function handleSaveCo2Draft(responses: Co2Responses) {
+    if (!activeCo2Form) return;
+    setActiveCo2Form(await saveCo2Draft(activeCo2Form, responses));
+    await refreshCo2Inspections();
+  }
+
+  async function handleSubmitCo2(responses: Co2Responses) {
+    if (!activeCo2Form) return;
+    setActiveCo2Form(await submitLocalCo2(activeCo2Form, responses));
+    await refreshCo2Inspections();
+  }
+
+  async function handleEditFailedCo2() {
+    if (!activeCo2Form) return;
+    setActiveCo2Form(await returnFailedCo2ToDraft(activeCo2Form));
+    await refreshCo2Inspections();
   }
 
   async function handleSaveHoseReelDraft(responses: HoseReelResponses) {
@@ -511,7 +580,7 @@ export function App() {
     try {
       setServerMasterSystemInspections(await loadServerMasterSystemInspections());
     } catch (error) {
-      setServerMasterSystemInspectionMessage(error instanceof Error ? error.message : "Server Hose Reel inspections are currently unavailable");
+      setServerMasterSystemInspectionMessage(error instanceof Error ? error.message : "Server Master system inspections are currently unavailable");
     } finally {
       setServerMasterSystemInspectionLoading(false);
     }
@@ -630,7 +699,7 @@ export function App() {
                     onLoad={handleLoadServerInspections}
                   />
                 </section>
-                <section className="workspace" aria-label="Read-only server Hose Reel inspections">
+                <section className="workspace" aria-label="Read-only server Master system inspections">
                   <ServerMasterSystemInspectionList
                     inspections={serverMasterSystemInspections}
                     canLoad={canUseServer}
@@ -657,12 +726,40 @@ export function App() {
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
+          ) : route.name === "co2-form" ? (
+            activeCo2Form ? (
+              <Co2InspectionForm
+                record={activeCo2Form}
+                onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })}
+                onSaveDraft={handleSaveCo2Draft}
+                onSubmitLocal={handleSubmitCo2}
+                onEditFailed={handleEditFailedCo2}
+              />
+            ) : (
+              <section className="workspace"><h2>CO2 form unavailable</h2><p>This form is not available in local device storage.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            )
+          ) : route.name === "system" && route.systemKey === "co2_fire_extinguisher" ? (
+            (() => {
+              const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:co2_fire_extinguisher`);
+              return group ? (
+                <Co2LocationList
+                  group={group}
+                  instances={masterSystemFormInstances.filter((instance) => instance.groupKey === group.groupKey)}
+                  onBack={() => navigate({ name: "job", jobId: route.jobId })}
+                  onOpen={(record) => navigate({ name: "co2-form", clientUuid: record.clientUuid })}
+                />
+              ) : (
+                <section className="workspace"><h2>CO2 locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
+              );
+            })()
           ) : (
             <TechnicianHome
               authState={authState}
               jobs={jobs}
               inspections={inspections}
               masterSystemInspections={masterSystemInspections}
+              masterSystemInspectionGroups={masterSystemInspectionGroups}
+              masterSystemFormInstances={masterSystemFormInstances}
               loading={jobLoading}
               message={jobMessage}
               selectedJobId={selectedJobId}
@@ -683,6 +780,7 @@ export function App() {
               onBackToJobs={() => navigate({ name: "jobs" })}
               onBackToSystems={(job) => navigate({ name: "job", jobId: job.id })}
               onOpenHoseReel={handleOpenHoseReel}
+              onOpenCo2={handleOpenCo2}
             />
           )}
         </>

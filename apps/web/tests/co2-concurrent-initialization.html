@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CO2 repository concurrency test</title>
+  </head>
+  <body>
+    <button id="reset" type="button">Reset Test Data</button>
+    <button id="initialize" type="button">Initialize</button>
+    <button id="verify" type="button">Verify</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import {
+        getCo2SubmitIssues,
+        initializeCo2InspectionGroup,
+        listCo2Instances
+      } from "/src/co2/co2Repository.ts";
+      import { groupCo2InstancesByZone } from "/src/co2/Co2LocationList.tsx";
+
+      const ids = {
+        job: "10000000-0000-4000-8000-000000000001",
+        customer: "10000000-0000-4000-8000-000000000002",
+        revision: "10000000-0000-4000-8000-000000000003",
+        template: "10000000-0000-4000-8000-000000000004",
+        enabledSystem: "10000000-0000-4000-8000-000000000005"
+      };
+      const zones = [1, 2, 3].map((number) => ({
+        id: `10000000-0000-4000-8000-00000000001${number}`,
+        enabledSystemId: ids.enabledSystem,
+        key: `zone-${number}`,
+        displayName: number < 3 ? "Repeated Zone Name" : "Zone 3",
+        sortOrder: number
+      }));
+      const locations = [
+        ["21", zones[0].id, "room-a", "Room A", 1],
+        ["22", zones[0].id, "room-b", "Room B", 2],
+        ["23", zones[0].id, "room-c", "Room C", 3],
+        ["24", zones[0].id, "room-d", "Room D", 4],
+        ["25", zones[1].id, "room-e", "Room E", 5],
+        ["26", zones[2].id, "room-f", "Room F", 6]
+      ].map(([suffix, zoneId, key, displayName, sortOrder]) => ({
+        id: `10000000-0000-4000-8000-0000000000${suffix}`,
+        enabledSystemId: ids.enabledSystem,
+        zoneId,
+        key,
+        displayName,
+        presetRowCount: 1,
+        rowPreset: {},
+        sortOrder
+      }));
+      const goodPoorItem = (key, label, sortOrder) => ({
+        key, label, sortOrder, control: "good_poor", allowedValues: ["good", "poor"]
+      });
+      const definition = {
+        key: "co2_fire_extinguisher",
+        sections: [
+          {
+            key: "control_panel",
+            blocks: [
+              { key: "control_panel_location", items: [{ key: "control_panel_location", label: "Control Panel Location" }] },
+              {
+                key: "detector_rows",
+                columns: [
+                  { key: "alarm_zone", label: "Alarm Zone", sortOrder: 1 },
+                  { key: "location", label: "Location", sortOrder: 2 },
+                  { key: "heat_detector", label: "Heat Detector", sortOrder: 3, control: "normal_test_isolation", allowedValues: ["normal", "test", "isolation"] },
+                  { key: "smoke_detector", label: "Smoke Detector", sortOrder: 4, control: "normal_test_isolation", allowedValues: ["normal", "test", "isolation"] }
+                ]
+              }
+            ]
+          },
+          { key: "charger_batteries", blocks: [{ key: "charger_battery_checks", items: [goodPoorItem("battery", "Battery", 1)] }] },
+          { key: "physical_outlook", blocks: [{ key: "physical_outlook_checks", items: [goodPoorItem("cylinder", "Cylinder", 1)] }] },
+          {
+            key: "main_function_key",
+            blocks: [
+              { key: "function_checks", items: [goodPoorItem("alarm_reset", "Alarm Reset", 1)] },
+              { key: "comments", field: { control: "remarks" } }
+            ]
+          }
+        ]
+      };
+      const system = {
+        enabledSystemId: ids.enabledSystem,
+        systemKey: "co2_fire_extinguisher",
+        displayName: "CO2 Fire Extinguisher System",
+        sortOrder: 1,
+        definitionStatus: "confirmed",
+        zones,
+        locations
+      };
+      const job = {
+        id: ids.job,
+        reference: "CONCURRENT-TEST",
+        title: "Concurrent CO2 Test",
+        status: "open",
+        createdAt: new Date().toISOString(),
+        configurationSnapshot: {
+          schemaVersion: 1,
+          customer: { id: ids.customer, code: "TEST", displayName: "Concurrency Test" },
+          configuration: { revisionId: ids.revision, revisionNumber: 1 },
+          template: { id: ids.template, code: "MFE-FSSR", name: "Test Master", version: 1 },
+          enabledSystems: [system]
+        }
+      };
+      const catalog = {
+        id: ids.template,
+        code: "MFE-FSSR",
+        name: "Test Master",
+        version: 1,
+        selectionPolicy: "preset_only",
+        headerDefinition: {},
+        reportBoilerplate: {},
+        systems: [{ key: system.systemKey, displayName: system.displayName, sortOrder: 1, definitionStatus: "confirmed", definition }]
+      };
+      const groupKey = `${ids.job}:co2_fire_extinguisher`;
+      const result = document.querySelector("#result");
+      const show = (value) => { result.textContent = JSON.stringify(value, null, 2); };
+
+      document.querySelector("#reset").addEventListener("click", async () => {
+        await localDatabase.transaction(
+          "rw",
+          localDatabase.masterSystemInspectionGroups,
+          localDatabase.masterSystemFormInstances,
+          localDatabase.syncOutbox,
+          async () => {
+            await localDatabase.masterSystemInspectionGroups.clear();
+            await localDatabase.masterSystemFormInstances.clear();
+            await localDatabase.syncOutbox
+              .where("entityType")
+              .equals("masterSystemFormInstance")
+              .delete();
+          }
+        );
+        show({ status: "reset" });
+      });
+      document.querySelector("#initialize").addEventListener("click", async () => {
+        try {
+          const initialized = await initializeCo2InspectionGroup(job, system, catalog, undefined);
+          show({ status: "initialized", group: initialized.group.groupKey, children: initialized.instances.length });
+        } catch (error) {
+          show({ status: "error", name: error?.name, message: error instanceof Error ? error.message : String(error) });
+        }
+      });
+      document.querySelector("#verify").addEventListener("click", async () => {
+        const before = await listCo2Instances(groupKey);
+        await Promise.all([
+          initializeCo2InspectionGroup(job, system, catalog, undefined),
+          initializeCo2InspectionGroup(job, system, catalog, undefined)
+        ]);
+        const group = await localDatabase.masterSystemInspectionGroups.get(groupKey);
+        const after = await listCo2Instances(groupKey);
+        const outbox = await localDatabase.syncOutbox.where("entityType").equals("masterSystemFormInstance").count();
+        const malformed = structuredClone(after[0]);
+        malformed.responses.detectorRows[0].rowUuid = "not-a-uuid";
+        const malformedRejected = getCo2SubmitIssues(malformed, malformed.responses)
+          .some((issue) => issue.message.includes("valid UUID"));
+        const duplicated = structuredClone(after[0]);
+        duplicated.responses.detectorRows.push(structuredClone(duplicated.responses.detectorRows[0]));
+        const duplicateRejected = getCo2SubmitIssues(duplicated, duplicated.responses)
+          .some((issue) => issue.message.includes("duplicate row identity"));
+        const zoneGroups = group ? groupCo2InstancesByZone(group) : [];
+        const passed = Boolean(
+          group
+          && before.length === 6
+          && after.length === 6
+          && new Set(after.map((item) => item.clientUuid)).size === 6
+          && before.every((item) => after.some((candidate) => candidate.clientUuid === item.clientUuid))
+          && outbox === 0
+          && malformedRejected
+          && duplicateRejected
+          && zoneGroups.length === 3
+        );
+        show({
+          status: passed ? "PASS" : "FAIL",
+          groups: group ? 1 : 0,
+          children: after.length,
+          stableUuids: before.every((item) => after.some((candidate) => candidate.clientUuid === item.clientUuid)),
+          outbox,
+          malformedRejected,
+          duplicateRejected,
+          zoneGroupKeys: zoneGroups.map((zone) => zone.key)
+        });
+      });
+    </script>
+  </body>
+</html>

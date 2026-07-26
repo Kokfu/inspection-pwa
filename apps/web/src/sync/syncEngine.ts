@@ -70,8 +70,12 @@ export async function recoverInterruptedSync() {
     .where("syncStatus")
     .equals("Syncing")
     .toArray();
+  const syncingMasterSystemFormInstances = await localDatabase.masterSystemFormInstances
+    .where("syncStatus")
+    .equals("Syncing")
+    .toArray();
 
-  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0 && syncingMasterSystemInspections.length === 0) {
+  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0 && syncingMasterSystemInspections.length === 0 && syncingMasterSystemFormInstances.length === 0) {
     return 0;
   }
 
@@ -80,6 +84,7 @@ export async function recoverInterruptedSync() {
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
     localDatabase.masterSystemInspections,
+    localDatabase.masterSystemFormInstances,
     localDatabase.syncOutbox,
     async () => {
       await Promise.all(
@@ -115,10 +120,18 @@ export async function recoverInterruptedSync() {
           })
         )
       );
+      await Promise.all(
+        syncingMasterSystemFormInstances.map((record) =>
+          localDatabase.masterSystemFormInstances.update(record.clientUuid, {
+            syncStatus: "Failed",
+            lastSyncError: interruptedSyncMessage
+          })
+        )
+      );
     }
   );
 
-  return syncingItems.length + syncingTestRecords.length + syncingInspections.length + syncingMasterSystemInspections.length;
+  return syncingItems.length + syncingTestRecords.length + syncingInspections.length + syncingMasterSystemInspections.length + syncingMasterSystemFormInstances.length;
 }
 
 export async function syncPendingRecords() {
@@ -148,6 +161,7 @@ export async function syncPendingRecords() {
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
     localDatabase.masterSystemInspections,
+    localDatabase.masterSystemFormInstances,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -164,6 +178,7 @@ export async function syncPendingRecords() {
           const update = { syncStatus: "Syncing" as const, lastSyncError: undefined };
           if (item.entityType === "inspection") return localDatabase.inspectionRecords.update(item.entityId, update);
           if (item.entityType === "masterSystemInspection") return localDatabase.masterSystemInspections.update(item.entityId, update);
+          if (item.entityType === "masterSystemFormInstance") return localDatabase.masterSystemFormInstances.update(item.entityId, update);
           return localDatabase.testRecords.update(item.entityId, update);
         }));
       }
@@ -205,6 +220,7 @@ export async function syncPendingRecords() {
     localDatabase.testRecords,
     localDatabase.inspectionRecords,
     localDatabase.masterSystemInspections,
+    localDatabase.masterSystemFormInstances,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -219,6 +235,8 @@ export async function syncPendingRecords() {
                 await localDatabase.inspectionRecords.update(item.entityId, update);
               } else if (item.entityType === "masterSystemInspection") {
                 await localDatabase.masterSystemInspections.update(item.entityId, update);
+              } else if (item.entityType === "masterSystemFormInstance") {
+                await localDatabase.masterSystemFormInstances.update(item.entityId, update);
               } else {
                 await localDatabase.testRecords.update(item.entityId, update);
               }
@@ -242,6 +260,8 @@ export async function syncPendingRecords() {
               await localDatabase.inspectionRecords.update(item.entityId, update);
             } else if (item.entityType === "masterSystemInspection") {
               await localDatabase.masterSystemInspections.update(item.entityId, update);
+            } else if (item.entityType === "masterSystemFormInstance") {
+              await localDatabase.masterSystemFormInstances.update(item.entityId, update);
             } else {
               await localDatabase.testRecords.update(item.entityId, update);
             }
@@ -270,6 +290,7 @@ export async function syncPendingRecords() {
       localDatabase.testRecords,
       localDatabase.inspectionRecords,
       localDatabase.masterSystemInspections,
+      localDatabase.masterSystemFormInstances,
       localDatabase.syncOutbox,
       async () => {
         await Promise.all(
@@ -287,6 +308,8 @@ export async function syncPendingRecords() {
               await localDatabase.inspectionRecords.update(item.entityId, update);
             } else if (item.entityType === "masterSystemInspection") {
               await localDatabase.masterSystemInspections.update(item.entityId, update);
+            } else if (item.entityType === "masterSystemFormInstance") {
+              await localDatabase.masterSystemFormInstances.update(item.entityId, update);
             } else {
               await localDatabase.testRecords.update(item.entityId, update);
             }

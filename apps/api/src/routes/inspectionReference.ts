@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
+import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -123,6 +124,15 @@ inspectionReferenceRouter.get(
                   template.version
                 )
               }
+            : system.key === "co2_fire_extinguisher"
+              ? {
+                  ...system,
+                  resolvedRuntimeControls: resolveCo2Controls(
+                    system.definition,
+                    template.code,
+                    template.version
+                  )
+                }
             : system)
         }
       });

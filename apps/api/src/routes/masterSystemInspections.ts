@@ -8,7 +8,9 @@ masterSystemInspectionsRouter.get("/master-system-inspections", requireRole("adm
   try {
     const result = await pool.query(`
       SELECT instance.client_uuid AS "clientUuid", job.job_reference AS "jobReference", job.title AS "jobTitle",
-        customer.display_name AS "customerName", inspection.system_key AS "systemKey", instance.status,
+        customer.display_name AS "customerName", inspection.system_key AS "systemKey",
+        instance.instance_key AS "instanceKey", instance.zone_snapshot->>'displayName' AS "zoneName",
+        instance.location_snapshot->>'displayName' AS "locationName", instance.status,
         instance.performed_at AS "performedAt", instance.received_at AS "receivedAt",
         instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
         creator.username AS "verifiedOriginalCreatorUsername",

@@ -7,6 +7,7 @@ export type SystemProgress =
   | "Pending Sync"
   | "Syncing"
   | "Needs Attention"
+  | "In Progress"
   | "Completed";
 
 export function deriveSystemProgress(
