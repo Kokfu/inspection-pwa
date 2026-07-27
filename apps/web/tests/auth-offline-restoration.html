@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Offline authentication restoration test</title>
+  </head>
+  <body>
+    <button id="run" type="button">Run Auth Restoration Test</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { getCurrentUser } from "/src/auth/authApi.ts";
+      import {
+        clearLocalIdentity,
+        getDeviceAuthState,
+        identityFromDeviceState,
+        storeVerifiedIdentity
+      } from "/src/auth/authStateRepository.ts";
+      import { decideAuthRestoration } from "/src/auth/authRestoration.ts";
+      import { shouldRenderLogin } from "/src/auth/authStateTypes.ts";
+      import { localDatabase } from "/src/db/localDatabase.ts";
+
+      const draftId = "auth-restoration-business-data";
+      const user = { id: 41, username: "cached-inspector", role: "inspector" };
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const result = document.querySelector("#result");
+        const originalFetch = window.fetch;
+        try {
+          await localDatabase.open();
+          await localDatabase.authState.clear();
+          await localDatabase.drafts.put({
+            id: draftId,
+            entityType: "auth-test",
+            payload: { preserved: true },
+            updatedAt: new Date().toISOString()
+          });
+          await storeVerifiedIdentity(user);
+          const persisted = await getDeviceAuthState();
+          const cached = identityFromDeviceState(persisted);
+          const allowedKeys = new Set([
+            "key", "schemaVersion", "userId", "username", "role",
+            "lastVerifiedAt", "cachedAt", "explicitLogout",
+            "serverLogoutPending"
+          ]);
+          const safePersistedShape =
+            persisted
+            && Object.keys(persisted).every((key) => allowedKeys.has(key))
+            && !JSON.stringify(persisted).match(/password|token|cookie|secret|csrf/i);
+
+          window.fetch = async () => { throw new TypeError("network unavailable"); };
+          const unavailableProbe = await getCurrentUser(25);
+          const cachedOffline = decideAuthRestoration(cached, unavailableProbe);
+          const emptyOffline = decideAuthRestoration(undefined, unavailableProbe);
+
+          window.fetch = async () => new Response("", { status: 401 });
+          const unauthorizedProbe = await getCurrentUser(25);
+          const unauthorized = decideAuthRestoration(cached, unauthorizedProbe);
+          window.fetch = async () => new Response("", { status: 403 });
+          const forbiddenProbe = await getCurrentUser(25);
+          const forbidden = decideAuthRestoration(cached, forbiddenProbe);
+          const reverified = decideAuthRestoration(cached, {
+            status: "authenticated",
+            user
+          });
+
+          await clearLocalIdentity(true);
+          const explicitLogoutState = await getDeviceAuthState();
+          const loggedOutIdentity = identityFromDeviceState(explicitLogoutState);
+          const businessDraftAfterLogout = await localDatabase.drafts.get(draftId);
+
+          const passed =
+            cachedOffline.kind === "offline-unverified"
+            && emptyOffline.kind === "logged-out"
+            && unauthorized.kind === "logged-out"
+            && unauthorized.clearIdentity
+            && forbidden.kind === "logged-out"
+            && forbidden.clearIdentity
+            && reverified.kind === "verified"
+            && safePersistedShape
+            && explicitLogoutState?.explicitLogout === true
+            && loggedOutIdentity === undefined
+            && businessDraftAfterLogout?.payload?.preserved === true
+            && shouldRenderLogin({ status: "restoring" }) === false
+            && shouldRenderLogin({
+              status: "logged-out",
+              message: "Signed out"
+            }) === true;
+
+          result.textContent = JSON.stringify({
+            status: passed ? "PASS" : "FAIL",
+            cachedNetworkFailure: cachedOffline.kind,
+            noCacheNetworkFailure: emptyOffline.kind,
+            unauthorized: unauthorized.kind,
+            forbidden: forbidden.kind,
+            reconnect200: reverified.kind,
+            safePersistedShape,
+            explicitLogoutBlocksRestore: loggedOutIdentity === undefined,
+            businessDataPreserved: businessDraftAfterLogout?.payload?.preserved === true,
+            restoringLoginHidden: shouldRenderLogin({ status: "restoring" }) === false
+          }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({
+            status: "ERROR",
+            message: error instanceof Error ? error.message : String(error)
+          }, null, 2);
+        } finally {
+          window.fetch = originalFetch;
+          await localDatabase.drafts.delete(draftId);
+          await localDatabase.authState.clear();
+        }
+      });
+    </script>
+  </body>
+</html>

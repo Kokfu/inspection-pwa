@@ -23,6 +23,8 @@ PostgreSQL live data uses the `postgres_data` Docker named volume. Backup export
 
 - PostgreSQL dump.
 - Uploads folder.
+- Attachment manifest with photo UUID, parent inspection UUID, safe relative
+  path, source/stored SHA-256, and stored size.
 - Backup manifest and checksums.
 - Relevant app version/image tags.
 - Restore notes.
@@ -30,6 +32,12 @@ PostgreSQL live data uses the `postgres_data` Docker named volume. Backup export
 ## Verification
 
 Every backup job should verify that output files exist, have non-trivial size, and have a manifest/checksum. Periodically restore into a separate test environment and verify expected tables, rows, and uploaded files.
+
+Photo metadata and files form one recovery set. Use a shared backup timestamp
+and application release ID for the PostgreSQL dump, uploads archive, and
+attachment manifest. Verification must report database rows with missing
+files, files without database rows, and hash/size mismatches. Accept a restore
+only after these checks pass in a separate environment.
 
 ## Restore Outline
 
@@ -49,4 +57,3 @@ Stop API writes
 Retention is a client decision. A starting policy is daily for 14 days, weekly for 8 weeks, and monthly for 12 months.
 
 Backups must be copied off-device or to removable/encrypted storage so a PC or disk failure does not destroy all recoverable data.
-

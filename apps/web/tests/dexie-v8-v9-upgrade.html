@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dexie v8 to v9 upgrade test</title>
+  </head>
+  <body>
+    <button id="run" type="button">Run Dexie Upgrade Test</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      const databaseName = "inspection-pwa";
+      const inspectionUuid = "31000000-0000-4000-8000-000000000001";
+      const operationId = "31000000-0000-4000-8000-000000000002";
+
+      function requestResult(request) {
+        return new Promise((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          request.onblocked = () => reject(new Error("IndexedDB request was blocked"));
+        });
+      }
+
+      function addIndex(store, name, keyPath, unique = false) {
+        store.createIndex(name, keyPath, { unique });
+      }
+
+      async function createVersion8Database() {
+        await requestResult(indexedDB.deleteDatabase(databaseName));
+        const request = indexedDB.open(databaseName, 80);
+        request.onupgradeneeded = () => {
+          const database = request.result;
+          const drafts = database.createObjectStore("drafts", { keyPath: "id" });
+          addIndex(drafts, "entityType", "entityType");
+          addIndex(drafts, "updatedAt", "updatedAt");
+
+          const testRecords = database.createObjectStore("testRecords", { keyPath: "clientUuid" });
+          addIndex(testRecords, "syncStatus", "syncStatus");
+          addIndex(testRecords, "localUpdatedAt", "localUpdatedAt");
+          addIndex(testRecords, "createdAt", "createdAt");
+
+          const inspectionRecords = database.createObjectStore("inspectionRecords", { keyPath: "clientUuid" });
+          addIndex(inspectionRecords, "syncStatus", "syncStatus");
+          addIndex(inspectionRecords, "jobId", "jobId");
+          addIndex(inspectionRecords, "systemKey", "systemKey");
+          addIndex(inspectionRecords, "[jobId+systemKey]", ["jobId", "systemKey"]);
+          addIndex(inspectionRecords, "templateId", "templateId");
+          addIndex(inspectionRecords, "localUpdatedAt", "localUpdatedAt");
+
+          const masterInspections = database.createObjectStore(
+            "masterSystemInspections",
+            { keyPath: "clientUuid" }
+          );
+          addIndex(masterInspections, "jobSystemKey", "jobSystemKey", true);
+          addIndex(masterInspections, "jobId", "jobId");
+          addIndex(masterInspections, "systemKey", "systemKey");
+          addIndex(masterInspections, "syncStatus", "syncStatus");
+          addIndex(masterInspections, "localUpdatedAt", "localUpdatedAt");
+
+          const groups = database.createObjectStore(
+            "masterSystemInspectionGroups",
+            { keyPath: "groupKey" }
+          );
+          addIndex(groups, "jobId", "jobId");
+          addIndex(groups, "systemKey", "systemKey");
+          addIndex(groups, "localUpdatedAt", "localUpdatedAt");
+
+          const instances = database.createObjectStore(
+            "masterSystemFormInstances",
+            { keyPath: "clientUuid" }
+          );
+          addIndex(instances, "[groupKey+instanceKey]", ["groupKey", "instanceKey"], true);
+          addIndex(instances, "groupKey", "groupKey");
+          addIndex(instances, "jobId", "jobId");
+          addIndex(instances, "systemKey", "systemKey");
+          addIndex(instances, "configuredLocationId", "configuredLocationId");
+          addIndex(instances, "syncStatus", "syncStatus");
+          addIndex(instances, "localUpdatedAt", "localUpdatedAt");
+
+          const outbox = database.createObjectStore("syncOutbox", { keyPath: "operationId" });
+          addIndex(outbox, "entityType", "entityType");
+          addIndex(outbox, "entityId", "entityId");
+          addIndex(outbox, "status", "status");
+          addIndex(outbox, "createdAt", "createdAt");
+          addIndex(outbox, "activeKey", "activeKey", true);
+
+          const referenceData = database.createObjectStore("referenceData", { keyPath: "key" });
+          addIndex(referenceData, "version", "version");
+          addIndex(referenceData, "fetchedAt", "fetchedAt");
+          addIndex(referenceData, "expiresAt", "expiresAt");
+          database.createObjectStore("authState", { keyPath: "key" });
+        };
+        const database = await requestResult(request);
+        const timestamp = new Date().toISOString();
+        const transaction = database.transaction(
+          ["masterSystemInspections", "syncOutbox"],
+          "readwrite"
+        );
+        transaction.objectStore("masterSystemInspections").put({
+          clientUuid: inspectionUuid,
+          jobSystemKey: "upgrade-test-job:automatic_sprinkler",
+          jobId: "upgrade-test-job",
+          systemKey: "automatic_sprinkler",
+          syncStatus: "Pending",
+          localUpdatedAt: timestamp
+        });
+        transaction.objectStore("syncOutbox").put({
+          operationId,
+          entityType: "masterSystemInspection",
+          entityId: inspectionUuid,
+          action: "create",
+          payload: { preserved: true },
+          createdAt: timestamp,
+          attempts: 0,
+          status: "Pending",
+          activeKey: `masterSystemInspection:create:${inspectionUuid}`
+        });
+        await new Promise((resolve, reject) => {
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
+        database.close();
+      }
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const result = document.querySelector("#result");
+        try {
+          await createVersion8Database();
+          const { localDatabase } = await import("/src/db/localDatabase.ts");
+          await localDatabase.open();
+          const inspection = await localDatabase.masterSystemInspections.get(inspectionUuid);
+          const outbox = await localDatabase.syncOutbox.get(operationId);
+          const attachments = await localDatabase.inspectionAttachments.count();
+          const passed = localDatabase.verno === 9
+            && inspection?.syncStatus === "Pending"
+            && outbox?.status === "Pending"
+            && outbox?.payload?.preserved === true
+            && attachments === 0;
+          result.textContent = JSON.stringify({
+            status: passed ? "PASS" : "FAIL",
+            databaseVersion: localDatabase.verno,
+            inspectionStatus: inspection?.syncStatus,
+            outboxStatus: outbox?.status,
+            outboxPayloadPreserved: outbox?.payload?.preserved === true,
+            attachmentStoreCreated: localDatabase.tables
+              .some((table) => table.name === "inspectionAttachments"),
+            attachmentCount: attachments
+          }, null, 2);
+          localDatabase.close();
+          await requestResult(indexedDB.deleteDatabase(databaseName));
+        } catch (error) {
+          result.textContent = JSON.stringify({
+            status: "ERROR",
+            name: error?.name,
+            message: error instanceof Error ? error.message : String(error)
+          }, null, 2);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -48,6 +48,7 @@ type EnabledSystemRow = {
   displayName: string;
   sortOrder: number;
   definitionStatus: "confirmed";
+  evidencePolicy: unknown | null;
 };
 
 type ZoneRow = {
@@ -226,11 +227,21 @@ inspectionReferenceRouter.get(
             enabled.system_key AS "key",
             system.display_name AS "displayName",
             enabled.sort_order AS "sortOrder",
-            system.definition_status AS "definitionStatus"
+            system.definition_status AS "definitionStatus",
+            CASE WHEN policy.id IS NULL THEN NULL ELSE jsonb_build_object(
+              'id', policy.id,
+              'code', policy.code,
+              'version', policy.version,
+              'schemaVersion', policy.schema_version,
+              'definition', policy.definition,
+              'definitionSha256', policy.definition_sha256
+            ) END AS "evidencePolicy"
           FROM customer_enabled_systems enabled
           INNER JOIN master_service_report_systems system
             ON system.template_version_id = enabled.template_version_id
            AND system.system_key = enabled.system_key
+          LEFT JOIN inspection_evidence_policies policy
+            ON policy.id = enabled.evidence_policy_id
           WHERE enabled.configuration_revision_id = $1
           ORDER BY enabled.sort_order
         `,
@@ -278,13 +289,17 @@ inspectionReferenceRouter.get(
         customer,
         configuration: {
           ...configuration,
-          enabledSystems: enabledResult.rows.map((system) => ({
-            ...system,
-            zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id),
-            locations: locationsResult.rows.filter(
-              (location) => location.enabledSystemId === system.id
-            )
-          }))
+          enabledSystems: enabledResult.rows.map((system) => {
+            const { evidencePolicy, ...baseSystem } = system;
+            return {
+              ...baseSystem,
+              ...(evidencePolicy ? { evidencePolicy } : {}),
+              zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id),
+              locations: locationsResult.rows.filter(
+                (location) => location.enabledSystemId === system.id
+              )
+            };
+          })
         }
       });
     } catch (error) {

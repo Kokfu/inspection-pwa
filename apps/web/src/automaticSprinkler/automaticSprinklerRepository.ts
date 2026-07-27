@@ -1,4 +1,9 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
+import { attachmentOutboxPayload } from "../attachments/attachmentRepository";
+import type {
+  AttachmentOutboxPayload,
+  InspectionAttachmentRecord
+} from "../attachments/attachmentTypes";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResolvedMeasurementRow, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
@@ -242,9 +247,24 @@ export async function saveAutomaticSprinklerDraft(
   record: AutomaticSprinklerInspectionRecord,
   responses: AutomaticSprinklerResponses
 ) {
-  if (record.syncStatus !== "Draft") throw new Error("Only Draft Automatic Sprinkler inspections can be edited");
-  const next = updated(record, responses, "Draft");
-  await localDatabase.masterSystemInspections.put(next);
+  let next: AutomaticSprinklerInspectionRecord | undefined;
+  await localDatabase.transaction("rw", localDatabase.masterSystemInspections, async () => {
+    const liveRecord = await localDatabase.masterSystemInspections.get(record.clientUuid);
+    if (
+      !liveRecord
+      || liveRecord.systemKey !== "automatic_sprinkler"
+      || liveRecord.syncStatus !== "Draft"
+    ) {
+      throw new Error("Only the current Draft Automatic Sprinkler inspection can be edited");
+    }
+    next = updated(
+      liveRecord as AutomaticSprinklerInspectionRecord,
+      responses,
+      "Draft"
+    );
+    await localDatabase.masterSystemInspections.put(next);
+  });
+  if (!next) throw new Error("Automatic Sprinkler Draft was not saved");
   return next;
 }
 
@@ -266,6 +286,56 @@ function payload(record: AutomaticSprinklerInspectionRecord) {
   };
 }
 
+function attachmentManifestEntry(attachment: InspectionAttachmentRecord) {
+  const {
+    photoUuid,
+    fieldPath,
+    evidencePolicyId,
+    evidencePolicyVersion,
+    captureSource,
+    mimeType,
+    sizeBytes,
+    width,
+    height,
+    sha256,
+    capturedAt
+  } = attachment;
+  return {
+    photoUuid,
+    fieldPath,
+    evidencePolicyId,
+    evidencePolicyVersion,
+    captureSource,
+    mimeType,
+    sizeBytes,
+    width,
+    height,
+    sha256,
+    capturedAt
+  };
+}
+
+function sameManifest(
+  attachments: InspectionAttachmentRecord[],
+  manifest: NonNullable<AutomaticSprinklerInspectionRecord["submittedAttachmentManifest"]>
+) {
+  const current = attachments
+    .map(attachmentManifestEntry)
+    .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
+  const frozen = [...manifest]
+    .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
+  return JSON.stringify(current) === JSON.stringify(frozen);
+}
+
+function isAttachmentPayload(value: unknown): value is AttachmentOutboxPayload {
+  return typeof value === "object"
+    && value !== null
+    && "photoUuid" in value
+    && "inspectionClientUuid" in value
+    && "fieldPath" in value
+    && "sha256" in value;
+}
+
 export async function submitLocalAutomaticSprinkler(
   record: AutomaticSprinklerInspectionRecord,
   responses: AutomaticSprinklerResponses
@@ -274,52 +344,204 @@ export async function submitLocalAutomaticSprinkler(
   if (getAutomaticSprinklerSubmitIssues(responses, record.inspectionSnapshot).length > 0) {
     throw new Error("Complete required Automatic Sprinkler results and PSI values");
   }
-  const next = updated(record, responses, "Pending");
+  const submittedAt = now();
   const activeKey = `masterSystemInspection:create:${record.clientUuid}`;
-  const outbox: SyncOutboxItem = {
-    operationId: crypto.randomUUID(),
-    entityType: "masterSystemInspection",
-    entityId: record.clientUuid,
-    action: "create",
-    payload: payload(next),
-    createdAt: next.localCreatedAt,
-    attempts: 0,
-    status: "Pending",
-    activeKey
-  };
-  await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+  let submittedRecord: AutomaticSprinklerInspectionRecord | undefined;
+  await localDatabase.transaction(
+    "rw",
+    localDatabase.masterSystemInspections,
+    localDatabase.inspectionAttachments,
+    localDatabase.syncOutbox,
+    async () => {
+    const liveRecord = await localDatabase.masterSystemInspections.get(record.clientUuid);
+    if (
+      liveRecord
+      && liveRecord.systemKey === "automatic_sprinkler"
+      && liveRecord.syncStatus !== "Draft"
+      && liveRecord.attachmentSetSubmittedAt
+    ) {
+      submittedRecord = liveRecord as AutomaticSprinklerInspectionRecord;
+      return;
+    }
+    if (
+      !liveRecord
+      || liveRecord.systemKey !== "automatic_sprinkler"
+      || liveRecord.syncStatus !== "Draft"
+    ) {
+      throw new Error("This Automatic Sprinkler inspection was already submitted");
+    }
+    const attachments = await localDatabase.inspectionAttachments
+      .where("inspectionClientUuid")
+      .equals(record.clientUuid)
+      .toArray();
+    const correctionDraft = Boolean(liveRecord.attachmentSetSubmittedAt);
+    const attachmentOutboxItems = (await localDatabase.syncOutbox
+      .where("entityType")
+      .equals("inspectionAttachment")
+      .toArray())
+      .filter((item) =>
+        isAttachmentPayload(item.payload)
+        && item.payload.inspectionClientUuid === record.clientUuid
+      );
+    const legacyManifest = attachmentOutboxItems
+      .map((item) => item.payload)
+      .filter(isAttachmentPayload)
+      .map((item) => ({
+        photoUuid: item.photoUuid,
+        fieldPath: item.fieldPath,
+        evidencePolicyId: item.evidencePolicyId,
+        evidencePolicyVersion: item.evidencePolicyVersion,
+        captureSource: item.captureSource,
+        mimeType: item.mimeType,
+        sizeBytes: item.sizeBytes,
+        width: item.width,
+        height: item.height,
+        sha256: item.sha256,
+        capturedAt: item.capturedAt
+      }));
+    const frozenManifest = liveRecord.submittedAttachmentManifest
+      ?? legacyManifest;
+
+    if (!correctionDraft && attachments.some((attachment) => attachment.syncStatus !== "Draft")) {
+      throw new Error("The submitted photo set is already frozen");
+    }
+    if (correctionDraft && !sameManifest(attachments, frozenManifest)) {
+      throw new Error("The submitted photo set changed and cannot be resubmitted");
+    }
+    if (
+      correctionDraft
+      && attachments.some((attachment) =>
+        !attachmentOutboxItems.some((item) => item.entityId === attachment.photoUuid)
+      )
+    ) {
+      throw new Error("A submitted photo retry operation is missing");
+    }
+    const next: AutomaticSprinklerInspectionRecord = {
+      ...updated(
+        liveRecord as AutomaticSprinklerInspectionRecord,
+        responses,
+        "Pending"
+      ),
+      attachmentSetSubmittedAt: liveRecord.attachmentSetSubmittedAt ?? submittedAt,
+      submittedAttachmentManifest: correctionDraft
+        ? frozenManifest
+        : attachments.map(attachmentManifestEntry)
+    };
+    const outbox: SyncOutboxItem = {
+      operationId: crypto.randomUUID(),
+      entityType: "masterSystemInspection",
+      entityId: record.clientUuid,
+      action: "create",
+      payload: payload(next),
+      createdAt: next.localCreatedAt,
+      attempts: 0,
+      status: "Pending",
+      activeKey
+    };
     await localDatabase.masterSystemInspections.put(next);
-    const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
+    submittedRecord = next;
+    const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first()
+      ?? (await localDatabase.syncOutbox
+        .where("entityType")
+        .equals("masterSystemInspection")
+        .toArray())
+        .find((item) => item.entityId === record.clientUuid && item.action === "create");
     if (existing) {
       await localDatabase.syncOutbox.update(existing.operationId, {
         payload: outbox.payload,
         status: "Pending",
+        activeKey,
+        completedAt: undefined,
         lastError: undefined
       });
     } else {
       await localDatabase.syncOutbox.add(outbox);
     }
+    for (const attachment of attachments) {
+      const attachmentActiveKey =
+        `inspectionAttachment:create:${attachment.photoUuid}`;
+      const attachmentPayload = attachmentOutboxPayload(attachment);
+      const existingAttachmentOutbox = await localDatabase.syncOutbox
+        .where("activeKey")
+        .equals(attachmentActiveKey)
+        .first();
+      if (attachment.syncStatus !== "Synced") {
+        await localDatabase.inspectionAttachments.update(attachment.photoUuid, {
+          syncStatus: "Pending",
+          localUpdatedAt: submittedAt,
+          lastSyncError: undefined
+        });
+      }
+      if (existingAttachmentOutbox) {
+        if (attachment.syncStatus !== "Synced") {
+          await localDatabase.syncOutbox.update(existingAttachmentOutbox.operationId, {
+            payload: attachmentPayload,
+            status: "Pending",
+            activeKey: attachmentActiveKey,
+            completedAt: undefined,
+            lastError: undefined
+          });
+        }
+      } else {
+        if (correctionDraft) {
+          throw new Error("A submitted photo retry operation is missing");
+        }
+        await localDatabase.syncOutbox.add({
+          operationId: crypto.randomUUID(),
+          entityType: "inspectionAttachment",
+          entityId: attachment.photoUuid,
+          action: "create",
+          payload: attachmentPayload,
+          createdAt: submittedAt,
+          attempts: 0,
+          status: "Pending",
+          activeKey: attachmentActiveKey
+        });
+      }
+    }
   });
-  return next;
+  if (!submittedRecord) throw new Error("Automatic Sprinkler inspection was not submitted");
+  return submittedRecord;
 }
 
 export async function returnFailedAutomaticSprinklerToDraft(record: AutomaticSprinklerInspectionRecord) {
-  if (record.syncStatus !== "Failed" && record.syncStatus !== "Conflict") {
-    throw new Error("Only failed Automatic Sprinkler inspections can be corrected");
-  }
-  const next = { ...record, syncStatus: "Draft" as const, localUpdatedAt: now(), lastSyncError: undefined };
   const activeKey = `masterSystemInspection:create:${record.clientUuid}`;
+  let next: AutomaticSprinklerInspectionRecord | undefined;
   await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
-    await localDatabase.masterSystemInspections.put(next);
-    const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
-    if (item) {
-      await localDatabase.syncOutbox.update(item.operationId, {
-        status: "Completed",
-        activeKey: undefined,
-        completedAt: now(),
-        lastError: "Superseded by technician correction"
-      });
+    const liveRecord = await localDatabase.masterSystemInspections.get(record.clientUuid);
+    if (
+      !liveRecord
+      || liveRecord.systemKey !== "automatic_sprinkler"
+      || (liveRecord.syncStatus !== "Failed" && liveRecord.syncStatus !== "Conflict")
+    ) {
+      throw new Error("Only the current failed Automatic Sprinkler inspection can be corrected");
     }
+    const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first()
+      ?? (await localDatabase.syncOutbox
+        .where("entityType")
+        .equals("masterSystemInspection")
+        .toArray())
+        .find((candidate) =>
+          candidate.entityId === record.clientUuid
+          && candidate.action === "create"
+        );
+    if (!item) {
+      throw new Error("The submitted inspection retry operation is missing");
+    }
+    next = {
+      ...liveRecord,
+      syncStatus: "Draft",
+      localUpdatedAt: now(),
+      lastSyncError: undefined
+    } as AutomaticSprinklerInspectionRecord;
+    await localDatabase.masterSystemInspections.put(next);
+    await localDatabase.syncOutbox.update(item.operationId, {
+      status: "Completed",
+      activeKey,
+      completedAt: now(),
+      lastError: "Superseded by technician correction"
+    });
   });
+  if (!next) throw new Error("Automatic Sprinkler inspection was not returned for correction");
   return next;
 }

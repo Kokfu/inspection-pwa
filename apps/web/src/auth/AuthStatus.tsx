@@ -22,7 +22,7 @@ export function AuthStatus({ state, onLogout, onRevalidate }: AuthStatusProps) {
       ) : state.status === "offline-unverified" ? (
         <>
           <p>
-            Offline mode - last verified as <strong>{state.user.username}</strong> at {new Date(state.lastVerifiedAt).toLocaleString()}
+            Offline - identity not reverified. Last verified as <strong>{state.user.username}</strong> at {new Date(state.lastVerifiedAt).toLocaleString()}
           </p>
           <p>Reconnect to verify your session before using server actions.</p>
           <div className="inline-actions">
@@ -30,8 +30,8 @@ export function AuthStatus({ state, onLogout, onRevalidate }: AuthStatusProps) {
             <button type="button" onClick={onLogout}>Logout</button>
           </div>
         </>
-      ) : state.status === "checking" ? (
-        <p>Checking server sign-in</p>
+      ) : state.status === "restoring" ? (
+        <p>Restoring local sign-in</p>
       ) : (
         <p>{state.message}</p>
       )}

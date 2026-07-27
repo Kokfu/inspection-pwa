@@ -142,6 +142,20 @@ export type AutomaticSprinklerInspectionRecord = {
   localCreatedAt: string;
   localUpdatedAt: string;
   lastSyncedAt?: string;
+  attachmentSetSubmittedAt?: string;
+  submittedAttachmentManifest?: Array<{
+    photoUuid: string;
+    fieldPath: string;
+    evidencePolicyId: string;
+    evidencePolicyVersion: number;
+    captureSource: "camera" | "gallery" | "unknown";
+    mimeType: "image/jpeg";
+    sizeBytes: number;
+    width: number;
+    height: number;
+    sha256: string;
+    capturedAt: string;
+  }>;
   syncStatus: SprinklerSyncStatus;
   lastSyncError?: string;
 };

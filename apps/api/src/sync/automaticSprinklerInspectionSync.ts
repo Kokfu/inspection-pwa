@@ -161,6 +161,25 @@ function enabledSystem(snapshot: UnknownRecord) {
   );
 }
 
+function evidencePolicy(system: UnknownRecord) {
+  const policy = system.evidencePolicy;
+  if (policy === undefined) return undefined;
+  if (!isRecord(policy)
+    || !exactKeys(policy, [
+      "id", "code", "version", "schemaVersion", "definition", "definitionSha256"
+    ])
+    || !isUuid(policy.id)
+    || policy.code !== "automatic-sprinkler-psi-evidence"
+    || policy.version !== 1
+    || policy.schemaVersion !== 1
+    || !isRecord(policy.definition)
+    || typeof policy.definitionSha256 !== "string"
+    || !/^[0-9a-f]{64}$/.test(policy.definitionSha256)) {
+    throw new Error("Automatic Sprinkler evidence policy snapshot is invalid");
+  }
+  return policy;
+}
+
 function isExpectedGroupConflict(error: unknown) {
   return isRecord(error) && error.code === "23505" && error.constraint === groupConstraint;
 }
@@ -230,6 +249,36 @@ export async function syncAutomaticSprinklerInspections(
         await client.query("ROLLBACK");
         result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is closed"));
         continue;
+      }
+      let acceptedEvidencePolicy: ReturnType<typeof evidencePolicy>;
+      try {
+        acceptedEvidencePolicy = evidencePolicy(system);
+      } catch {
+        await client.query("ROLLBACK");
+        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Automatic Sprinkler evidence policy is invalid"));
+        continue;
+      }
+      if (acceptedEvidencePolicy) {
+        const policyResult = await client.query(
+          `SELECT 1 FROM inspection_evidence_policies
+            WHERE id = $1 AND code = $2 AND version = $3
+              AND schema_version = $4 AND system_key = 'automatic_sprinkler'
+              AND definition = $5::jsonb AND definition_sha256 = $6
+              AND publication_status = 'published'`,
+          [
+            acceptedEvidencePolicy.id,
+            acceptedEvidencePolicy.code,
+            acceptedEvidencePolicy.version,
+            acceptedEvidencePolicy.schemaVersion,
+            JSON.stringify(acceptedEvidencePolicy.definition),
+            acceptedEvidencePolicy.definitionSha256
+          ]
+        );
+        if (policyResult.rowCount !== 1) {
+          await client.query("ROLLBACK");
+          result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Automatic Sprinkler evidence policy is unavailable"));
+          continue;
+        }
       }
       const definitionResult = await client.query<{ definition: unknown; definition_status: string }>(
         `SELECT definition, definition_status
@@ -326,12 +375,20 @@ export async function syncAutomaticSprinklerInspections(
           zone_snapshot, location_snapshot, display_sequence, master_template_version_id,
           customer_configuration_revision_id, snapshot_schema_version, inspection_snapshot,
           response_schema_version, response_payload, request_fingerprint, status, performed_at,
-          original_creator_snapshot, synced_by_user_id
-        ) VALUES ($1,$2,$3,'primary',NULL,NULL,NULL,NULL,1,$4,$5,1,$6,1,$7,$8,'submitted',$9,$10,$11)`,
+          original_creator_snapshot, synced_by_user_id, evidence_policy_id,
+          evidence_policy_version, evidence_policy_snapshot, evidence_policy_sha256
+        ) VALUES (
+          $1,$2,$3,'primary',NULL,NULL,NULL,NULL,1,$4,$5,1,$6,1,$7,$8,
+          'submitted',$9,$10,$11,$12,$13,$14,$15
+        )`,
         [
           randomUUID(), groupId, payload.clientUuid, payload.masterTemplate.id,
           payload.configuration.revisionId, canonicalSnapshot, payload.responses,
-          requestFingerprint, payload.performedAt, payload.originalCreatorSnapshot, actorUserId
+          requestFingerprint, payload.performedAt, payload.originalCreatorSnapshot, actorUserId,
+          acceptedEvidencePolicy?.id ?? null,
+          acceptedEvidencePolicy?.version ?? null,
+          acceptedEvidencePolicy?.definition ?? null,
+          acceptedEvidencePolicy?.definitionSha256 ?? null
         ]
       );
       await client.query("COMMIT");

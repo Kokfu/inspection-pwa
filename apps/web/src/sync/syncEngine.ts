@@ -1,4 +1,8 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
+import {
+  AttachmentUploadError,
+  uploadInspectionAttachment
+} from "../attachments/attachmentApi";
 
 type SyncFailedItem = {
   id: string;
@@ -32,7 +36,10 @@ export async function pruneCompletedOutboxItems(now = Date.now()) {
     .equals("Completed")
     .toArray();
   const expiredOperationIds = completedItems
-    .filter((item) => Date.parse(item.completedAt ?? item.lastAttemptAt ?? item.createdAt) < cutoff)
+    .filter((item) =>
+      !item.activeKey
+      && Date.parse(item.completedAt ?? item.lastAttemptAt ?? item.createdAt) < cutoff
+    )
     .map((item) => item.operationId);
 
   if (expiredOperationIds.length === 0) {
@@ -74,18 +81,25 @@ export async function recoverInterruptedSync() {
     .where("syncStatus")
     .equals("Syncing")
     .toArray();
+  const uploadingAttachments = await localDatabase.inspectionAttachments
+    .where("syncStatus")
+    .equals("Uploading")
+    .toArray();
 
-  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0 && syncingMasterSystemInspections.length === 0 && syncingMasterSystemFormInstances.length === 0) {
+  if (syncingItems.length === 0 && syncingTestRecords.length === 0 && syncingInspections.length === 0 && syncingMasterSystemInspections.length === 0 && syncingMasterSystemFormInstances.length === 0 && uploadingAttachments.length === 0) {
     return 0;
   }
 
   await localDatabase.transaction(
     "rw",
-    localDatabase.testRecords,
-    localDatabase.inspectionRecords,
-    localDatabase.masterSystemInspections,
-    localDatabase.masterSystemFormInstances,
-    localDatabase.syncOutbox,
+    [
+      localDatabase.testRecords,
+      localDatabase.inspectionRecords,
+      localDatabase.masterSystemInspections,
+      localDatabase.masterSystemFormInstances,
+      localDatabase.inspectionAttachments,
+      localDatabase.syncOutbox
+    ],
     async () => {
       await Promise.all(
         syncingItems.map((item) =>
@@ -128,10 +142,121 @@ export async function recoverInterruptedSync() {
           })
         )
       );
+      await Promise.all(
+        uploadingAttachments.map((attachment) =>
+          localDatabase.inspectionAttachments.update(attachment.photoUuid, {
+            syncStatus: "Failed",
+            lastSyncError: interruptedSyncMessage,
+            localUpdatedAt: interruptedAt
+          })
+        )
+      );
     }
   );
 
-  return syncingItems.length + syncingTestRecords.length + syncingInspections.length + syncingMasterSystemInspections.length + syncingMasterSystemFormInstances.length;
+  return syncingItems.length + syncingTestRecords.length + syncingInspections.length + syncingMasterSystemInspections.length + syncingMasterSystemFormInstances.length + uploadingAttachments.length;
+}
+
+async function syncPendingAttachments() {
+  const items = (await localDatabase.syncOutbox
+    .where("status")
+    .anyOf("Pending", "Failed")
+    .toArray())
+    .filter((item) =>
+      item.entityType === "inspectionAttachment" && shouldSync(item)
+    );
+  let accepted = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    const attachment = await localDatabase.inspectionAttachments.get(item.entityId);
+    if (!attachment) {
+      await localDatabase.syncOutbox.update(item.operationId, {
+        status: "Failed",
+        lastError: "Local photo Blob is unavailable"
+      });
+      failed += 1;
+      continue;
+    }
+    const parent = await localDatabase.masterSystemInspections.get(
+      attachment.inspectionClientUuid
+    );
+    if (!parent || parent.syncStatus !== "Synced") continue;
+
+    const startedAt = new Date().toISOString();
+    await localDatabase.transaction(
+      "rw",
+      localDatabase.inspectionAttachments,
+      localDatabase.syncOutbox,
+      async () => {
+        await localDatabase.inspectionAttachments.update(attachment.photoUuid, {
+          syncStatus: "Uploading",
+          lastSyncError: undefined,
+          localUpdatedAt: startedAt
+        });
+        await localDatabase.syncOutbox.update(item.operationId, {
+          status: "Syncing",
+          attempts: item.attempts + 1,
+          lastAttemptAt: startedAt,
+          lastError: undefined
+        });
+      }
+    );
+
+    try {
+      const result = await uploadInspectionAttachment(attachment);
+      const syncedAt = new Date().toISOString();
+      await localDatabase.transaction(
+        "rw",
+        localDatabase.inspectionAttachments,
+        localDatabase.syncOutbox,
+        async () => {
+          await localDatabase.inspectionAttachments.update(attachment.photoUuid, {
+            syncStatus: "Synced",
+            storedSha256: result.attachment.storedSha256,
+            serverAttachmentId: result.attachment.serverAttachmentId,
+            lastSyncedAt: syncedAt,
+            lastSyncError: undefined,
+            localUpdatedAt: syncedAt
+          });
+          await localDatabase.syncOutbox.update(item.operationId, {
+            status: "Completed",
+            activeKey: undefined,
+            completedAt: syncedAt,
+            lastError: undefined
+          });
+        }
+      );
+      accepted += 1;
+    } catch (error) {
+      const message = failureMessage(error);
+      const conflict = error instanceof AttachmentUploadError
+        && (
+          error.code === "IDEMPOTENCY_CONFLICT"
+          || error.code === "ATTACHMENT_FIELD_OCCUPIED"
+        );
+      const failedAt = new Date().toISOString();
+      await localDatabase.transaction(
+        "rw",
+        localDatabase.inspectionAttachments,
+        localDatabase.syncOutbox,
+        async () => {
+          await localDatabase.inspectionAttachments.update(attachment.photoUuid, {
+            syncStatus: conflict ? "Conflict" : "Failed",
+            lastSyncError: message,
+            localUpdatedAt: failedAt
+          });
+          await localDatabase.syncOutbox.update(item.operationId, {
+            status: "Failed",
+            lastAttemptAt: failedAt,
+            lastError: message
+          });
+        }
+      );
+      failed += 1;
+    }
+  }
+  return { accepted, failed, pending: items.length - accepted - failed };
 }
 
 export async function syncPendingRecords() {
@@ -149,10 +274,18 @@ export async function syncPendingRecords() {
       .where("status")
       .anyOf("Pending", "Failed")
       .toArray())
-      .filter(shouldSync)
+      .filter((item) =>
+        item.entityType !== "inspectionAttachment" && shouldSync(item)
+      );
 
     if (items.length === 0) {
-      return { started: true, message: "No pending records" };
+      const evidence = await syncPendingAttachments();
+      return {
+        started: true,
+        message: evidence.accepted || evidence.failed || evidence.pending
+          ? `Evidence sync finished: ${evidence.accepted} confirmed, ${evidence.failed} failed, ${evidence.pending} waiting for parent`
+          : "No pending records"
+      };
     }
 
     const ids = items.map((item) => item.operationId);
@@ -276,7 +409,13 @@ export async function syncPendingRecords() {
 
     void pruneCompletedOutboxItems().catch(() => undefined);
 
-    return { started: true, message: "Sync finished" };
+    const evidence = await syncPendingAttachments();
+    return {
+      started: true,
+      message: evidence.accepted || evidence.failed || evidence.pending
+        ? `Sync finished; evidence: ${evidence.accepted} confirmed, ${evidence.failed} failed, ${evidence.pending} waiting for parent`
+        : "Sync finished"
+    };
   } catch (error) {
     const message = failureMessage(error);
     const failedAt = new Date().toISOString();

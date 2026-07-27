@@ -6,6 +6,7 @@ export type ApiConfig = {
   sessionCookieName: string;
   sessionDurationHours: number;
   nodeEnv: string;
+  uploadsPath: string;
 };
 
 export function loadConfig(): ApiConfig {
@@ -20,6 +21,7 @@ export function loadConfig(): ApiConfig {
       process.env.NODE_ENV !== "production",
     sessionCookieName: process.env.SESSION_COOKIE_NAME ?? "inspection_session",
     sessionDurationHours: Number(process.env.SESSION_DURATION_HOURS ?? 12),
-    nodeEnv: process.env.NODE_ENV ?? "production"
+    nodeEnv: process.env.NODE_ENV ?? "production",
+    uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads"
   };
 }

@@ -25,6 +25,28 @@ export type JobSystemSnapshot = {
   definitionStatus: "confirmed";
   zones: JobZoneSnapshot[];
   locations: JobLocationSnapshot[];
+  evidencePolicy?: EvidencePolicySnapshot;
+};
+
+export type EvidencePolicyPoint = {
+  allowed: boolean;
+  required: boolean;
+  maxCount: number;
+};
+
+export type EvidencePolicySnapshot = {
+  id: string;
+  code: string;
+  version: number;
+  schemaVersion: number;
+  definition: {
+    schemaVersion: number;
+    code: string;
+    version: number;
+    systemKey: string;
+    points: Record<string, EvidencePolicyPoint>;
+  };
+  definitionSha256: string;
 };
 
 export type JobConfigurationSnapshot = {

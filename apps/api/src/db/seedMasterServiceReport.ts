@@ -1,4 +1,10 @@
 import type { Pool, PoolClient } from "pg";
+import {
+  automaticSprinklerPsiEvidencePolicyCode,
+  automaticSprinklerPsiEvidencePolicyId,
+  automaticSprinklerPsiEvidencePolicySha256,
+  automaticSprinklerPsiEvidencePolicyV1
+} from "../inspections/evidence/automaticSprinklerPsiEvidencePolicyV1.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 
 const demoSingleCustomerId = "00000000-0000-4000-8000-000000000510";
@@ -11,10 +17,14 @@ const demoCo2EnabledSystemId = "00000000-0000-4000-8000-000000000672";
 const demoSprinklerCustomerId = "00000000-0000-4000-8000-000000000700";
 const demoSprinklerRevisionId = "00000000-0000-4000-8000-000000000701";
 const demoSprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000702";
+const demoPhotoSprinklerCustomerId = "00000000-0000-4000-8000-000000000720";
+const demoPhotoSprinklerRevisionId = "00000000-0000-4000-8000-000000000721";
+const demoPhotoSprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000722";
 const demoSingleJobId = "00000000-0000-4000-8000-000000000580";
 const demoMultiJobId = "00000000-0000-4000-8000-000000000590";
 const demoCo2JobId = "00000000-0000-4000-8000-000000000679";
 const demoSprinklerJobId = "00000000-0000-4000-8000-000000000709";
+const demoPhotoSprinklerJobId = "00000000-0000-4000-8000-000000000729";
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
@@ -26,6 +36,12 @@ const demoSprinklerCustomer = {
   code: "DEMO-AUTOMATIC-SPRINKLER",
   name: "Demo Automatic Sprinkler Client",
   revisionId: demoSprinklerRevisionId
+} as const;
+const demoPhotoSprinklerCustomer = {
+  id: demoPhotoSprinklerCustomerId,
+  code: "DEMO-SPRINKLER-PHOTO",
+  name: "Demo Sprinkler Photo Evidence Client",
+  revisionId: demoPhotoSprinklerRevisionId
 } as const;
 const demoCo2Zones = [
   { id: "00000000-0000-4000-8000-000000000681", key: "zone-1", name: "Zone 1", sortOrder: 1 },
@@ -97,6 +113,12 @@ type SnapshotSystemRow = {
   displayName: string;
   sortOrder: number;
   definitionStatus: "confirmed";
+  evidencePolicyId: string | null;
+  evidencePolicyCode: string | null;
+  evidencePolicyVersion: number | null;
+  evidencePolicySchemaVersion: number | null;
+  evidencePolicyDefinition: unknown;
+  evidencePolicySha256: string | null;
 };
 
 type SnapshotZoneRow = {
@@ -246,27 +268,67 @@ async function seedCustomer(
   }
 }
 
+async function seedEvidencePolicy(client: PoolClient) {
+  await insertFixture("Automatic Sprinkler PSI Evidence Policy V1", client.query(
+    `
+      INSERT INTO inspection_evidence_policies (
+        id, code, version, schema_version, system_key, definition,
+        definition_sha256, publication_status
+      )
+      VALUES ($1, $2, 1, 1, 'automatic_sprinkler', $3, $4, 'published')
+      ON CONFLICT (id) DO NOTHING
+    `,
+    [
+      automaticSprinklerPsiEvidencePolicyId,
+      automaticSprinklerPsiEvidencePolicyCode,
+      JSON.stringify(automaticSprinklerPsiEvidencePolicyV1),
+      automaticSprinklerPsiEvidencePolicySha256
+    ]
+  ));
+  const stored = await client.query<Record<string, unknown>>(
+    `SELECT id, code, version, schema_version AS "schemaVersion",
+        system_key AS "systemKey", definition,
+        definition_sha256 AS "definitionSha256",
+        publication_status AS "publicationStatus"
+       FROM inspection_evidence_policies WHERE id = $1`,
+    [automaticSprinklerPsiEvidencePolicyId]
+  );
+  assertFixtureFields("Automatic Sprinkler PSI Evidence Policy V1", stored.rows[0], {
+    id: automaticSprinklerPsiEvidencePolicyId,
+    code: automaticSprinklerPsiEvidencePolicyCode,
+    version: 1,
+    schemaVersion: 1,
+    systemKey: "automatic_sprinkler",
+    definition: automaticSprinklerPsiEvidencePolicyV1,
+    definitionSha256: automaticSprinklerPsiEvidencePolicySha256,
+    publicationStatus: "published"
+  });
+}
+
 async function seedEnabledSystem(
   client: PoolClient,
   id: string,
   revisionId: string,
   systemKey: string,
-  sortOrder: number
+  sortOrder: number,
+  evidencePolicyId: string | null = null
 ) {
   await insertFixture(`Demo enabled system ${id}`, client.query(
     `
       INSERT INTO customer_enabled_systems (
-        id, configuration_revision_id, template_version_id, system_key, sort_order
+        id, configuration_revision_id, template_version_id, system_key, sort_order,
+        evidence_policy_id
       )
-      VALUES ($1, $2, $3, $4, $5)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (id) DO NOTHING
     `,
-    [id, revisionId, masterServiceReportV1.id, systemKey, sortOrder]
+    [id, revisionId, masterServiceReportV1.id, systemKey, sortOrder, evidencePolicyId]
   ));
   const stored = await client.query<Record<string, unknown>>(
     `SELECT enabled.id, enabled.configuration_revision_id AS "configurationRevisionId",
         enabled.template_version_id AS "templateVersionId", enabled.system_key AS "systemKey",
-        enabled.sort_order AS "sortOrder", system.definition_status AS "definitionStatus"
+        enabled.sort_order AS "sortOrder", system.definition_status AS "definitionStatus",
+        enabled.evidence_policy_id AS "evidencePolicyId"
        FROM customer_enabled_systems enabled
        INNER JOIN master_service_report_systems system
          ON system.template_version_id = enabled.template_version_id
@@ -280,7 +342,8 @@ async function seedEnabledSystem(
     templateVersionId: masterServiceReportV1.id,
     systemKey,
     sortOrder,
-    definitionStatus: "confirmed"
+    definitionStatus: "confirmed",
+    evidencePolicyId
   });
 }
 
@@ -499,7 +562,48 @@ async function assertSprinklerFixtureMembership(client: PoolClient) {
   }
 }
 
+async function assertPhotoSprinklerFixtureMembership(client: PoolClient) {
+  const enabledSystems = await client.query<Record<string, unknown>>(
+    `SELECT enabled.id, enabled.configuration_revision_id AS "configurationRevisionId",
+        enabled.template_version_id AS "templateVersionId", enabled.system_key AS "systemKey",
+        enabled.sort_order AS "sortOrder", system.definition_status AS "definitionStatus",
+        enabled.evidence_policy_id AS "evidencePolicyId"
+       FROM customer_enabled_systems enabled
+       INNER JOIN master_service_report_systems system
+         ON system.template_version_id = enabled.template_version_id
+        AND system.system_key = enabled.system_key
+       WHERE enabled.configuration_revision_id = $1
+       ORDER BY enabled.sort_order, enabled.id`,
+    [demoPhotoSprinklerRevisionId]
+  );
+  if (enabledSystems.rowCount !== 1) {
+    throw new Error(
+      `Photo-enabled sprinkler configuration must contain exactly one enabled system; found ${enabledSystems.rowCount}`
+    );
+  }
+  assertFixtureFields("Photo-enabled sprinkler system membership", enabledSystems.rows[0], {
+    id: demoPhotoSprinklerEnabledSystemId,
+    configurationRevisionId: demoPhotoSprinklerRevisionId,
+    templateVersionId: masterServiceReportV1.id,
+    systemKey: "automatic_sprinkler",
+    sortOrder: 1,
+    definitionStatus: "confirmed",
+    evidencePolicyId: automaticSprinklerPsiEvidencePolicyId
+  });
+
+  const counts = await client.query<{ zones: number; locations: number }>(
+    `SELECT
+      (SELECT count(*)::integer FROM customer_system_zones WHERE enabled_system_id = $1) AS zones,
+      (SELECT count(*)::integer FROM customer_system_locations WHERE enabled_system_id = $1) AS locations`,
+    [demoPhotoSprinklerEnabledSystemId]
+  );
+  if (counts.rows[0]?.zones !== 0 || counts.rows[0]?.locations !== 0) {
+    throw new Error("Photo-enabled sprinkler configuration must have zero zones and zero locations");
+  }
+}
+
 async function seedDemoConfigurations(client: PoolClient) {
+  await seedEvidencePolicy(client);
   await seedCustomer(client, {
     id: demoSingleCustomerId,
     code: "DEMO-SINGLE-ZONE",
@@ -514,6 +618,7 @@ async function seedDemoConfigurations(client: PoolClient) {
   });
   await seedCustomer(client, demoCo2Customer);
   await seedCustomer(client, demoSprinklerCustomer);
+  await seedCustomer(client, demoPhotoSprinklerCustomer);
 
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
@@ -589,6 +694,15 @@ async function seedDemoConfigurations(client: PoolClient) {
     1
   );
   await assertSprinklerFixtureMembership(client);
+  await seedEnabledSystem(
+    client,
+    demoPhotoSprinklerEnabledSystemId,
+    demoPhotoSprinklerRevisionId,
+    "automatic_sprinkler",
+    1,
+    automaticSprinklerPsiEvidencePolicyId
+  );
+  await assertPhotoSprinklerFixtureMembership(client);
 }
 
 async function buildJobConfigurationSnapshot(
@@ -627,11 +741,19 @@ async function buildJobConfigurationSnapshot(
         enabled.system_key AS "systemKey",
         system.display_name AS "displayName",
         enabled.sort_order AS "sortOrder",
-        system.definition_status AS "definitionStatus"
+        system.definition_status AS "definitionStatus",
+        policy.id AS "evidencePolicyId",
+        policy.code AS "evidencePolicyCode",
+        policy.version AS "evidencePolicyVersion",
+        policy.schema_version AS "evidencePolicySchemaVersion",
+        policy.definition AS "evidencePolicyDefinition",
+        policy.definition_sha256 AS "evidencePolicySha256"
       FROM customer_enabled_systems enabled
       INNER JOIN master_service_report_systems system
         ON system.template_version_id = enabled.template_version_id
        AND system.system_key = enabled.system_key
+      LEFT JOIN inspection_evidence_policies policy
+        ON policy.id = enabled.evidence_policy_id
       WHERE enabled.configuration_revision_id = $1
         AND system.definition_status = 'confirmed'
       ORDER BY enabled.sort_order
@@ -694,13 +816,34 @@ async function buildJobConfigurationSnapshot(
       name: configuration.templateName,
       version: configuration.templateVersion
     },
-    enabledSystems: systemsResult.rows.map((system) => ({
-      ...system,
-      zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.enabledSystemId),
-      locations: locationsResult.rows.filter(
-        (location) => location.enabledSystemId === system.enabledSystemId
-      )
-    }))
+    enabledSystems: systemsResult.rows.map((system) => {
+      const {
+        evidencePolicyId,
+        evidencePolicyCode,
+        evidencePolicyVersion,
+        evidencePolicySchemaVersion,
+        evidencePolicyDefinition,
+        evidencePolicySha256,
+        ...baseSystem
+      } = system;
+      return {
+        ...baseSystem,
+        ...(evidencePolicyId ? {
+          evidencePolicy: {
+            id: evidencePolicyId,
+            code: evidencePolicyCode,
+            version: evidencePolicyVersion,
+            schemaVersion: evidencePolicySchemaVersion,
+            definition: evidencePolicyDefinition,
+            definitionSha256: evidencePolicySha256
+          }
+        } : {}),
+        zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.enabledSystemId),
+        locations: locationsResult.rows.filter(
+          (location) => location.enabledSystemId === system.enabledSystemId
+        )
+      };
+    })
   };
 }
 
@@ -859,6 +1002,107 @@ export async function assertExistingSprinklerFixtureBeforeSeed(client: PoolClien
   });
 }
 
+async function assertExistingPhotoSprinklerFixtureBeforeSeed(client: PoolClient) {
+  const footprint = await client.query<{ count: number }>(
+    `SELECT (
+        (SELECT count(*) FROM inspection_evidence_policies
+          WHERE id = $1 OR (code = $2 AND version = 1))
+        + (SELECT count(*) FROM customers WHERE id = $3 OR customer_code = $4)
+        + (SELECT count(*) FROM customer_configuration_revisions WHERE id = $5)
+        + (SELECT count(*) FROM customer_enabled_systems WHERE id = $6)
+        + (SELECT count(*) FROM customer_system_zones WHERE enabled_system_id = $6)
+        + (SELECT count(*) FROM customer_system_locations WHERE enabled_system_id = $6)
+        + (SELECT count(*) FROM inspection_jobs WHERE id = $7 OR job_reference = $8)
+      )::integer AS count`,
+    [
+      automaticSprinklerPsiEvidencePolicyId,
+      automaticSprinklerPsiEvidencePolicyCode,
+      demoPhotoSprinklerCustomerId,
+      demoPhotoSprinklerCustomer.code,
+      demoPhotoSprinklerRevisionId,
+      demoPhotoSprinklerEnabledSystemId,
+      demoPhotoSprinklerJobId,
+      "DEMO-JOB-SPRINKLER-PHOTO-001"
+    ]
+  );
+  if ((footprint.rows[0]?.count ?? 0) === 0) return;
+
+  const policy = await client.query<Record<string, unknown>>(
+    `SELECT id, code, version, schema_version AS "schemaVersion",
+        system_key AS "systemKey", definition,
+        definition_sha256 AS "definitionSha256",
+        publication_status AS "publicationStatus"
+       FROM inspection_evidence_policies WHERE id = $1`,
+    [automaticSprinklerPsiEvidencePolicyId]
+  );
+  assertFixtureFields("Existing Automatic Sprinkler PSI Evidence Policy V1", policy.rows[0], {
+    id: automaticSprinklerPsiEvidencePolicyId,
+    code: automaticSprinklerPsiEvidencePolicyCode,
+    version: 1,
+    schemaVersion: 1,
+    systemKey: "automatic_sprinkler",
+    definition: automaticSprinklerPsiEvidencePolicyV1,
+    definitionSha256: automaticSprinklerPsiEvidencePolicySha256,
+    publicationStatus: "published"
+  });
+
+  const customer = await client.query<Record<string, unknown>>(
+    `SELECT id, customer_code AS code, display_name AS name,
+        is_demo AS "isDemo", is_active AS "isActive"
+       FROM customers WHERE id = $1`,
+    [demoPhotoSprinklerCustomerId]
+  );
+  assertFixtureFields("Existing photo-enabled sprinkler customer", customer.rows[0], {
+    id: demoPhotoSprinklerCustomerId,
+    code: demoPhotoSprinklerCustomer.code,
+    name: demoPhotoSprinklerCustomer.name,
+    isDemo: true,
+    isActive: true
+  });
+
+  const revision = await client.query<Record<string, unknown>>(
+    `SELECT id, customer_id AS "customerId", template_version_id AS "templateVersionId",
+        revision, status FROM customer_configuration_revisions WHERE id = $1`,
+    [demoPhotoSprinklerRevisionId]
+  );
+  assertFixtureFields("Existing photo-enabled sprinkler configuration", revision.rows[0], {
+    id: demoPhotoSprinklerRevisionId,
+    customerId: demoPhotoSprinklerCustomerId,
+    templateVersionId: masterServiceReportV1.id,
+    revision: 1,
+    status: "active"
+  });
+  await assertPhotoSprinklerFixtureMembership(client);
+
+  const snapshot = await buildJobConfigurationSnapshot(
+    client,
+    demoPhotoSprinklerCustomerId,
+    demoPhotoSprinklerRevisionId
+  );
+  const job = await client.query<Record<string, unknown>>(
+    `SELECT id, template_id AS "templateId",
+        master_template_version_id AS "masterTemplateVersionId",
+        job_reference AS reference, title, status, is_sample AS "isSample",
+        customer_id AS "customerId",
+        customer_configuration_revision_id AS "configurationRevisionId",
+        configuration_snapshot AS snapshot
+       FROM inspection_jobs WHERE id = $1`,
+    [demoPhotoSprinklerJobId]
+  );
+  assertFixtureFields("Existing photo-enabled sprinkler job", job.rows[0], {
+    id: demoPhotoSprinklerJobId,
+    templateId: null,
+    masterTemplateVersionId: masterServiceReportV1.id,
+    reference: "DEMO-JOB-SPRINKLER-PHOTO-001",
+    title: "Demo Automatic Sprinkler Photo Evidence Job",
+    status: "open",
+    isSample: true,
+    customerId: demoPhotoSprinklerCustomerId,
+    configurationRevisionId: demoPhotoSprinklerRevisionId,
+    snapshot
+  });
+}
+
 async function seedDemoJob(
   client: PoolClient,
   values: {
@@ -935,6 +1179,19 @@ async function seedDemoJob(
       throw new Error(`Automatic Sprinkler demo configuration must have exactly its deterministic job; found ${jobs.rowCount}`);
     }
   }
+  if (values.id === demoPhotoSprinklerJobId) {
+    const jobs = await client.query<{ id: string }>(
+      `SELECT id FROM inspection_jobs
+        WHERE customer_configuration_revision_id = $1
+        ORDER BY id`,
+      [demoPhotoSprinklerRevisionId]
+    );
+    if (jobs.rowCount !== 1 || jobs.rows[0]?.id !== demoPhotoSprinklerJobId) {
+      throw new Error(
+        `Photo-enabled sprinkler configuration must have exactly its deterministic job; found ${jobs.rowCount}`
+      );
+    }
+  }
 }
 
 async function seedDemoJobs(client: PoolClient) {
@@ -966,6 +1223,13 @@ async function seedDemoJobs(client: PoolClient) {
     customerId: demoSprinklerCustomerId,
     revisionId: demoSprinklerRevisionId
   });
+  await seedDemoJob(client, {
+    id: demoPhotoSprinklerJobId,
+    reference: "DEMO-JOB-SPRINKLER-PHOTO-001",
+    title: "Demo Automatic Sprinkler Photo Evidence Job",
+    customerId: demoPhotoSprinklerCustomerId,
+    revisionId: demoPhotoSprinklerRevisionId
+  });
 }
 
 export async function seedMasterServiceReport(pool: Pool) {
@@ -975,6 +1239,7 @@ export async function seedMasterServiceReport(pool: Pool) {
     await seedTemplate(client);
     await assertExistingCo2FixtureBeforeSeed(client);
     await assertExistingSprinklerFixtureBeforeSeed(client);
+    await assertExistingPhotoSprinklerFixtureBeforeSeed(client);
     await seedDemoConfigurations(client);
     await seedDemoJobs(client);
     await client.query("COMMIT");

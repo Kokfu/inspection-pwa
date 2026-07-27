@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -27,16 +28,19 @@ export type ReferenceCacheEntry = {
 
 export type DeviceAuthState = {
   key: "device-auth";
+  schemaVersion?: 1;
   userId?: number;
   username?: string;
   role?: "admin" | "inspector";
   lastVerifiedAt?: string;
+  cachedAt?: string;
+  explicitLogout?: boolean;
   serverLogoutPending: boolean;
 };
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -104,6 +108,7 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   syncOutbox: EntityTable<SyncOutboxItem, "operationId">;
   referenceData: EntityTable<ReferenceCacheEntry, "key">;
   authState: EntityTable<DeviceAuthState, "key">;
+  inspectionAttachments: EntityTable<InspectionAttachmentRecord, "photoUuid">;
 };
 
 localDatabase.version(1).stores({
@@ -212,6 +217,19 @@ localDatabase.version(8).stores({
   syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
   referenceData: "key, version, fetchedAt, expiresAt",
   authState: "key"
+});
+
+localDatabase.version(9).stores({
+  drafts: "id, entityType, updatedAt",
+  testRecords: "clientUuid, syncStatus, localUpdatedAt, createdAt",
+  inspectionRecords: "clientUuid, syncStatus, jobId, systemKey, [jobId+systemKey], templateId, localUpdatedAt",
+  masterSystemInspections: "clientUuid, &jobSystemKey, jobId, systemKey, syncStatus, localUpdatedAt",
+  masterSystemInspectionGroups: "groupKey, jobId, systemKey, localUpdatedAt",
+  masterSystemFormInstances: "clientUuid, &[groupKey+instanceKey], groupKey, jobId, systemKey, configuredLocationId, syncStatus, localUpdatedAt",
+  syncOutbox: "operationId, entityType, entityId, status, createdAt, &activeKey",
+  referenceData: "key, version, fetchedAt, expiresAt",
+  authState: "key",
+  inspectionAttachments: "photoUuid, &[inspectionClientUuid+fieldPath], inspectionClientUuid, systemKey, syncStatus, localUpdatedAt, serverAttachmentId"
 });
 
 export async function initializeLocalDatabase() {

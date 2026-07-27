@@ -1,4 +1,5 @@
 import type { ClientAuthState } from "../auth/authStateTypes";
+import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
@@ -7,9 +8,17 @@ import type {
   MasterSystemInspectionGroupRecord
 } from "../co2/co2Types";
 import { deriveCo2ParentProgress } from "../co2/co2Progress";
-import { deriveMasterSystemProgress, deriveSystemProgress } from "./jobProgress";
+import {
+  deriveAutomaticSprinklerProgress,
+  deriveMasterSystemProgress,
+  deriveNoLocalSystemProgress,
+  deriveSystemProgress
+} from "./jobProgress";
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
+import type {
+  ServerMasterSystemInspectionSummary
+} from "../hoseReel/serverMasterSystemInspectionApi";
 
 type TechnicianHomeProps = {
   authState: ClientAuthState;
@@ -18,6 +27,9 @@ type TechnicianHomeProps = {
   masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
+  inspectionAttachments: InspectionAttachmentRecord[];
+  serverMasterSystemInspections: ServerMasterSystemInspectionSummary[];
+  serverMasterSystemProgressState: "idle" | "loading" | "loaded" | "failed";
   loading: boolean;
   message: string;
   selectedJobId?: string;
@@ -41,6 +53,9 @@ export function TechnicianHome({
   masterSystemInspections,
   masterSystemInspectionGroups,
   masterSystemFormInstances,
+  inspectionAttachments,
+  serverMasterSystemInspections,
+  serverMasterSystemProgressState,
   loading,
   message,
   selectedJobId,
@@ -62,13 +77,53 @@ export function TechnicianHome({
     .sort((left, right) => left.sortOrder - right.sortOrder) ?? [];
   const selectedSystem = systems.find((system) => system.systemKey === selectedSystemKey);
   const canUseServer = authState.status === "verified";
+  const serverAccepted = (jobId: string, systemKey: string) =>
+    serverMasterSystemInspections.some((record) =>
+      record.jobId === jobId && record.systemKey === systemKey
+    );
+  const noLocalProgress = (jobId: string, systemKey: string) => {
+    const status = authState.status === "restoring"
+      ? "logged-out"
+      : authState.status;
+    return deriveNoLocalSystemProgress(
+      serverAccepted(jobId, systemKey),
+      status,
+      serverMasterSystemProgressState
+    );
+  };
   const progressFor = (jobId: string, systemKey: string) => {
-    if (systemKey === "hose_reel") return deriveMasterSystemProgress(masterSystemInspections.find((record) => record.jobSystemKey === `${jobId}:${systemKey}`));
+    if (systemKey === "hose_reel") {
+      const record = masterSystemInspections.find((candidate) =>
+        candidate.jobSystemKey === `${jobId}:${systemKey}`
+      );
+      return record
+        ? deriveMasterSystemProgress(record)
+        : noLocalProgress(jobId, systemKey);
+    }
+    if (systemKey === "automatic_sprinkler") {
+      const record = masterSystemInspections.find((candidate) =>
+        candidate.jobSystemKey === `${jobId}:${systemKey}`
+        && candidate.systemKey === "automatic_sprinkler"
+      ) as AutomaticSprinklerInspectionRecord | undefined;
+      return record
+        ? deriveAutomaticSprinklerProgress(record, inspectionAttachments)
+        : noLocalProgress(jobId, systemKey);
+    }
     if (systemKey === "co2_fire_extinguisher") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
-      return deriveCo2ParentProgress(group, masterSystemFormInstances.filter((record) => record.groupKey === group?.groupKey));
+      return group
+        ? deriveCo2ParentProgress(
+          group,
+          masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey)
+        )
+        : noLocalProgress(jobId, systemKey);
     }
-    return deriveSystemProgress(inspections, jobId, systemKey);
+    const local = inspections.some((record) =>
+      record.jobId === jobId && record.systemKey === systemKey
+    );
+    return local
+      ? deriveSystemProgress(inspections, jobId, systemKey)
+      : noLocalProgress(jobId, systemKey);
   };
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
@@ -87,8 +142,8 @@ export function TechnicianHome({
       </div>
     </div>
 
-    {authState.status === "checking" ? <p>Preparing local workspace.</p> : null}
-    {authState.status === "unauthenticated" ? <p>Sign in online to prepare technician jobs for offline use.</p> : null}
+    {authState.status === "restoring" ? <p>Preparing local workspace.</p> : null}
+    {authState.status === "logged-out" ? <p>Sign in online to prepare technician jobs for offline use.</p> : null}
     {authState.status === "offline-unverified" ? (
       <p className="offline-notice">Cached jobs are available. Server actions require session verification.</p>
     ) : null}

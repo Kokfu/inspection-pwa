@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Server sprinkler resolution test</title>
+  </head>
+  <body>
+    <button id="run" type="button">Run Server Sprinkler Resolution Test</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import {
+        resolveAutomaticSprinklerOpenTarget,
+        resolveAutomaticSprinklerRoute
+      } from "/src/automaticSprinkler/automaticSprinklerResolution.ts";
+      import {
+        ServerInspectionNotFoundError,
+        serverAttachmentContentUrl
+      } from "/src/automaticSprinkler/serverAutomaticSprinklerApi.ts";
+      import {
+        deriveAutomaticSprinklerProgress,
+        deriveNoLocalSystemProgress
+      } from "/src/jobs/jobProgress.ts";
+
+      const ids = {
+        job: "22000000-0000-4000-8000-000000000001",
+        local: "22000000-0000-4000-8000-000000000002",
+        server: "22000000-0000-4000-8000-000000000003",
+        photo: "22000000-0000-4000-8000-000000000004"
+      };
+      const job = { id: ids.job };
+      const system = { systemKey: "automatic_sprinkler" };
+      const serverDetail = {
+        clientUuid: ids.server,
+        jobId: ids.job,
+        systemKey: "automatic_sprinkler",
+        status: "submitted",
+        attachments: [{ clientUuid: ids.photo }]
+      };
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const result = document.querySelector("#result");
+        try {
+          await localDatabase.open();
+          const prior = await localDatabase.masterSystemInspections
+            .where("jobSystemKey")
+            .equals(`${ids.job}:automatic_sprinkler`)
+            .toArray();
+          await localDatabase.masterSystemInspections.bulkDelete(
+            prior.map((record) => record.clientUuid)
+          );
+          const beforeInspectionCount =
+            await localDatabase.masterSystemInspections.count();
+          const beforeAttachmentCount =
+            await localDatabase.inspectionAttachments.count();
+
+          const acceptedResolution = await resolveAutomaticSprinklerRoute(
+            ids.server,
+            "verified",
+            async () => serverDetail
+          );
+          const afterServerInspectionCount =
+            await localDatabase.masterSystemInspections.count();
+          const afterServerAttachmentCount =
+            await localDatabase.inspectionAttachments.count();
+          const notFoundResolution = await resolveAutomaticSprinklerRoute(
+            "22000000-0000-4000-8000-000000000099",
+            "verified",
+            async () => {
+              throw new ServerInspectionNotFoundError("not found");
+            }
+          );
+          const offlineResolution = await resolveAutomaticSprinklerRoute(
+            ids.server,
+            "offline-unverified"
+          );
+
+          let createdCount = 0;
+          const serverOpen = await resolveAutomaticSprinklerOpenTarget(
+            job,
+            system,
+            {},
+            undefined,
+            true,
+            async () => ({ clientUuid: ids.server }),
+            async () => {
+              createdCount += 1;
+              return {};
+            }
+          );
+          const confirmedEmptyOpen = await resolveAutomaticSprinklerOpenTarget(
+            job,
+            system,
+            {},
+            undefined,
+            true,
+            async () => undefined,
+            async () => {
+              createdCount += 1;
+              return {
+                clientUuid: ids.local,
+                jobSystemKey: `${ids.job}:automatic_sprinkler`,
+                systemKey: "automatic_sprinkler",
+                syncStatus: "Draft"
+              };
+            }
+          );
+          const localDraft = {
+            clientUuid: ids.local,
+            jobSystemKey: `${ids.job}:automatic_sprinkler`,
+            jobId: ids.job,
+            systemKey: "automatic_sprinkler",
+            syncStatus: "Draft"
+          };
+          await localDatabase.masterSystemInspections.put(localDraft);
+          let localServerChecks = 0;
+          const existingLocalOpen = await resolveAutomaticSprinklerOpenTarget(
+            job,
+            system,
+            {},
+            undefined,
+            true,
+            async () => {
+              localServerChecks += 1;
+              return { clientUuid: ids.server };
+            },
+            async () => {
+              createdCount += 1;
+              return {};
+            }
+          );
+
+          const progress = {
+            accepted: deriveNoLocalSystemProgress(true, "verified", "loaded"),
+            confirmedNone: deriveNoLocalSystemProgress(false, "verified", "loaded"),
+            offlineUnknown: deriveNoLocalSystemProgress(
+              false,
+              "offline-unverified",
+              "idle"
+            ),
+            unresolvedLocal: deriveAutomaticSprinklerProgress(localDraft, [])
+          };
+          const passed =
+            acceptedResolution.kind === "server"
+            && acceptedResolution.inspection.clientUuid === ids.server
+            && afterServerInspectionCount === beforeInspectionCount
+            && afterServerAttachmentCount === beforeAttachmentCount
+            && notFoundResolution.kind === "not-found"
+            && offlineResolution.kind === "not-cached"
+            && serverOpen.kind === "server"
+            && createdCount === 1
+            && confirmedEmptyOpen.kind === "local"
+            && existingLocalOpen.kind === "local"
+            && localServerChecks === 0
+            && serverAttachmentContentUrl(ids.photo) ===
+              `/api/inspection-attachments/${ids.photo}/content`
+            && progress.accepted === "Completed"
+            && progress.confirmedNone === "Not Started"
+            && progress.offlineUnknown === "Unknown / Not Cached"
+            && progress.unresolvedLocal === "Draft";
+
+          result.textContent = JSON.stringify({
+            status: passed ? "PASS" : "FAIL",
+            acceptedResolution: acceptedResolution.kind,
+            exactServerUuid:
+              acceptedResolution.kind === "server"
+                ? acceptedResolution.inspection.clientUuid
+                : undefined,
+            localInspectionCreated:
+              afterServerInspectionCount !== beforeInspectionCount,
+            localAttachmentCreated:
+              afterServerAttachmentCount !== beforeAttachmentCount,
+            server404: notFoundResolution.kind,
+            offlineNoLocal: offlineResolution.kind,
+            duplicatePrevention: serverOpen.kind,
+            createAfterConfirmedNone: confirmedEmptyOpen.kind,
+            existingLocalPrecedence: existingLocalOpen.kind,
+            progress
+          }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({
+            status: "ERROR",
+            message: error instanceof Error ? error.message : String(error)
+          }, null, 2);
+        } finally {
+          await localDatabase.masterSystemInspections.delete(ids.local);
+        }
+      });
+    </script>
+  </body>
+</html>

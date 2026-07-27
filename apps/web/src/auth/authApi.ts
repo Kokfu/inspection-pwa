@@ -34,7 +34,7 @@ export async function getCurrentUser(timeoutMs = authVerificationTimeoutMs) {
       timeoutMs
     );
 
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       return { status: "unauthenticated" } as const;
     }
     if (!response.ok) {

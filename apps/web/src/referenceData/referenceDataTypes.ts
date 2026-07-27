@@ -58,6 +58,7 @@ export type CustomerConfiguration = {
     displayName: string;
     sortOrder: number;
     definitionStatus: "confirmed";
+    evidencePolicy?: import("../jobs/jobTypes").EvidencePolicySnapshot;
     zones: CustomerSystemZone[];
     locations: CustomerSystemLocation[];
   }>;

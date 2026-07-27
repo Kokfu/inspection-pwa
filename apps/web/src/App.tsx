@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import type { InspectionAttachmentRecord } from "./attachments/attachmentTypes";
 import { AutomaticSprinklerInspectionForm } from "./automaticSprinkler/AutomaticSprinklerInspectionForm";
 import {
-  getOrCreateAutomaticSprinklerInspection,
   returnFailedAutomaticSprinklerToDraft,
   saveAutomaticSprinklerDraft,
   submitLocalAutomaticSprinkler
 } from "./automaticSprinkler/automaticSprinklerRepository";
+import {
+  resolveAutomaticSprinklerOpenTarget,
+  resolveAutomaticSprinklerRoute
+} from "./automaticSprinkler/automaticSprinklerResolution";
+import { ServerAutomaticSprinklerView } from "./automaticSprinkler/ServerAutomaticSprinklerView";
+import type {
+  ServerAutomaticSprinklerDetail
+} from "./automaticSprinkler/serverAutomaticSprinklerApi";
 import type {
   AutomaticSprinklerInspectionRecord,
   AutomaticSprinklerResponses
@@ -31,7 +39,12 @@ import {
   identityFromDeviceState,
   storeVerifiedIdentity
 } from "./auth/authStateRepository";
-import { authStateUser, type ClientAuthState } from "./auth/authStateTypes";
+import {
+  authStateUser,
+  shouldRenderLogin,
+  type ClientAuthState
+} from "./auth/authStateTypes";
+import { decideAuthRestoration } from "./auth/authRestoration";
 import { LoginForm } from "./auth/LoginForm";
 import { initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
@@ -124,7 +137,7 @@ const emptyReferenceCache = {
 export function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
-  const [authState, setAuthState] = useState<ClientAuthState>({ status: "checking" });
+  const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
   const [jobMessage, setJobMessage] = useState("");
@@ -140,12 +153,21 @@ export function App() {
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
+  const [serverAutomaticSprinkler, setServerAutomaticSprinkler] =
+    useState<ServerAutomaticSprinklerDetail>();
+  const [sprinklerRouteState, setSprinklerRouteState] = useState<
+    "idle" | "loading" | "not-found" | "not-cached" | "server-unavailable"
+  >("idle");
+  const [sprinklerRouteMessage, setSprinklerRouteMessage] = useState("");
   const [masterSystemInspectionGroups, setMasterSystemInspectionGroups] = useState<MasterSystemInspectionGroupRecord[]>([]);
   const [masterSystemFormInstances, setMasterSystemFormInstances] = useState<MasterSystemFormInstanceRecord[]>([]);
+  const [inspectionAttachments, setInspectionAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const [activeCo2Form, setActiveCo2Form] = useState<MasterSystemFormInstanceRecord>();
   const [serverMasterSystemInspections, setServerMasterSystemInspections] = useState<ServerMasterSystemInspectionSummary[]>([]);
   const [serverMasterSystemInspectionMessage, setServerMasterSystemInspectionMessage] = useState("");
   const [serverMasterSystemInspectionLoading, setServerMasterSystemInspectionLoading] = useState(false);
+  const [serverMasterSystemProgressState, setServerMasterSystemProgressState] =
+    useState<"idle" | "loading" | "loaded" | "failed">("idle");
   const [activeInspectionDraft, setActiveInspectionDraft] = useState<InspectionRecord>();
   const [inspectionSyncMessage, setInspectionSyncMessage] = useState("");
   const [serverInspections, setServerInspections] = useState<ServerInspectionSummary[]>([]);
@@ -157,6 +179,7 @@ export function App() {
   const authOperationGeneration = useRef(0);
   const activeExplicitAuthOperation = useRef<number | undefined>(undefined);
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
+  const sprinklerRouteGeneration = useRef(0);
 
   function navigate(nextRoute: AppRoute) {
     setRoute(nextRoute);
@@ -203,6 +226,25 @@ export function App() {
     return cachedJobs;
   }
 
+  async function refreshServerMasterSystemProgress(
+    cachedJobs: InspectionJob[],
+    operation: number
+  ) {
+    if (!isCurrentAuthOperation(operation)) return;
+    setServerMasterSystemProgressState("loading");
+    try {
+      const summaries = await loadServerMasterSystemInspections(
+        cachedJobs.map((job) => job.id)
+      );
+      if (!isCurrentAuthOperation(operation)) return;
+      setServerMasterSystemInspections(summaries);
+      setServerMasterSystemProgressState("loaded");
+    } catch {
+      if (!isCurrentAuthOperation(operation)) return;
+      setServerMasterSystemProgressState("failed");
+    }
+  }
+
   async function refreshServerWorkspace(user: AuthUser, operation: number) {
     if (!isCurrentAuthOperation(operation)) return;
     setJobLoading(true);
@@ -222,11 +264,13 @@ export function App() {
       setReferenceCache(summary);
       setJobMessage(`${cachedJobs.length} technician jobs cached for offline use`);
       setReferenceCacheMessage("Reference data cached for offline use");
+      await refreshServerMasterSystemProgress(cachedJobs, operation);
     } catch (error) {
       if (!isCurrentAuthOperation(operation)) return;
       const message = error instanceof Error ? error.message : "Server data is currently unavailable";
       await loadCachedJobs(user.id, operation);
       if (!isCurrentAuthOperation(operation)) return;
+      setServerMasterSystemProgressState("failed");
       setJobMessage(`${message}; existing cached jobs remain available`);
       setReferenceCacheMessage("Reference refresh failed; existing offline cache remains available");
     } finally {
@@ -254,13 +298,13 @@ export function App() {
     if (deviceState?.serverLogoutPending) {
       setJobs([]);
       setAuthState({
-        status: "unauthenticated",
+        status: "logged-out",
         message: "Signed out locally. Completing server logout when available."
       });
       const logoutResult = await resolvePendingServerLogout(operation);
       if (!isCurrentAuthOperation(operation)) return;
       setAuthState({
-        status: "unauthenticated",
+        status: "logged-out",
         message: logoutResult === "unavailable"
           ? "Signed out locally. Server logout will complete after reconnecting."
           : "Signed out. Sign in to prepare offline work."
@@ -282,34 +326,32 @@ export function App() {
 
     const probe = await getCurrentUser();
     if (!isCurrentAuthOperation(operation)) return;
-    if (probe.status === "authenticated") {
-      const lastVerifiedAt = await storeVerifiedIdentity(probe.user);
+    const decision = decideAuthRestoration(cachedIdentity, probe);
+    if (decision.kind === "verified") {
+      const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
       if (!isCurrentAuthOperation(operation)) return;
-      setAuthState({ status: "verified", user: probe.user, lastVerifiedAt });
-      await loadCachedJobs(probe.user.id, operation);
-      await refreshServerWorkspace(probe.user, operation);
+      setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
+      await loadCachedJobs(decision.user.id, operation);
+      await refreshServerWorkspace(decision.user, operation);
       return;
     }
 
-    if (probe.status === "unauthenticated") {
-      await clearLocalIdentity();
+    if (decision.kind === "logged-out") {
+      if (decision.clearIdentity) await clearLocalIdentity();
       if (!isCurrentAuthOperation(operation)) return;
       setJobs([]);
       setAuthState({
-        status: "unauthenticated",
-        message: "Sign in required before server actions"
+        status: "logged-out",
+        message: decision.clearIdentity
+          ? "Sign in required before server actions"
+          : "Server unavailable. Sign in online once to prepare offline technician access."
       });
       return;
     }
 
-    if (cachedIdentity) {
+    if (decision.kind === "offline-unverified") {
       return;
     }
-
-    setAuthState({
-      status: "unauthenticated",
-      message: "Server unavailable. Sign in online once to prepare offline technician access."
-    });
   }
 
   useEffect(() => {
@@ -322,6 +364,7 @@ export function App() {
       setMasterSystemInspections(await localDatabase.masterSystemInspections.toArray());
       setMasterSystemInspectionGroups(await localDatabase.masterSystemInspectionGroups.toArray());
       setMasterSystemFormInstances(await localDatabase.masterSystemFormInstances.toArray());
+      setInspectionAttachments(await localDatabase.inspectionAttachments.toArray());
       setReferenceCache(await getReferenceCacheSummary());
       if (recovered > 0) {
         setSyncMessage("Recovered interrupted sync; record is retryable");
@@ -349,13 +392,40 @@ export function App() {
   }, [masterSystemInspections, route]);
 
   useEffect(() => {
-    if (route.name === "sprinkler-form") {
-      const record = masterSystemInspections.find((candidate) => candidate.clientUuid === route.clientUuid);
-      setActiveAutomaticSprinkler(record?.systemKey === "automatic_sprinkler" ? record : undefined);
-    } else {
+    const generation = ++sprinklerRouteGeneration.current;
+    if (route.name !== "sprinkler-form") {
       setActiveAutomaticSprinkler(undefined);
+      setServerAutomaticSprinkler(undefined);
+      setSprinklerRouteState("idle");
+      setSprinklerRouteMessage("");
+      return;
     }
-  }, [masterSystemInspections, route]);
+    if (authState.status === "restoring") {
+      setSprinklerRouteState("loading");
+      return;
+    }
+    setSprinklerRouteState("loading");
+    setSprinklerRouteMessage("");
+    void resolveAutomaticSprinklerRoute(route.clientUuid, authState.status).then((resolution) => {
+      if (sprinklerRouteGeneration.current !== generation) return;
+      if (resolution.kind === "local") {
+        setActiveAutomaticSprinkler(resolution.record);
+        setServerAutomaticSprinkler(undefined);
+        setSprinklerRouteState("idle");
+      } else if (resolution.kind === "server") {
+        setActiveAutomaticSprinkler(undefined);
+        setServerAutomaticSprinkler(resolution.inspection);
+        setSprinklerRouteState("idle");
+      } else {
+        setActiveAutomaticSprinkler(undefined);
+        setServerAutomaticSprinkler(undefined);
+        setSprinklerRouteState(resolution.kind);
+        setSprinklerRouteMessage(
+          resolution.kind === "server-unavailable" ? resolution.message : ""
+        );
+      }
+    });
+  }, [authState.status, masterSystemInspections, route]);
 
   useEffect(() => {
     setActiveCo2Form(route.name === "co2-form"
@@ -385,6 +455,10 @@ export function App() {
       const record = records.find((candidate) => candidate.clientUuid === activeAutomaticSprinkler.clientUuid);
       setActiveAutomaticSprinkler(record?.systemKey === "automatic_sprinkler" ? record : undefined);
     }
+  }
+
+  async function refreshInspectionAttachments() {
+    setInspectionAttachments(await localDatabase.inspectionAttachments.toArray());
   }
 
   async function refreshCo2Inspections() {
@@ -427,6 +501,7 @@ export function App() {
     await refreshRecords();
     await refreshMasterSystemInspections();
     await refreshCo2Inspections();
+    await refreshInspectionAttachments();
   }
 
   async function handleLogin(username: string, password: string) {
@@ -463,7 +538,7 @@ export function App() {
     try {
       await clearLocalIdentity(true);
       if (!isCurrentAuthOperation(operation)) return;
-      setAuthState({ status: "unauthenticated", message: "Signed out locally" });
+      setAuthState({ status: "logged-out", message: "Signed out locally" });
       navigate({ name: "jobs" });
       setJobs([]);
       setServerRecords([]);
@@ -472,13 +547,15 @@ export function App() {
       setServerInspectionsMessage("");
       setServerMasterSystemInspections([]);
       setServerMasterSystemInspectionMessage("");
+      setServerMasterSystemProgressState("idle");
+      setServerAutomaticSprinkler(undefined);
       const result = await resolvePendingServerLogout(operation);
       if (!isCurrentAuthOperation(operation)) return;
       if (result === "resolved") {
-        setAuthState({ status: "unauthenticated", message: "Signed out. Local records remain on this device." });
+        setAuthState({ status: "logged-out", message: "Signed out. Local records remain on this device." });
       } else {
         setAuthState({
-          status: "unauthenticated",
+          status: "logged-out",
           message: "Signed out locally. Server logout will complete after reconnecting."
         });
       }
@@ -511,6 +588,7 @@ export function App() {
     await refreshRecords();
     await refreshMasterSystemInspections();
     await refreshCo2Inspections();
+    await refreshInspectionAttachments();
   }
 
   async function handleOpenHoseReel(job: InspectionJob, system: JobSystemSnapshot) {
@@ -542,10 +620,20 @@ export function App() {
     try {
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Automatic Sprinkler reference data is not cached yet. Refresh jobs online first.");
-      const record = await getOrCreateAutomaticSprinklerInspection(job, system, catalog, currentUser);
-      setActiveAutomaticSprinkler(record);
+      const target = await resolveAutomaticSprinklerOpenTarget(
+        job,
+        system,
+        catalog,
+        currentUser,
+        canUseServer
+      );
+      if (target.kind === "server") {
+        navigate({ name: "sprinkler-form", clientUuid: target.clientUuid });
+        return;
+      }
+      setActiveAutomaticSprinkler(target.record);
       await refreshMasterSystemInspections();
-      navigate({ name: "sprinkler-form", clientUuid: record.clientUuid });
+      navigate({ name: "sprinkler-form", clientUuid: target.record.clientUuid });
     } catch (error) {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
@@ -643,7 +731,9 @@ export function App() {
     setServerMasterSystemInspectionMessage("");
     try {
       setServerMasterSystemInspections(await loadServerMasterSystemInspections());
+      setServerMasterSystemProgressState("loaded");
     } catch (error) {
+      setServerMasterSystemProgressState("failed");
       setServerMasterSystemInspectionMessage(error instanceof Error ? error.message : "Server Master system inspections are currently unavailable");
     } finally {
       setServerMasterSystemInspectionLoading(false);
@@ -670,11 +760,11 @@ export function App() {
         <button type="button" className="secondary-command" onClick={checkApiHealth}>Check API</button>
       </header>
 
-      {authState.status === "checking" ? (
+      {authState.status === "restoring" ? (
         <section className="login-view workspace">
           <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={reconcileAuthentication} />
         </section>
-      ) : authState.status === "unauthenticated" ? (
+      ) : shouldRenderLogin(authState) ? (
         <section className="login-view workspace" aria-label="Server sign-in">
           <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={reconcileAuthentication} />
           <LoginForm onLogin={handleLogin} />
@@ -798,9 +888,30 @@ export function App() {
                 onSaveDraft={handleSaveAutomaticSprinklerDraft}
                 onSubmitLocal={handleSubmitAutomaticSprinkler}
                 onEditFailed={handleEditFailedAutomaticSprinkler}
+                onAttachmentsChange={refreshInspectionAttachments}
+              />
+            ) : serverAutomaticSprinkler ? (
+              <ServerAutomaticSprinklerView
+                inspection={serverAutomaticSprinkler}
+                onBack={() => navigate({
+                  name: "job",
+                  jobId: serverAutomaticSprinkler.jobId
+                })}
               />
             ) : (
-              <section className="workspace"><h2>Automatic Sprinkler form unavailable</h2><p>This form is not available in local device storage.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+              <section className="workspace">
+                <h2>Automatic Sprinkler inspection unavailable</h2>
+                <p>{
+                  sprinklerRouteState === "loading"
+                    ? "Loading the inspection."
+                    : sprinklerRouteState === "not-cached"
+                      ? "This inspection is not cached on this device. Reconnect to view the accepted server inspection."
+                      : sprinklerRouteState === "not-found"
+                        ? "No local or accepted server inspection exists for this UUID."
+                        : sprinklerRouteMessage || "The server inspection is currently unavailable."
+                }</p>
+                <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
+              </section>
             )
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
@@ -836,6 +947,9 @@ export function App() {
               masterSystemInspections={masterSystemInspections}
               masterSystemInspectionGroups={masterSystemInspectionGroups}
               masterSystemFormInstances={masterSystemFormInstances}
+              inspectionAttachments={inspectionAttachments}
+              serverMasterSystemInspections={serverMasterSystemInspections}
+              serverMasterSystemProgressState={serverMasterSystemProgressState}
               loading={jobLoading}
               message={jobMessage}
               selectedJobId={selectedJobId}

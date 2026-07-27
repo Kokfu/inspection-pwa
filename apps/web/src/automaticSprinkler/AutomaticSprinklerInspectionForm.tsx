@@ -1,4 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  resolveAutomaticSprinklerEvidencePolicy,
+  type AutomaticSprinklerPsiFieldPath
+} from "../attachments/automaticSprinklerEvidencePolicy";
+import { listInspectionAttachments } from "../attachments/attachmentRepository";
+import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
+import { PhotoEvidenceField } from "../attachments/PhotoEvidenceField";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
@@ -21,6 +28,7 @@ type Props = {
   onSaveDraft: (responses: AutomaticSprinklerResponses) => Promise<void>;
   onSubmitLocal: (responses: AutomaticSprinklerResponses) => Promise<void>;
   onEditFailed: () => Promise<void>;
+  onAttachmentsChange: () => Promise<void>;
 };
 
 const statusLabels = {
@@ -37,11 +45,13 @@ export function AutomaticSprinklerInspectionForm({
   onBack,
   onSaveDraft,
   onSubmitLocal,
-  onEditFailed
+  onEditFailed,
+  onAttachmentsChange
 }: Props) {
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [attachments, setAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const controls = useMemo(
     () => controlsForAutomaticSprinklerSnapshot(record.inspectionSnapshot),
     [record.inspectionSnapshot]
@@ -57,8 +67,37 @@ export function AutomaticSprinklerInspectionForm({
     return [...groups.entries()];
   }, [issues]);
   const readOnly = record.syncStatus !== "Draft";
+  const evidenceStatus = record.syncStatus === "Synced"
+    ? attachments.some((attachment) => attachment.syncStatus === "Uploading")
+      ? "Uploading Evidence"
+      : attachments.some((attachment) =>
+        attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict"
+      )
+        ? "Photo Upload Failed"
+        : attachments.some((attachment) =>
+          attachment.syncStatus === "Pending" || attachment.syncStatus === "Draft"
+        )
+          ? "Pending Evidence"
+          : "Completed"
+    : statusLabels[record.syncStatus];
+  const evidencePolicy = useMemo(() => {
+    try {
+      return resolveAutomaticSprinklerEvidencePolicy(
+        record.inspectionSnapshot.system.evidencePolicy
+      );
+    } catch {
+      return undefined;
+    }
+  }, [record.inspectionSnapshot.system.evidencePolicy]);
 
   useEffect(() => setResponses(record.responses), [record]);
+  async function refreshAttachments() {
+    setAttachments(await listInspectionAttachments(record.clientUuid));
+    await onAttachmentsChange();
+  }
+  useEffect(() => {
+    void refreshAttachments();
+  }, [record.clientUuid, record.localUpdatedAt, record.syncStatus]);
   useEffect(() => {
     setMessage("");
     setShowValidation(false);
@@ -131,15 +170,27 @@ export function AutomaticSprinklerInspectionForm({
     return <section className={`measurement-card ${invalidTargets.has(targetId) ? "field-invalid" : ""}`} id={targetId} key={key}>
       <strong>{definition.label}</strong>
       {definition.values.map((valueDefinition) => (
-        <MeasurementValueInput
-          definition={valueDefinition}
-          key={valueDefinition.key}
-          value={response.values[valueDefinition.key as keyof typeof response.values]}
-          readOnly={readOnly}
-          onChange={(value) => updateMeasurement(measurementKey, {
-            values: { ...response.values, [valueDefinition.key]: value }
-          })}
-        />
+        <div className="psi-value-with-evidence" key={valueDefinition.key}>
+          <MeasurementValueInput
+            definition={valueDefinition}
+            value={response.values[valueDefinition.key as keyof typeof response.values]}
+            readOnly={readOnly}
+            onChange={(value) => updateMeasurement(measurementKey, {
+              values: { ...response.values, [valueDefinition.key]: value }
+            })}
+          />
+          {evidencePolicy ? (() => {
+            const fieldPath =
+              `measurements.${measurementKey}.${valueDefinition.key}` as AutomaticSprinklerPsiFieldPath;
+            return <PhotoEvidenceField
+              record={record}
+              fieldPath={fieldPath}
+              policy={evidencePolicy}
+              attachment={attachments.find((candidate) => candidate.fieldPath === fieldPath)}
+              onChange={refreshAttachments}
+            />;
+          })() : null}
+        </div>
       ))}
       <ResultSelector<SprinklerResult>
         definition={definition.result}
@@ -188,6 +239,7 @@ export function AutomaticSprinklerInspectionForm({
     }
     try {
       await onSubmitLocal(responses);
+      await refreshAttachments();
       setShowValidation(false);
       setMessage("");
     } catch (error) {
@@ -199,8 +251,10 @@ export function AutomaticSprinklerInspectionForm({
     ? "Inspection submitted locally and waiting for sync."
     : record.syncStatus === "Syncing"
       ? "Inspection is syncing."
-      : record.syncStatus === "Synced"
-        ? "Inspection synced and completed."
+      : record.syncStatus === "Synced" && evidenceStatus === "Completed"
+        ? "Inspection data and attached evidence are synced."
+        : record.syncStatus === "Synced"
+          ? "Inspection data is synced; attached evidence still needs attention."
         : "";
 
   return <section className="hose-reel-form sprinkler-form" aria-labelledby="sprinkler-form-title">
@@ -215,7 +269,7 @@ export function AutomaticSprinklerInspectionForm({
       <div>
         <span className="status-caption">Automatic Sprinkler System</span>
         <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>
-          {statusLabels[record.syncStatus]}
+          {evidenceStatus}
         </strong>
       </div>
     </header>
