@@ -2,7 +2,7 @@ import type { JobSystemSnapshot, InspectionJob } from "../jobs/jobTypes";
 import type { ResolvedHoseReelControls } from "../inspectionControls/definitionTypes";
 
 export type GoodPoor = "good" | "poor";
-export type HoseReelStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed";
+export type HoseReelStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type DeviceReportedCreator = { source: "device_reported"; userId: number; username: string; role: "admin" | "inspector"; capturedAt: string };
 export const hoseReelLimits = { location: 300, assetReference: 200, rows: 250 } as const;
 export type HoseReelRow = { rowUuid: string; source: "configured" | "technician"; configuredLocationId: string | null; zoneSnapshot: { id: string; key: string; displayName: string } | null; locationSnapshot: { id: string; key: string; displayName: string } | null; locationText: string; assetReference: string | null; sortOrder: number; drumResult: GoodPoor | null; hoseResult: GoodPoor | null; nozzleResult: GoodPoor | null; valveResult: GoodPoor | null; nozzleBoxResult: GoodPoor | null; remarks: string };

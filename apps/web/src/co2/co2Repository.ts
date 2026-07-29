@@ -255,9 +255,16 @@ function updated(record: MasterSystemFormInstanceRecord, responses: Co2Responses
 }
 
 export async function saveCo2Draft(record: MasterSystemFormInstanceRecord, responses: Co2Responses) {
-  if (record.syncStatus !== "Draft") throw new Error("Only Draft CO2 forms can be edited");
-  const next = updated(record, responses, "Draft");
-  await localDatabase.masterSystemFormInstances.put(next);
+  let next: MasterSystemFormInstanceRecord | undefined;
+  await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, async () => {
+    const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
+    if (!live || live.systemKey !== systemKey || live.syncStatus !== "Draft" || live.localUpdatedAt !== record.localUpdatedAt) {
+      throw new Error("Only the current Draft CO2 form can be edited");
+    }
+    next = updated(live, responses, "Draft");
+    await localDatabase.masterSystemFormInstances.put(next);
+  });
+  if (!next) throw new Error("CO2 Draft was not saved");
   return next;
 }
 
@@ -280,27 +287,25 @@ function payload(record: MasterSystemFormInstanceRecord) {
 }
 
 export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, responses: Co2Responses) {
-  if (record.syncStatus !== "Draft" && record.syncStatus !== "Failed" && record.syncStatus !== "Conflict") throw new Error("This CO2 form cannot be submitted in its current state");
-  if (getCo2SubmitIssues(record, responses).length > 0) throw new Error("Complete the required CO2 fields before local submission");
-  const next = updated(record, responses, "Pending");
-  const activeKey = `masterSystemFormInstance:create:${record.clientUuid}`;
-  const outbox: SyncOutboxItem = {
-    operationId: crypto.randomUUID(),
-    entityType: "masterSystemFormInstance",
-    entityId: record.clientUuid,
-    action: "create",
-    payload: payload(next),
-    createdAt: next.localCreatedAt,
-    attempts: 0,
-    status: "Pending",
-    activeKey
-  };
+  let next: MasterSystemFormInstanceRecord | undefined;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
+    const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
+    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Draft" && live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
+      throw new Error("This CO2 form cannot be submitted in its current state");
+    }
+    if (getCo2SubmitIssues(live, responses).length > 0) throw new Error("Complete the required CO2 fields before local submission");
+    next = updated(live, responses, "Pending");
+    const activeKey = `masterSystemFormInstance:create:${live.clientUuid}`;
+    const outbox: SyncOutboxItem = {
+      operationId: crypto.randomUUID(), entityType: "masterSystemFormInstance", entityId: live.clientUuid,
+      action: "create", payload: payload(next), createdAt: next.localCreatedAt, attempts: 0, status: "Pending", activeKey
+    };
     await localDatabase.masterSystemFormInstances.put(next);
     const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
     if (existing) await localDatabase.syncOutbox.update(existing.operationId, { payload: outbox.payload, status: "Pending", lastError: undefined });
     else await localDatabase.syncOutbox.add(outbox);
   });
+  if (!next) throw new Error("CO2 form was not submitted locally");
   return next;
 }
 

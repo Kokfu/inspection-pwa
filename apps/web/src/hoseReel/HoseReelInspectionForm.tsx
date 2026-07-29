@@ -26,7 +26,8 @@ const statusLabels = {
   Pending: "Pending Sync",
   Syncing: "Syncing",
   Synced: "Completed",
-  Failed: "Needs Attention"
+  Failed: "Needs Attention",
+  Conflict: "Needs Attention"
 } as const;
 
 const rowResultFields = {
@@ -452,7 +453,7 @@ export function HoseReelInspectionForm({
                 readOnly={readOnly}
                 onChange={(remarks) => updateRow(row.rowUuid, { remarks })}
               />
-              {!readOnly ? (
+              {!readOnly && row.source === "technician" ? (
                 <button
                   type="button"
                   className="secondary-command"

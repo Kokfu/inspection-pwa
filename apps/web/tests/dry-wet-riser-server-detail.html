@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" /><title>Dry/Wet Riser server detail harness</title></head><body>
+  <button id="run" type="button">Run Dry/Wet server-detail checks</button><pre id="result">Ready</pre><div id="mount"></div>
+  <script type="module">
+    import { runDryWetRiserServerDetailHarness } from "/src/dryWetRiser/dryWetRiserServerDetailHarness.tsx";
+    document.querySelector("#run").addEventListener("click", async () => {
+      const result = document.querySelector("#result"), mount = document.querySelector("#mount"); mount.replaceChildren();
+      try { result.textContent = JSON.stringify(await runDryWetRiserServerDetailHarness(mount), null, 2); } catch (error) { result.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error) }); }
+    });
+  </script>
+</body></html>

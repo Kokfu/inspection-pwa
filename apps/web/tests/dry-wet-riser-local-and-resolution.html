@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Dry/Wet Riser Slice C harness</title></head>
+  <body>
+    <button id="run" type="button">Run Dry/Wet Riser checks</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { getOrCreateDryWetRiserInspection, saveDryWetRiserDraft, submitIssues, submitLocalDryWetRiser } from "/src/dryWetRiser/dryWetRiserRepository.ts";
+      import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "/src/dryWetRiser/dryWetRiserResolution.ts";
+      import { ServerDryWetRiserNotFoundError } from "/src/dryWetRiser/serverDryWetRiserApi.ts";
+      import { deriveMasterSystemProgress, deriveNoLocalSystemProgress } from "/src/jobs/jobProgress.ts";
+
+      const ids = { job: "31000000-0000-4000-8000-000000000001", customer: "31000000-0000-4000-8000-000000000002", revision: "31000000-0000-4000-8000-000000000003", template: "31000000-0000-4000-8000-000000000004", system: "31000000-0000-4000-8000-000000000005", server: "31000000-0000-4000-8000-000000000006" };
+      const system = { enabledSystemId: ids.system, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser", sortOrder: 1, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" }, zones: [{ id: "31000000-0000-4000-8000-000000000007", displayName: "Zone A", sortOrder: 1 }], locations: [{ id: "31000000-0000-4000-8000-000000000008", zoneId: "31000000-0000-4000-8000-000000000007", displayName: "North", presetRowCount: 1, rowPreset: { assetReference: "N-1" }, sortOrder: 1 }, { id: "31000000-0000-4000-8000-000000000009", zoneId: "31000000-0000-4000-8000-000000000007", displayName: "South", presetRowCount: 2, rowPreset: { assetReference: "S" }, sortOrder: 2 }] };
+      const definition = { key: "dry_wet_riser", displayName: "Dry / Wet Riser", sortOrder: 1, definitionStatus: "confirmed", configuration: { supportsZones: true, supportsLocations: true, supportsPresetRows: true }, sections: [] };
+      const job = { id: ids.job, reference: "RISER-HARNESS", title: "Riser Harness", status: "open", createdAt: new Date().toISOString(), configurationSnapshot: { schemaVersion: 1, customer: { id: ids.customer, code: "TEST", displayName: "Test" }, configuration: { revisionId: ids.revision, revisionNumber: 1 }, template: { id: ids.template, code: "MFE-FSSR", name: "Test", version: 2 }, enabledSystems: [system] } };
+      const catalog = { templates: [{ id: ids.template, code: "MFE-FSSR", name: "Test", version: 2, systems: [{ key: "dry_wet_riser", definitionStatus: "confirmed", definition }] }] };
+      const jobSystemKey = `${ids.job}:dry_wet_riser`;
+      const outcomes = [];
+      const check = (name, condition, detail = "") => outcomes.push({ name, passed: Boolean(condition), detail });
+      const expectRejected = async (operation) => { try { await operation(); return false; } catch { return true; } };
+      const completedResponses = (record) => { const responses = structuredClone(record.responses); for (const group of [responses.waterTank, responses.pumpHouse]) for (const row of Object.values(group)) row.result = "good"; for (const key of ["jockeyCutIn", "jockeyCutOut", "dutyCutIn", "standbyCutIn"]) responses.measurements[key] = 10; for (const row of responses.riserOutlets) Object.assign(row, { canvasHoseAt2Result: "good", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good" }); return responses; };
+      async function removeHarnessRecords() { const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(jobSystemKey).toArray(); await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => { await localDatabase.masterSystemInspections.bulkDelete(records.map((record) => record.clientUuid)); for (const record of records) { const items = await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray(); await localDatabase.syncOutbox.bulkDelete(items.map((item) => item.operationId)); } }); }
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const output = document.querySelector("#result"); outcomes.length = 0;
+        try {
+          await localDatabase.open(); await removeHarnessRecords();
+          const [first, second] = await Promise.all([getOrCreateDryWetRiserInspection(job, system, catalog), getOrCreateDryWetRiserInspection(job, system, catalog)]);
+          const localRecords = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(jobSystemKey).toArray();
+          check("concurrent first opening produces one stable local inspection", localRecords.length === 1 && first.clientUuid === second.clientUuid);
+          check("configured outlet multiplicity is exact", first.responses.riserOutlets.length === 3);
+          check("configured rows retain stable ordinals", first.responses.riserOutlets.map((row) => row.configuredRowOrdinal).join(",") === "1,1,2");
+          const responses = completedResponses(first); responses.mode = "wet";
+          const saved = await saveDryWetRiserDraft(first, responses);
+          check("stale caller cannot replace frozen riserMode", saved.responses.mode === "dry");
+          const technician = { ...saved.responses.riserOutlets[0], rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, locationText: "Technician row", sortOrder: 4 };
+          const added = { ...saved.responses, riserOutlets: [...saved.responses.riserOutlets, technician] };
+          const removedTechnician = { ...added, riserOutlets: added.riserOutlets.slice(0, 3) };
+          check("technician rows can be added and removed while Draft", submitIssues(saved, added).length === 0 && submitIssues(saved, removedTechnician).length === 0);
+          const removedConfigured = structuredClone(saved.responses); removedConfigured.riserOutlets.splice(0, 1);
+          check("configured rows cannot be removed", submitIssues(saved, removedConfigured).some((issue) => issue.includes("Configured Riser Outlets")));
+          const convertedConfigured = structuredClone(saved.responses); Object.assign(convertedConfigured.riserOutlets[0], { source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null });
+          check("configured rows cannot be converted into technician rows", submitIssues(saved, convertedConfigured).some((issue) => issue.includes("Configured Riser Outlets")));
+          const pending = await submitLocalDryWetRiser(saved, saved.responses);
+          const outbox = await localDatabase.syncOutbox.where("entityId").equals(first.clientUuid).toArray();
+          check("Submit Local creates one active parent outbox item", pending.syncStatus === "Pending" && outbox.length === 1 && outbox[0].activeKey === `masterSystemInspection:create:${first.clientUuid}`);
+          check("stale caller cannot downgrade Pending lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
+          await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Syncing" }); check("stale caller cannot downgrade Syncing lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
+          await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Synced" }); check("stale caller cannot downgrade Completed lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
+          const localRoute = await resolveDryWetRiserRoute(first.clientUuid, "verified", async () => { throw new Error("server must not be called"); });
+          await removeHarnessRecords();
+          const beforeInspectionCount = await localDatabase.masterSystemInspections.count(), beforeOutboxCount = await localDatabase.syncOutbox.count();
+          const serverRoute = await resolveDryWetRiserRoute(ids.server, "verified", async () => ({ clientUuid: ids.server }));
+          const notFoundRoute = await resolveDryWetRiserRoute(ids.server, "verified", async () => { throw new ServerDryWetRiserNotFoundError("not found"); });
+          const offlineRoute = await resolveDryWetRiserRoute(ids.server, "offline-unverified");
+          const signedOutRoute = await resolveDryWetRiserRoute(ids.server, "logged-out");
+          let created = 0;
+          const acceptedOpen = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => ({ clientUuid: ids.server }), async () => { created += 1; return first; });
+          const createdAfterAcceptedServer = created;
+          const afterServerResolutionInspectionCount = await localDatabase.masterSystemInspections.count(), afterServerResolutionOutboxCount = await localDatabase.syncOutbox.count();
+          await removeHarnessRecords();
+          const absentOpen = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => undefined, async () => { created += 1; return first; });
+          const unavailableOpen = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => { throw new Error("network failed"); }, async () => { created += 1; return first; });
+          check("exact local record wins during resolution", localRoute.kind === "local");
+          check("verified accepted server record resolves by exact UUID", serverRoute.kind === "server" && serverRoute.inspection.clientUuid === ids.server, serverRoute.kind);
+          check("accepted server record prevents Draft creation", acceptedOpen.kind === "server" && createdAfterAcceptedServer === 0, acceptedOpen.kind);
+          check("verified server not-found permits Draft creation", absentOpen.kind === "local");
+          check("network/server failure does not create a Draft", unavailableOpen.kind === "server-unavailable" && created === 1, unavailableOpen.kind);
+          check("offline-unverified with no local record returns Not cached", offlineRoute.kind === "not-cached", offlineRoute.kind);
+          check("logged-out resolution is blocked", signedOutRoute.kind === "signed-out", signedOutRoute.kind);
+          check("server-backed resolution creates no masterSystemInspections record", beforeInspectionCount === afterServerResolutionInspectionCount, `${beforeInspectionCount} -> ${afterServerResolutionInspectionCount}`);
+          check("server-backed resolution creates no syncOutbox record", beforeOutboxCount === afterServerResolutionOutboxCount, `${beforeOutboxCount} -> ${afterServerResolutionOutboxCount}`);
+          const progress = { draft: deriveMasterSystemProgress({ ...first, syncStatus: "Draft" }), pending: deriveMasterSystemProgress({ ...first, syncStatus: "Pending" }), syncing: deriveMasterSystemProgress({ ...first, syncStatus: "Syncing" }), failed: deriveMasterSystemProgress({ ...first, syncStatus: "Failed" }), conflict: deriveMasterSystemProgress({ ...first, syncStatus: "Conflict" }), synced: deriveMasterSystemProgress({ ...first, syncStatus: "Synced" }), server: deriveNoLocalSystemProgress(true, "verified", "loaded"), none: deriveNoLocalSystemProgress(false, "verified", "loaded"), unknown: deriveNoLocalSystemProgress(false, "offline-unverified", "idle") };
+          check("progress mappings are exact", JSON.stringify(progress) === JSON.stringify({ draft: "Draft", pending: "Pending Sync", syncing: "Syncing", failed: "Needs Attention", conflict: "Needs Attention", synced: "Completed", server: "Completed", none: "Not Started", unknown: "Unknown / Not Cached" }));
+          output.textContent = JSON.stringify({ status: outcomes.every((outcome) => outcome.passed) ? "PASS" : "FAIL", outcomes }, null, 2);
+        } catch (error) { output.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error), outcomes }, null, 2); }
+      });
+    </script>
+  </body>
+</html>

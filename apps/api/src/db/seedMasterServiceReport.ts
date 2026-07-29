@@ -236,6 +236,27 @@ async function seedDryWetRiserFixture(client: PoolClient) {
   await insertFixture("Dry Wet Riser job", client.query(`INSERT INTO inspection_jobs (id,template_id,master_template_version_id,job_reference,title,status,is_sample,customer_id,customer_configuration_revision_id,configuration_snapshot) VALUES ($1,NULL,$2,'DEMO-JOB-DRY-WET-RISER-001','Demo Dry Wet Riser Job','open',true,$3,$4,$5) ON CONFLICT (id) DO NOTHING`, [demoRiserJobId,masterServiceReportV2.id,demoRiserCustomerId,demoRiserRevisionId,JSON.stringify(snapshot)]));
   const check = await client.query<{ count:number }>(`SELECT count(*)::int AS count FROM customer_system_locations WHERE enabled_system_id=$1`,[demoRiserEnabledSystemId]);
   if (check.rows[0]?.count !== 2) throw new Error("Dry Wet Riser fixture has an incomplete location set");
+  await assertDryWetRiserFixture(client, snapshot);
+}
+
+export async function assertDryWetRiserFixture(client: PoolClient, snapshot: unknown) {
+  const customer = await client.query<Record<string, unknown>>(`SELECT id,customer_code AS code,display_name AS name,is_demo AS "isDemo",is_active AS "isActive" FROM customers WHERE id=$1`, [demoRiserCustomerId]);
+  assertFixtureFields("Dry Wet Riser customer", customer.rows[0], { id: demoRiserCustomerId, code: "DEMO-DRY-WET-RISER", name: "Demo Dry Wet Riser Client", isDemo: true, isActive: true });
+  const revision = await client.query<Record<string, unknown>>(`SELECT id,customer_id AS "customerId",template_version_id AS "templateVersionId",revision,status FROM customer_configuration_revisions WHERE id=$1`, [demoRiserRevisionId]);
+  assertFixtureFields("Dry Wet Riser revision", revision.rows[0], { id: demoRiserRevisionId, customerId: demoRiserCustomerId, templateVersionId: masterServiceReportV2.id, revision: 1, status: "active" });
+  const enabled = await client.query<Record<string, unknown>>(`SELECT id,configuration_revision_id AS "revisionId",template_version_id AS "templateId",system_key AS "systemKey",sort_order AS "sortOrder",evidence_policy_id AS "evidencePolicyId",system_configuration AS "systemConfiguration" FROM customer_enabled_systems WHERE id=$1`, [demoRiserEnabledSystemId]);
+  assertFixtureFields("Dry Wet Riser enabled system", enabled.rows[0], { id: demoRiserEnabledSystemId, revisionId: demoRiserRevisionId, templateId: masterServiceReportV2.id, systemKey: "dry_wet_riser", sortOrder: 1, evidencePolicyId: null, systemConfiguration: { riserMode: "dry" } });
+  if (!parseDryWetRiserSystemConfiguration(enabled.rows[0]?.systemConfiguration)) throw new Error("Dry Wet Riser fixture configuration has unsupported keys");
+  const membership = await client.query<{ enabled: number; zones: number; locations: number; jobs: number }>(`SELECT (SELECT count(*)::int FROM customer_enabled_systems WHERE configuration_revision_id=$1) AS enabled,(SELECT count(*)::int FROM customer_system_zones WHERE enabled_system_id=$2) AS zones,(SELECT count(*)::int FROM customer_system_locations WHERE enabled_system_id=$2) AS locations,(SELECT count(*)::int FROM inspection_jobs WHERE customer_configuration_revision_id=$1) AS jobs`, [demoRiserRevisionId, demoRiserEnabledSystemId]);
+  if (!membership.rows[0] || membership.rows[0].enabled !== 1 || membership.rows[0].zones !== 0 || membership.rows[0].locations !== 2 || membership.rows[0].jobs !== 1) throw new Error("Dry Wet Riser fixture has unexpected members");
+  const locations = await client.query<Record<string, unknown>>(`SELECT id,zone_id AS "zoneId",location_key AS key,display_name AS "displayName",preset_row_count AS "presetRowCount",row_preset AS "rowPreset",sort_order AS "sortOrder" FROM customer_system_locations WHERE enabled_system_id=$1 ORDER BY sort_order`, [demoRiserEnabledSystemId]);
+  const expectedLocations = [{ id: "00000000-0000-4000-8000-000000000813", zoneId: null, key: "ground", displayName: "Block A / Ground Floor", presetRowCount: 2, rowPreset: { assetReference: "DW-001" }, sortOrder: 1 }, { id: "00000000-0000-4000-8000-000000000814", zoneId: null, key: "first", displayName: "Block A / First Floor", presetRowCount: 1, rowPreset: { assetReference: "DW-003" }, sortOrder: 2 }];
+  if (locations.rowCount !== expectedLocations.length) throw new Error("Dry Wet Riser fixture locations differ from the deterministic set");
+  locations.rows.forEach((row, index) => assertFixtureFields(`Dry Wet Riser location ${index + 1}`, row, expectedLocations[index]));
+  const definition = await client.query<Record<string, unknown>>(`SELECT definition_status AS "definitionStatus",definition FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='dry_wet_riser'`, [masterServiceReportV2.id]);
+  assertFixtureFields("Dry Wet Riser V2 definition", definition.rows[0], { definitionStatus: "confirmed", definition: masterServiceReportV2.systems[0] });
+  const job = await client.query<Record<string, unknown>>(`SELECT id,master_template_version_id AS "templateId",job_reference AS reference,title,status,is_sample AS "isSample",customer_id AS "customerId",customer_configuration_revision_id AS "revisionId",configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1`, [demoRiserJobId]);
+  assertFixtureFields("Dry Wet Riser job", job.rows[0], { id: demoRiserJobId, templateId: masterServiceReportV2.id, reference: "DEMO-JOB-DRY-WET-RISER-001", title: "Demo Dry Wet Riser Job", status: "open", isSample: true, customerId: demoRiserCustomerId, revisionId: demoRiserRevisionId, snapshot });
 }
 
 async function seedCustomer(

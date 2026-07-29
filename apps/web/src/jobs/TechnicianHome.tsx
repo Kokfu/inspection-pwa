@@ -83,6 +83,14 @@ export function TechnicianHome({
     serverMasterSystemInspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey
     );
+  const serverCo2Completed = (jobId: string) => {
+    const expected = jobs.find((job) => job.id === jobId)?.configurationSnapshot.enabledSystems
+      .find((system) => system.systemKey === "co2_fire_extinguisher")?.locations ?? [];
+    const acceptedLocations = new Set(serverMasterSystemInspections
+      .filter((record) => record.jobId === jobId && record.systemKey === "co2_fire_extinguisher")
+      .map((record) => record.locationId));
+    return expected.length > 0 && expected.every((location) => acceptedLocations.has(location.id));
+  };
   const noLocalProgress = (jobId: string, systemKey: string) => {
     const status = authState.status === "restoring"
       ? "logged-out"
@@ -119,7 +127,11 @@ export function TechnicianHome({
           group,
           masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey)
         )
-        : noLocalProgress(jobId, systemKey);
+        : deriveNoLocalSystemProgress(
+          serverCo2Completed(jobId),
+          authState.status === "restoring" ? "logged-out" : authState.status,
+          serverMasterSystemProgressState
+        );
     }
     const local = inspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey

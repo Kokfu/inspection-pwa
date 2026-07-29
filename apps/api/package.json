@@ -10,7 +10,10 @@
     "typecheck": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "create-admin": "node dist/cli/createAdmin.js",
-    "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js"
+    "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js",
+    "validate-dry-wet-riser": "node dist/cli/validateDryWetRiser.js",
+    "validate-hose-reel": "node dist/cli/validateHoseReel.js",
+    "validate-co2": "node dist/cli/validateCo2.js"
   },
   "dependencies": {
     "argon2": "^0.44.0",

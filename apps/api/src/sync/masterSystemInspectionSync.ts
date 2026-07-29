@@ -143,6 +143,12 @@ function canonicalizeRows(rows: UnknownRecord[], system: UnknownRecord): Unknown
   const byId = new Map(locations.filter((location) => isUuid(location.id)).map((location) => [location.id as string, location]));
   const zonesById = new Map(zones.filter((zone) => isUuid(zone.id)).map((zone) => [zone.id as string, zone]));
   const canonicalRows: UnknownRecord[] = [];
+  const expectedConfiguredCounts = new Map(
+    locations
+      .filter((location) => isUuid(location.id) && Number.isInteger(location.presetRowCount) && Number(location.presetRowCount) >= 0)
+      .map((location) => [location.id as string, Number(location.presetRowCount)])
+  );
+  const actualConfiguredCounts = new Map<string, number>();
   for (const row of rows) {
     if (row.source === "technician") {
       canonicalRows.push({ ...row, configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null });
@@ -153,6 +159,7 @@ function canonicalizeRows(rows: UnknownRecord[], system: UnknownRecord): Unknown
     const zoneId = typeof location.zoneId === "string" ? location.zoneId : null;
     const zone = zoneId ? zonesById.get(zoneId) : undefined;
     if (zoneId && (!zone || typeof zone.key !== "string" || typeof zone.displayName !== "string")) return undefined;
+    actualConfiguredCounts.set(location.id as string, (actualConfiguredCounts.get(location.id as string) ?? 0) + 1);
     canonicalRows.push({
       ...row,
       configuredLocationId: location.id,
@@ -161,6 +168,7 @@ function canonicalizeRows(rows: UnknownRecord[], system: UnknownRecord): Unknown
       zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null
     });
   }
+  if (expectedConfiguredCounts.size !== actualConfiguredCounts.size || [...expectedConfiguredCounts].some(([id, count]) => actualConfiguredCounts.get(id) !== count)) return undefined;
   return canonicalRows;
 }
 

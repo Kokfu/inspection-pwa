@@ -175,6 +175,18 @@ export async function runMigrations() {
     "utf8"
   );
   await pool.query(inspectionPhotoEvidenceMigrationSql);
-  await pool.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
+  // Migration 008 intentionally keeps its named CHECK constraint simple and
+  // immutable. PostgreSQL has no `ADD CONSTRAINT IF NOT EXISTS`, so the runner
+  // must avoid executing that unchanged migration again on subsequent starts.
+  const configurationConstraint = await pool.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'customer_enabled_systems_system_configuration_object'
+         AND conrelid = 'customer_enabled_systems'::regclass
+     ) AS exists`
+  );
+  if (!configurationConstraint.rows[0]?.exists) {
+    await pool.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
+  }
   await seedMasterServiceReport(pool);
 }
