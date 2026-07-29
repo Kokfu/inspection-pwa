@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
+import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
   MasterSystemFormInstanceRecord,
@@ -100,7 +101,7 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   masterSystemInspections: EntityTable<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord,
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord,
     "clientUuid"
   >;
   masterSystemInspectionGroups: EntityTable<MasterSystemInspectionGroupRecord, "groupKey">;

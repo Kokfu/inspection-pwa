@@ -12,7 +12,8 @@ import type {
   ReferenceCustomer
 } from "./referenceDataTypes";
 
-const catalogKey = "inspection-catalog:MFE-FSSR:1";
+const catalogKey = "inspection-catalog:MFE-FSSR:versions";
+const legacyCatalogKey = "inspection-catalog:MFE-FSSR:1";
 const customersKey = "customers:active";
 const cacheDurationMs = 24 * 60 * 60 * 1000;
 const managedKeyPrefixes = [
@@ -102,7 +103,8 @@ export async function refreshInspectionReferenceData(
 }
 
 export async function getCachedInspectionCatalog() {
-  return (await localDatabase.referenceData.get(catalogKey))?.payload as
+  return ((await localDatabase.referenceData.get(catalogKey))
+    ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload as
     | InspectionCatalog
     | undefined;
 }

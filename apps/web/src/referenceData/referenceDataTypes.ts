@@ -16,6 +16,7 @@ export type InspectionCatalog = {
   headerDefinition: unknown;
   reportBoilerplate: unknown;
   systems: CatalogSystem[];
+  templates?: Array<Omit<InspectionCatalog, "templates">>;
 };
 
 export type ReferenceCustomer = {

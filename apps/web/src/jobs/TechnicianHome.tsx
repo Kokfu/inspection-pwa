@@ -1,6 +1,7 @@
 import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
+import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -24,7 +25,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord>;
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   inspectionAttachments: InspectionAttachmentRecord[];
@@ -44,6 +45,7 @@ type TechnicianHomeProps = {
   onOpenHoseReel: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenCo2: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenAutomaticSprinkler: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenDryWetRiser: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -69,7 +71,7 @@ export function TechnicianHome({
   onBackToSystems,
   onOpenHoseReel,
   onOpenCo2,
-  onOpenAutomaticSprinkler
+  onOpenAutomaticSprinkler, onOpenDryWetRiser
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -94,8 +96,8 @@ export function TechnicianHome({
   const progressFor = (jobId: string, systemKey: string) => {
     if (systemKey === "hose_reel") {
       const record = masterSystemInspections.find((candidate) =>
-        candidate.jobSystemKey === `${jobId}:${systemKey}`
-      );
+        candidate.jobSystemKey === `${jobId}:${systemKey}` && candidate.systemKey === "hose_reel"
+      ) as MasterSystemInspectionRecord | undefined;
       return record
         ? deriveMasterSystemProgress(record)
         : noLocalProgress(jobId, systemKey);
@@ -109,6 +111,7 @@ export function TechnicianHome({
         ? deriveAutomaticSprinklerProgress(record, inspectionAttachments)
         : noLocalProgress(jobId, systemKey);
     }
+    if (systemKey === "dry_wet_riser") { const record = masterSystemInspections.find((x) => x.jobSystemKey === `${jobId}:${systemKey}`); return record ? deriveMasterSystemProgress(record as MasterSystemInspectionRecord) : noLocalProgress(jobId, systemKey); }
     if (systemKey === "co2_fire_extinguisher") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
       return group
@@ -179,6 +182,7 @@ export function TechnicianHome({
                     ? onOpenCo2(selectedJob, system)
                     : system.systemKey === "automatic_sprinkler"
                       ? onOpenAutomaticSprinkler(selectedJob, system)
+                    : system.systemKey === "dry_wet_riser" ? onOpenDryWetRiser(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>

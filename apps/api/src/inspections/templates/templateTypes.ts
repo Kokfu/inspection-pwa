@@ -118,7 +118,7 @@ export type MasterServiceReportDefinition = {
   readonly id: string;
   readonly code: "MFE-FSSR";
   readonly name: "MFE Fire System Service Report Template";
-  readonly version: 1;
+  readonly version: number;
   readonly selectionPolicy: "preset_only";
   readonly header: HeaderDefinition;
   readonly reportBoilerplate: {

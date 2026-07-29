@@ -7,7 +7,7 @@ const uuidPattern =
 const supportedSystemKeys = new Set([
   "hose_reel",
   "co2_fire_extinguisher",
-  "automatic_sprinkler"
+  "automatic_sprinkler", "dry_wet_riser"
 ]);
 
 export const masterSystemInspectionsRouter = Router();

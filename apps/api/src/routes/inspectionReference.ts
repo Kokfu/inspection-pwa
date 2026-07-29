@@ -88,11 +88,11 @@ inspectionReferenceRouter.get(
           report_boilerplate AS "reportBoilerplate"
         FROM master_service_report_templates
         WHERE code = 'MFE-FSSR'
-          AND version = 1
+          AND version IN (1, 2)
           AND publication_status = 'published'
-        LIMIT 1
+        ORDER BY version
       `);
-      const template = templateResult.rows[0];
+      const template = templateResult.rows.find((candidate) => candidate.version === 1);
       if (!template) {
         response.status(404).json({ error: "INSPECTION_CATALOG_NOT_FOUND" });
         return;
@@ -135,7 +135,11 @@ inspectionReferenceRouter.get(
                   )
                 }
             : system)
-        }
+        },
+        templates: await Promise.all(templateResult.rows.map(async (candidate) => {
+          const rows = await pool.query<SystemRow>(`SELECT system_key AS "key", display_name AS "displayName", sort_order AS "sortOrder", definition_status AS "definitionStatus", definition FROM master_service_report_systems WHERE template_version_id = $1 ORDER BY sort_order`, [candidate.id]);
+          return { ...candidate, systems: rows.rows };
+        }))
       });
     } catch (error) {
       next(error);

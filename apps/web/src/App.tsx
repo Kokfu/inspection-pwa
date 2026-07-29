@@ -18,6 +18,9 @@ import type {
   AutomaticSprinklerInspectionRecord,
   AutomaticSprinklerResponses
 } from "./automaticSprinkler/automaticSprinklerTypes";
+import { DryWetRiserInspectionForm } from "./dryWetRiser/DryWetRiserInspectionForm";
+import { getOrCreateDryWetRiserInspection, returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitLocalDryWetRiser } from "./dryWetRiser/dryWetRiserRepository";
+import type { DryWetRiserInspectionRecord, DryWetRiserResponses } from "./dryWetRiser/dryWetRiserTypes";
 import { AuthStatus } from "./auth/AuthStatus";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
@@ -103,6 +106,7 @@ type AppRoute =
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
   | { name: "sprinkler-form"; clientUuid: string }
+  | { name: "riser-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
@@ -111,6 +115,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
+  if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
@@ -121,6 +126,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
@@ -149,10 +155,11 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
+  const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
   const [serverAutomaticSprinkler, setServerAutomaticSprinkler] =
     useState<ServerAutomaticSprinklerDetail>();
   const [sprinklerRouteState, setSprinklerRouteState] = useState<
@@ -390,6 +397,7 @@ export function App() {
       setActiveHoseReel(undefined);
     }
   }, [masterSystemInspections, route]);
+  useEffect(() => { if (route.name === "riser-form") { const record = masterSystemInspections.find((x) => x.clientUuid === route.clientUuid); setActiveDryWetRiser(record?.systemKey === "dry_wet_riser" ? record as DryWetRiserInspectionRecord : undefined); } else setActiveDryWetRiser(undefined); }, [masterSystemInspections, route]);
 
   useEffect(() => {
     const generation = ++sprinklerRouteGeneration.current;
@@ -638,6 +646,10 @@ export function App() {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
   }
+  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const catalog = await getCachedInspectionCatalog(); if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); const record = await getOrCreateDryWetRiserInspection(job, system, catalog, currentUser); setActiveDryWetRiser(record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
+  async function handleSaveDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await saveDryWetRiserDraft(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
+  async function handleSubmitDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await submitLocalDryWetRiser(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
+  async function handleEditFailedDryWetRiser() { if (!activeDryWetRiser) return; setActiveDryWetRiser(await returnFailedDryWetRiserToDraft(activeDryWetRiser)); await refreshMasterSystemInspections(); }
 
   async function handleSaveCo2Draft(responses: Co2Responses) {
     if (!activeCo2Form) return;
@@ -913,6 +925,8 @@ export function App() {
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
+          ) : route.name === "riser-form" ? (
+            activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>Not cached on this device.</p></section>
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm
@@ -972,6 +986,7 @@ export function App() {
               onOpenHoseReel={handleOpenHoseReel}
               onOpenCo2={handleOpenCo2}
               onOpenAutomaticSprinkler={handleOpenAutomaticSprinkler}
+              onOpenDryWetRiser={handleOpenDryWetRiser}
             />
           )}
         </>

@@ -6,6 +6,12 @@ import {
   automaticSprinklerPsiEvidencePolicyV1
 } from "../inspections/evidence/automaticSprinklerPsiEvidencePolicyV1.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
+import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
+
+const demoRiserCustomerId = "00000000-0000-4000-8000-000000000810";
+const demoRiserRevisionId = "00000000-0000-4000-8000-000000000811";
+const demoRiserEnabledSystemId = "00000000-0000-4000-8000-000000000812";
+const demoRiserJobId = "00000000-0000-4000-8000-000000000819";
 
 const demoSingleCustomerId = "00000000-0000-4000-8000-000000000510";
 const demoSingleRevisionId = "00000000-0000-4000-8000-000000000511";
@@ -209,6 +215,25 @@ async function seedTemplate(client: PoolClient) {
       throw new Error(`Published Master V1 system ${system.key} differs from the tracked definition`);
     }
   }
+
+  await insertFixture("Published Master V2 template", client.query(`INSERT INTO master_service_report_templates (id, code, name, version, selection_policy, header_definition, report_boilerplate, publication_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`, [masterServiceReportV2.id, masterServiceReportV2.code, masterServiceReportV2.name, masterServiceReportV2.version, masterServiceReportV2.selectionPolicy, JSON.stringify(masterServiceReportV2.header), JSON.stringify(masterServiceReportV2.reportBoilerplate)]));
+  for (const system of masterServiceReportV2.systems) {
+    await client.query(`INSERT INTO master_service_report_systems (template_version_id, system_key, display_name, sort_order, definition_status, definition) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id, system_key) DO NOTHING`, [masterServiceReportV2.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]);
+    const verified = await client.query<{ matches: boolean }>(`SELECT display_name=$3 AND sort_order=$4 AND definition_status=$5 AND definition=$6::jsonb AS matches FROM master_service_report_systems WHERE template_version_id=$1 AND system_key=$2`, [masterServiceReportV2.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]);
+    if (verified.rowCount !== 1 || !verified.rows[0].matches) throw new Error(`Published Master V2 system ${system.key} differs from the tracked definition`);
+  }
+}
+
+async function seedDryWetRiserFixture(client: PoolClient) {
+  await insertFixture("Dry Wet Riser customer", client.query(`INSERT INTO customers (id,customer_code,display_name,is_demo) VALUES ($1,'DEMO-DRY-WET-RISER','Demo Dry Wet Riser Client',true) ON CONFLICT (id) DO NOTHING`, [demoRiserCustomerId]));
+  await insertFixture("Dry Wet Riser revision", client.query(`INSERT INTO customer_configuration_revisions (id,customer_id,template_version_id,revision,status) VALUES ($1,$2,$3,1,'active') ON CONFLICT (id) DO NOTHING`, [demoRiserRevisionId,demoRiserCustomerId,masterServiceReportV2.id]));
+  await insertFixture("Dry Wet Riser enabled system", client.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ($1,$2,$3,'dry_wet_riser',1) ON CONFLICT (id) DO NOTHING`, [demoRiserEnabledSystemId,demoRiserRevisionId,masterServiceReportV2.id]));
+  const locations = [["00000000-0000-4000-8000-000000000813","ground","Block A / Ground Floor",2,"DW-001"],["00000000-0000-4000-8000-000000000814","first","Block A / First Floor",1,"DW-003"]] as const;
+  for (const [id,key,name,count,asset] of locations) await insertFixture(`Dry Wet Riser location ${name}`, client.query(`INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, [id,demoRiserEnabledSystemId,key,name,count,JSON.stringify({assetReference:asset,mode:"dry"}), count === 2 ? 1 : 2]));
+  const snapshot = await buildJobConfigurationSnapshot(client,demoRiserCustomerId,demoRiserRevisionId);
+  await insertFixture("Dry Wet Riser job", client.query(`INSERT INTO inspection_jobs (id,template_id,master_template_version_id,job_reference,title,status,is_sample,customer_id,customer_configuration_revision_id,configuration_snapshot) VALUES ($1,NULL,$2,'DEMO-JOB-DRY-WET-RISER-001','Demo Dry Wet Riser Job','open',true,$3,$4,$5) ON CONFLICT (id) DO NOTHING`, [demoRiserJobId,masterServiceReportV2.id,demoRiserCustomerId,demoRiserRevisionId,JSON.stringify(snapshot)]));
+  const check = await client.query<{ count:number }>(`SELECT count(*)::int AS count FROM customer_system_locations WHERE enabled_system_id=$1`,[demoRiserEnabledSystemId]);
+  if (check.rows[0]?.count !== 2) throw new Error("Dry Wet Riser fixture has an incomplete location set");
 }
 
 async function seedCustomer(
@@ -1237,6 +1262,7 @@ export async function seedMasterServiceReport(pool: Pool) {
   try {
     await client.query("BEGIN");
     await seedTemplate(client);
+    await seedDryWetRiserFixture(client);
     await assertExistingCo2FixtureBeforeSeed(client);
     await assertExistingSprinklerFixtureBeforeSeed(client);
     await assertExistingPhotoSprinklerFixtureBeforeSeed(client);
