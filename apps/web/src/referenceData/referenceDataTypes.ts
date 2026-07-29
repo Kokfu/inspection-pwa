@@ -60,6 +60,7 @@ export type CustomerConfiguration = {
     sortOrder: number;
     definitionStatus: "confirmed";
     evidencePolicy?: import("../jobs/jobTypes").EvidencePolicySnapshot;
+    systemConfiguration?: { riserMode: "dry" | "wet" };
     zones: CustomerSystemZone[];
     locations: CustomerSystemLocation[];
   }>;

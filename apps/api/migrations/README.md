@@ -15,3 +15,8 @@ was corrected in place before commit; the already-running local development
 database receives the equivalent function/trigger replacement explicitly.
 This is not a production migration precedent. Once committed or released,
 007 is immutable and later changes require a new forward-only migration.
+
+Migration `008_customer_enabled_system_configuration.sql` additively provides
+`customer_enabled_systems.system_configuration` as a non-null JSON object.
+Existing rows receive `{}`; rollback requires dropping only the added check
+constraint and column after confirming no application still relies on it.

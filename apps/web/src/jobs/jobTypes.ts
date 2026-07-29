@@ -26,6 +26,7 @@ export type JobSystemSnapshot = {
   zones: JobZoneSnapshot[];
   locations: JobLocationSnapshot[];
   evidencePolicy?: EvidencePolicySnapshot;
+  systemConfiguration?: { riserMode: "dry" | "wet" };
 };
 
 export type EvidencePolicyPoint = {

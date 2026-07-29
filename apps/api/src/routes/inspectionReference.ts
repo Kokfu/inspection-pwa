@@ -49,6 +49,7 @@ type EnabledSystemRow = {
   sortOrder: number;
   definitionStatus: "confirmed";
   evidencePolicy: unknown | null;
+  systemConfiguration: unknown;
 };
 
 type ZoneRow = {
@@ -232,6 +233,7 @@ inspectionReferenceRouter.get(
             system.display_name AS "displayName",
             enabled.sort_order AS "sortOrder",
             system.definition_status AS "definitionStatus",
+            enabled.system_configuration AS "systemConfiguration",
             CASE WHEN policy.id IS NULL THEN NULL ELSE jsonb_build_object(
               'id', policy.id,
               'code', policy.code,

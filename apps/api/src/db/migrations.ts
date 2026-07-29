@@ -18,6 +18,9 @@ const inspectionPhotoEvidenceMigrationUrl = new URL(
   "../../migrations/007_inspection_photo_evidence.sql",
   import.meta.url
 );
+const customerEnabledSystemConfigurationMigrationUrl = new URL(
+  "../../migrations/008_customer_enabled_system_configuration.sql", import.meta.url
+);
 
 export async function runMigrations() {
   await pool.query(`
@@ -172,5 +175,6 @@ export async function runMigrations() {
     "utf8"
   );
   await pool.query(inspectionPhotoEvidenceMigrationSql);
+  await pool.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
   await seedMasterServiceReport(pool);
 }

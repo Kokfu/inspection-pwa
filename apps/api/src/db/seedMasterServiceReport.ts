@@ -125,6 +125,7 @@ type SnapshotSystemRow = {
   evidencePolicySchemaVersion: number | null;
   evidencePolicyDefinition: unknown;
   evidencePolicySha256: string | null;
+  systemConfiguration: unknown;
 };
 
 type SnapshotZoneRow = {
@@ -227,9 +228,9 @@ async function seedTemplate(client: PoolClient) {
 async function seedDryWetRiserFixture(client: PoolClient) {
   await insertFixture("Dry Wet Riser customer", client.query(`INSERT INTO customers (id,customer_code,display_name,is_demo) VALUES ($1,'DEMO-DRY-WET-RISER','Demo Dry Wet Riser Client',true) ON CONFLICT (id) DO NOTHING`, [demoRiserCustomerId]));
   await insertFixture("Dry Wet Riser revision", client.query(`INSERT INTO customer_configuration_revisions (id,customer_id,template_version_id,revision,status) VALUES ($1,$2,$3,1,'active') ON CONFLICT (id) DO NOTHING`, [demoRiserRevisionId,demoRiserCustomerId,masterServiceReportV2.id]));
-  await insertFixture("Dry Wet Riser enabled system", client.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ($1,$2,$3,'dry_wet_riser',1) ON CONFLICT (id) DO NOTHING`, [demoRiserEnabledSystemId,demoRiserRevisionId,masterServiceReportV2.id]));
+  await insertFixture("Dry Wet Riser enabled system", client.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES ($1,$2,$3,'dry_wet_riser',1,$4) ON CONFLICT (id) DO NOTHING`, [demoRiserEnabledSystemId,demoRiserRevisionId,masterServiceReportV2.id,JSON.stringify({riserMode:"dry"})]));
   const locations = [["00000000-0000-4000-8000-000000000813","ground","Block A / Ground Floor",2,"DW-001"],["00000000-0000-4000-8000-000000000814","first","Block A / First Floor",1,"DW-003"]] as const;
-  for (const [id,key,name,count,asset] of locations) await insertFixture(`Dry Wet Riser location ${name}`, client.query(`INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, [id,demoRiserEnabledSystemId,key,name,count,JSON.stringify({assetReference:asset,mode:"dry"}), count === 2 ? 1 : 2]));
+  for (const [id,key,name,count,asset] of locations) await insertFixture(`Dry Wet Riser location ${name}`, client.query(`INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, [id,demoRiserEnabledSystemId,key,name,count,JSON.stringify({assetReference:asset}), count === 2 ? 1 : 2]));
   const snapshot = await buildJobConfigurationSnapshot(client,demoRiserCustomerId,demoRiserRevisionId);
   await insertFixture("Dry Wet Riser job", client.query(`INSERT INTO inspection_jobs (id,template_id,master_template_version_id,job_reference,title,status,is_sample,customer_id,customer_configuration_revision_id,configuration_snapshot) VALUES ($1,NULL,$2,'DEMO-JOB-DRY-WET-RISER-001','Demo Dry Wet Riser Job','open',true,$3,$4,$5) ON CONFLICT (id) DO NOTHING`, [demoRiserJobId,masterServiceReportV2.id,demoRiserCustomerId,demoRiserRevisionId,JSON.stringify(snapshot)]));
   const check = await client.query<{ count:number }>(`SELECT count(*)::int AS count FROM customer_system_locations WHERE enabled_system_id=$1`,[demoRiserEnabledSystemId]);
@@ -773,6 +774,7 @@ async function buildJobConfigurationSnapshot(
         policy.schema_version AS "evidencePolicySchemaVersion",
         policy.definition AS "evidencePolicyDefinition",
         policy.definition_sha256 AS "evidencePolicySha256"
+        ,enabled.system_configuration AS "systemConfiguration"
       FROM customer_enabled_systems enabled
       INNER JOIN master_service_report_systems system
         ON system.template_version_id = enabled.template_version_id
@@ -827,6 +829,16 @@ async function buildJobConfigurationSnapshot(
   if (!customer || !configuration) {
     throw new Error("Demo job configuration is unavailable");
   }
+  for (const system of systemsResult.rows) {
+    if (system.systemKey === "dry_wet_riser") {
+      const config = system.systemConfiguration;
+      if (!config || typeof config !== "object" || Array.isArray(config)
+        || Object.keys(config as Record<string, unknown>).length !== 1
+        || !["dry", "wet"].includes((config as Record<string, unknown>).riserMode as string)) {
+        throw new Error("Dry/Wet Riser V2 configuration requires exactly riserMode dry or wet");
+      }
+    }
+  }
 
   return {
     schemaVersion: 1,
@@ -853,6 +865,7 @@ async function buildJobConfigurationSnapshot(
       } = system;
       return {
         ...baseSystem,
+        ...(baseSystem.systemKey === "dry_wet_riser" ? { systemConfiguration: baseSystem.systemConfiguration } : {}),
         ...(evidencePolicyId ? {
           evidencePolicy: {
             id: evidencePolicyId,
