@@ -19,8 +19,11 @@ import type {
   AutomaticSprinklerResponses
 } from "./automaticSprinkler/automaticSprinklerTypes";
 import { DryWetRiserInspectionForm } from "./dryWetRiser/DryWetRiserInspectionForm";
-import { getOrCreateDryWetRiserInspection, returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitLocalDryWetRiser } from "./dryWetRiser/dryWetRiserRepository";
+import { returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitLocalDryWetRiser } from "./dryWetRiser/dryWetRiserRepository";
 import type { DryWetRiserInspectionRecord, DryWetRiserResponses } from "./dryWetRiser/dryWetRiserTypes";
+import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "./dryWetRiser/dryWetRiserResolution";
+import { ServerDryWetRiserView } from "./dryWetRiser/ServerDryWetRiserView";
+import type { ServerDryWetRiserDetail } from "./dryWetRiser/serverDryWetRiserApi";
 import { AuthStatus } from "./auth/AuthStatus";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
@@ -160,6 +163,9 @@ export function App() {
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
+  const [serverDryWetRiser, setServerDryWetRiser] = useState<ServerDryWetRiserDetail>();
+  const [riserRouteState, setRiserRouteState] = useState<"idle" | "loading" | "not-found" | "not-cached" | "signed-out" | "server-unavailable">("idle");
+  const [riserRouteMessage, setRiserRouteMessage] = useState("");
   const [serverAutomaticSprinkler, setServerAutomaticSprinkler] =
     useState<ServerAutomaticSprinklerDetail>();
   const [sprinklerRouteState, setSprinklerRouteState] = useState<
@@ -187,6 +193,7 @@ export function App() {
   const activeExplicitAuthOperation = useRef<number | undefined>(undefined);
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
   const sprinklerRouteGeneration = useRef(0);
+  const riserRouteGeneration = useRef(0);
 
   function navigate(nextRoute: AppRoute) {
     setRoute(nextRoute);
@@ -397,7 +404,18 @@ export function App() {
       setActiveHoseReel(undefined);
     }
   }, [masterSystemInspections, route]);
-  useEffect(() => { if (route.name === "riser-form") { const record = masterSystemInspections.find((x) => x.clientUuid === route.clientUuid); setActiveDryWetRiser(record?.systemKey === "dry_wet_riser" ? record as DryWetRiserInspectionRecord : undefined); } else setActiveDryWetRiser(undefined); }, [masterSystemInspections, route]);
+  useEffect(() => {
+    const generation = ++riserRouteGeneration.current;
+    if (route.name !== "riser-form") { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState("idle"); setRiserRouteMessage(""); return; }
+    if (authState.status === "restoring") { setRiserRouteState("loading"); return; }
+    setRiserRouteState("loading"); setRiserRouteMessage("");
+    void resolveDryWetRiserRoute(route.clientUuid, authState.status).then((resolution) => {
+      if (riserRouteGeneration.current !== generation) return;
+      if (resolution.kind === "local") { setActiveDryWetRiser(resolution.record); setServerDryWetRiser(undefined); setRiserRouteState("idle"); }
+      else if (resolution.kind === "server") { setActiveDryWetRiser(undefined); setServerDryWetRiser(resolution.inspection); setRiserRouteState("idle"); }
+      else { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState(resolution.kind); setRiserRouteMessage("message" in resolution ? resolution.message : ""); }
+    });
+  }, [authState.status, masterSystemInspections, route]);
 
   useEffect(() => {
     const generation = ++sprinklerRouteGeneration.current;
@@ -646,7 +664,7 @@ export function App() {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
   }
-  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const catalog = await getCachedInspectionCatalog(); if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); const record = await getOrCreateDryWetRiserInspection(job, system, catalog, currentUser); setActiveDryWetRiser(record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
+  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
   async function handleSaveDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await saveDryWetRiserDraft(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
   async function handleSubmitDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await submitLocalDryWetRiser(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
   async function handleEditFailedDryWetRiser() { if (!activeDryWetRiser) return; setActiveDryWetRiser(await returnFailedDryWetRiserToDraft(activeDryWetRiser)); await refreshMasterSystemInspections(); }
@@ -926,7 +944,7 @@ export function App() {
               </section>
             )
           ) : route.name === "riser-form" ? (
-            activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>Not cached on this device.</p></section>
+            activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm

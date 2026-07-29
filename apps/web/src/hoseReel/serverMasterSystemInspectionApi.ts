@@ -4,7 +4,7 @@ export type ServerMasterSystemInspectionSummary = {
   jobReference: string;
   jobTitle: string;
   customerName: string;
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "automatic_sprinkler";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "automatic_sprinkler" | "dry_wet_riser";
   instanceKey: string;
   zoneName: string | null;
   locationName: string | null;

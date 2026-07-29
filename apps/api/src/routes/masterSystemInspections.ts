@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
+import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -11,6 +12,50 @@ const supportedSystemKeys = new Set([
 ]);
 
 export const masterSystemInspectionsRouter = Router();
+
+masterSystemInspectionsRouter.get(
+  "/dry-wet-riser-inspections/:clientUuid",
+  requireRole("admin", "inspector"),
+  async (request, response, next) => {
+    try {
+      const clientUuid = request.params.clientUuid;
+      if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) {
+        response.status(400).json({ error: "INVALID_INSPECTION_ID" });
+        return;
+      }
+      const result = await pool.query(`
+        SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
+          job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
+          customer.id AS "customerId", customer.customer_code AS "customerCode",
+          customer.display_name AS "customerName", inspection.system_key AS "systemKey",
+          instance.status, instance.performed_at AS "performedAt", instance.received_at AS "receivedAt",
+          instance.response_payload AS responses,
+          instance.inspection_snapshot->'template' AS template,
+          instance.inspection_snapshot->'configuration' AS configuration,
+          instance.inspection_snapshot #> '{system,systemConfiguration}' AS "systemConfiguration",
+          instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
+          creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername"
+        FROM master_system_form_instances instance
+        INNER JOIN master_system_inspections inspection ON inspection.id = instance.inspection_group_id
+        INNER JOIN inspection_jobs job ON job.id = inspection.job_id
+        INNER JOIN customers customer ON customer.id = job.customer_id
+        LEFT JOIN users creator ON creator.id = instance.original_created_by_user_id
+        INNER JOIN users syncer ON syncer.id = instance.synced_by_user_id
+        WHERE instance.client_uuid = $1 AND instance.status = 'submitted'
+          AND inspection.system_key = 'dry_wet_riser'`,
+        [clientUuid]
+      );
+      const inspection = result.rows[0];
+      if (!inspection || !parseDryWetRiserSystemConfiguration(inspection.systemConfiguration)) {
+        response.status(404).json({ error: "INSPECTION_NOT_FOUND" });
+        return;
+      }
+      response.json({ inspection: { ...inspection, systemLabel: "Dry / Wet Riser System" } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 masterSystemInspectionsRouter.get(
   "/master-system-inspections",
