@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -296,9 +297,16 @@ inspectionReferenceRouter.get(
         configuration: {
           ...configuration,
           enabledSystems: enabledResult.rows.map((system) => {
-            const { evidencePolicy, ...baseSystem } = system;
+            const { evidencePolicy, systemConfiguration: storedSystemConfiguration, ...baseSystem } = system;
+            const systemConfiguration = system.key === "dry_wet_riser"
+              ? parseDryWetRiserSystemConfiguration(storedSystemConfiguration)
+              : undefined;
+            if (system.key === "dry_wet_riser" && !systemConfiguration) {
+              throw new Error("Dry/Wet Riser V2 configuration requires exactly riserMode dry or wet");
+            }
             return {
               ...baseSystem,
+              ...(systemConfiguration ? { systemConfiguration } : {}),
               ...(evidencePolicy ? { evidencePolicy } : {}),
               zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id),
               locations: locationsResult.rows.filter(

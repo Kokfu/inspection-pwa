@@ -7,6 +7,7 @@ import {
 } from "../inspections/evidence/automaticSprinklerPsiEvidencePolicyV1.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
+import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 
 const demoRiserCustomerId = "00000000-0000-4000-8000-000000000810";
 const demoRiserRevisionId = "00000000-0000-4000-8000-000000000811";
@@ -831,10 +832,7 @@ async function buildJobConfigurationSnapshot(
   }
   for (const system of systemsResult.rows) {
     if (system.systemKey === "dry_wet_riser") {
-      const config = system.systemConfiguration;
-      if (!config || typeof config !== "object" || Array.isArray(config)
-        || Object.keys(config as Record<string, unknown>).length !== 1
-        || !["dry", "wet"].includes((config as Record<string, unknown>).riserMode as string)) {
+      if (!parseDryWetRiserSystemConfiguration(system.systemConfiguration)) {
         throw new Error("Dry/Wet Riser V2 configuration requires exactly riserMode dry or wet");
       }
     }
@@ -861,11 +859,12 @@ async function buildJobConfigurationSnapshot(
         evidencePolicySchemaVersion,
         evidencePolicyDefinition,
         evidencePolicySha256,
+        systemConfiguration,
         ...baseSystem
       } = system;
       return {
         ...baseSystem,
-        ...(baseSystem.systemKey === "dry_wet_riser" ? { systemConfiguration: baseSystem.systemConfiguration } : {}),
+        ...(baseSystem.systemKey === "dry_wet_riser" ? { systemConfiguration: parseDryWetRiserSystemConfiguration(systemConfiguration) } : {}),
         ...(evidencePolicyId ? {
           evidencePolicy: {
             id: evidencePolicyId,
