@@ -7,7 +7,10 @@ import type {
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResolvedMeasurementRow, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
-import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
+import {
+  defaultCatalogTemplate,
+  type InspectionCatalogInput
+} from "../referenceData/referenceDataTypes";
 import {
   controlsForAutomaticSprinklerSnapshot,
   resolvePublishedAutomaticSprinklerControls
@@ -30,14 +33,15 @@ const now = () => new Date().toISOString();
 export const automaticSprinklerJobSystemKey = (jobId: string) => `${jobId}:${systemKey}`;
 export type AutomaticSprinklerSubmitIssue = { section: string; message: string; targetId: string };
 
-function definitionFor(catalog: InspectionCatalog) {
-  const system = catalog.systems.find((candidate) =>
+function definitionFor(catalog: InspectionCatalogInput) {
+  const template = defaultCatalogTemplate(catalog);
+  const system = template.systems.find((candidate) =>
     candidate.key === systemKey && candidate.definitionStatus === "confirmed"
   );
   if (!system?.definition) throw new Error("Cached Automatic Sprinkler definition is unavailable. Refresh jobs online first.");
   return {
     definition: system.definition,
-    controls: resolvePublishedAutomaticSprinklerControls(system.definition, catalog.code, catalog.version)
+    controls: resolvePublishedAutomaticSprinklerControls(system.definition, template.code, template.version)
   };
 }
 
@@ -124,7 +128,7 @@ function snapshot(
 export async function getOrCreateAutomaticSprinklerInspection(
   job: InspectionJob,
   system: JobSystemSnapshot,
-  catalog: InspectionCatalog,
+  catalog: InspectionCatalogInput,
   creator: { id: number; username: string; role: "admin" | "inspector" } | undefined
 ) {
   const jobSystemKey = automaticSprinklerJobSystemKey(job.id);

@@ -99,6 +99,81 @@ async function insertFixture(entity: string, operation: Promise<unknown>) {
   }
 }
 
+type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2;
+
+async function assertPublishedMasterServiceReportTemplateMetadata(
+  client: PoolClient,
+  label: string,
+  template: MasterServiceReportTemplate
+) {
+  const storedTemplate = await client.query<Record<string, unknown>>(
+    `
+      SELECT
+        id,
+        code,
+        name,
+        version,
+        selection_policy AS "selectionPolicy",
+        header_definition AS "headerDefinition",
+        report_boilerplate AS "reportBoilerplate",
+        publication_status AS "publicationStatus"
+      FROM master_service_report_templates
+      WHERE id = $1
+    `,
+    [template.id]
+  );
+  assertFixtureFields(`${label} template`, storedTemplate.rows[0], {
+    id: template.id,
+    code: template.code,
+    name: template.name,
+    version: template.version,
+    selectionPolicy: template.selectionPolicy,
+    headerDefinition: template.header,
+    reportBoilerplate: template.reportBoilerplate,
+    publicationStatus: "published"
+  });
+}
+
+export async function assertPublishedMasterServiceReportTemplate(
+  client: PoolClient,
+  label: string,
+  template: MasterServiceReportTemplate
+) {
+  await assertPublishedMasterServiceReportTemplateMetadata(client, label, template);
+  const storedSystems = await client.query<Record<string, unknown>>(
+    `
+      SELECT
+        template_version_id AS "templateId",
+        system_key AS "key",
+        display_name AS "displayName",
+        sort_order AS "sortOrder",
+        definition_status AS "definitionStatus",
+        definition
+      FROM master_service_report_systems
+      WHERE template_version_id = $1
+      ORDER BY sort_order, system_key
+    `,
+    [template.id]
+  );
+  const expectedSystems = template.systems
+    .slice()
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.key.localeCompare(right.key));
+  if (storedSystems.rowCount !== expectedSystems.length) {
+    throw new Error(`${label} system membership differs from the tracked definition`);
+  }
+  storedSystems.rows.forEach((system, index) => {
+    const expected = expectedSystems[index];
+    assertFixtureFields(`${label} system ${expected.key}`, system, {
+      templateId: template.id,
+      key: expected.key,
+      displayName: expected.displayName,
+      sortOrder: expected.sortOrder,
+      definitionStatus: expected.definitionStatus,
+      definition: expected
+    });
+  });
+}
+
 type SnapshotCustomerRow = {
   id: string;
   code: string;
@@ -219,11 +294,13 @@ async function seedTemplate(client: PoolClient) {
   }
 
   await insertFixture("Published Master V2 template", client.query(`INSERT INTO master_service_report_templates (id, code, name, version, selection_policy, header_definition, report_boilerplate, publication_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`, [masterServiceReportV2.id, masterServiceReportV2.code, masterServiceReportV2.name, masterServiceReportV2.version, masterServiceReportV2.selectionPolicy, JSON.stringify(masterServiceReportV2.header), JSON.stringify(masterServiceReportV2.reportBoilerplate)]));
+  await assertPublishedMasterServiceReportTemplateMetadata(client, "Published Master V2", masterServiceReportV2);
   for (const system of masterServiceReportV2.systems) {
     await client.query(`INSERT INTO master_service_report_systems (template_version_id, system_key, display_name, sort_order, definition_status, definition) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id, system_key) DO NOTHING`, [masterServiceReportV2.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]);
     const verified = await client.query<{ matches: boolean }>(`SELECT display_name=$3 AND sort_order=$4 AND definition_status=$5 AND definition=$6::jsonb AS matches FROM master_service_report_systems WHERE template_version_id=$1 AND system_key=$2`, [masterServiceReportV2.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]);
     if (verified.rowCount !== 1 || !verified.rows[0].matches) throw new Error(`Published Master V2 system ${system.key} differs from the tracked definition`);
   }
+  await assertPublishedMasterServiceReportTemplate(client, "Published Master V2", masterServiceReportV2);
 }
 
 async function seedDryWetRiserFixture(client: PoolClient) {

@@ -72,6 +72,66 @@ type LocationRow = {
   sortOrder: number;
 };
 
+function assertVersionedCatalogRows(templates: TemplateRow[]) {
+  const identities = new Set<string>();
+  const ids = new Set<string>();
+  for (const template of templates) {
+    const identity = `${template.code}:${template.version}`;
+    if (ids.has(template.id) || identities.has(identity)) {
+      throw new Error("Inspection catalog contains duplicate published template identities");
+    }
+    ids.add(template.id);
+    identities.add(identity);
+  }
+  if (
+    templates.length !== 2
+    || !templates.some((template) => template.version === 1)
+    || !templates.some((template) => template.version === 2)
+  ) {
+    throw new Error("Inspection catalog is missing a required published MFE-FSSR version");
+  }
+}
+
+async function loadCatalogTemplate(template: TemplateRow) {
+  const systemsResult = await pool.query<SystemRow>(
+    `
+      SELECT
+        system_key AS "key",
+        display_name AS "displayName",
+        sort_order AS "sortOrder",
+        definition_status AS "definitionStatus",
+        definition
+      FROM master_service_report_systems
+      WHERE template_version_id = $1
+      ORDER BY sort_order, system_key
+    `,
+    [template.id]
+  );
+
+  return {
+    ...template,
+    systems: systemsResult.rows.map((system) => system.key === "hose_reel"
+      ? {
+          ...system,
+          resolvedRuntimeControls: resolveHoseReelControls(
+            system.definition,
+            template.code,
+            template.version
+          )
+        }
+      : system.key === "co2_fire_extinguisher"
+        ? {
+            ...system,
+            resolvedRuntimeControls: resolveCo2Controls(
+              system.definition,
+              template.code,
+              template.version
+            )
+          }
+        : system)
+  };
+}
+
 export const inspectionReferenceRouter = Router();
 
 inspectionReferenceRouter.get(
@@ -94,54 +154,18 @@ inspectionReferenceRouter.get(
           AND publication_status = 'published'
         ORDER BY version
       `);
+      assertVersionedCatalogRows(templateResult.rows);
       const template = templateResult.rows.find((candidate) => candidate.version === 1);
       if (!template) {
         response.status(404).json({ error: "INSPECTION_CATALOG_NOT_FOUND" });
         return;
       }
 
-      const systemsResult = await pool.query<SystemRow>(
-        `
-          SELECT
-            system_key AS "key",
-            display_name AS "displayName",
-            sort_order AS "sortOrder",
-            definition_status AS "definitionStatus",
-            definition
-          FROM master_service_report_systems
-          WHERE template_version_id = $1
-          ORDER BY sort_order
-        `,
-        [template.id]
-      );
+      const templates = await Promise.all(templateResult.rows.map(loadCatalogTemplate));
 
       response.json({
-        template: {
-          ...template,
-          systems: systemsResult.rows.map((system) => system.key === "hose_reel"
-            ? {
-                ...system,
-                resolvedRuntimeControls: resolveHoseReelControls(
-                  system.definition,
-                  template.code,
-                  template.version
-                )
-              }
-            : system.key === "co2_fire_extinguisher"
-              ? {
-                  ...system,
-                  resolvedRuntimeControls: resolveCo2Controls(
-                    system.definition,
-                    template.code,
-                    template.version
-                  )
-                }
-            : system)
-        },
-        templates: await Promise.all(templateResult.rows.map(async (candidate) => {
-          const rows = await pool.query<SystemRow>(`SELECT system_key AS "key", display_name AS "displayName", sort_order AS "sortOrder", definition_status AS "definitionStatus", definition FROM master_service_report_systems WHERE template_version_id = $1 ORDER BY sort_order`, [candidate.id]);
-          return { ...candidate, systems: rows.rows };
-        }))
+        template: templates.find((candidate) => candidate.version === 1),
+        templates
       });
     } catch (error) {
       next(error);

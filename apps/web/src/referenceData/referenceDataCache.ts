@@ -6,6 +6,7 @@ import {
   loadInspectionCatalog,
   loadReferenceCustomers
 } from "./referenceDataApi";
+import { parseInspectionCatalog } from "./referenceDataTypes";
 import type {
   CustomerConfigurationResponse,
   InspectionCatalog,
@@ -58,7 +59,7 @@ export async function refreshInspectionReferenceData(
   );
   const fetchedAt = new Date().toISOString();
   const entries = [
-    entry(catalogKey, catalog, `${catalog.code}:${catalog.version}`, fetchedAt),
+    entry(catalogKey, catalog, `${catalog.template.code}:${catalog.template.version}:versions`, fetchedAt),
     entry(customersKey, customers, fetchedAt, fetchedAt),
     entry(inspectionJobsKey(userId), jobs, fetchedAt, fetchedAt),
     ...configurations.map((configuration) => entry(
@@ -103,10 +104,9 @@ export async function refreshInspectionReferenceData(
 }
 
 export async function getCachedInspectionCatalog() {
-  return ((await localDatabase.referenceData.get(catalogKey))
-    ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload as
-    | InspectionCatalog
-    | undefined;
+  const payload = ((await localDatabase.referenceData.get(catalogKey))
+    ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload;
+  return parseInspectionCatalog(payload, { allowLegacyV1Only: true });
 }
 
 export async function getCachedReferenceCustomers() {
@@ -135,7 +135,7 @@ export async function getReferenceCacheSummary() {
     .at(-1);
   return {
     catalogAvailable: Boolean(catalog),
-    systemCount: catalog?.systems.length ?? 0,
+    systemCount: catalog?.template.systems.length ?? 0,
     customerCount: customers.length,
     fetchedAt
   };

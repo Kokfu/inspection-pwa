@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Inspection catalog loader/cache harness</title></head>
+  <body>
+    <button id="run" type="button">Run catalog loader/cache checks</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { loadInspectionCatalog } from "/src/referenceData/referenceDataApi.ts";
+      import {
+        getCachedInspectionCatalog,
+        refreshInspectionReferenceData
+      } from "/src/referenceData/referenceDataCache.ts";
+      import { parseInspectionCatalog } from "/src/referenceData/referenceDataTypes.ts";
+      import { resolveDryWetRiserOpenTarget } from "/src/dryWetRiser/dryWetRiserResolution.ts";
+
+      const ids = {
+        job: "32000000-0000-4000-8000-000000000001",
+        customer: "32000000-0000-4000-8000-000000000002",
+        revision: "32000000-0000-4000-8000-000000000003",
+        v1: "32000000-0000-4000-8000-000000000004",
+        v2: "32000000-0000-4000-8000-000000000005",
+        system: "32000000-0000-4000-8000-000000000006",
+        location: "32000000-0000-4000-8000-000000000007"
+      };
+      const outcomes = [];
+      const check = (name, passed, detail = "") => outcomes.push({ name, passed: Boolean(passed), detail });
+      const rejected = async (operation) => {
+        try { await operation(); return false; } catch { return true; }
+      };
+      const template = (id, version, systems) => ({
+        id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version,
+        selectionPolicy: "preset_only", headerDefinition: { fields: [] },
+        reportBoilerplate: { conditions: [] }, systems
+      });
+      const v1 = template(ids.v1, 1, [{
+        key: "hose_reel", displayName: "Hose Reel", sortOrder: 1,
+        definitionStatus: "confirmed", definition: { key: "hose_reel", sections: [] }
+      }]);
+      const v2 = template(ids.v2, 2, [{
+        key: "dry_wet_riser", displayName: "Dry / Wet Riser", sortOrder: 1,
+        definitionStatus: "confirmed", definition: { key: "dry_wet_riser", sections: [] }
+      }]);
+      const response = { template: v1, templates: [v1, v2] };
+      const system = {
+        enabledSystemId: ids.system, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser",
+        sortOrder: 1, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" },
+        zones: [], locations: [{
+          id: ids.location, enabledSystemId: ids.system, zoneId: null, key: "ground",
+          displayName: "Ground Floor", presetRowCount: 1, rowPreset: { assetReference: "DW-001" },
+          sortOrder: 1
+        }]
+      };
+      const job = {
+        id: ids.job, reference: "CATALOG-HARNESS", title: "Catalog Harness", status: "open",
+        createdAt: new Date().toISOString(),
+        configurationSnapshot: {
+          schemaVersion: 1, customer: { id: ids.customer, code: "TEST", displayName: "Test" },
+          configuration: { revisionId: ids.revision, revisionNumber: 1 },
+          template: { id: ids.v2, code: "MFE-FSSR", name: v2.name, version: 2 },
+          enabledSystems: [system]
+        }
+      };
+      const responseFor = (payload) => ({ ok: true, status: 200, json: async () => payload });
+      const installFetch = (catalogPayload) => {
+        globalThis.fetch = async (path) => {
+          if (path === "/api/inspection-catalog") return responseFor(catalogPayload);
+          if (path === "/api/customers") return responseFor({ customers: [] });
+          if (path === "/api/inspection-jobs") return responseFor({ jobs: [] });
+          throw new Error(`Unexpected request: ${path}`);
+        };
+      };
+      async function clear() {
+        const records = await localDatabase.masterSystemInspections
+          .where("jobSystemKey").equals(`${ids.job}:dry_wet_riser`).toArray();
+        await localDatabase.transaction("rw", localDatabase.referenceData, localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+          await localDatabase.referenceData.bulkDelete([
+            "inspection-catalog:MFE-FSSR:versions",
+            "inspection-catalog:MFE-FSSR:1",
+            "customers:active",
+            "inspection-jobs:user:320"
+          ]);
+          await localDatabase.masterSystemInspections.bulkDelete(records.map((record) => record.clientUuid));
+          for (const record of records) {
+            const outbox = await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray();
+            await localDatabase.syncOutbox.bulkDelete(outbox.map((item) => item.operationId));
+          }
+        });
+      }
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const output = document.querySelector("#result");
+        outcomes.length = 0;
+        try {
+          await localDatabase.open();
+          await clear();
+          installFetch(response);
+          const loaded = await loadInspectionCatalog();
+          check("loader retains V1 default and V2 definition", loaded.template.version === 1 && loaded.templates.length === 2 && loaded.templates[1].id === ids.v2);
+          await refreshInspectionReferenceData(320);
+          const cached = await getCachedInspectionCatalog();
+          check("IndexedDB reload retains V1 and V2", cached?.template.id === ids.v1 && cached.templates.map((item) => item.version).join(",") === "1,2");
+          const first = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
+          const second = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
+          const outbox = await localDatabase.syncOutbox.where("entityType").equals("masterSystemInspection").count();
+          check("refreshed V2 job creates exactly one Draft with frozen V2 identity", first.kind === "local" && first.record.masterTemplate.id === ids.v2 && first.record.masterTemplate.version === 2 && second.kind === "local" && second.record.clientUuid === first.record.clientUuid && outbox === 0);
+
+          await clear();
+          await localDatabase.referenceData.put({
+            key: "inspection-catalog:MFE-FSSR:1", payload: { template: v1 }, version: "MFE-FSSR:1",
+            fetchedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString()
+          });
+          const legacy = await getCachedInspectionCatalog();
+          check("legacy V1-only cache stays valid for V1", legacy?.template.id === ids.v1 && legacy.templates.length === 1 && legacy.template.systems[0]?.key === "hose_reel");
+          const legacyV2 = await resolveDryWetRiserOpenTarget(job, system, legacy, undefined, "verified", async () => undefined);
+          check("legacy V1-only cache does not fabricate V2", legacyV2.kind === "server-unavailable" && legacyV2.message.includes("not cached for this job"));
+          installFetch(response);
+          await refreshInspectionReferenceData(320);
+          const upgraded = await getCachedInspectionCatalog();
+          check("online refresh upgrades legacy cache to V1 plus V2", upgraded?.templates.length === 2 && upgraded.templates.some((item) => item.id === ids.v2));
+
+          const malformed = [
+            ["templates is not an array", (value) => value.templates = {}],
+            ["malformed V2 template", (value) => value.templates[1].name = 7],
+            ["duplicate template ID", (value) => value.templates[1].id = value.templates[0].id],
+            ["duplicate code/version", (value) => value.templates[1].version = 1],
+            ["wrong version type", (value) => value.templates[1].version = "2"],
+            ["malformed system definition", (value) => value.templates[1].systems[0].definition = []],
+            ["mismatched V2 ownership", (value) => value.templates[1].code = "OTHER"]
+          ];
+          for (const [name, mutate] of malformed) {
+            const candidate = structuredClone(response);
+            mutate(candidate);
+            installFetch(candidate);
+            check(`loader rejects ${name}`, await rejected(() => loadInspectionCatalog()) && parseInspectionCatalog(candidate) === undefined);
+          }
+          output.textContent = JSON.stringify({ status: outcomes.every((outcome) => outcome.passed) ? "PASS" : "FAIL", outcomes }, null, 2);
+        } catch (error) {
+          output.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error), outcomes }, null, 2);
+        }
+      });
+    </script>
+  </body>
+</html>

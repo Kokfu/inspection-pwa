@@ -2,7 +2,10 @@ import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResolvedCo2Controls, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
-import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
+import {
+  defaultCatalogTemplate,
+  type InspectionCatalogInput
+} from "../referenceData/referenceDataTypes";
 import { resolvePublishedCo2Controls } from "./co2Definition";
 import type {
   Co2ConfiguredInstance,
@@ -23,12 +26,13 @@ const isUuid = (value: string) => uuidPattern.test(value);
 const isExpectedInitializationConstraint = (error: unknown) =>
   error instanceof Error && error.name === "ConstraintError";
 
-function definitionFor(catalog: InspectionCatalog) {
-  const system = catalog.systems.find((candidate) => candidate.key === systemKey && candidate.definitionStatus === "confirmed");
+function definitionFor(catalog: InspectionCatalogInput) {
+  const template = defaultCatalogTemplate(catalog);
+  const system = template.systems.find((candidate) => candidate.key === systemKey && candidate.definitionStatus === "confirmed");
   if (!system?.definition) throw new Error("Cached CO2 definition is unavailable. Refresh jobs online first.");
   return {
     definition: system.definition,
-    controls: resolvePublishedCo2Controls(system.definition, catalog.code, catalog.version)
+    controls: resolvePublishedCo2Controls(system.definition, template.code, template.version)
   };
 }
 
@@ -102,7 +106,7 @@ function snapshot(
 export async function initializeCo2InspectionGroup(
   job: InspectionJob,
   system: JobSystemSnapshot,
-  catalog: InspectionCatalog,
+  catalog: InspectionCatalogInput,
   creator: { id: number; username: string; role: "admin" | "inspector" } | undefined
 ) {
   if (system.systemKey !== systemKey) throw new Error("Selected system is not CO2");

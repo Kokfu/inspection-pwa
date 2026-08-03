@@ -1,8 +1,9 @@
 import type {
   CustomerConfigurationResponse,
   InspectionCatalog,
-  ReferenceCustomer
+  ReferenceCustomer,
 } from "./referenceDataTypes";
+import { parseInspectionCatalog } from "./referenceDataTypes";
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -18,9 +19,10 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function loadInspectionCatalog() {
-  const data = await getJson<{ template: InspectionCatalog }>("/api/inspection-catalog");
-  return data.template;
+export async function loadInspectionCatalog(): Promise<InspectionCatalog> {
+  const catalog = parseInspectionCatalog(await getJson<unknown>("/api/inspection-catalog"));
+  if (!catalog) throw new Error("Inspection catalog response is invalid");
+  return catalog;
 }
 
 export async function loadReferenceCustomers() {

@@ -9,7 +9,10 @@ import type {
   ResolvedMeasurementRow,
   ResultControlDefinition
 } from "../inspectionControls/definitionTypes";
-import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
+import {
+  defaultCatalogTemplate,
+  type InspectionCatalogInput
+} from "../referenceData/referenceDataTypes";
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot } from "../jobs/jobTypes";
 import { hoseReelLimits, type DeviceReportedCreator, type GoodPoor, type HoseReelInspectionSnapshot, type HoseReelResponses, type MasterSystemInspectionRecord } from "./hoseReelTypes";
 
@@ -24,11 +27,12 @@ const rowResultFields = {
   valve: "valveResult",
   nozzle_box: "nozzleBoxResult"
 } as const;
-function definitionFor(catalog: InspectionCatalog) {
-  const system = catalog.systems.find((item) => item.key === key && item.definitionStatus === "confirmed");
+function definitionFor(catalog: InspectionCatalogInput) {
+  const template = defaultCatalogTemplate(catalog);
+  const system = template.systems.find((item) => item.key === key && item.definitionStatus === "confirmed");
   if (!system?.definition) throw new Error("Cached Hose Reel definition is unavailable. Refresh reference data while online.");
   const resolvedControls = parseFrozenHoseReelControls(system.resolvedRuntimeControls)
-    ?? resolvePublishedHoseReelControls(system.definition, catalog.code, catalog.version);
+    ?? resolvePublishedHoseReelControls(system.definition, template.code, template.version);
   return { definition: system.definition, resolvedControls };
 }
 function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "" }; }
@@ -75,7 +79,7 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
     comments: ""
   };
 }
-function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog): HoseReelInspectionSnapshot {
+function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput): HoseReelInspectionSnapshot {
   const { definition, resolvedControls } = definitionFor(catalog);
   return {
     schemaVersion: 1,
@@ -94,7 +98,7 @@ function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: 
   };
 }
 
-export async function getOrCreateHoseReelInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined): Promise<MasterSystemInspectionRecord> { const groupKey = jobSystemKey(job.id); const existing = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (existing) { if (existing.systemKey !== key) throw new Error("Stored Master-system inspection identity is invalid"); return existing; } const timestamp = now(); const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null; const inspectionSnapshot = createSnapshot(job, system, catalog); const record: MasterSystemInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: groupKey, jobId: job.id, systemKey: key, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 1 }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system, controlsForHoseReelSnapshot(inspectionSnapshot)), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" }; try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { const raced = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (raced?.systemKey === key) return raced; throw error; } }
+export async function getOrCreateHoseReelInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined): Promise<MasterSystemInspectionRecord> { const groupKey = jobSystemKey(job.id); const existing = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (existing) { if (existing.systemKey !== key) throw new Error("Stored Master-system inspection identity is invalid"); return existing; } const timestamp = now(); const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null; const inspectionSnapshot = createSnapshot(job, system, catalog); const record: MasterSystemInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: groupKey, jobId: job.id, systemKey: key, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 1 }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system, controlsForHoseReelSnapshot(inspectionSnapshot)), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" }; try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { const raced = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (raced?.systemKey === key) return raced; throw error; } }
 function preserveConfiguredRows(current: HoseReelResponses, proposed: HoseReelResponses): HoseReelResponses {
   const proposedByUuid = new Map(proposed.rows.map((item) => [item.rowUuid, item]));
   const configured = current.rows.filter((item) => item.source === "configured").map((item) => {
