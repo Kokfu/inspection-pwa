@@ -9,6 +9,7 @@ const text = (value: unknown): value is string => typeof value === "string";
 const timestamp = (value: unknown): value is string => text(value) && !Number.isNaN(Date.parse(value));
 const result = (value: unknown): value is "good" | "poor" => value === "good" || value === "poor";
 const number = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const snapshot = (value: unknown, id: unknown): value is { id: string; displayName: string } => record(value) && Object.keys(value).length === 2 && value.id === id && text(value.id) && uuid.test(value.id) && text(value.displayName) && value.displayName.length > 0 && value.displayName.length <= 250;
 
 export type ServerDryWetRiserDetail = {
   clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string;
@@ -32,15 +33,15 @@ function fixedRows(value: unknown, keys: readonly string[]): Record<string, Rise
 function outlet(value: unknown): RiserOutlet | undefined {
   const keys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "canvasHoseAt2Result", "diffuserNozzleResult", "landingValveResult", "crandleResult", "doorResult", "remarks", "sortOrder"];
   if (!record(value) || Object.keys(value).length !== keys.length || !keys.every((key) => key in value) || !text(value.rowUuid) || !uuid.test(value.rowUuid) || (value.source !== "configured" && value.source !== "technician") || !text(value.assetReference) || value.assetReference.length > 250 || !text(value.locationText) || value.locationText.length === 0 || value.locationText.length > 250 || !result(value.canvasHoseAt2Result) || !result(value.diffuserNozzleResult) || !result(value.landingValveResult) || !result(value.crandleResult) || !result(value.doorResult) || !text(value.remarks) || value.remarks.length > 2000 || !number(value.sortOrder) || !Number.isInteger(value.sortOrder) || value.sortOrder < 1) return undefined;
-  if (value.source === "configured" && (!text(value.configuredLocationId) || !uuid.test(value.configuredLocationId) || !number(value.configuredRowOrdinal) || !Number.isInteger(value.configuredRowOrdinal) || value.configuredRowOrdinal < 1 || !record(value.locationSnapshot) || value.locationSnapshot.id !== value.configuredLocationId || !text(value.locationSnapshot.displayName))) return undefined;
-  if (value.source === "technician" && (value.configuredLocationId !== null || value.configuredRowOrdinal !== null)) return undefined;
+  if (value.source === "configured" && (!text(value.configuredLocationId) || !uuid.test(value.configuredLocationId) || !number(value.configuredRowOrdinal) || !Number.isInteger(value.configuredRowOrdinal) || value.configuredRowOrdinal < 1 || !snapshot(value.locationSnapshot, value.configuredLocationId) || value.locationText !== value.locationSnapshot.displayName || (value.zoneSnapshot !== null && (!record(value.zoneSnapshot) || !text(value.zoneSnapshot.id) || !uuid.test(value.zoneSnapshot.id) || !text(value.zoneSnapshot.displayName) || Object.keys(value.zoneSnapshot).length !== 2)))) return undefined;
+  if (value.source === "technician" && (value.configuredLocationId !== null || value.configuredRowOrdinal !== null || value.locationSnapshot !== null || value.zoneSnapshot !== null || value.assetReference !== "")) return undefined;
   return value as RiserOutlet;
 }
 function responses(value: unknown): DryWetRiserResponses | undefined {
   const keys = ["schemaVersion", "mode", "waterTank", "pumpHouse", "measurements", "riserOutlets", "comments"];
   if (!record(value) || Object.keys(value).length !== keys.length || !keys.every((key) => key in value) || value.schemaVersion !== 1 || (value.mode !== "dry" && value.mode !== "wet") || !record(value.measurements) || Object.keys(value.measurements).length !== 5 || !number(value.measurements.jockeyCutIn) || !number(value.measurements.jockeyCutOut) || !number(value.measurements.dutyCutIn) || !number(value.measurements.standbyCutIn) || value.measurements.unit !== "PSI" || !Array.isArray(value.riserOutlets) || !text(value.comments) || value.comments.length > 4000) return undefined;
   const waterTank = fixedRows(value.waterTank, waterTankKeys), pumpHouse = fixedRows(value.pumpHouse, pumpHouseKeys), riserOutlets = value.riserOutlets.map(outlet);
-  if (!waterTank || !pumpHouse || riserOutlets.some((item) => !item)) return undefined;
+  if (!waterTank || !pumpHouse || riserOutlets.length === 0 || riserOutlets.length > 250 || riserOutlets.some((item) => !item)) return undefined;
   const outletRows = riserOutlets as RiserOutlet[];
   if (new Set(outletRows.map((item) => item.rowUuid)).size !== outletRows.length || outletRows.some((item, index) => item.sortOrder !== index + 1)) return undefined;
   return { schemaVersion: 1, mode: value.mode, waterTank, pumpHouse, measurements: { jockeyCutIn: value.measurements.jockeyCutIn, jockeyCutOut: value.measurements.jockeyCutOut, dutyCutIn: value.measurements.dutyCutIn, standbyCutIn: value.measurements.standbyCutIn, unit: "PSI" }, riserOutlets: outletRows, comments: value.comments };
