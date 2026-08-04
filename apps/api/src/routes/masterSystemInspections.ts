@@ -11,6 +11,24 @@ const supportedSystemKeys = new Set([
   "co2_fire_extinguisher",
   "automatic_sprinkler", "dry_wet_riser"
 ]);
+const pageSize = 100;
+
+function decodeCursor(value: unknown): { performedAt: string; clientUuid: string } | undefined {
+  if (typeof value !== "string" || value.length > 256) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!parsed || typeof parsed !== "object") return undefined;
+    const cursor = parsed as { performedAt?: unknown; clientUuid?: unknown };
+    return typeof cursor.performedAt === "string" && !Number.isNaN(Date.parse(cursor.performedAt))
+      && typeof cursor.clientUuid === "string" && uuidPattern.test(cursor.clientUuid)
+      ? { performedAt: cursor.performedAt, clientUuid: cursor.clientUuid }
+      : undefined;
+  } catch { return undefined; }
+}
+
+function encodeCursor(row: { performedAt: string; clientUuid: string }) {
+  return Buffer.from(JSON.stringify({ performedAt: row.performedAt, clientUuid: row.clientUuid })).toString("base64url");
+}
 export const masterSystemInspectionsRouter = Router();
 
 masterSystemInspectionsRouter.get(
@@ -72,18 +90,21 @@ masterSystemInspectionsRouter.get(
       const jobIds = typeof request.query.jobIds === "string"
         ? request.query.jobIds.split(",").filter(Boolean)
         : [];
+      const cursor = request.query.cursor === undefined ? undefined : decodeCursor(request.query.cursor);
       if (
         (jobId !== undefined && !uuidPattern.test(jobId))
         || (systemKey !== undefined && !supportedSystemKeys.has(systemKey))
         || jobIds.length > 100
         || jobIds.some((value) => !uuidPattern.test(value))
+        || (request.query.cursor !== undefined && !cursor)
       ) {
         response.status(400).json({ error: "INVALID_INSPECTION_FILTER" });
         return;
       }
 
       const values: unknown[] = [];
-      const filters: string[] = [];
+      // Progress summaries intentionally include only accepted records.
+      const filters: string[] = ["instance.status = 'submitted'"];
       if (jobId) {
         values.push(jobId);
         filters.push(`job.id = $${values.length}`);
@@ -96,30 +117,45 @@ masterSystemInspectionsRouter.get(
         values.push(jobIds);
         filters.push(`job.id = ANY($${values.length}::uuid[])`);
       }
+      if (cursor) {
+        values.push(cursor.performedAt, cursor.clientUuid);
+        filters.push(`(
+          instance.performed_at < $${values.length - 1}::timestamptz
+          OR (
+            instance.performed_at = $${values.length - 1}::timestamptz
+            AND instance.client_uuid > $${values.length}::uuid
+          )
+        )`);
+      }
       const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
       const result = await pool.query(`
         SELECT instance.client_uuid AS "clientUuid", job.id AS "jobId",
-          job.job_reference AS "jobReference", job.title AS "jobTitle",
-          customer.display_name AS "customerName", inspection.system_key AS "systemKey",
-          instance.instance_key AS "instanceKey", instance.zone_snapshot->>'displayName' AS "zoneName",
-          instance.location_snapshot->>'displayName' AS "locationName", instance.status,
+          inspection.system_key AS "systemKey", instance.instance_key AS "instanceKey", instance.status,
           instance.zone_id AS "zoneId", instance.location_id AS "locationId",
           instance.display_sequence AS "displaySequence",
-          instance.performed_at AS "performedAt", instance.received_at AS "receivedAt",
+          to_char(
+            instance.performed_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+          ) AS "performedAt",
           instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
           creator.username AS "verifiedOriginalCreatorUsername",
           syncer.username AS "syncedByUsername"
         FROM master_system_form_instances instance
         INNER JOIN master_system_inspections inspection ON inspection.id = instance.inspection_group_id
         INNER JOIN inspection_jobs job ON job.id = inspection.job_id
-        INNER JOIN customers customer ON customer.id = job.customer_id
         LEFT JOIN users creator ON creator.id = instance.original_created_by_user_id
         INNER JOIN users syncer ON syncer.id = instance.synced_by_user_id
         ${where}
         ORDER BY instance.performed_at DESC, instance.client_uuid ASC
-        LIMIT 100
+        LIMIT ${pageSize + 1}
       `, values);
-      response.json({ inspections: result.rows });
+      const hasMore = result.rows.length > pageSize;
+      const inspections = result.rows.slice(0, pageSize);
+      response.json({
+        inspections,
+        hasMore,
+        nextCursor: hasMore ? encodeCursor(inspections[inspections.length - 1]) : null
+      });
     } catch (error) {
       next(error);
     }

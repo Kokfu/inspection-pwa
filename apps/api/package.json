@@ -13,7 +13,9 @@
     "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js",
     "validate-dry-wet-riser": "node dist/cli/validateDryWetRiser.js",
     "validate-hose-reel": "node dist/cli/validateHoseReel.js",
-    "validate-co2": "node dist/cli/validateCo2.js"
+    "validate-co2": "node dist/cli/validateCo2.js",
+    "validate-server-summary-pagination": "node dist/cli/validateServerSummaryPagination.js",
+    "validate-sync-http": "node dist/cli/validateSyncHttp.js"
   },
   "dependencies": {
     "argon2": "^0.44.0",
