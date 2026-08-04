@@ -6,7 +6,7 @@
     <pre id="result">Ready</pre>
     <script type="module">
       import { localDatabase } from "/src/db/localDatabase.ts";
-      import { getOrCreateDryWetRiserInspection, saveDryWetRiserDraft, submitIssues, submitLocalDryWetRiser } from "/src/dryWetRiser/dryWetRiserRepository.ts";
+      import { getOrCreateDryWetRiserInspection, returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitIssues, submitLocalDryWetRiser } from "/src/dryWetRiser/dryWetRiserRepository.ts";
       import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "/src/dryWetRiser/dryWetRiserResolution.ts";
       import { ServerDryWetRiserNotFoundError } from "/src/dryWetRiser/serverDryWetRiserApi.ts";
       import { deriveMasterSystemProgress, deriveNoLocalSystemProgress } from "/src/jobs/jobProgress.ts";
@@ -45,12 +45,33 @@
           check("configured rows cannot be removed", submitIssues(saved, removedConfigured).some((issue) => issue.includes("Configured Riser Outlets")));
           const convertedConfigured = structuredClone(saved.responses); Object.assign(convertedConfigured.riserOutlets[0], { source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null });
           check("configured rows cannot be converted into technician rows", submitIssues(saved, convertedConfigured).some((issue) => issue.includes("Configured Riser Outlets")));
-          const pending = await submitLocalDryWetRiser(saved, saved.responses);
+          const staleDraft = saved, newerDraft = await saveDryWetRiserDraft(saved, { ...saved.responses, comments: "newer Draft B" });
+          check("stale Draft save rejected", await expectRejected(() => saveDryWetRiserDraft(staleDraft, { ...staleDraft.responses, comments: "stale Draft A" })));
+          check("newer Draft content remains unchanged", (await localDatabase.masterSystemInspections.get(first.clientUuid)).responses.comments === "newer Draft B");
+          check("stale Submit Local rejected", await expectRejected(() => submitLocalDryWetRiser(staleDraft, staleDraft.responses)));
+          check("stale submit does not create an outbox item", await localDatabase.syncOutbox.where("entityId").equals(first.clientUuid).count() === 0);
+          const pending = await submitLocalDryWetRiser(newerDraft, newerDraft.responses);
           const outbox = await localDatabase.syncOutbox.where("entityId").equals(first.clientUuid).toArray();
           check("Submit Local creates one active parent outbox item", pending.syncStatus === "Pending" && outbox.length === 1 && outbox[0].activeKey === `masterSystemInspection:create:${first.clientUuid}`);
           check("stale caller cannot downgrade Pending lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
           await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Syncing" }); check("stale caller cannot downgrade Syncing lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
           await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Synced" }); check("stale caller cannot downgrade Completed lifecycle", await expectRejected(() => saveDryWetRiserDraft(first, first.responses)));
+          const staleFailed = pending; await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Failed", localUpdatedAt: new Date(Date.now() + 1000).toISOString() });
+          check("stale Failed correction rejected", await expectRejected(() => returnFailedDryWetRiserToDraft(staleFailed)));
+          const currentFailed = await localDatabase.masterSystemInspections.get(first.clientUuid), correctedFailed = await returnFailedDryWetRiserToDraft(currentFailed);
+          const retiredFailed = await localDatabase.syncOutbox.where("entityId").equals(first.clientUuid).toArray();
+          check("current Failed correction preserves UUID", correctedFailed.clientUuid === first.clientUuid && correctedFailed.syncStatus === "Draft");
+          check("Failed correction retires old outbox payload", retiredFailed.length === 1 && retiredFailed[0].status === "Completed" && !retiredFailed[0].activeKey);
+          check("Failed correction leaves zero retryable old payloads", retiredFailed.filter(item => item.status === "Pending" || item.status === "Syncing" || item.status === "Failed").length === 0);
+          const correctedPending = await submitLocalDryWetRiser(correctedFailed, { ...correctedFailed.responses, comments: "corrected current responses" });
+          const correctedActive = await localDatabase.syncOutbox.where("activeKey").equals(`masterSystemInspection:create:${first.clientUuid}`).toArray();
+          check("corrected resubmission creates exactly one active operation", correctedActive.length === 1);
+          check("corrected active operation contains current corrected responses", correctedActive[0]?.payload.responses.comments === "corrected current responses");
+          check("repeated corrected submit does not duplicate active operation", await expectRejected(() => submitLocalDryWetRiser(correctedPending, correctedPending.responses)) && await localDatabase.syncOutbox.where("activeKey").equals(`masterSystemInspection:create:${first.clientUuid}`).count() === 1);
+          const staleConflict = correctedFailed; await localDatabase.masterSystemInspections.update(first.clientUuid, { syncStatus: "Conflict", localUpdatedAt: new Date(Date.now() + 2000).toISOString() });
+          check("stale Conflict correction rejected", await expectRejected(() => returnFailedDryWetRiserToDraft(staleConflict)));
+          const currentConflict = await localDatabase.masterSystemInspections.get(first.clientUuid), correctedConflict = await returnFailedDryWetRiserToDraft(currentConflict);
+          check("current Conflict correction preserves UUID", correctedConflict.clientUuid === first.clientUuid && correctedConflict.syncStatus === "Draft");
           const localRoute = await resolveDryWetRiserRoute(first.clientUuid, "verified", async () => { throw new Error("server must not be called"); });
           await removeHarnessRecords();
           const beforeInspectionCount = await localDatabase.masterSystemInspections.count(), beforeOutboxCount = await localDatabase.syncOutbox.count();

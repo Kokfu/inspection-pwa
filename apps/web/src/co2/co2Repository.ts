@@ -294,7 +294,7 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
   let next: MasterSystemFormInstanceRecord | undefined;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
-    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Draft" && live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
+    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") {
       throw new Error("This CO2 form cannot be submitted in its current state");
     }
     if (getCo2SubmitIssues(live, responses).length > 0) throw new Error("Complete the required CO2 fields before local submission");
@@ -314,14 +314,19 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
 }
 
 export async function returnFailedCo2ToDraft(record: MasterSystemFormInstanceRecord) {
-  if (record.syncStatus !== "Failed" && record.syncStatus !== "Conflict") throw new Error("Only failed CO2 forms can be corrected");
-  const next = { ...record, syncStatus: "Draft" as const, localUpdatedAt: now(), lastSyncError: undefined };
+  let next: MasterSystemFormInstanceRecord | undefined;
   const activeKey = `masterSystemFormInstance:create:${record.clientUuid}`;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
-    await localDatabase.masterSystemFormInstances.put(next);
+    const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
+    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
+      throw new Error("This CO2 form changed elsewhere. Reload before correcting it.");
+    }
+    next = { ...live, syncStatus: "Draft", localUpdatedAt: now(), lastSyncError: undefined };
     const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
     if (item) await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: now(), lastError: "Superseded by technician correction" });
+    await localDatabase.masterSystemFormInstances.put(next);
   });
+  if (!next) throw new Error("CO2 form was not corrected");
   return next;
 }
 
