@@ -120,8 +120,11 @@ export function TechnicianHome({
       const summary = serverMasterSystemInspections.find((candidate) =>
         candidate.jobId === jobId && candidate.systemKey === "automatic_sprinkler"
       );
+      if (!summary || summary.systemKey !== "automatic_sprinkler") {
+        return noLocalProgress(jobId, systemKey);
+      }
       return deriveAutomaticSprinklerServerProgress(
-        summary && summary.systemKey === "automatic_sprinkler" ? summary : undefined,
+        summary,
         authState.status === "restoring" ? "logged-out" : authState.status,
         serverMasterSystemProgressState
       );

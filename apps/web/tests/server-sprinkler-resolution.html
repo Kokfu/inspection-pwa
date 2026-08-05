@@ -170,13 +170,13 @@
             && serverAttachmentContentUrl(ids.photo) ===
               `/api/inspection-attachments/${ids.photo}/content`
             && progress.noEvidenceRequired === "Completed"
-            && progress.missingRequiredEvidence !== "Completed"
-            && progress.pendingEvidence !== "Completed"
+            && progress.missingRequiredEvidence === "Pending Evidence"
+            && progress.pendingEvidence === "Pending Evidence"
             && progress.failedEvidence === "Needs Attention"
             && progress.completeEvidence === "Completed"
             && progress.malformedSummary === "Unknown / Not Cached"
             && progress.duplicateEvidenceField === "Needs Attention"
-            && progress.crossInspectionEvidence !== "Completed"
+            && progress.crossInspectionEvidence === "Pending Evidence"
             && progress.frozenPolicyWins === "Completed"
             && progress.confirmedNone === "Not Started"
             && progress.offlineUnknown === "Unknown / Not Cached"

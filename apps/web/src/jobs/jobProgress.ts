@@ -32,7 +32,10 @@ export function deriveAutomaticSprinklerServerProgress(
   authStatus: "verified" | "offline-unverified" | "logged-out",
   serverSummaryState: "idle" | "loading" | "loaded" | "failed"
 ): SystemProgress {
-  if (!summary) return deriveNoLocalSystemProgress(false, authStatus, serverSummaryState);
+  // A caller must use deriveNoLocalSystemProgress for a confirmed complete
+  // response with no inspection. Here, an absent sprinkler summary means the
+  // evidence metadata was unavailable or could not be trusted.
+  if (!summary) return "Unknown / Not Cached";
   if (summary.evidenceState === "not-required" || summary.evidenceState === "complete") return "Completed";
   if (summary.evidenceState === "failed" || summary.evidenceState === "invalid") return "Needs Attention";
   return "Pending Evidence";
