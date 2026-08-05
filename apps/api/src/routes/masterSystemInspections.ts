@@ -12,14 +12,30 @@ const supportedSystemKeys = new Set([
   "automatic_sprinkler", "dry_wet_riser"
 ]);
 const pageSize = 100;
+const cursorTimestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
+
+function isCanonicalCursorTimestamp(value: string) {
+  if (!cursorTimestamp.test(value)) return false;
+  const [year, month, day, hour, minute, second] = value.slice(0, 19).split(/[-T:]/).map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, 0);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day && date.getUTCHours() === hour
+    && date.getUTCMinutes() === minute && date.getUTCSeconds() === second;
+}
 
 function decodeCursor(value: unknown): { performedAt: string; clientUuid: string } | undefined {
   if (typeof value !== "string" || value.length > 256) return undefined;
   try {
-    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
+    const decoded = Buffer.from(value, "base64url");
+    if (decoded.length > 192) return undefined;
+    const parsed: unknown = JSON.parse(decoded.toString("utf8"));
     if (!parsed || typeof parsed !== "object") return undefined;
     const cursor = parsed as { performedAt?: unknown; clientUuid?: unknown };
-    return typeof cursor.performedAt === "string" && !Number.isNaN(Date.parse(cursor.performedAt))
+    if (Object.keys(cursor).length !== 2 || !("performedAt" in cursor) || !("clientUuid" in cursor)) return undefined;
+    return typeof cursor.performedAt === "string" && isCanonicalCursorTimestamp(cursor.performedAt)
       && typeof cursor.clientUuid === "string" && uuidPattern.test(cursor.clientUuid)
       ? { performedAt: cursor.performedAt, clientUuid: cursor.clientUuid }
       : undefined;
