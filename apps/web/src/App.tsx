@@ -710,23 +710,44 @@ export function App() {
 
   async function handleSaveAutomaticSprinklerDraft(responses: AutomaticSprinklerResponses) {
     if (!activeAutomaticSprinkler) return;
-    const record = await saveAutomaticSprinklerDraft(activeAutomaticSprinkler, responses);
-    setActiveAutomaticSprinkler(record);
-    await refreshMasterSystemInspections();
+    try {
+      const record = await saveAutomaticSprinklerDraft(activeAutomaticSprinkler, responses);
+      setActiveAutomaticSprinkler(record);
+      await refreshMasterSystemInspections();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("changed elsewhere")) {
+        await refreshMasterSystemInspections();
+      }
+      throw error;
+    }
   }
 
   async function handleSubmitAutomaticSprinkler(responses: AutomaticSprinklerResponses) {
     if (!activeAutomaticSprinkler) return;
-    const record = await submitLocalAutomaticSprinkler(activeAutomaticSprinkler, responses);
-    setActiveAutomaticSprinkler(record);
-    await refreshMasterSystemInspections();
+    try {
+      const record = await submitLocalAutomaticSprinkler(activeAutomaticSprinkler, responses);
+      setActiveAutomaticSprinkler(record);
+      await refreshMasterSystemInspections();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("changed elsewhere")) {
+        await refreshMasterSystemInspections();
+      }
+      throw error;
+    }
   }
 
   async function handleEditFailedAutomaticSprinkler() {
     if (!activeAutomaticSprinkler) return;
-    const record = await returnFailedAutomaticSprinklerToDraft(activeAutomaticSprinkler);
-    setActiveAutomaticSprinkler(record);
-    await refreshMasterSystemInspections();
+    try {
+      const record = await returnFailedAutomaticSprinklerToDraft(activeAutomaticSprinkler);
+      setActiveAutomaticSprinkler(record);
+      await refreshMasterSystemInspections();
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("changed elsewhere")) {
+        await refreshMasterSystemInspections();
+      }
+      throw error;
+    }
   }
 
   async function handleLoadServerInspections() {

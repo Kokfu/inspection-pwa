@@ -355,8 +355,8 @@
           });
           const replacedPhotos = await listInspectionAttachments(record.clientUuid);
           const blobBytesBeforeSubmit = draftPhotos[0]?.blob.size;
-          await submitLocalAutomaticSprinkler(record, completeResponses(record));
-          await submitLocalAutomaticSprinkler(record, completeResponses(record));
+          const submittedCurrent = await submitLocalAutomaticSprinkler(record, completeResponses(record));
+          await submitLocalAutomaticSprinkler(submittedCurrent, completeResponses(record));
           const submitted = await localDatabase.masterSystemInspections.get(record.clientUuid);
           const submittedPhotos = await listInspectionAttachments(record.clientUuid);
           const submittedManifest = JSON.stringify(submitted?.submittedAttachmentManifest);
@@ -380,19 +380,25 @@
               });
             }
           );
-          const correctionDraft = await returnFailedAutomaticSprinklerToDraft(record);
+          const correctionDraft = await returnFailedAutomaticSprinklerToDraft(submittedCurrent);
           const staleTabResponses = completeResponses(record);
           staleTabResponses.comments = "Saved from stale pre-submission tab";
-          const staleTabSaved = await saveAutomaticSprinklerDraft(record, staleTabResponses);
+          let staleTabSaveRejected = false;
+          try {
+            await saveAutomaticSprinklerDraft(record, staleTabResponses);
+          } catch {
+            staleTabSaveRejected = true;
+          }
           const afterStaleTabSave = await localDatabase.masterSystemInspections
             .get(record.clientUuid);
           const staleTabPreservedFrozenEvidence =
-            staleTabSaved.clientUuid === correctionDraft.clientUuid
-            && staleTabSaved.attachmentSetSubmittedAt === submittedMarker
-            && JSON.stringify(staleTabSaved.submittedAttachmentManifest) === submittedManifest
+            staleTabSaveRejected
+            && correctionDraft.clientUuid === submittedCurrent.clientUuid
+            && correctionDraft.attachmentSetSubmittedAt === submittedMarker
+            && JSON.stringify(correctionDraft.submittedAttachmentManifest) === submittedManifest
             && afterStaleTabSave?.attachmentSetSubmittedAt === submittedMarker
             && JSON.stringify(afterStaleTabSave?.submittedAttachmentManifest) === submittedManifest
-            && afterStaleTabSave?.responses.comments === staleTabResponses.comments;
+            && afterStaleTabSave?.responses.comments !== staleTabResponses.comments;
           let removeRejected = false;
           let replaceRejected = false;
           let addRejected = false;
@@ -420,28 +426,21 @@
           const correctedResponses = completeResponses(correctionDraft);
           correctedResponses.comments = "Corrected response";
           const savedCorrection = await saveAutomaticSprinklerDraft(
-            staleTabSaved,
+            correctionDraft,
             correctedResponses
           );
-          await localDatabase.syncOutbox.delete(initialPhotoOutbox.operationId);
-          let missingFrozenOperationRejected = false;
-          try {
-            await submitLocalAutomaticSprinkler(savedCorrection, correctedResponses);
-          } catch {
-            missingFrozenOperationRejected = true;
-          }
-          const afterRejectedCorrection = await localDatabase.masterSystemInspections
-            .get(record.clientUuid);
           const parentOutboxAfterRejectedCorrection = await localDatabase.syncOutbox
             .get(initialParentOutbox.operationId);
-          await localDatabase.syncOutbox.add(initialPhotoOutbox);
-          await submitLocalAutomaticSprinkler(savedCorrection, correctedResponses);
+          const photoOutboxAfterRejectedCorrection = await localDatabase.syncOutbox
+            .get(initialPhotoOutbox.operationId);
+          const correctedSubmitted = await submitLocalAutomaticSprinkler(savedCorrection, correctedResponses);
+          await submitLocalAutomaticSprinkler(correctedSubmitted, correctedResponses);
           const correctionOutbox = await localDatabase.syncOutbox
             .where("entityId")
             .anyOf(record.clientUuid, submittedPhotos[0].photoUuid)
             .toArray();
-          const correctionParentOutbox = correctionOutbox.find((item) => item.entityId === record.clientUuid);
-          const correctionPhotoOutbox = correctionOutbox.find((item) => item.entityId === submittedPhotos[0].photoUuid);
+          const correctionParentOutbox = correctionOutbox.find((item) => item.entityId === record.clientUuid && item.operationId !== initialParentOutbox.operationId);
+          const correctionPhotoOutbox = correctionOutbox.find((item) => item.entityId === submittedPhotos[0].photoUuid && item.operationId !== initialPhotoOutbox.operationId);
 
           const noPhotoRecord = await getOrCreateAutomaticSprinklerInspection(
             noPhotoJob,
@@ -449,7 +448,7 @@
             catalog,
             undefined
           );
-          await submitLocalAutomaticSprinkler(
+          const noPhotoSubmitted = await submitLocalAutomaticSprinkler(
             noPhotoRecord,
             completeResponses(noPhotoRecord)
           );
@@ -495,7 +494,7 @@
               });
             }
           );
-          const noPhotoCorrection = await returnFailedAutomaticSprinklerToDraft(noPhotoRecord);
+          const noPhotoCorrection = await returnFailedAutomaticSprinklerToDraft(noPhotoSubmitted);
           const noPhotoCorrectedResponses = completeResponses(noPhotoCorrection);
           noPhotoCorrectedResponses.comments = "No-photo correction";
           await submitLocalAutomaticSprinkler(noPhotoCorrection, noPhotoCorrectedResponses);
@@ -585,18 +584,19 @@
             && addRejected
             && staleTabPreservedFrozenEvidence
             && protectedLifecyclePreserved
-            && missingFrozenOperationRejected
-            && afterRejectedCorrection?.syncStatus === "Draft"
             && parentOutboxAfterRejectedCorrection?.status === "Completed"
-            && correctionParentOutbox?.operationId === initialParentOutbox?.operationId
-            && correctionPhotoOutbox?.operationId === initialPhotoOutbox?.operationId
-            && correctionOutbox.filter((item) => item.entityId === record.clientUuid).length === 1
-            && correctionOutbox.filter((item) => item.entityId === photo.photoUuid).length === 1
+            && parentOutboxAfterRejectedCorrection?.activeKey === undefined
+            && photoOutboxAfterRejectedCorrection?.status === "Completed"
+            && photoOutboxAfterRejectedCorrection?.activeKey === undefined
+            && correctionParentOutbox?.operationId !== initialParentOutbox?.operationId
+            && correctionPhotoOutbox?.operationId !== initialPhotoOutbox?.operationId
+            && correctionOutbox.filter((item) => item.entityId === record.clientUuid).length === 2
+            && correctionOutbox.filter((item) => item.entityId === photo.photoUuid).length === 2
             && noPhotoAfterResubmit?.syncStatus === "Pending"
             && noPhotoAfterResubmit?.attachmentSetSubmittedAt
             && noPhotoAfterResubmit?.submittedAttachmentManifest?.length === 0
-            && noPhotoOutboxAfter.length === 1
-            && noPhotoOutboxAfter[0]?.operationId === noPhotoOperationId
+            && noPhotoOutboxAfter.length === 2
+            && noPhotoOutboxAfter.some((item) => item.operationId !== noPhotoOperationId && item.activeKey)
             && recovered > 0
             && recoveredPhoto?.syncStatus === "Failed"
             && calls[0] === "/api/sync"
@@ -636,20 +636,21 @@
             staleTabPreservedFrozenEvidence,
             protectedLifecycleSaveRejected,
             protectedLifecyclePreserved,
-            rejectedCorrectionRolledBack: {
-              rejected: missingFrozenOperationRejected,
-              parentStatus: afterRejectedCorrection?.syncStatus,
-              parentOutboxStatus: parentOutboxAfterRejectedCorrection?.status
+            retiredOperations: {
+              parentStatus: parentOutboxAfterRejectedCorrection?.status,
+              parentActiveKey: parentOutboxAfterRejectedCorrection?.activeKey,
+              evidenceStatus: photoOutboxAfterRejectedCorrection?.status,
+              evidenceActiveKey: photoOutboxAfterRejectedCorrection?.activeKey
             },
-            correctionReusedOperations: {
-              parent: correctionParentOutbox?.operationId === initialParentOutbox?.operationId,
-              photo: correctionPhotoOutbox?.operationId === initialPhotoOutbox?.operationId
+            correctionCreatedNewOperations: {
+              parent: correctionParentOutbox?.operationId !== initialParentOutbox?.operationId,
+              photo: correctionPhotoOutbox?.operationId !== initialPhotoOutbox?.operationId
             },
             noPhotoCorrection: {
               status: noPhotoAfterResubmit?.syncStatus,
               manifestCount: noPhotoAfterResubmit?.submittedAttachmentManifest?.length,
               outboxCount: noPhotoOutboxAfter.length,
-              operationReused: noPhotoOutboxAfter[0]?.operationId === noPhotoOperationId
+              createdNewOperation: noPhotoOutboxAfter.some((item) => item.operationId !== noPhotoOperationId && item.activeKey)
             },
             staleUploadingRecovered: recoveredPhoto?.syncStatus,
             syncOrder: calls,

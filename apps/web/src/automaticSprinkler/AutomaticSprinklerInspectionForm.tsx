@@ -284,7 +284,9 @@ export function AutomaticSprinklerInspectionForm({
       </div>)}
     </section> : null}
     {record.syncStatus === "Failed" || record.syncStatus === "Conflict"
-      ? <button type="button" onClick={() => void onEditFailed()}>Edit Failed Inspection</button>
+      ? <button type="button" onClick={() => void onEditFailed().catch((error) => {
+        setMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be corrected");
+      })}>Edit Failed Inspection</button>
       : null}
 
     <fieldset disabled={readOnly}><legend>Water Tank</legend>{sectionRows("waterTank")}</fieldset>

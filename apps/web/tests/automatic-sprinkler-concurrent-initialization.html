@@ -156,11 +156,27 @@
           getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined),
           getOrCreateAutomaticSprinklerInspection(job, system, catalog, undefined)
         ]);
-        await saveAutomaticSprinklerDraft(before, before.responses);
+        const staleDraftCaller = structuredClone(before);
+        const newerResponses = structuredClone(before.responses);
+        newerResponses.comments = "Draft B is newer";
+        const newerDraft = await saveAutomaticSprinklerDraft(before, newerResponses);
+        let staleDraftRejected = false;
+        try {
+          await saveAutomaticSprinklerDraft(staleDraftCaller, staleDraftCaller.responses);
+        } catch {
+          staleDraftRejected = true;
+        }
+        const afterStaleDraft = await localDatabase.masterSystemInspections.get(before.clientUuid);
+        let staleSubmitRejected = false;
+        try {
+          await submitLocalAutomaticSprinkler(staleDraftCaller, staleDraftCaller.responses);
+        } catch {
+          staleSubmitRejected = true;
+        }
         const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
         const outboxBeforeSubmit = await localDatabase.syncOutbox.where("entityId").equals(before.clientUuid).count();
         const incompleteIssues = getAutomaticSprinklerSubmitIssues(before.responses, before.inspectionSnapshot);
-        const completed = structuredClone(before.responses);
+        const completed = structuredClone(newerDraft.responses);
         for (const group of [completed.waterTank, completed.pumpHouse, completed.mainAlarmValve]) {
           for (const response of Object.values(group)) response.result = "good";
         }
@@ -168,8 +184,8 @@
           response.result = "good";
           for (const valueKey of Object.keys(response.values)) response.values[valueKey] = 10.5;
         }
-        await submitLocalAutomaticSprinkler(before, completed);
-        await submitLocalAutomaticSprinkler(before, completed);
+        const submittedCurrent = await submitLocalAutomaticSprinkler(newerDraft, completed);
+        await submitLocalAutomaticSprinkler(submittedCurrent, completed);
         const submitted = await localDatabase.masterSystemInspections.get(before.clientUuid);
         const outboxAfterSubmit = await localDatabase.syncOutbox.where("entityId").equals(before.clientUuid).toArray();
         const originalFetch = window.fetch;
@@ -194,6 +210,10 @@
         const passed = records.length === 1
           && records[0].clientUuid === before.clientUuid
           && concurrent.every((record) => record.clientUuid === before.clientUuid)
+          && staleDraftRejected
+          && afterStaleDraft?.responses.comments === "Draft B is newer"
+          && afterStaleDraft?.localUpdatedAt === newerDraft.localUpdatedAt
+          && staleSubmitRejected
           && outboxBeforeSubmit === 0
           && incompleteIssues.length === 26
           && layout.join(",") === expectedLayout.join(",")
@@ -208,6 +228,10 @@
           status: passed ? "PASS" : "FAIL",
           records: records.length,
           stableUuid: concurrent.every((record) => record.clientUuid === before.clientUuid),
+          staleDraftARejected: staleDraftRejected,
+          draftBResponsesUnchanged: afterStaleDraft?.responses.comments === "Draft B is newer",
+          draftBUpdatedAtUnchangedByRejection: afterStaleDraft?.localUpdatedAt === newerDraft.localUpdatedAt,
+          staleSubmitRejected,
           outboxBeforeSubmit,
           incompleteIssues: incompleteIssues.length,
           orderedLayout: layout,
