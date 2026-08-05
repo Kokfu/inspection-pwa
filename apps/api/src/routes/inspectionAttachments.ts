@@ -54,6 +54,7 @@ type ParentRow = {
 type ExistingRow = {
   serverAttachmentId: string;
   clientUuid: string;
+  inspectionClientUuid: string;
   requestFingerprint: string;
   sourceSha256: string;
   storedSha256: string;
@@ -214,6 +215,8 @@ function safeMetadata(row: ExistingRow) {
   return {
     serverAttachmentId: row.serverAttachmentId,
     photoUuid: row.clientUuid,
+    inspectionClientUuid: row.inspectionClientUuid,
+    status: "accepted",
     fieldPath: row.fieldPath,
     captureSource: row.captureSource,
     mimeType: row.mimeType,
@@ -247,14 +250,17 @@ async function loadExistingByPhotoUuid(
   client?: PoolClient
 ) {
   const result = await (client ?? pool).query<ExistingRow>(
-    `SELECT id AS "serverAttachmentId", client_uuid AS "clientUuid",
-        request_fingerprint AS "requestFingerprint", source_sha256 AS "sourceSha256",
-        stored_sha256 AS "storedSha256", field_path AS "fieldPath",
-        capture_source AS "captureSource", mime_type AS "mimeType",
-        stored_size_bytes AS "sizeBytes", width, height,
-        captured_at AS "capturedAt", received_at AS "receivedAt",
-        storage_relative_path AS "storageRelativePath"
-       FROM inspection_attachments WHERE client_uuid = $1`,
+    `SELECT attachment.id AS "serverAttachmentId", attachment.client_uuid AS "clientUuid",
+        instance.client_uuid AS "inspectionClientUuid",
+        attachment.request_fingerprint AS "requestFingerprint", attachment.source_sha256 AS "sourceSha256",
+        attachment.stored_sha256 AS "storedSha256", attachment.field_path AS "fieldPath",
+        attachment.capture_source AS "captureSource", attachment.mime_type AS "mimeType",
+        attachment.stored_size_bytes AS "sizeBytes", attachment.width, attachment.height,
+        attachment.captured_at AS "capturedAt", attachment.received_at AS "receivedAt",
+        attachment.storage_relative_path AS "storageRelativePath"
+       FROM inspection_attachments attachment
+       INNER JOIN master_system_form_instances instance ON instance.id = attachment.form_instance_id
+       WHERE attachment.client_uuid = $1`,
     [photoUuid]
   );
   return result.rows[0];
@@ -496,7 +502,8 @@ inspectionAttachmentsRouter.post(
             stored_sha256 AS "storedSha256", field_path AS "fieldPath",
             capture_source AS "captureSource", mime_type AS "mimeType",
             stored_size_bytes AS "sizeBytes", width, height,
-            captured_at AS "capturedAt", received_at AS "receivedAt",
+            to_char(captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "capturedAt",
+            to_char(received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",
             storage_relative_path AS "storageRelativePath"`,
           [
             randomUUID(),
@@ -532,7 +539,7 @@ inspectionAttachmentsRouter.post(
         }).catch(() => undefined);
         response.status(201).json({
           outcome: "accepted",
-          attachment: safeMetadata(attachment)
+          attachment: safeMetadata({ ...attachment, inspectionClientUuid })
         });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
@@ -622,6 +629,7 @@ inspectionAttachmentsRouter.get(
       const result = await pool.query<ExistingRow>(
         `SELECT attachment.id AS "serverAttachmentId",
             attachment.client_uuid AS "clientUuid",
+            instance.client_uuid AS "inspectionClientUuid",
             attachment.request_fingerprint AS "requestFingerprint",
             attachment.source_sha256 AS "sourceSha256",
             attachment.stored_sha256 AS "storedSha256",
@@ -630,8 +638,8 @@ inspectionAttachmentsRouter.get(
             attachment.mime_type AS "mimeType",
             attachment.stored_size_bytes AS "sizeBytes",
             attachment.width, attachment.height,
-            attachment.captured_at AS "capturedAt",
-            attachment.received_at AS "receivedAt",
+            to_char(attachment.captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "capturedAt",
+            to_char(attachment.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",
             attachment.storage_relative_path AS "storageRelativePath"
            FROM inspection_attachments attachment
            INNER JOIN master_system_form_instances instance

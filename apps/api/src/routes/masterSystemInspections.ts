@@ -312,8 +312,8 @@ masterSystemInspectionsRouter.get(
               LIMIT 1
             ), inspection.system_key) AS "systemLabel",
             instance.instance_key AS "instanceKey", instance.status,
-            instance.performed_at AS "performedAt",
-            instance.received_at AS "receivedAt",
+            to_char(instance.performed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "performedAt",
+            to_char(instance.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",
             instance.response_payload AS responses,
             instance.inspection_snapshot #> '{system,resolvedControls}' AS "displayControls",
             instance.original_creator_snapshot->>'username'
@@ -322,6 +322,7 @@ masterSystemInspectionsRouter.get(
             syncer.username AS "syncedByUsername",
             instance.evidence_policy_id AS "evidencePolicyId",
             instance.evidence_policy_version AS "evidencePolicyVersion",
+            instance.evidence_policy_snapshot AS "evidencePolicyDefinition",
             instance.evidence_policy_sha256 AS "evidencePolicySha256"
           FROM master_system_form_instances instance
           INNER JOIN master_system_inspections inspection
