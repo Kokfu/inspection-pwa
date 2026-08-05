@@ -27,6 +27,17 @@ export function deriveNoLocalSystemProgress(
   return "Unknown / Not Cached";
 }
 
+export function deriveAutomaticSprinklerServerProgress(
+  summary: { evidenceState: "not-required" | "complete" | "pending" | "failed" | "invalid" } | undefined,
+  authStatus: "verified" | "offline-unverified" | "logged-out",
+  serverSummaryState: "idle" | "loading" | "loaded" | "failed"
+): SystemProgress {
+  if (!summary) return deriveNoLocalSystemProgress(false, authStatus, serverSummaryState);
+  if (summary.evidenceState === "not-required" || summary.evidenceState === "complete") return "Completed";
+  if (summary.evidenceState === "failed" || summary.evidenceState === "invalid") return "Needs Attention";
+  return "Pending Evidence";
+}
+
 export function deriveSystemProgress(
   inspections: InspectionRecord[],
   jobId: string,

@@ -10,11 +10,18 @@ const item=(n,time="2026-08-04T00:00:00.000000Z",instance=`location:${uuid(500+n
 const page=(inspections,hasMore=false,nextCursor=null)=>({inspections,hasMore,nextCursor});
 const continued=inspections=>page(inspections,true,cursor(inspections.at(-1)));
 const rejects=value=>{try{parseServerMasterSystemInspectionPage(value);return false;}catch{return true;}};
+const sprinkler=(state="complete",required=1,confirmed=1)=>({clientUuid:uuid(300),jobId,systemKey:"automatic_sprinkler",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted",performedAt:"2026-08-04T00:00:00.000000Z",deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"inspector",evidenceState:state,requiredEvidenceCount:required,confirmedEvidenceCount:confirmed});
 async function production(pages){let index=0;return loadAllPages(new URLSearchParams(),"harness",async()=>{const value=pages[index++];if(value instanceof Error)throw value;if(value?.status)return new Response("failure",{status:value.status});return new Response(JSON.stringify(value),{headers:{"Content-Type":"application/json"}});});}
 async function rejected(pages){try{await production(pages);return false;}catch{return true;}}
 document.querySelector("#run").addEventListener("click",async()=>{const checks=[];const check=(name,passed)=>checks.push({name,passed});
 const a=item(1),b=item(2,"2026-08-03T00:00:00.000000Z"),c=item(3,"2026-08-02T00:00:00.000000Z"),tieA=item(10,"2026-08-01T00:00:00.123456Z"),tieB=item(11,"2026-08-01T00:00:00.123456Z");
 check("valid single page",(await production([page([a])])).length===1);
+check("valid automatic sprinkler evidence summary",!rejects(page([sprinkler()])));
+const missingEvidence= sprinkler();delete missingEvidence.evidenceState;check("missing sprinkler evidence metadata",rejects(page([missingEvidence])));
+check("unknown sprinkler evidence state",rejects(page([sprinkler("unknown")] )));
+check("complete sprinkler evidence count mismatch",rejects(page([sprinkler("complete",2,1)])));
+check("not-required sprinkler evidence count mismatch",rejects(page([sprinkler("not-required",1,0)])));
+check("sprinkler confirmed count exceeds required",rejects(page([sprinkler("pending",1,2)])));
 check("valid two-page sequence",(await production([continued([a]),page([b])])).length===2);
 check("valid three-page sequence",(await production([continued([a]),continued([b]),page([c])])).length===3);
 check("same-timestamp tie ordering across pages",(await production([continued([tieA]),page([tieB])])).map(x=>x.clientUuid).join(",")===[tieA.clientUuid,tieB.clientUuid].join(","));

@@ -11,6 +11,7 @@ import type {
 import { deriveCo2ParentProgress } from "../co2/co2Progress";
 import {
   deriveAutomaticSprinklerProgress,
+  deriveAutomaticSprinklerServerProgress,
   deriveMasterSystemProgress,
   deriveNoLocalSystemProgress,
   deriveSystemProgress
@@ -115,9 +116,15 @@ export function TechnicianHome({
         candidate.jobSystemKey === `${jobId}:${systemKey}`
         && candidate.systemKey === "automatic_sprinkler"
       ) as AutomaticSprinklerInspectionRecord | undefined;
-      return record
-        ? deriveAutomaticSprinklerProgress(record, inspectionAttachments)
-        : noLocalProgress(jobId, systemKey);
+      if (record) return deriveAutomaticSprinklerProgress(record, inspectionAttachments);
+      const summary = serverMasterSystemInspections.find((candidate) =>
+        candidate.jobId === jobId && candidate.systemKey === "automatic_sprinkler"
+      );
+      return deriveAutomaticSprinklerServerProgress(
+        summary && summary.systemKey === "automatic_sprinkler" ? summary : undefined,
+        authState.status === "restoring" ? "logged-out" : authState.status,
+        serverMasterSystemProgressState
+      );
     }
     if (systemKey === "dry_wet_riser") { const record = masterSystemInspections.find((x) => x.jobSystemKey === `${jobId}:${systemKey}`); return record ? deriveMasterSystemProgress(record as MasterSystemInspectionRecord) : noLocalProgress(jobId, systemKey); }
     if (systemKey === "co2_fire_extinguisher") {

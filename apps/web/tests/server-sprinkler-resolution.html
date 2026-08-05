@@ -19,6 +19,7 @@
       } from "/src/automaticSprinkler/serverAutomaticSprinklerApi.ts";
       import {
         deriveAutomaticSprinklerProgress,
+        deriveAutomaticSprinklerServerProgress,
         deriveNoLocalSystemProgress
       } from "/src/jobs/jobProgress.ts";
 
@@ -130,8 +131,22 @@
             }
           );
 
+          const serverProgress = (evidenceState, requiredEvidenceCount, confirmedEvidenceCount) =>
+            deriveAutomaticSprinklerServerProgress(
+              { evidenceState, requiredEvidenceCount, confirmedEvidenceCount },
+              "verified",
+              "loaded"
+            );
           const progress = {
-            accepted: deriveNoLocalSystemProgress(true, "verified", "loaded"),
+            noEvidenceRequired: serverProgress("not-required", 0, 0),
+            missingRequiredEvidence: serverProgress("pending", 1, 0),
+            pendingEvidence: serverProgress("pending", 2, 1),
+            failedEvidence: serverProgress("failed", 1, 0),
+            completeEvidence: serverProgress("complete", 2, 2),
+            malformedSummary: deriveAutomaticSprinklerServerProgress(undefined, "verified", "loaded"),
+            duplicateEvidenceField: serverProgress("invalid", 2, 1),
+            crossInspectionEvidence: serverProgress("pending", 1, 0),
+            frozenPolicyWins: serverProgress("not-required", 0, 0),
             confirmedNone: deriveNoLocalSystemProgress(false, "verified", "loaded"),
             offlineUnknown: deriveNoLocalSystemProgress(
               false,
@@ -154,7 +169,15 @@
             && localServerChecks === 0
             && serverAttachmentContentUrl(ids.photo) ===
               `/api/inspection-attachments/${ids.photo}/content`
-            && progress.accepted === "Completed"
+            && progress.noEvidenceRequired === "Completed"
+            && progress.missingRequiredEvidence !== "Completed"
+            && progress.pendingEvidence !== "Completed"
+            && progress.failedEvidence === "Needs Attention"
+            && progress.completeEvidence === "Completed"
+            && progress.malformedSummary === "Unknown / Not Cached"
+            && progress.duplicateEvidenceField === "Needs Attention"
+            && progress.crossInspectionEvidence !== "Completed"
+            && progress.frozenPolicyWins === "Completed"
             && progress.confirmedNone === "Not Started"
             && progress.offlineUnknown === "Unknown / Not Cached"
             && progress.unresolvedLocal === "Draft";

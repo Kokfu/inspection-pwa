@@ -11,12 +11,21 @@ export type ServerMasterSystemInspectionSummary = {
   deviceReportedCreatorUsername: string | null;
   verifiedOriginalCreatorUsername: string | null;
   syncedByUsername: string;
-};
+} & ({
+  systemKey: "automatic_sprinkler";
+  evidenceState: "not-required" | "complete" | "pending" | "failed" | "invalid";
+  requiredEvidenceCount: number;
+  confirmedEvidenceCount: number;
+} | {
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "dry_wet_riser";
+});
 
 export type SummaryPage = { inspections: ServerMasterSystemInspectionSummary[]; hasMore: boolean; nextCursor: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "automatic_sprinkler", "dry_wet_riser"]);
 const keys = ["clientUuid", "jobId", "systemKey", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"];
+const sprinklerKeys = [...keys, "evidenceState", "requiredEvidenceCount", "confirmedEvidenceCount"];
+const evidenceStates = new Set(["not-required", "complete", "pending", "failed", "invalid"]);
 
 function record(value: unknown): Record<string, unknown> | undefined { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }
 function exact(value: Record<string, unknown>, expected: string[]) { return Object.keys(value).length === expected.length && expected.every((key) => key in value); }
@@ -45,8 +54,16 @@ export function parseServerMasterSystemInspectionPage(value: unknown): SummaryPa
   const clientUuids = new Set<string>(); const identities = new Set<string>();
   const inspections = payload.inspections.map((entry) => {
     const item = record(entry);
-    if (!item || !exact(item, keys) || typeof item.clientUuid !== "string" || !uuid.test(item.clientUuid) || typeof item.jobId !== "string" || !uuid.test(item.jobId) || typeof item.systemKey !== "string" || !systemKeys.has(item.systemKey as ServerMasterSystemInspectionSummary["systemKey"]) || !boundedString(item.instanceKey) || !nullableBoundedString(item.zoneId) || !nullableBoundedString(item.locationId) || !Number.isSafeInteger(item.displaySequence) || (item.displaySequence as number) < 1 || (item.displaySequence as number) > 100000 || item.status !== "submitted" || !timestamp(item.performedAt) || !nullableBoundedString(item.deviceReportedCreatorUsername) || !nullableBoundedString(item.verifiedOriginalCreatorUsername) || !boundedString(item.syncedByUsername)) throw new Error("Invalid server inspection summary");
+    if (!item || typeof item.systemKey !== "string" || !exact(item, item.systemKey === "automatic_sprinkler" ? sprinklerKeys : keys) || typeof item.clientUuid !== "string" || !uuid.test(item.clientUuid) || typeof item.jobId !== "string" || !uuid.test(item.jobId) || !systemKeys.has(item.systemKey as ServerMasterSystemInspectionSummary["systemKey"]) || !boundedString(item.instanceKey) || !nullableBoundedString(item.zoneId) || !nullableBoundedString(item.locationId) || !Number.isSafeInteger(item.displaySequence) || (item.displaySequence as number) < 1 || (item.displaySequence as number) > 100000 || item.status !== "submitted" || !timestamp(item.performedAt) || !nullableBoundedString(item.deviceReportedCreatorUsername) || !nullableBoundedString(item.verifiedOriginalCreatorUsername) || !boundedString(item.syncedByUsername)) throw new Error("Invalid server inspection summary");
     const systemKey = item.systemKey as ServerMasterSystemInspectionSummary["systemKey"];
+    if (systemKey === "automatic_sprinkler") {
+      if (!evidenceStates.has(item.evidenceState as string)
+        || !Number.isSafeInteger(item.requiredEvidenceCount) || (item.requiredEvidenceCount as number) < 0
+        || !Number.isSafeInteger(item.confirmedEvidenceCount) || (item.confirmedEvidenceCount as number) < 0
+        || (item.confirmedEvidenceCount as number) > (item.requiredEvidenceCount as number)
+        || (item.evidenceState === "not-required" && ((item.requiredEvidenceCount as number) !== 0 || (item.confirmedEvidenceCount as number) !== 0))
+        || (item.evidenceState === "complete" && (item.confirmedEvidenceCount as number) !== (item.requiredEvidenceCount as number))) throw new Error("Invalid Automatic Sprinkler evidence summary");
+    }
     const single = systemKey !== "co2_fire_extinguisher";
     if ((single && (item.instanceKey !== "primary" || item.zoneId !== null || item.locationId !== null || item.displaySequence !== 1)) || (!single && (!/^location:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.instanceKey) || !uuid.test(item.locationId as string) || (item.zoneId !== null && !uuid.test(item.zoneId))))) throw new Error("Invalid server inspection identity");
     if (clientUuids.has(item.clientUuid) || identities.has(`${item.jobId}:${systemKey}:${item.instanceKey}`)) throw new Error("Ambiguous server inspection summaries");

@@ -155,18 +155,128 @@ masterSystemInspectionsRouter.get(
           ) AS "performedAt",
           instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
           creator.username AS "verifiedOriginalCreatorUsername",
-          syncer.username AS "syncedByUsername"
+          syncer.username AS "syncedByUsername",
+          evidence."evidenceState", evidence."requiredEvidenceCount",
+          evidence."confirmedEvidenceCount"
         FROM master_system_form_instances instance
         INNER JOIN master_system_inspections inspection ON inspection.id = instance.inspection_group_id
         INNER JOIN inspection_jobs job ON job.id = inspection.job_id
         LEFT JOIN users creator ON creator.id = instance.original_created_by_user_id
         INNER JOIN users syncer ON syncer.id = instance.synced_by_user_id
+        LEFT JOIN LATERAL (
+          SELECT
+            CASE
+              WHEN inspection.system_key <> 'automatic_sprinkler' THEN NULL
+              WHEN instance.evidence_policy_id IS NULL
+                AND instance.evidence_policy_version IS NULL
+                AND instance.evidence_policy_snapshot IS NULL
+                AND instance.evidence_policy_sha256 IS NULL
+                AND attachment_counts.total_attachments = 0
+                THEN 'not-required'
+              WHEN policy.valid_policy IS NOT TRUE THEN 'invalid'
+              WHEN policy.required_count = 0 AND attachment_counts.total_attachments = 0
+                THEN 'not-required'
+              WHEN attachment_counts.invalid_required_count > 0
+                OR attachment_counts.required_attachment_count <> attachment_counts.distinct_required_field_count
+                THEN 'invalid'
+              WHEN attachment_counts.confirmed_required_count = policy.required_count
+                THEN 'complete'
+              ELSE 'pending'
+            END AS "evidenceState",
+            CASE WHEN inspection.system_key = 'automatic_sprinkler'
+              AND instance.evidence_policy_id IS NULL
+              AND instance.evidence_policy_version IS NULL
+              AND instance.evidence_policy_snapshot IS NULL
+              AND instance.evidence_policy_sha256 IS NULL
+              THEN 0
+              WHEN policy.valid_policy IS TRUE THEN policy.required_count ELSE 0 END AS "requiredEvidenceCount",
+            CASE WHEN inspection.system_key = 'automatic_sprinkler'
+              AND instance.evidence_policy_id IS NULL
+              AND instance.evidence_policy_version IS NULL
+              AND instance.evidence_policy_snapshot IS NULL
+              AND instance.evidence_policy_sha256 IS NULL
+              THEN 0
+              WHEN policy.valid_policy IS TRUE THEN attachment_counts.confirmed_required_count ELSE 0 END AS "confirmedEvidenceCount"
+          FROM LATERAL (
+            SELECT
+              instance.evidence_policy_id IS NOT NULL
+                AND instance.evidence_policy_version IS NOT NULL
+                AND instance.evidence_policy_snapshot IS NOT NULL
+                AND instance.evidence_policy_sha256 IS NOT NULL
+                AND frozen.id IS NOT NULL
+                AND jsonb_typeof(instance.evidence_policy_snapshot) = 'object'
+                AND instance.evidence_policy_snapshot->>'systemKey' = 'automatic_sprinkler'
+                AND jsonb_typeof(instance.evidence_policy_snapshot->'points') = 'object'
+                AND NOT EXISTS (
+                  SELECT 1 FROM jsonb_each(instance.evidence_policy_snapshot->'points') point(field_path, definition)
+                  WHERE jsonb_typeof(definition) <> 'object'
+                    OR definition->'allowed' <> 'true'::jsonb
+                    OR jsonb_typeof(definition->'required') <> 'boolean'
+                    OR definition->'maxCount' <> '1'::jsonb
+                ) AS valid_policy,
+              COALESCE((SELECT count(*)::int
+                FROM jsonb_each(instance.evidence_policy_snapshot->'points') point(field_path, definition)
+                WHERE definition->'required' = 'true'::jsonb), 0) AS required_count
+            FROM inspection_evidence_policies frozen
+            WHERE frozen.id = instance.evidence_policy_id
+              AND frozen.version = instance.evidence_policy_version
+              AND frozen.definition = instance.evidence_policy_snapshot
+              AND frozen.definition_sha256 = instance.evidence_policy_sha256
+              AND frozen.system_key = 'automatic_sprinkler'
+          ) policy
+          RIGHT JOIN LATERAL (
+            SELECT count(*)::int AS total_attachments
+            FROM inspection_attachments attachment
+            WHERE attachment.form_instance_id = instance.id
+          ) attachment_counts_base ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT
+              attachment_counts_base.total_attachments,
+              COALESCE(count(attachment.client_uuid), 0)::int AS required_attachment_count,
+              COALESCE(count(DISTINCT attachment.field_path), 0)::int AS distinct_required_field_count,
+              COALESCE(count(*) FILTER (WHERE
+                attachment.evidence_policy_id = instance.evidence_policy_id
+                AND attachment.mime_type = 'image/jpeg'
+                AND attachment.source_sha256 ~ '^[0-9a-f]{64}$'
+                AND attachment.stored_sha256 ~ '^[0-9a-f]{64}$'
+                AND attachment.source_size_bytes BETWEEN 1 AND 2097152
+                AND attachment.stored_size_bytes BETWEEN 1 AND 2097152
+                AND attachment.source_width BETWEEN 1 AND 1600
+                AND attachment.source_height BETWEEN 1 AND 1600
+                AND attachment.width BETWEEN 1 AND 1600
+                AND attachment.height BETWEEN 1 AND 1600
+              ), 0)::int AS confirmed_required_count,
+              COALESCE(count(*) FILTER (WHERE NOT (
+                attachment.evidence_policy_id = instance.evidence_policy_id
+                AND attachment.mime_type = 'image/jpeg'
+                AND attachment.source_sha256 ~ '^[0-9a-f]{64}$'
+                AND attachment.stored_sha256 ~ '^[0-9a-f]{64}$'
+                AND attachment.source_size_bytes BETWEEN 1 AND 2097152
+                AND attachment.stored_size_bytes BETWEEN 1 AND 2097152
+                AND attachment.source_width BETWEEN 1 AND 1600
+                AND attachment.source_height BETWEEN 1 AND 1600
+                AND attachment.width BETWEEN 1 AND 1600
+                AND attachment.height BETWEEN 1 AND 1600
+              )), 0)::int AS invalid_required_count
+            FROM inspection_attachments attachment
+            INNER JOIN jsonb_each(COALESCE(instance.evidence_policy_snapshot->'points', '{}'::jsonb)) point(field_path, definition)
+              ON attachment.field_path = point.field_path
+              AND definition->'required' = 'true'::jsonb
+            WHERE attachment.form_instance_id = instance.id
+          ) attachment_counts ON TRUE
+        ) evidence ON inspection.system_key = 'automatic_sprinkler'
         ${where}
         ORDER BY instance.performed_at DESC, instance.client_uuid ASC
         LIMIT ${pageSize + 1}
       `, values);
       const hasMore = result.rows.length > pageSize;
-      const inspections = result.rows.slice(0, pageSize);
+      const inspections = result.rows.slice(0, pageSize).map((row) => {
+        if (row.systemKey !== "automatic_sprinkler") {
+          const { evidenceState, requiredEvidenceCount, confirmedEvidenceCount, ...summary } = row;
+          return summary;
+        }
+        return row;
+      });
       response.json({
         inspections,
         hasMore,
