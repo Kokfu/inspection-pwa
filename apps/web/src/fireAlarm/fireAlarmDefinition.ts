@@ -83,6 +83,22 @@ function canonicalDefinition(): FireAlarmSystemDefinition {
   };
 }
 
+export function getPublishedFireAlarmDefinition(): FireAlarmSystemDefinition {
+  return canonicalDefinition();
+}
+
+export function resolveFireAlarmVisibleLabels(definition: unknown) {
+  const parsed = parseFireAlarmSystemDefinition(definition);
+  if (!parsed) throw new Error("Unsupported or malformed Fire Alarm MFE-FSSR V3 definition");
+  const blocks = parsed.sections.flatMap((section) => section.blocks);
+  const primary = blocks.find((block) => block.key === "device_rows");
+  const secondary = blocks.find((block) => block.key === "alarm_device_rows");
+  const comments = blocks.find((block) => block.key === "comments");
+  const assetReference = primary?.columns?.find((column) => column.key === "asset_reference");
+  if (!primary || !secondary || !comments || !assetReference) throw new Error("Fire Alarm visible labels are unavailable");
+  return { primaryRows: primary.title, assetReference: assetReference.label, secondaryRows: secondary.title, comments: comments.title };
+}
+
 function exactValue(value: unknown, expected: unknown): boolean {
   if (Array.isArray(expected)) {
     return Array.isArray(value)

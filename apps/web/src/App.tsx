@@ -24,6 +24,10 @@ import type { DryWetRiserInspectionRecord, DryWetRiserResponses } from "./dryWet
 import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "./dryWetRiser/dryWetRiserResolution";
 import { ServerDryWetRiserView } from "./dryWetRiser/ServerDryWetRiserView";
 import type { ServerDryWetRiserDetail } from "./dryWetRiser/serverDryWetRiserApi";
+import { FireAlarmInspectionForm } from "./fireAlarm/FireAlarmInspectionForm";
+import { saveFireAlarmDraft } from "./fireAlarm/fireAlarmRepository";
+import { resolveFireAlarmOpenTarget } from "./fireAlarm/fireAlarmResolution";
+import type { FireAlarmInspectionRecord, FireAlarmResponses } from "./fireAlarm/fireAlarmTypes";
 import { AuthStatus } from "./auth/AuthStatus";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
@@ -110,6 +114,7 @@ type AppRoute =
   | { name: "inspection"; clientUuid: string }
   | { name: "sprinkler-form"; clientUuid: string }
   | { name: "riser-form"; clientUuid: string }
+  | { name: "fire-alarm-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
@@ -119,6 +124,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
+  if (parts[0] === "fire-alarm-form" && parts[1]) return { name: "fire-alarm-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
@@ -130,6 +136,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
@@ -158,11 +165,13 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
+  const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
+  const [serverFireAlarmClientUuid, setServerFireAlarmClientUuid] = useState<string>();
   const [serverDryWetRiser, setServerDryWetRiser] = useState<ServerDryWetRiserDetail>();
   const [riserRouteState, setRiserRouteState] = useState<"idle" | "loading" | "not-found" | "not-cached" | "signed-out" | "server-unavailable">("idle");
   const [riserRouteMessage, setRiserRouteMessage] = useState("");
@@ -459,6 +468,13 @@ export function App() {
       : undefined);
   }, [masterSystemFormInstances, route]);
 
+  useEffect(() => {
+    setActiveFireAlarm(route.name === "fire-alarm-form"
+      ? masterSystemInspections.find((record): record is FireAlarmInspectionRecord =>
+        record.clientUuid === route.clientUuid && record.systemKey === "fire_alarm_detector")
+      : undefined);
+  }, [masterSystemInspections, route]);
+
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
 
@@ -480,6 +496,10 @@ export function App() {
     if (activeAutomaticSprinkler) {
       const record = records.find((candidate) => candidate.clientUuid === activeAutomaticSprinkler.clientUuid);
       setActiveAutomaticSprinkler(record?.systemKey === "automatic_sprinkler" ? record : undefined);
+    }
+    if (activeFireAlarm) {
+      const record = records.find((candidate) => candidate.clientUuid === activeFireAlarm.clientUuid);
+      setActiveFireAlarm(record?.systemKey === "fire_alarm_detector" ? record : undefined);
     }
   }
 
@@ -665,6 +685,8 @@ export function App() {
     }
   }
   async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
+  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This Fire Alarm inspection is not cached on this device. Reconnect before its first open."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local") { setServerFireAlarmClientUuid(undefined); setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } else { setServerFireAlarmClientUuid(target.clientUuid); } navigate({ name: "fire-alarm-form", clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
+  async function handleSaveFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleSaveDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await saveDryWetRiserDraft(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
   async function handleSubmitDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await submitLocalDryWetRiser(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
   async function handleEditFailedDryWetRiser() { if (!activeDryWetRiser) return; setActiveDryWetRiser(await returnFailedDryWetRiserToDraft(activeDryWetRiser)); await refreshMasterSystemInspections(); }
@@ -966,6 +988,8 @@ export function App() {
             )
           ) : route.name === "riser-form" ? (
             activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+          ) : route.name === "fire-alarm-form" ? (
+            activeFireAlarm ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : <section className="workspace"><h2>{serverFireAlarmClientUuid === route.clientUuid || serverMasterSystemInspections.some((item) => item.clientUuid === route.clientUuid && item.systemKey === "fire_alarm_detector") ? "Accepted Fire Alarm inspection" : "Fire Alarm inspection unavailable"}</h2><p>{serverFireAlarmClientUuid === route.clientUuid || serverMasterSystemInspections.some((item) => item.clientUuid === route.clientUuid && item.systemKey === "fire_alarm_detector") ? "An accepted Fire Alarm inspection exists on the server. The read-only server-detail view is implemented in Phase 5B4-D." : "This Fire Alarm inspection is not cached on this device. Reconnect and open it from the job systems list."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm
@@ -1026,6 +1050,7 @@ export function App() {
               onOpenCo2={handleOpenCo2}
               onOpenAutomaticSprinkler={handleOpenAutomaticSprinkler}
               onOpenDryWetRiser={handleOpenDryWetRiser}
+              onOpenFireAlarm={handleOpenFireAlarm}
             />
           )}
         </>

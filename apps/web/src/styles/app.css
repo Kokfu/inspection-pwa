@@ -555,6 +555,15 @@ dd {
   background: #f7faf8;
 }
 
+.fire-alarm-form { width: min(1100px, 100%); max-width: calc(100vw - 48px); min-width: 0; box-sizing: border-box; }
+.fire-alarm-form fieldset { min-width: 0; box-sizing: border-box; }
+.fire-alarm-row, .fire-alarm-check { display: grid; gap: 12px; border: 1px solid #d6e1e3; border-left: 4px solid #7ea49c; padding: 14px; }
+.fire-alarm-row-heading { display: flex; justify-content: space-between; gap: 12px; }
+.fire-alarm-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.fire-alarm-row input[readonly] { background: #eef3f2; color: #38504b; }
+@media (min-width: 760px) { .fire-alarm-check { grid-template-columns: minmax(180px, .7fr) minmax(180px, .7fr) minmax(260px, 2fr); align-items: end; } }
+@media (max-width: 560px) { .fire-alarm-form { max-width: calc(100vw - 28px); } }
+
 .psi-value-with-evidence,
 .photo-evidence-field,
 .photo-metadata,

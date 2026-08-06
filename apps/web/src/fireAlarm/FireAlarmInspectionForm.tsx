@@ -1,0 +1,54 @@
+import { useEffect, useState } from "react";
+import {
+  addFireAlarmPrimaryTechnicianRow,
+  addFireAlarmSecondaryTechnicianRow,
+  removeFireAlarmPrimaryTechnicianRow,
+  removeFireAlarmSecondaryTechnicianRow
+} from "./fireAlarmRepository";
+import { resolveFireAlarmVisibleLabels } from "./fireAlarmDefinition";
+import type { DeviceState, FireAlarmInspectionRecord, FireAlarmResponses, GoodPoor } from "./fireAlarmTypes";
+import { canonicalizeFireAlarmResponses, fireAlarmChargerKeys, fireAlarmFunctionKeys } from "./fireAlarmValidation";
+
+type Props = { record: FireAlarmInspectionRecord; onBack: () => void; onSaveDraft: (responses: FireAlarmResponses) => Promise<void>; onRecordChange?: (record: FireAlarmInspectionRecord) => void };
+const labels: Record<string, string> = { main_supply: "Main Supply", battery: "Battery", charger: "Charger", main_alarm_reset: "Main Alarm Reset", lamp_test: "Lamp Test", evacuate: "Evacuate", ac_supply: "A/C Supply", dc_supply: "D/C Supply", spka_system: "SPKA System", alarm_lift_trip: "Alarm Lift Trip", signal_gas_discharge: "Signal Gas Discharge" };
+const deviceOptions: Array<[DeviceState, string]> = [["normal", "Normal"], ["test", "Test"], ["isolation", "Isolation"]];
+const goodPoorOptions: Array<[GoodPoor, string]> = [["good", "Good"], ["poor", "Poor"]];
+
+function Select<T extends string>({ label, value, options, onChange, disabled = false }: { label: string; value: T | null; options: Array<[T, string]>; onChange: (value: T | null) => void; disabled?: boolean }) {
+  return <label>{label}<select aria-label={label} value={value ?? ""} disabled={disabled} onChange={(event) => onChange(event.target.value === "" ? null : event.target.value as T)}><option value="">Select</option>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>;
+}
+
+export function FireAlarmInspectionForm({ record, onBack, onSaveDraft, onRecordChange }: Props) {
+  const [responses, setResponses] = useState(record.responses); const [message, setMessage] = useState(""); const [error, setError] = useState("");
+  const visibleLabels = resolveFireAlarmVisibleLabels(record.inspectionSnapshot.system.definition);
+  useEffect(() => { setResponses(record.responses); setError(""); }, [record]);
+  const editable = record.syncStatus === "Draft";
+  const primary = (rowUuid: string, change: object) => setResponses((current) => ({ ...current, primaryDeviceRows: current.primaryDeviceRows.map((row) => row.rowUuid === rowUuid ? { ...row, ...change } : row) }));
+  const secondary = (rowUuid: string, change: object) => setResponses((current) => ({ ...current, secondaryAlarmDeviceRows: current.secondaryAlarmDeviceRows.map((row) => row.rowUuid === rowUuid ? { ...row, ...change } : row) }));
+  async function save() { setMessage(""); setError(""); try { const canonical = canonicalizeFireAlarmResponses(responses, record.inspectionSnapshot); await onSaveDraft(canonical); setMessage("Draft saved on this device."); } catch (reason) { setError(reason instanceof Error ? reason.message : "Fire Alarm Draft could not be saved"); } }
+  return <section className="fire-alarm-form hose-reel-form" aria-labelledby="fire-alarm-title">
+    <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
+    <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="fire-alarm-title">Fire Alarm / Detector System</h2><p>{record.inspectionSnapshot.job.title}</p></div><strong>{record.syncStatus}</strong></header>
+    {message ? <p className="success-message" role="status">{message}</p> : null}{error ? <section className="validation-summary" role="alert"><h3>Draft was not saved</h3><p>{error}</p></section> : null}
+    <fieldset disabled={!editable}><legend>Control Panel Location</legend><label htmlFor="fire-alarm-control-panel">Control Panel Location<input id="fire-alarm-control-panel" maxLength={300} value={responses.controlPanelLocation} onChange={(event) => setResponses({ ...responses, controlPanelLocation: event.target.value })} /></label></fieldset>
+    <fieldset disabled={!editable}><legend>{visibleLabels.primaryRows}</legend>
+      {responses.primaryDeviceRows.map((row, index) => <section className="fire-alarm-row" id={`fire-alarm-primary-${row.rowUuid}`} key={row.rowUuid}><div className="fire-alarm-row-heading"><strong>Primary row {index + 1}</strong><span>{row.source === "configured" ? "Configured" : "Technician"}</span></div>
+        <label>{visibleLabels.assetReference}<input maxLength={250} readOnly={row.source === "configured"} value={row.assetReference} onChange={(event) => primary(row.rowUuid, { assetReference: event.target.value })} /></label>
+        <label>Alarm Zone<input maxLength={200} readOnly={row.source === "configured"} value={row.alarmZone} onChange={(event) => primary(row.rowUuid, { alarmZone: event.target.value })} /></label>
+        <label>Location<input maxLength={300} readOnly={row.source === "configured"} value={row.location} onChange={(event) => primary(row.rowUuid, { location: event.target.value })} /></label>
+        <div className="fire-alarm-results"><Select label="Manual Call Point" value={row.manualCallPoint} options={deviceOptions} onChange={(value) => primary(row.rowUuid, { manualCallPoint: value })} /><Select label="Flow Switch" value={row.flowSwitch} options={deviceOptions} onChange={(value) => primary(row.rowUuid, { flowSwitch: value })} /><Select label="Heat Detector" value={row.heatDetector} options={deviceOptions} onChange={(value) => primary(row.rowUuid, { heatDetector: value })} /><Select label="Smoke Detector" value={row.smokeDetector} options={deviceOptions} onChange={(value) => primary(row.rowUuid, { smokeDetector: value })} /></div>
+        <label>Remarks<textarea maxLength={2000} value={row.remarks} onChange={(event) => primary(row.rowUuid, { remarks: event.target.value })} /></label>
+        {row.source === "technician" ? <button type="button" className="secondary-command" onClick={() => { void removeFireAlarmPrimaryTechnicianRow(record, responses, row.rowUuid).then((saved) => { setResponses(saved.responses); onRecordChange?.(saved); }).catch((reason) => setError(reason instanceof Error ? reason.message : "Row could not be removed")); }}>Remove primary row</button> : null}
+      </section>)}
+      {editable ? <button type="button" className="secondary-command" onClick={() => { void addFireAlarmPrimaryTechnicianRow(record, responses).then((saved) => { setResponses(saved.responses); onRecordChange?.(saved); }).catch((reason) => setError(reason instanceof Error ? reason.message : "Row could not be added")); }}>Add primary row</button> : null}
+    </fieldset>
+    <fieldset disabled={!editable}><legend>Charger &amp; Batteries</legend>{fireAlarmChargerKeys.map((key) => <section className="fire-alarm-check" id={`fire-alarm-charger-${key}`} key={key}><strong>{labels[key]}</strong><Select label={`${labels[key]} result`} value={responses.chargerAndBatteries[key].result} options={goodPoorOptions} onChange={(result) => setResponses({ ...responses, chargerAndBatteries: { ...responses.chargerAndBatteries, [key]: { ...responses.chargerAndBatteries[key], result } } })} /><label>Remarks<textarea maxLength={2000} value={responses.chargerAndBatteries[key].remarks} onChange={(event) => setResponses({ ...responses, chargerAndBatteries: { ...responses.chargerAndBatteries, [key]: { ...responses.chargerAndBatteries[key], remarks: event.target.value } } })} /></label></section>)}</fieldset>
+    <fieldset disabled={!editable}><legend>Main Function Key</legend>{fireAlarmFunctionKeys.map((key) => <section className="fire-alarm-check" id={`fire-alarm-function-${key}`} key={key}><strong>{labels[key]}</strong><Select label={`${labels[key]} result`} value={responses.mainFunctionKeys[key].result} options={goodPoorOptions} onChange={(result) => setResponses({ ...responses, mainFunctionKeys: { ...responses.mainFunctionKeys, [key]: { ...responses.mainFunctionKeys[key], result } } })} /><label>Remarks<textarea maxLength={2000} value={responses.mainFunctionKeys[key].remarks} onChange={(event) => setResponses({ ...responses, mainFunctionKeys: { ...responses.mainFunctionKeys, [key]: { ...responses.mainFunctionKeys[key], remarks: event.target.value } } })} /></label></section>)}</fieldset>
+    <fieldset disabled={!editable}><legend>{visibleLabels.secondaryRows}</legend>
+      {responses.secondaryAlarmDeviceRows.map((row, index) => <section className="fire-alarm-row" id={`fire-alarm-secondary-${row.rowUuid}`} key={row.rowUuid}><div className="fire-alarm-row-heading"><strong>Secondary row {index + 1}</strong><span>{row.source === "configured" ? "Configured" : "Technician"}</span></div><label>{visibleLabels.assetReference}<input maxLength={250} readOnly={row.source === "configured"} value={row.assetReference} onChange={(event) => secondary(row.rowUuid, { assetReference: event.target.value })} /></label><label>Location<input maxLength={300} readOnly={row.source === "configured"} value={row.location} onChange={(event) => secondary(row.rowUuid, { location: event.target.value })} /></label><div className="fire-alarm-results"><Select label="Alarm Bell" value={row.alarmBell} options={goodPoorOptions} onChange={(value) => secondary(row.rowUuid, { alarmBell: value })} /><Select label="Manual Call Point" value={row.manualCallPoint} options={goodPoorOptions} onChange={(value) => secondary(row.rowUuid, { manualCallPoint: value })} /></div><label>Remarks<textarea maxLength={2000} value={row.remarks} onChange={(event) => secondary(row.rowUuid, { remarks: event.target.value })} /></label>{row.source === "technician" ? <button type="button" className="secondary-command" onClick={() => { void removeFireAlarmSecondaryTechnicianRow(record, responses, row.rowUuid).then((saved) => { setResponses(saved.responses); onRecordChange?.(saved); }).catch((reason) => setError(reason instanceof Error ? reason.message : "Row could not be removed")); }}>Remove secondary row</button> : null}</section>)}
+      {editable ? <button type="button" className="secondary-command" onClick={() => { void addFireAlarmSecondaryTechnicianRow(record, responses).then((saved) => { setResponses(saved.responses); onRecordChange?.(saved); }).catch((reason) => setError(reason instanceof Error ? reason.message : "Row could not be added")); }}>Add secondary row</button> : null}
+    </fieldset>
+    <fieldset disabled={!editable}><legend>{visibleLabels.comments}</legend><label>{visibleLabels.comments}<textarea maxLength={4000} value={responses.comments} onChange={(event) => setResponses({ ...responses, comments: event.target.value })} /></label></fieldset>
+    {editable ? <div className="form-actions sticky-form-actions"><button type="button" onClick={() => void save()}>Save Draft</button></div> : null}
+  </section>;
+}

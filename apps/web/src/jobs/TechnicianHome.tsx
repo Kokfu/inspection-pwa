@@ -2,6 +2,7 @@ import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
+import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -26,7 +27,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord>;
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   inspectionAttachments: InspectionAttachmentRecord[];
@@ -47,6 +48,7 @@ type TechnicianHomeProps = {
   onOpenCo2: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenAutomaticSprinkler: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenDryWetRiser: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenFireAlarm: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -72,7 +74,7 @@ export function TechnicianHome({
   onBackToSystems,
   onOpenHoseReel,
   onOpenCo2,
-  onOpenAutomaticSprinkler, onOpenDryWetRiser
+  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -205,6 +207,7 @@ export function TechnicianHome({
                     : system.systemKey === "automatic_sprinkler"
                       ? onOpenAutomaticSprinkler(selectedJob, system)
                     : system.systemKey === "dry_wet_riser" ? onOpenDryWetRiser(selectedJob, system)
+                    : system.systemKey === "fire_alarm_detector" ? onOpenFireAlarm(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>

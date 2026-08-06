@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fire Alarm local and resolution harness</title>
+  <link rel="stylesheet" href="/src/styles/app.css" />
+  <style>pre{white-space:pre-wrap;overflow-wrap:anywhere}</style>
+</head>
+<body>
+<main class="app-shell"><section class="workspace"><h1>Fire Alarm local and resolution harness</h1><button id="run" type="button">Run Fire Alarm checks</button><pre id="result">Ready</pre></section><div id="form"></div></main>
+<script type="module">
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { FireAlarmInspectionForm } from "/src/fireAlarm/FireAlarmInspectionForm.tsx";
+import { getPublishedFireAlarmDefinition } from "/src/fireAlarm/fireAlarmDefinition.ts";
+import {
+  addFireAlarmPrimaryTechnicianRow, addFireAlarmSecondaryTechnicianRow, fireAlarmJobSystemKey,
+  getOrCreateFireAlarmInspection, removeFireAlarmPrimaryTechnicianRow,
+  removeFireAlarmSecondaryTechnicianRow, saveFireAlarmDraft
+} from "/src/fireAlarm/fireAlarmRepository.ts";
+import { resolveFireAlarmOpenTarget } from "/src/fireAlarm/fireAlarmResolution.ts";
+import { canonicalizeFireAlarmResponses, getFireAlarmSubmissionIssues } from "/src/fireAlarm/fireAlarmValidation.ts";
+
+const id = (n) => `74000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const ids = { job:id(1), customer:id(2), revision:id(3), template:id(4), system:id(5), zone:id(6), primary:id(7), secondary:id(8) };
+const system = {
+  enabledSystemId:ids.system, systemKey:"fire_alarm_detector", displayName:"Fire Alarm / Detector System", sortOrder:5, definitionStatus:"confirmed",
+  zones:[{id:ids.zone,enabledSystemId:ids.system,key:"zone-a",displayName:"Zone A",sortOrder:1}],
+  locations:[
+    {id:ids.primary,enabledSystemId:ids.system,zoneId:ids.zone,key:"primary",displayName:"Lobby",presetRowCount:1,rowPreset:{fireAlarmTable:"primary",assetReference:"P-01"},sortOrder:1},
+    {id:ids.secondary,enabledSystemId:ids.system,zoneId:null,key:"secondary",displayName:"Plant Room",presetRowCount:1,rowPreset:{fireAlarmTable:"secondary",assetReference:"S-01"},sortOrder:2}
+  ]
+};
+const template = {id:ids.template,code:"MFE-FSSR",name:"Master Fire Alarm",version:3,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:system.systemKey,displayName:system.displayName,sortOrder:5,definitionStatus:"confirmed",definition:getPublishedFireAlarmDefinition()}]};
+const catalog = {template:{...template,id:id(20),version:1,systems:[]},templates:[{...template,id:id(20),version:1,systems:[]},template]};
+const job = {id:ids.job,reference:"FIRE-HARNESS",title:"Sanitized Fire Alarm fixture",status:"open",createdAt:new Date().toISOString(),configurationSnapshot:{schemaVersion:1,customer:{id:ids.customer,code:"TEST",displayName:"Harness Customer"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:ids.template,code:"MFE-FSSR",name:"Master Fire Alarm",version:3},enabledSystems:[system]}};
+const key = fireAlarmJobSystemKey(ids.job);
+const output = document.querySelector("#result");
+let outcomes = [];
+const check = (name, passed, detail="") => outcomes.push({name,passed:Boolean(passed),detail});
+const rejected = async (action) => { try { await action(); return false; } catch { return true; } };
+const clone = structuredClone;
+const counts = async () => ({
+  inspections: await localDatabase.masterSystemInspections.count(),
+  attachments: await localDatabase.inspectionAttachments.count(),
+  outbox: await localDatabase.syncOutbox.count()
+});
+const sameCounts = (left, right) => left.inspections === right.inspections && left.attachments === right.attachments && left.outbox === right.outbox;
+async function clear() {
+  const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
+  await localDatabase.masterSystemInspections.bulkDelete(records.map((item) => item.clientUuid));
+}
+function primaryTechnician(sequence=2) {
+  return {rowUuid:crypto.randomUUID(),source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,displaySequence:sequence,assetReference:"",alarmZone:"",location:"",manualCallPoint:null,flowSwitch:null,heatDetector:null,smokeDetector:null,remarks:""};
+}
+function secondaryTechnician(sequence=2) {
+  return {rowUuid:crypto.randomUUID(),source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,displaySequence:sequence,assetReference:"",location:"",alarmBell:null,manualCallPoint:null,remarks:""};
+}
+const summary = (changes={}) => ({clientUuid:id(30),jobId:ids.job,systemKey:"fire_alarm_detector",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted",performedAt:"2026-08-06T00:00:00.000000Z",deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"tester",...changes});
+
+document.querySelector("#run").onclick = async () => {
+  outcomes = [];
+  try {
+    await localDatabase.open();
+    await clear();
+    const [created, concurrent] = await Promise.all([getOrCreateFireAlarmInspection(job,system,catalog),getOrCreateFireAlarmInspection(job,system,catalog)]);
+    let live = created;
+    const initialized = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
+    check("exact configured primary and secondary routing",live.responses.primaryDeviceRows.length===1&&live.responses.secondaryAlarmDeviceRows.length===1&&live.responses.primaryDeviceRows[0].assetReference==="P-01"&&live.responses.secondaryAlarmDeviceRows[0].assetReference==="S-01");
+    check("concurrent first initialization yields one record and UUID",initialized.length===1&&live.clientUuid===concurrent.clientUuid);
+    check("stable row UUID after same-session reread",(await getOrCreateFireAlarmInspection(job,system,catalog)).responses.primaryDeviceRows[0].rowUuid===live.responses.primaryDeviceRows[0].rowUuid);
+
+    let forged = clone(live.responses); forged.primaryDeviceRows[0].rowUuid=crypto.randomUUID();
+    check("configured primary row UUID cannot be changed",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.secondaryAlarmDeviceRows[0].rowUuid=crypto.randomUUID();
+    check("configured secondary row UUID cannot be changed",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.primaryDeviceRows[0].configuredLocationId=ids.secondary;
+    check("configured primary rerouting rejected",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.secondaryAlarmDeviceRows[0].configuredLocationId=ids.primary;
+    check("configured secondary rerouting rejected",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); Object.assign(forged.primaryDeviceRows[0],{source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null});
+    check("configured row converted to technician rejected",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.primaryDeviceRows.push({...primaryTechnician(),configuredLocationId:ids.primary});
+    check("forged technician configured provenance rejected",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.primaryDeviceRows.push(primaryTechnician());
+    check("saveDraft cannot add a technician row directly",await rejected(()=>saveFireAlarmDraft(live,forged)));
+
+    live = await addFireAlarmPrimaryTechnicianRow(live,live.responses);
+    const primaryUuid = live.responses.primaryDeviceRows.at(-1).rowUuid;
+    check("dedicated primary technician add works in Draft",live.responses.primaryDeviceRows.length===2&&live.responses.primaryDeviceRows.at(-1).source==="technician");
+    forged = clone(live.responses); forged.primaryDeviceRows.at(-1).rowUuid=crypto.randomUUID();
+    check("technician primary row UUID cannot be replaced",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    forged = clone(live.responses); forged.primaryDeviceRows.pop();
+    check("saveDraft cannot remove a technician row directly",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    live = await addFireAlarmSecondaryTechnicianRow(live,live.responses);
+    const secondaryUuid = live.responses.secondaryAlarmDeviceRows.at(-1).rowUuid;
+    check("dedicated secondary technician add works in Draft",live.responses.secondaryAlarmDeviceRows.length===2&&secondaryUuid!==primaryUuid);
+    forged = clone(live.responses); forged.secondaryAlarmDeviceRows.at(-1).rowUuid=crypto.randomUUID();
+    check("technician secondary row UUID cannot be replaced",await rejected(()=>saveFireAlarmDraft(live,forged)));
+    live = await removeFireAlarmPrimaryTechnicianRow(live,live.responses,primaryUuid);
+    check("dedicated primary technician remove works in Draft",live.responses.primaryDeviceRows.length===1);
+    live = await removeFireAlarmSecondaryTechnicianRow(live,live.responses,secondaryUuid);
+    check("dedicated secondary technician remove works in Draft",live.responses.secondaryAlarmDeviceRows.length===1);
+
+    const beforeSave = clone(live);
+    const legitimate = clone(live.responses); legitimate.controlPanelLocation="Panel A"; legitimate.primaryDeviceRows[0].remarks="Checked"; legitimate.secondaryAlarmDeviceRows[0].remarks="Checked";
+    live = await saveFireAlarmDraft(live,legitimate);
+    check("legitimate edits retain original row UUIDs",live.responses.primaryDeviceRows[0].rowUuid===beforeSave.responses.primaryDeviceRows[0].rowUuid&&live.responses.secondaryAlarmDeviceRows[0].rowUuid===beforeSave.responses.secondaryAlarmDeviceRows[0].rowUuid);
+    check("monotonic localUpdatedAt",live.localUpdatedAt>beforeSave.localUpdatedAt);
+    check("clientUuid preserved after save",live.clientUuid===beforeSave.clientUuid);
+    check("localCreatedAt preserved after save",live.localCreatedAt===beforeSave.localCreatedAt);
+    check("inspectionSnapshot preserved after save",JSON.stringify(live.inspectionSnapshot)===JSON.stringify(beforeSave.inspectionSnapshot));
+    check("originalCreatorSnapshot preserved after save",JSON.stringify(live.originalCreatorSnapshot)===JSON.stringify(beforeSave.originalCreatorSnapshot));
+    check("Save Draft survives same-session IndexedDB reread",(await localDatabase.masterSystemInspections.get(live.clientUuid)).responses.controlPanelLocation==="Panel A");
+    check("stale Draft save rejected",await rejected(()=>saveFireAlarmDraft(beforeSave,beforeSave.responses)));
+    const duplicate = clone(live.responses); duplicate.secondaryAlarmDeviceRows[0].rowUuid=duplicate.primaryDeviceRows[0].rowUuid;
+    check("UUID uniqueness across both tables",await rejected(()=>saveFireAlarmDraft(live,duplicate)));
+    const over=clone(live.responses); over.comments="x".repeat(4001);
+    check("over-limit values rejected",await rejected(()=>saveFireAlarmDraft(live,over)));
+    check("future submission validation reports missing operational values",getFireAlarmSubmissionIssues(live.responses,live.inspectionSnapshot).length>0);
+
+    const localTarget=await resolveFireAlarmOpenTarget(job,system,catalog,undefined,"offline-unverified",async()=>{throw new Error("must not call server")});
+    check("local record takes precedence",localTarget.kind==="local"&&localTarget.record.clientUuid===live.clientUuid);
+    await clear();
+    const offline=await resolveFireAlarmOpenTarget(job,system,catalog,undefined,"offline-unverified");
+    check("offline-unverified no-local returns not-cached",offline.kind==="not-cached");
+    const serverBaseline=await counts();
+    const server=await resolveFireAlarmOpenTarget(job,system,catalog,undefined,"verified",async()=>summary());
+    const serverAfter=await counts();
+    check("correct job summary returns server target",server.kind==="server"&&server.clientUuid===id(30));
+    check("server-target resolution leaves attachment count unchanged",serverAfter.attachments===serverBaseline.attachments);
+    check("server-target resolution leaves masterSystemInspections count unchanged",serverAfter.inspections===serverBaseline.inspections);
+    check("server-target resolution leaves syncOutbox count unchanged",serverAfter.outbox===serverBaseline.outbox);
+
+    const mismatches = [
+      ["valid summary for another job rejected",{jobId:id(31)}],
+      ["wrong instanceKey rejected",{instanceKey:"secondary"}],
+      ["non-null zoneId rejected",{zoneId:id(32)}],
+      ["non-null locationId rejected",{locationId:id(33)}],
+      ["wrong displaySequence rejected",{displaySequence:2}]
+    ];
+    for (const [name,changes] of mismatches) {
+      const before=await counts();
+      const target=await resolveFireAlarmOpenTarget(job,system,catalog,undefined,"verified",async()=>summary(changes));
+      const after=await counts();
+      check(name,target.kind==="server-unavailable");
+      check(`${name}: creates no local inspection`,after.inspections===before.inspections);
+      check(`${name}: creates no attachment row`,after.attachments===before.attachments);
+      check(`${name}: creates no outbox operation`,after.outbox===before.outbox);
+    }
+
+    await localDatabase.masterSystemInspections.put(live);
+    const root=createRoot(document.querySelector("#form"));
+    root.render(React.createElement(FireAlarmInspectionForm,{record:live,onBack:()=>{},onSaveDraft:async()=>{}}));
+    await new Promise((resolve)=>setTimeout(resolve,50));
+    const legends=[...document.querySelectorAll("#form legend")].map((node)=>node.textContent);
+    const fieldLabels=[...document.querySelectorAll("#form label")].map((node)=>node.firstChild?.textContent);
+    check("visible exact label: Zone and Device Rows",legends.includes("Zone and Device Rows"));
+    check("visible exact label: No.",fieldLabels.includes("No."));
+    check("visible exact label: Alarm Bell and Manual Call Point Rows",legends.includes("Alarm Bell and Manual Call Point Rows"));
+    check("visible exact label: Comments",legends.includes("Comments"));
+    check("replacement labels are absent",![...legends,...fieldLabels].some((label)=>["Primary detector / device table","No. / Asset Reference","Secondary alarm-device table","Final Comments"].includes(label)));
+    const controls=[...document.querySelectorAll("#form input,#form select,#form textarea")];
+    check("offline form remains editable",controls.length>0&&controls.some((control)=>!control.disabled&&!control.readOnly));
+    check("canonical validation still accepts the saved response",canonicalizeFireAlarmResponses(live.responses,live.inspectionSnapshot).primaryDeviceRows.length===1);
+    output.textContent=JSON.stringify({status:outcomes.every((item)=>item.passed)?"PASS":"FAIL",checkCount:outcomes.length,outcomes},null,2);
+  } catch (error) {
+    output.textContent=JSON.stringify({status:"ERROR",message:error instanceof Error?error.stack:String(error),outcomes},null,2);
+  }
+};
+</script>
+</body>
+</html>
