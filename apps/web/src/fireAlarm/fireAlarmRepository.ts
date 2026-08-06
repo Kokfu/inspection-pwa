@@ -1,10 +1,10 @@
-import { localDatabase } from "../db/localDatabase";
+import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { parseFireAlarmRowPreset, parseFireAlarmSystemDefinition, resolveFireAlarmControls } from "./fireAlarmDefinition";
 import type { FireAlarmInspectionRecord, FireAlarmInspectionSnapshot, FireAlarmPrimaryDeviceRow, FireAlarmResponses, FireAlarmSecondaryAlarmDeviceRow } from "./fireAlarmTypes";
-import { canonicalizeFireAlarmResponses } from "./fireAlarmValidation";
+import { canonicalizeFireAlarmResponses, getFireAlarmSubmissionIssues } from "./fireAlarmValidation";
 
 const systemKey = "fire_alarm_detector" as const;
 const staleMessage = "This Fire Alarm Draft changed elsewhere. Reload before saving.";
@@ -71,6 +71,101 @@ export async function saveFireAlarmDraft(record: FireAlarmInspectionRecord, resp
     await localDatabase.masterSystemInspections.put(saved);
   });
   if (!saved) throw new Error("Fire Alarm Draft was not saved"); return saved;
+}
+
+function syncPayload(record: FireAlarmInspectionRecord) {
+  return {
+    clientUuid: record.clientUuid,
+    jobId: record.jobId,
+    systemKey: record.systemKey,
+    instanceKey: record.instanceKey,
+    configuredZoneId: record.configuredZoneId,
+    configuredLocationId: record.configuredLocationId,
+    displaySequence: record.displaySequence,
+    originalCreatorSnapshot: record.originalCreatorSnapshot,
+    masterTemplate: record.masterTemplate,
+    configuration: record.configuration,
+    inspectionSnapshot: record.inspectionSnapshot,
+    responses: record.responses,
+    performedAt: record.performedAt
+  };
+}
+
+export async function submitFireAlarmLocal(record: FireAlarmInspectionRecord, responses: FireAlarmResponses) {
+  let submitted: FireAlarmInspectionRecord | undefined;
+  const activeKey = `masterSystemInspection:create:${record.clientUuid}`;
+  await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+    const live = await localDatabase.masterSystemInspections.get(record.clientUuid);
+    if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid
+      || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt
+      || live.syncStatus !== "Draft") {
+      throw new Error("This Fire Alarm record changed elsewhere. Reload before submitting.");
+    }
+    const current = live as FireAlarmInspectionRecord;
+    const canonical = canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    assertFireAlarmRowIdentity(current.responses, canonical);
+    const issues = getFireAlarmSubmissionIssues(canonical, current.inspectionSnapshot);
+    if (issues.length) throw new Error(issues.map((issue) => issue.message).join("; "));
+    if (await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first()) {
+      throw new Error("This Fire Alarm inspection already has active sync work");
+    }
+    const timestamp = nextUpdatedAt(current.localUpdatedAt);
+    submitted = {
+      ...current,
+      responses: canonical,
+      performedAt: timestamp,
+      localUpdatedAt: timestamp,
+      syncStatus: "Pending",
+      lastSyncError: undefined
+    };
+    const outbox: SyncOutboxItem = {
+      operationId: crypto.randomUUID(),
+      entityType: "masterSystemInspection",
+      entityId: current.clientUuid,
+      action: "create",
+      payload: syncPayload(submitted),
+      createdAt: submitted.localCreatedAt,
+      attempts: 0,
+      status: "Pending",
+      activeKey
+    };
+    await localDatabase.masterSystemInspections.put(submitted);
+    await localDatabase.syncOutbox.add(outbox);
+  });
+  if (!submitted) throw new Error("Fire Alarm inspection was not submitted");
+  return submitted;
+}
+
+export async function returnFailedFireAlarmToDraft(record: FireAlarmInspectionRecord) {
+  let corrected: FireAlarmInspectionRecord | undefined;
+  const activeKey = `masterSystemInspection:create:${record.clientUuid}`;
+  await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+    const live = await localDatabase.masterSystemInspections.get(record.clientUuid);
+    if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid
+      || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt
+      || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
+      throw new Error("This Fire Alarm record changed elsewhere. Reload before correcting it.");
+    }
+    const timestamp = nextUpdatedAt(live.localUpdatedAt);
+    const active = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
+    if (active) {
+      await localDatabase.syncOutbox.update(active.operationId, {
+        status: "Completed",
+        activeKey: undefined,
+        completedAt: timestamp,
+        lastError: "Superseded by technician correction"
+      });
+    }
+    corrected = {
+      ...(live as FireAlarmInspectionRecord),
+      syncStatus: "Draft",
+      localUpdatedAt: timestamp,
+      lastSyncError: undefined
+    };
+    await localDatabase.masterSystemInspections.put(corrected);
+  });
+  if (!corrected) throw new Error("Fire Alarm inspection was not corrected");
+  return corrected;
 }
 
 function configuredIdentity(table: "primary" | "secondary", row: FireAlarmPrimaryDeviceRow | FireAlarmSecondaryAlarmDeviceRow) {

@@ -1,4 +1,5 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
+import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import {
   AttachmentUploadError,
   uploadInspectionAttachment
@@ -15,6 +16,56 @@ type SyncResponse = {
   duplicateIds: string[];
   failed: SyncFailedItem[];
 };
+
+function isFireAlarmOutboxItem(item: SyncOutboxItem) {
+  return item.entityType === "masterSystemInspection"
+    && typeof item.payload === "object" && item.payload !== null
+    && (item.payload as { systemKey?: unknown }).systemKey === "fire_alarm_detector";
+}
+
+function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, item: SyncOutboxItem) {
+  if (record?.systemKey !== "fire_alarm_detector") return false;
+  const expected = {
+    clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey,
+    instanceKey: record.instanceKey, configuredZoneId: record.configuredZoneId,
+    configuredLocationId: record.configuredLocationId, displaySequence: record.displaySequence,
+    originalCreatorSnapshot: record.originalCreatorSnapshot, masterTemplate: record.masterTemplate,
+    configuration: record.configuration, inspectionSnapshot: record.inspectionSnapshot,
+    responses: record.responses, performedAt: record.performedAt
+  };
+  return JSON.stringify(item.payload) === JSON.stringify(expected);
+}
+
+async function validateFireAlarmWork(items: SyncOutboxItem[]) {
+  const valid: SyncOutboxItem[] = [];
+  for (const item of items) {
+    if (!isFireAlarmOutboxItem(item)) { valid.push(item); continue; }
+    const record = await localDatabase.masterSystemInspections.get(item.entityId);
+    // Conflict is terminal for automatic sync. Keep the active operation intact so
+    // explicit correction can retire that exact immutable history entry.
+    if (record?.systemKey === "fire_alarm_detector" && record.syncStatus === "Conflict") {
+      continue;
+    }
+    const payload = item.payload as { clientUuid?: unknown; systemKey?: unknown };
+    const expectedActiveKey = `masterSystemInspection:create:${item.entityId}`;
+    if (record?.systemKey === "fire_alarm_detector" && record.clientUuid === item.entityId
+      && payload.clientUuid === item.entityId && payload.systemKey === "fire_alarm_detector"
+      && item.activeKey === expectedActiveKey
+      && fireAlarmPayloadMatches(record as FireAlarmInspectionRecord, item)
+      && (record.syncStatus === "Pending" || record.syncStatus === "Failed")) {
+      valid.push(item);
+      continue;
+    }
+    const message = "Fire Alarm sync operation does not match the current local record";
+    await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: message });
+      if (record?.systemKey === "fire_alarm_detector" && record.syncStatus !== "Synced") {
+        await localDatabase.masterSystemInspections.update(record.clientUuid, { syncStatus: "Failed", lastSyncError: message });
+      }
+    });
+  }
+  return valid;
+}
 
 let syncInProgress = false;
 const interruptedSyncMessage = "Recovered from interrupted sync";
@@ -270,13 +321,14 @@ export async function syncPendingRecords() {
   try {
     await recoverInterruptedSync();
 
-    const items = (await localDatabase.syncOutbox
+    const candidateItems = (await localDatabase.syncOutbox
       .where("status")
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
         item.entityType !== "inspectionAttachment" && shouldSync(item)
       );
+    let items = await validateFireAlarmWork(candidateItems);
 
     if (items.length === 0) {
       const evidence = await syncPendingAttachments();
@@ -288,7 +340,7 @@ export async function syncPendingRecords() {
       };
     }
 
-    const ids = items.map((item) => item.operationId);
+    const readyItems: SyncOutboxItem[] = [];
     await localDatabase.transaction(
     "rw",
     localDatabase.testRecords,
@@ -297,25 +349,33 @@ export async function syncPendingRecords() {
     localDatabase.masterSystemFormInstances,
       localDatabase.syncOutbox,
       async () => {
-        await Promise.all(
-          items.map((item) =>
-            localDatabase.syncOutbox.update(item.operationId, {
+        for (const item of items) {
+          if (isFireAlarmOutboxItem(item)) {
+            const currentWork = await localDatabase.syncOutbox.get(item.operationId);
+            const currentRecord = await localDatabase.masterSystemInspections.get(item.entityId);
+            if (!currentWork || currentWork.activeKey !== `masterSystemInspection:create:${item.entityId}`
+              || (currentWork.status !== "Pending" && currentWork.status !== "Failed")
+              || currentRecord?.systemKey !== "fire_alarm_detector"
+              || !fireAlarmPayloadMatches(currentRecord as FireAlarmInspectionRecord | undefined, currentWork)
+              || (currentRecord.syncStatus !== "Pending" && currentRecord.syncStatus !== "Failed")) continue;
+          }
+          await localDatabase.syncOutbox.update(item.operationId, {
               status: "Syncing",
               attempts: item.attempts + 1,
               lastAttemptAt: startedAt,
               lastError: undefined
-            })
-          )
-        );
-        await Promise.all(items.map((item) => {
+          });
           const update = { syncStatus: "Syncing" as const, lastSyncError: undefined };
-          if (item.entityType === "inspection") return localDatabase.inspectionRecords.update(item.entityId, update);
-          if (item.entityType === "masterSystemInspection") return localDatabase.masterSystemInspections.update(item.entityId, update);
-          if (item.entityType === "masterSystemFormInstance") return localDatabase.masterSystemFormInstances.update(item.entityId, update);
-          return localDatabase.testRecords.update(item.entityId, update);
-        }));
+          if (item.entityType === "inspection") await localDatabase.inspectionRecords.update(item.entityId, update);
+          else if (item.entityType === "masterSystemInspection") await localDatabase.masterSystemInspections.update(item.entityId, update);
+          else if (item.entityType === "masterSystemFormInstance") await localDatabase.masterSystemFormInstances.update(item.entityId, update);
+          else await localDatabase.testRecords.update(item.entityId, update);
+          readyItems.push(item);
+        }
       }
     );
+    items = readyItems;
+    if (items.length === 0) return { started: true, message: "No pending records" };
 
     const response = await fetch("/api/sync", {
       method: "POST",
@@ -385,14 +445,15 @@ export async function syncPendingRecords() {
             const failed = failedById.get(item.entityId);
             const message =
               failed?.message ?? "Server did not confirm this record UUID";
-            const update = {
-              syncStatus: "Failed" as const,
-              lastSyncError: message
-            };
+            const conflict = isFireAlarmOutboxItem(item)
+              && (failed?.code === "IDEMPOTENCY_CONFLICT" || failed?.code === "ACTIVE_INSPECTION_EXISTS");
+            const update = { syncStatus: "Failed" as const, lastSyncError: message };
             if (item.entityType === "inspection") {
               await localDatabase.inspectionRecords.update(item.entityId, update);
             } else if (item.entityType === "masterSystemInspection") {
-              await localDatabase.masterSystemInspections.update(item.entityId, update);
+              await localDatabase.masterSystemInspections.update(item.entityId, conflict
+                ? { syncStatus: "Conflict", lastSyncError: message }
+                : update);
             } else if (item.entityType === "masterSystemFormInstance") {
               await localDatabase.masterSystemFormInstances.update(item.entityId, update);
             } else {
@@ -434,11 +495,18 @@ export async function syncPendingRecords() {
       async () => {
         await Promise.all(
           syncingItems.map(async (item) => {
+            const currentFireAlarm = isFireAlarmOutboxItem(item)
+              ? await localDatabase.masterSystemInspections.get(item.entityId)
+              : undefined;
             await localDatabase.syncOutbox.update(item.operationId, {
               status: "Failed",
               lastAttemptAt: failedAt,
               lastError: message
             });
+            if (currentFireAlarm?.systemKey === "fire_alarm_detector"
+              && currentFireAlarm.syncStatus === "Conflict") {
+              return;
+            }
             const update = {
               syncStatus: "Failed" as const,
               lastSyncError: message

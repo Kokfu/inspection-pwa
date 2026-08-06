@@ -153,7 +153,7 @@ document.querySelector("#run").onclick = async () => {
 
     await localDatabase.masterSystemInspections.put(live);
     const root=createRoot(document.querySelector("#form"));
-    root.render(React.createElement(FireAlarmInspectionForm,{record:live,onBack:()=>{},onSaveDraft:async()=>{}}));
+    root.render(React.createElement(FireAlarmInspectionForm,{record:live,onBack:()=>{},onSaveDraft:async()=>{},onSubmitLocal:async()=>{},onEditFailed:async()=>{}}));
     await new Promise((resolve)=>setTimeout(resolve,50));
     const legends=[...document.querySelectorAll("#form legend")].map((node)=>node.textContent);
     const fieldLabels=[...document.querySelectorAll("#form label")].map((node)=>node.firstChild?.textContent);
