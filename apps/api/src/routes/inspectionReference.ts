@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { resolveFireAlarmControls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { requireRole } from "../middleware/requireRole.js";
 
@@ -84,9 +85,10 @@ function assertVersionedCatalogRows(templates: TemplateRow[]) {
     identities.add(identity);
   }
   if (
-    templates.length !== 2
+    templates.length !== 3
     || !templates.some((template) => template.version === 1)
     || !templates.some((template) => template.version === 2)
+    || !templates.some((template) => template.version === 3)
   ) {
     throw new Error("Inspection catalog is missing a required published MFE-FSSR version");
   }
@@ -110,7 +112,7 @@ async function loadCatalogTemplate(template: TemplateRow) {
 
   return {
     ...template,
-    systems: systemsResult.rows.map((system) => system.key === "hose_reel"
+    systems: systemsResult.rows.map((system) => system.key === "hose_reel" && template.version === 1
       ? {
           ...system,
           resolvedRuntimeControls: resolveHoseReelControls(
@@ -119,7 +121,7 @@ async function loadCatalogTemplate(template: TemplateRow) {
             template.version
           )
         }
-      : system.key === "co2_fire_extinguisher"
+      : system.key === "co2_fire_extinguisher" && template.version === 1
         ? {
             ...system,
             resolvedRuntimeControls: resolveCo2Controls(
@@ -128,7 +130,16 @@ async function loadCatalogTemplate(template: TemplateRow) {
               template.version
             )
           }
-        : system)
+        : system.key === "fire_alarm_detector" && template.version === 3
+          ? {
+              ...system,
+              resolvedRuntimeControls: resolveFireAlarmControls(
+                system.definition,
+                template.code,
+                template.version
+              )
+            }
+          : system)
   };
 }
 
@@ -150,7 +161,7 @@ inspectionReferenceRouter.get(
           report_boilerplate AS "reportBoilerplate"
         FROM master_service_report_templates
         WHERE code = 'MFE-FSSR'
-          AND version IN (1, 2)
+          AND version IN (1, 2, 3)
           AND publication_status = 'published'
         ORDER BY version
       `);
