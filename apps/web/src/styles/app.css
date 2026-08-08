@@ -690,3 +690,8 @@ dd {
   width: 20px;
   height: 20px;
 }
+.server-detail-table-wrap { overflow-x: auto; }
+.server-inspection-detail table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.server-inspection-detail th, .server-inspection-detail td { padding: .65rem; border: 1px solid var(--border-color, #ccd5df); text-align: left; vertical-align: top; }
+.accepted-check-row { display: grid; grid-template-columns: minmax(10rem, 1fr) minmax(5rem, .5fr) minmax(10rem, 2fr); gap: .75rem; padding: .65rem 0; border-bottom: 1px solid var(--border-color, #ccd5df); }
+@media (max-width: 640px) { .accepted-check-row { grid-template-columns: 1fr; gap: .25rem; } }

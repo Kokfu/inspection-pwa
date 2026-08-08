@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Server summary refresh authority harness</title></head><body>
+<button id="run" type="button">Run summary refresh authority checks</button><pre id="result">Ready</pre>
+<script type="module">
+import { AuthAuthorityGuard } from "/src/auth/authAuthority.ts";
+import { deriveFireAlarmProgress } from "/src/jobs/jobProgress.ts";
+import { ServerSummaryRefreshGuard } from "/src/jobs/serverSummaryRefreshGuard.ts";
+
+const userA={id:1,username:"alpha",role:"inspector"},userB={id:2,username:"beta",role:"inspector"};
+const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}};
+const turn=async()=>{await Promise.resolve();await Promise.resolve()};
+function machine(){
+  const auth=new AuthAuthorityGuard(),guard=new ServerSummaryRefreshGuard();auth.install(userA);
+  const state={context:"job-a",progressState:"loaded",accepted:true,successors:0,detail:"A detail"};
+  const progress=()=>deriveFireAlarmProgress(undefined,state.progressState==="loaded"?{kind:"current-complete",accepted:state.accepted}:{kind:"unavailable"});
+  const current=token=>auth.isCurrent(token.authGeneration)&&guard.isCurrent(token,auth.currentGeneration,state.context);
+  const replaceAuth=user=>{guard.invalidate();auth.revoke();state.accepted=false;state.progressState="failed";state.detail=undefined;if(user)auth.install(user)};
+  const installIfChanged=user=>{if(auth.matches(user))return false;replaceAuth(user);return true};
+  const refresh=async(jobsResult,summaryResult)=>{
+    let token=guard.begin(auth.currentGeneration,state.context);state.accepted=false;state.progressState="loading";
+    try{
+      const nextContext=await jobsResult;
+      const successor=guard.continueWithJobContext(token,auth.currentGeneration,state.context,nextContext);
+      if(!successor)return;
+      if(successor!==token){state.context=nextContext;state.successors+=1;token=successor}
+      const accepted=await summaryResult;
+      if(!current(token))return;
+      state.accepted=accepted;state.progressState="loaded";
+    }catch{if(current(token)){state.accepted=false;state.progressState="failed"}}
+    finally{if(current(token)&&state.progressState==="loading")state.progressState="failed"}
+  };
+  return{auth,guard,state,progress,current,replaceAuth,installIfChanged,refresh};
+}
+
+document.querySelector("#run").onclick=async()=>{
+  const checks=[],check=(name,passed)=>checks.push({name,passed:Boolean(passed)});
+  {
+    const m=machine(),jobs=deferred(),summary=deferred();
+    check("accepted old context starts Completed",m.progress()==="Completed");
+    const work=m.refresh(jobs.promise,summary.promise);
+    await turn();check("Refresh Jobs immediately revokes Completed while jobs are pending",m.progress()==="Unknown / Not Cached"&&m.state.progressState==="loading");
+    jobs.resolve("job-b");await turn();
+    check("different job context creates a successor token and remains actively loading",m.state.successors===1&&m.state.context==="job-b"&&m.state.progressState==="loading");
+    summary.resolve(true);await work;check("successful successor summary restores Completed",m.progress()==="Completed");
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);jobs.resolve("job-b");await turn();summary.reject(new Error("summary failed"));await work;
+    check("failed successor settles Unknown / Not Cached",m.state.successors===1&&m.state.progressState==="failed"&&m.progress()==="Unknown / Not Cached");
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);jobs.resolve("job-b");await turn();m.replaceAuth(undefined);summary.resolve(true);await work;
+    check("logout before successor finishes rejects late result and settles",m.state.progressState==="failed"&&m.progress()==="Unknown / Not Cached");
+  }
+  {
+    const m=machine(),jobs1=deferred(),summary1=deferred(),first=m.refresh(jobs1.promise,summary1.promise);jobs1.resolve("job-b");await turn();
+    const jobs2=deferred(),summary2=deferred(),second=m.refresh(jobs2.promise,summary2.promise);jobs2.resolve("job-b");await turn();summary1.resolve(true);await first;
+    const oldIgnored=m.state.progressState==="loading"&&!m.state.accepted;summary2.resolve(true);await second;
+    check("second Refresh Jobs supersedes original and successor work",oldIgnored&&m.progress()==="Completed");
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);jobs.resolve("job-without-fire-alarm");await turn();summary.resolve(false);await work;
+    check("complete changed job set with no Fire Alarm settles Not Started",m.state.progressState==="loaded"&&m.progress()==="Not Started");
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);m.replaceAuth(undefined);jobs.resolve("job-b");summary.resolve(true);await work;
+    check("no valid successor after auth invalidation settles fail closed",m.state.successors===0&&m.state.progressState==="failed");
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);m.installIfChanged(userB);summary.resolve(true);jobs.resolve("job-a");await work;
+    check("verified A to verified B rejects late A summary",m.auth.matches(userB)&&m.state.progressState==="failed"&&!m.state.accepted);
+  }
+  {
+    const m=machine(),aDetail=deferred(),aGeneration=m.auth.currentGeneration;
+    const publishA=aDetail.promise.then(value=>{if(m.auth.isCurrent(aGeneration))m.state.detail=value});
+    m.installIfChanged(userB);const removed=m.state.detail===undefined,bGeneration=m.auth.currentGeneration,bDetail=deferred();
+    const publishB=bDetail.promise.then(value=>{if(m.auth.isCurrent(bGeneration))m.state.detail=value});
+    aDetail.resolve("late A detail");await publishA;const oldIgnored=m.state.detail===undefined;bDetail.resolve("B detail");await publishB;
+    check("verified identity replacement removes A detail, ignores it late, and re-resolves B",removed&&oldIgnored&&m.state.detail==="B detail");
+  }
+  {
+    const m=machine(),generation=m.auth.currentGeneration,changed=m.installIfChanged({...userA});
+    check("verified A to unchanged verified A preserves authority generation",!changed&&m.auth.currentGeneration===generation&&m.state.detail==="A detail");
+  }
+  {
+    const m=machine(),lateDetail=deferred(),oldGeneration=m.auth.currentGeneration;
+    const publication=lateDetail.promise.then(value=>{if(m.auth.isCurrent(oldGeneration))m.state.detail=value});
+    m.replaceAuth(undefined);m.installIfChanged(userA);lateDetail.resolve("pre-logout detail");await publication;
+    check("logout and login reject all detail work from the previous authority",m.auth.matches(userA)&&m.state.detail===undefined);
+  }
+  {
+    const m=machine(),jobs=deferred(),summary=deferred(),work=m.refresh(jobs.promise,summary.promise);jobs.resolve("job-b");await turn();m.installIfChanged(userB);summary.resolve(true);await work;
+    check("identity change during successor rejects old context and old identity",m.state.successors===1&&m.auth.matches(userB)&&m.state.progressState==="failed");
+  }
+  document.querySelector("#result").textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checkCount:checks.length,checks},null,2);
+};
+</script></body></html>

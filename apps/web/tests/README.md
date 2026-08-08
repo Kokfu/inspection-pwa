@@ -11,6 +11,7 @@ Run these browser harnesses through the Vite development server:
 - `dry-wet-riser-server-detail.html`
 - `hose-reel-regression.html`
 - `co2-concurrent-initialization.html`
+- `server-summary-refresh-authority.html`
 
 The photo harness covers local Blob processing, one-photo concurrency,
 replacement identity, atomic submit/outbox creation, interrupted upload
@@ -45,6 +46,13 @@ The CO2 harness verifies frozen configured-location initialization, independent
 child Draft and outbox lifecycle, stale-write protection, configured provenance,
 offline-safe local behavior, and child/parent progress precedence. It reports
 each check independently in its visible result. Run it manually through Vite.
+
+The server-summary refresh-authority harness verifies that a new manual refresh
+immediately invalidates accepted Fire Alarm authority, continues onto a successor
+token when the refreshed job context changes, and always settles on success,
+failure, logout, auth replacement, or supersession. It also covers verified-user
+identity replacement, late old-user summary/detail rejection, unchanged-identity
+generation stability, and accepted absence resolving to Not Started.
 
 Production PWA, camera permission, physical camera, force-close, and real
 offline checks remain manual because development-server behavior is not proof

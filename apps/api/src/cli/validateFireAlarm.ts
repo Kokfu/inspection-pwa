@@ -8,6 +8,7 @@ import { masterServiceReportV3 } from "../inspections/templates/masterServiceRep
 import { currentUser } from "../middleware/currentUser.js";
 import { authRouter } from "../routes/auth.js";
 import { syncRouter } from "../routes/sync.js";
+import { masterSystemInspectionsRouter } from "../routes/masterSystemInspections.js";
 import { classifyFireAlarmUniqueViolationForTest, setFireAlarmSyncTestBoundaryHook, syncFireAlarmInspections } from "../sync/fireAlarmInspectionSync.js";
 
 type ValidationCase = { customerId: string; revisionId: string; enabledId: string; zoneId: string; primaryLocationId: string; secondaryLocationId: string; jobId: string; snapshot: any };
@@ -26,7 +27,7 @@ function createValidationApp() {
   const app = express();
   app.disable("x-powered-by"); app.use(express.json({ limit: "1mb" }));
   app.get("/validation/health", (_request, response) => response.json({ status: "ok", ownerRunId: runId }));
-  app.use(currentUser); app.use(authRouter); app.use(syncRouter);
+  app.use(currentUser); app.use(authRouter); app.use(syncRouter); app.use(masterSystemInspectionsRouter);
   app.use((_request, response) => response.status(404).json({ error: "NOT_FOUND" }));
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     console.error("Owned Fire Alarm validation listener error", error);
@@ -216,6 +217,32 @@ async function proveHttpAuthentication(listener: OwnedListener, otherActorUserId
   assert(response.status === 200 && body.acceptedIds?.length === 1 && body.acceptedIds[0] === item.entityId && body.duplicateIds?.length === 0 && body.failed?.length === 0, "authenticated run-specific Fire Alarm sync lacked exact acceptedIds membership");
   response = await httpJson(listener.baseUrl, "/sync", { items: [item] }, authenticated.cookie); const replay = await response.json() as any;
   assert(response.status === 200 && replay.duplicateIds?.length === 1 && replay.duplicateIds[0] === item.entityId, "authenticated exact replay lacked duplicateIds membership");
+  const detailPath=`/fire-alarm-inspections/${item.entityId}`,getDetail=(cookie?:string)=>fetch(`${listener.baseUrl}${detailPath}`,cookie?{headers:{Cookie:cookie}}:undefined);
+  assert((await getDetail()).status===401,"unauthenticated Fire Alarm detail was not rejected");
+  assert((await fetch(`${listener.baseUrl}/fire-alarm-inspections/${randomUUID()}`,{headers:{Cookie:authenticated.cookie!}})).status===404,"unknown Fire Alarm UUID did not return 404");
+  const before=await pool.query("SELECT response_payload,inspection_snapshot,status,instance_key,zone_id,location_id,display_sequence,original_creator_snapshot FROM master_system_form_instances WHERE client_uuid=$1",[item.entityId]);
+  const original=before.rows[0];let detailResponse=await getDetail(authenticated.cookie),detail=await detailResponse.json() as any;
+  assert(detailResponse.status===200&&detail.inspection?.clientUuid===item.entityId&&detail.inspection?.responses?.primaryDeviceRows?.length===1&&detail.inspection?.responses?.secondaryAlarmDeviceRows?.length===1&&detail.inspection?.template?.version===3&&detail.inspection?.configuration?.revisionId===source.revisionId&&typeof detail.inspection?.syncedByUsername==="string"&&!JSON.stringify(detail).includes("request_fingerprint"),`authenticated Fire Alarm detail was not canonical or exposed internals: ${detailResponse.status} ${JSON.stringify(detail)}`);
+  const malformed=[
+    ["response",{...structuredClone(original.response_payload),extra:true}],
+    ["response",{...structuredClone(original.response_payload),primaryDeviceRows:[{...original.response_payload.primaryDeviceRows[0],smokeDetector:"bad"}]}],
+    ["response", {
+      ...structuredClone(original.response_payload),
+      secondaryAlarmDeviceRows: [{
+        ...original.response_payload.secondaryAlarmDeviceRows[0],
+        rowUuid: original.response_payload.primaryDeviceRows[0].rowUuid
+      }]
+    }],
+    ["snapshot",{...structuredClone(original.inspection_snapshot),job:{...original.inspection_snapshot.job,id:randomUUID()}}],
+    ["snapshot",{...structuredClone(original.inspection_snapshot),instance:{...original.inspection_snapshot.instance,instanceKey:"other"}}],
+    ["creator",{source:"device_reported",userId:"bad",username:"bad",role:"inspector",capturedAt:"bad"}]
+  ] as const;
+  try{for(const [kind,value] of malformed){if(kind==="response")await pool.query("UPDATE master_system_form_instances SET response_payload=$1 WHERE client_uuid=$2",[value,item.entityId]);else if(kind==="snapshot")await pool.query("UPDATE master_system_form_instances SET inspection_snapshot=$1 WHERE client_uuid=$2",[value,item.entityId]);else await pool.query("UPDATE master_system_form_instances SET original_creator_snapshot=$1 WHERE client_uuid=$2",[value,item.entityId]);assert((await getDetail(authenticated.cookie)).status===500,`malformed stored Fire Alarm ${kind} did not fail closed`);await pool.query("UPDATE master_system_form_instances SET response_payload=$1,inspection_snapshot=$2,original_creator_snapshot=$3 WHERE client_uuid=$4",[original.response_payload,original.inspection_snapshot,original.original_creator_snapshot,item.entityId]);}
+    let nonSubmittedRejected=false;try{await pool.query("UPDATE master_system_form_instances SET status='draft' WHERE client_uuid=$1",[item.entityId]);}catch(error){nonSubmittedRejected=typeof error==="object"&&error!==null&&"code" in error&&(error as {code?:unknown}).code==="23514";}assert(nonSubmittedRejected,"database allowed a non-submitted master-system form instance");
+    let otherSystemRejected=false;try{await pool.query("UPDATE master_system_inspections SET system_key='portable_fire_extinguisher' WHERE id=(SELECT inspection_group_id FROM master_system_form_instances WHERE client_uuid=$1)",[item.entityId]);}catch(error){otherSystemRejected=typeof error==="object"&&error!==null&&"code" in error&&(error as {code?:unknown}).code==="P0001";}assert(otherSystemRejected,"database allowed a Fire Alarm parent to become another system");
+    await pool.query("UPDATE master_system_form_instances SET instance_key='wrong' WHERE client_uuid=$1",[item.entityId]);assert((await getDetail(authenticated.cookie)).status===500,"malformed Fire Alarm child identity did not fail closed");
+  }finally{await pool.query("UPDATE master_system_form_instances SET response_payload=$1,inspection_snapshot=$2,status=$3,instance_key=$4,zone_id=$5,location_id=$6,display_sequence=$7,original_creator_snapshot=$8 WHERE client_uuid=$9",[original.response_payload,original.inspection_snapshot,original.status,original.instance_key,original.zone_id,original.location_id,original.display_sequence,original.original_creator_snapshot,item.entityId]);}
+  report.fireAlarmServerDetail={unauthenticated401:true,authenticated:true,unknown404:true,anotherSystemPreventedByConstraint:true,nonSubmittedPreventedByConstraint:true,atomicTables:true,malformedStoredRejected:true,noFingerprintExposure:true};
   report.httpAuthentication = { ownedLoopbackListener: true, unauthenticatedStatus: 401, invalidCredentialsStatus: 401, authenticatedAcceptedId: item.entityId, authenticatedActorId: actorUserId, otherActorUserId };
 }
 

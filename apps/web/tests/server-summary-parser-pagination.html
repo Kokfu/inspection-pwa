@@ -3,6 +3,7 @@
 <button id="run" type="button">Run production pagination checks</button><pre id="result">Ready</pre>
 <script type="module">
 import { loadAllPages, parseServerMasterSystemInspectionPage } from "/src/hoseReel/serverMasterSystemInspectionApi.ts";
+import { deriveFireAlarmProgress, deriveNoLocalSystemProgress } from "/src/jobs/jobProgress.ts";
 const jobId="41000000-0000-4000-8000-000000000001";
 const uuid=n=>`41000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const cursor=item=>btoa(JSON.stringify({performedAt:item.performedAt,clientUuid:item.clientUuid})).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""), clone=value=>structuredClone(value);
@@ -11,12 +12,20 @@ const page=(inspections,hasMore=false,nextCursor=null)=>({inspections,hasMore,ne
 const continued=inspections=>page(inspections,true,cursor(inspections.at(-1)));
 const rejects=value=>{try{parseServerMasterSystemInspectionPage(value);return false;}catch{return true;}};
 const sprinkler=(state="complete",required=1,confirmed=1)=>({clientUuid:uuid(300),jobId,systemKey:"automatic_sprinkler",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted",performedAt:"2026-08-04T00:00:00.000000Z",deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"inspector",evidenceState:state,requiredEvidenceCount:required,confirmedEvidenceCount:confirmed});
+const fire=(n=400)=>({clientUuid:uuid(n),jobId,systemKey:"fire_alarm_detector",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted",performedAt:"2026-07-31T00:00:00.000000Z",deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"inspector"});
 async function production(pages){let index=0;return loadAllPages(new URLSearchParams(),"harness",async()=>{const value=pages[index++];if(value instanceof Error)throw value;if(value?.status)return new Response("failure",{status:value.status});return new Response(JSON.stringify(value),{headers:{"Content-Type":"application/json"}});});}
 async function rejected(pages){try{await production(pages);return false;}catch{return true;}}
 document.querySelector("#run").addEventListener("click",async()=>{const checks=[];const check=(name,passed)=>checks.push({name,passed});
 const a=item(1),b=item(2,"2026-08-03T00:00:00.000000Z"),c=item(3,"2026-08-02T00:00:00.000000Z"),tieA=item(10,"2026-08-01T00:00:00.123456Z"),tieB=item(11,"2026-08-01T00:00:00.123456Z");
 check("valid single page",(await production([page([a])])).length===1);
 check("valid automatic sprinkler evidence summary",!rejects(page([sprinkler()])));
+check("valid Fire Alarm summary",!rejects(page([fire()])));
+const wrongFire=fire();wrongFire.instanceKey="other";check("wrong Fire Alarm identity fails closed",rejects(page([wrongFire])));
+check("server-only accepted Fire Alarm Completed",deriveNoLocalSystemProgress(true,"verified","loaded")==="Completed");
+check("local Synced plus accepted Fire Alarm Completed",deriveFireAlarmProgress({syncStatus:"Synced"},{kind:"current-complete",accepted:true})==="Completed");
+check("local Synced without accepted confirmation Unknown",deriveFireAlarmProgress({syncStatus:"Synced"},{kind:"current-complete",accepted:false})==="Unknown / Not Cached");
+check("complete absence Not Started",deriveNoLocalSystemProgress(false,"verified","loaded")==="Not Started");
+check("failed summary not inferred Not Started",deriveNoLocalSystemProgress(false,"verified","failed")==="Unknown / Not Cached");
 const missingEvidence= sprinkler();delete missingEvidence.evidenceState;check("missing sprinkler evidence metadata",rejects(page([missingEvidence])));
 check("unknown sprinkler evidence state",rejects(page([sprinkler("unknown")] )));
 check("complete sprinkler evidence count mismatch",rejects(page([sprinkler("complete",2,1)])));
@@ -24,6 +33,7 @@ check("not-required sprinkler evidence count mismatch",rejects(page([sprinkler("
 check("sprinkler confirmed count exceeds required",rejects(page([sprinkler("pending",1,2)])));
 check("valid two-page sequence",(await production([continued([a]),page([b])])).length===2);
 check("valid three-page sequence",(await production([continued([a]),continued([b]),page([c])])).length===3);
+check("pagination beyond 100 does not hide Fire Alarm",(await production([continued([a]),page([fire()])])).some(x=>x.systemKey==="fire_alarm_detector"));
 check("same-timestamp tie ordering across pages",(await production([continued([tieA]),page([tieB])])).map(x=>x.clientUuid).join(",")===[tieA.clientUuid,tieB.clientUuid].join(","));
 check("cursor equals final row",!rejects(continued([a,b])));
 const nonFinal=continued([a,b]);nonFinal.nextCursor=cursor(a);check("cursor points to non-final row",rejects(nonFinal));

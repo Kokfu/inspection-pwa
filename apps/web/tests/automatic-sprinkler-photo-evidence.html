@@ -8,6 +8,32 @@
   <body>
     <button id="run" type="button">Run Photo Evidence Test</button>
     <pre id="result">Ready</pre>
+    <script>
+      const evidenceRunButton = document.querySelector("#run");
+      const evidenceResult = document.querySelector("#result");
+      let evidenceHarnessSettled = false;
+      const settleEvidenceHarness = (outcome) => {
+        if (evidenceHarnessSettled) return false;
+        evidenceHarnessSettled = true;
+        evidenceResult.textContent = JSON.stringify(outcome, null, 2);
+        return true;
+      };
+      evidenceRunButton.disabled = true;
+      evidenceResult.textContent = "Initializing";
+      const evidenceInitializationTimeout = setTimeout(() => {
+        if (!evidenceRunButton.dataset.handlerAttached) {
+          settleEvidenceHarness({ status: "FAIL", phase: "module initialization", message: "Run handler was not attached within 5 seconds" });
+        }
+      }, 5_000);
+      window.addEventListener("error", (event) => {
+        clearTimeout(evidenceInitializationTimeout);
+        settleEvidenceHarness({ status: "FAIL", phase: "module initialization", message: event.message });
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        clearTimeout(evidenceInitializationTimeout);
+        settleEvidenceHarness({ status: "FAIL", phase: "module initialization", message: event.reason instanceof Error ? event.reason.message : String(event.reason) });
+      });
+    </script>
     <script type="module">
       import { localDatabase } from "/src/db/localDatabase.ts";
       import {
@@ -172,8 +198,23 @@
         return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       }
 
-      document.querySelector("#run").addEventListener("click", async () => {
-        const result = document.querySelector("#result");
+      const runButton = document.querySelector("#run");
+      const result = document.querySelector("#result");
+      const requestedTimeout = Number(new URLSearchParams(window.location.search).get("timeoutMs"));
+      const executionTimeoutMs = Number.isSafeInteger(requestedTimeout) && requestedTimeout > 0 && requestedTimeout <= 30_000
+        ? requestedTimeout
+        : 30_000;
+      clearTimeout(evidenceInitializationTimeout);
+      runButton.dataset.handlerAttached = "true";
+      runButton.disabled = evidenceHarnessSettled;
+      if (!evidenceHarnessSettled) result.textContent = "Ready";
+      runButton.addEventListener("click", async () => {
+        if (evidenceHarnessSettled) return;
+        const runClickObserved = true;
+        result.textContent = "Running";
+        const executionTimeout = setTimeout(() => {
+          settleEvidenceHarness({ status: "FAIL", phase: "execution", message: `Harness timed out after ${executionTimeoutMs} milliseconds` });
+        }, executionTimeoutMs);
         try {
           const noPhotoJob = {
             ...job,
@@ -552,7 +593,8 @@
           const syncedPhotos = await listInspectionAttachments(record.clientUuid);
           const completedOutbox = await localDatabase.syncOutbox.where("entityId")
             .anyOf([record.clientUuid, photo.photoUuid]).toArray();
-          const passed = attachmentsOnOpen.length === 0
+          const passed = runClickObserved
+            && attachmentsOnOpen.length === 0
             && outboxOnOpen === 0
             && draftPhotos.length === 1
             && saves.every((saved) => saved.photoUuid === draftPhotos[0].photoUuid)
@@ -607,8 +649,9 @@
             && syncedPhotos[0]?.blob.size === blobBytesBeforeSubmit
             && deriveAutomaticSprinklerProgress(syncedParent, syncedPhotos) === "Completed"
             && completedOutbox.every((item) => item.status === "Completed");
-          result.textContent = JSON.stringify({
+          settleEvidenceHarness({
             status: passed ? "PASS" : "FAIL",
+            runClickObserved,
             attachmentsOnOpen: attachmentsOnOpen.length,
             outboxOnOpen,
             onePhotoAfterConcurrentCapture: draftPhotos.length,
@@ -660,14 +703,16 @@
             blobRetained: syncedPhotos[0]?.blob.size === blobBytesBeforeSubmit,
             progress: deriveAutomaticSprinklerProgress(syncedParent, syncedPhotos),
             syncMessage: sync.message
-          }, null, 2);
+          });
         } catch (error) {
-          result.textContent = JSON.stringify({
+          settleEvidenceHarness({
             status: "ERROR",
             name: error?.name,
             message: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
-          }, null, 2);
+          });
+        } finally {
+          clearTimeout(executionTimeout);
         }
       });
     </script>

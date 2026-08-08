@@ -26,9 +26,11 @@ import { ServerDryWetRiserView } from "./dryWetRiser/ServerDryWetRiserView";
 import type { ServerDryWetRiserDetail } from "./dryWetRiser/serverDryWetRiserApi";
 import { FireAlarmInspectionForm } from "./fireAlarm/FireAlarmInspectionForm";
 import { returnFailedFireAlarmToDraft, saveFireAlarmDraft, submitFireAlarmLocal } from "./fireAlarm/fireAlarmRepository";
-import { resolveFireAlarmOpenTarget } from "./fireAlarm/fireAlarmResolution";
-import type { FireAlarmInspectionRecord, FireAlarmResponses } from "./fireAlarm/fireAlarmTypes";
+import { resolveFireAlarmOpenTarget, resolveFireAlarmRoute } from "./fireAlarm/fireAlarmResolution";
+import { FireAlarmAcceptedDetail } from "./fireAlarm/FireAlarmAcceptedDetail";
+import type { FireAlarmInspectionRecord, FireAlarmResponses, ServerFireAlarmDetail } from "./fireAlarm/fireAlarmTypes";
 import { AuthStatus } from "./auth/AuthStatus";
+import { AuthAuthorityGuard } from "./auth/authAuthority";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
 import {
@@ -76,6 +78,10 @@ import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, s
 import type { HoseReelResponses, MasterSystemInspectionRecord } from "./hoseReel/hoseReelTypes";
 import { ServerMasterSystemInspectionList } from "./hoseReel/ServerMasterSystemInspectionList";
 import { loadServerMasterSystemInspections, type ServerMasterSystemInspectionSummary } from "./hoseReel/serverMasterSystemInspectionApi";
+import {
+  ServerSummaryRefreshGuard,
+  type ServerSummaryRefreshToken
+} from "./jobs/serverSummaryRefreshGuard";
 import type { InspectionJob, JobSystemSnapshot } from "./jobs/jobTypes";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
@@ -114,7 +120,7 @@ type AppRoute =
   | { name: "inspection"; clientUuid: string }
   | { name: "sprinkler-form"; clientUuid: string }
   | { name: "riser-form"; clientUuid: string }
-  | { name: "fire-alarm-form"; clientUuid: string }
+  | { name: "fire-alarm-form"; jobId: string; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
@@ -124,7 +130,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
-  if (parts[0] === "fire-alarm-form" && parts[1]) return { name: "fire-alarm-form", clientUuid: parts[1] };
+  if (parts[0] === "fire-alarm-form" && parts[1] && parts[2]) return { name: "fire-alarm-form", jobId: parts[1], clientUuid: parts[2] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
@@ -136,7 +142,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
-  if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
@@ -154,6 +160,7 @@ export function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
   const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
+  const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
   const [jobMessage, setJobMessage] = useState("");
@@ -171,7 +178,9 @@ export function App() {
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
   const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
-  const [serverFireAlarmClientUuid, setServerFireAlarmClientUuid] = useState<string>();
+  const [serverFireAlarm, setServerFireAlarm] = useState<ServerFireAlarmDetail>();
+  const [fireAlarmRouteState, setFireAlarmRouteState] = useState<"idle"|"loading"|"not-cached"|"signed-out"|"inconsistent"|"invalid"|"server-unavailable">("idle");
+  const [fireAlarmRouteMessage, setFireAlarmRouteMessage] = useState("");
   const [serverDryWetRiser, setServerDryWetRiser] = useState<ServerDryWetRiserDetail>();
   const [riserRouteState, setRiserRouteState] = useState<"idle" | "loading" | "not-found" | "not-cached" | "signed-out" | "server-unavailable">("idle");
   const [riserRouteMessage, setRiserRouteMessage] = useState("");
@@ -199,10 +208,15 @@ export function App() {
   const [referenceCacheMessage, setReferenceCacheMessage] = useState("");
   const [referenceCacheLoading, setReferenceCacheLoading] = useState(false);
   const authOperationGeneration = useRef(0);
+  const authReconciliationGeneration = useRef(0);
   const activeExplicitAuthOperation = useRef<number | undefined>(undefined);
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
+  const authAuthorityGuard = useRef(new AuthAuthorityGuard());
+  const serverSummaryRefreshGuard = useRef(new ServerSummaryRefreshGuard());
+  const serverSummaryJobContext = useRef("");
   const sprinklerRouteGeneration = useRef(0);
   const riserRouteGeneration = useRef(0);
+  const fireAlarmRouteGeneration = useRef(0);
 
   function navigate(nextRoute: AppRoute) {
     setRoute(nextRoute);
@@ -212,6 +226,7 @@ export function App() {
 
   function beginExplicitAuthOperation() {
     authOperationGeneration.current += 1;
+    authReconciliationGeneration.current += 1;
     const operation = authOperationGeneration.current;
     activeExplicitAuthOperation.current = operation;
     return operation;
@@ -225,6 +240,71 @@ export function App() {
 
   function isCurrentAuthOperation(operation: number) {
     return authOperationGeneration.current === operation;
+  }
+
+  function clearServerSummaryAuthority(progressState: "idle" | "failed" = "idle") {
+    serverSummaryJobContext.current = "";
+    serverSummaryRefreshGuard.current.invalidate();
+    setServerMasterSystemInspections([]);
+    setServerMasterSystemProgressState(progressState);
+  }
+
+  function invalidateServerDerivedAuthority(progressState: "idle" | "failed" = "failed") {
+    clearServerSummaryAuthority(progressState);
+    setJobLoading(false);
+    setReferenceCacheLoading(false);
+    setServerMasterSystemInspectionLoading(false);
+    sprinklerRouteGeneration.current += 1;
+    riserRouteGeneration.current += 1;
+    fireAlarmRouteGeneration.current += 1;
+    setServerAutomaticSprinkler(undefined);
+    setServerDryWetRiser(undefined);
+    setServerFireAlarm(undefined);
+  }
+
+  function prepareVerifiedAuthority(user: AuthUser, forceReplacement = false) {
+    if (!forceReplacement && authAuthorityGuard.current.matches(user)) return false;
+    invalidateServerDerivedAuthority();
+    authAuthorityGuard.current.revoke();
+    return true;
+  }
+
+  function installVerifiedAuthority(user: AuthUser, preparedReplacement: boolean) {
+    if (preparedReplacement) authAuthorityGuard.current.install(user);
+    setAuthAuthorityGeneration(authAuthorityGuard.current.currentGeneration);
+  }
+
+  function revokeVerifiedAuthority(progressState: "idle" | "failed" = "idle") {
+    invalidateServerDerivedAuthority(progressState);
+    authAuthorityGuard.current.revoke();
+    setAuthAuthorityGeneration(authAuthorityGuard.current.currentGeneration);
+  }
+
+  function beginServerSummaryRefresh(cachedJobs: InspectionJob[]) {
+    const jobContext = cachedJobs.map((job) => job.id).sort().join(",");
+    serverSummaryJobContext.current = jobContext;
+    const refresh = serverSummaryRefreshGuard.current.begin(
+      authAuthorityGuard.current.currentGeneration,
+      jobContext
+    );
+    // This runs before the caller's first await: previously accepted summaries
+    // cannot remain authority while reference/job refresh is in flight.
+    setServerMasterSystemInspections([]);
+    setServerMasterSystemProgressState("loading");
+    return refresh;
+  }
+
+  function isCurrentServerSummaryRefresh(
+    refresh: ServerSummaryRefreshToken,
+    operation: number
+  ) {
+    return isCurrentAuthOperation(operation)
+      && authAuthorityGuard.current.isCurrent(refresh.authGeneration)
+      && serverSummaryRefreshGuard.current.isCurrent(
+        refresh,
+        authAuthorityGuard.current.currentGeneration,
+        serverSummaryJobContext.current
+      );
   }
 
   function enqueueAuthRequest<T>(
@@ -242,34 +322,76 @@ export function App() {
     return queuedRequest;
   }
 
-  async function loadCachedJobs(userId: number, operation: number) {
+  async function loadCachedJobs(
+    userId: number,
+    operation: number,
+    refresh?: ServerSummaryRefreshToken,
+    canContinue: () => boolean = () => true
+  ) {
     const cachedJobs = await getCachedInspectionJobs(userId);
-    if (!isCurrentAuthOperation(operation)) return undefined;
+    if (!isCurrentAuthOperation(operation)
+      || !canContinue()
+      || (refresh && !isCurrentServerSummaryRefresh(refresh, operation))) {
+      return undefined;
+    }
+    const jobContext = cachedJobs.map((job) => job.id).sort().join(",");
+    let currentRefresh = refresh;
+    if (refresh) {
+      currentRefresh = serverSummaryRefreshGuard.current.continueWithJobContext(
+        refresh,
+        authAuthorityGuard.current.currentGeneration,
+        serverSummaryJobContext.current,
+        jobContext
+      );
+      if (!currentRefresh) return undefined;
+      if (currentRefresh !== refresh) {
+        serverSummaryJobContext.current = jobContext;
+        setServerMasterSystemInspections([]);
+        setServerMasterSystemProgressState("loading");
+      }
+    } else if (serverSummaryJobContext.current !== jobContext) {
+      serverSummaryJobContext.current = jobContext;
+      serverSummaryRefreshGuard.current.invalidate();
+      setServerMasterSystemInspections([]);
+      setServerMasterSystemProgressState("idle");
+    }
     setJobs(cachedJobs);
-    return cachedJobs;
+    return { jobs: cachedJobs, refresh: currentRefresh };
   }
 
   async function refreshServerMasterSystemProgress(
     cachedJobs: InspectionJob[],
-    operation: number
+    operation: number,
+    includeAllServerSummaries = false,
+    existingRefresh?: ServerSummaryRefreshToken
   ) {
-    if (!isCurrentAuthOperation(operation)) return;
-    setServerMasterSystemProgressState("loading");
+    if (!isCurrentAuthOperation(operation) || !authAuthorityGuard.current.hasAuthority) {
+      clearServerSummaryAuthority("failed");
+      return "stale" as const;
+    }
+    const refresh = existingRefresh ?? beginServerSummaryRefresh(cachedJobs);
+    const isCurrentRefresh = () => isCurrentServerSummaryRefresh(refresh, operation);
+    if (!isCurrentRefresh()) return "stale" as const;
     try {
       const summaries = await loadServerMasterSystemInspections(
-        cachedJobs.map((job) => job.id)
+        includeAllServerSummaries ? [] : cachedJobs.map((job) => job.id)
       );
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentRefresh()) return "stale" as const;
       setServerMasterSystemInspections(summaries);
       setServerMasterSystemProgressState("loaded");
+      return "loaded" as const;
     } catch {
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentRefresh()) return "stale" as const;
+      setServerMasterSystemInspections([]);
       setServerMasterSystemProgressState("failed");
+      return "failed" as const;
     }
   }
 
   async function refreshServerWorkspace(user: AuthUser, operation: number) {
     if (!isCurrentAuthOperation(operation)) return;
+    let refresh = beginServerSummaryRefresh(jobs);
+    const isCurrentRefresh = () => isCurrentServerSummaryRefresh(refresh, operation);
     setJobLoading(true);
     setReferenceCacheLoading(true);
     setJobMessage("");
@@ -277,27 +399,37 @@ export function App() {
     try {
       await refreshInspectionReferenceData(
         user.id,
-        () => isCurrentAuthOperation(operation)
+        isCurrentRefresh
       );
-      if (!isCurrentAuthOperation(operation)) return;
-      const cachedJobs = await loadCachedJobs(user.id, operation);
-      if (!isCurrentAuthOperation(operation) || !cachedJobs) return;
+      if (!isCurrentRefresh()) return;
+      const loadedJobs = await loadCachedJobs(user.id, operation, refresh);
+      if (!loadedJobs) return;
+      refresh = loadedJobs.refresh ?? refresh;
+      const cachedJobs = loadedJobs.jobs;
+      if (!isCurrentRefresh()) return;
       const summary = await getReferenceCacheSummary();
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentRefresh()) return;
       setReferenceCache(summary);
       setJobMessage(`${cachedJobs.length} technician jobs cached for offline use`);
       setReferenceCacheMessage("Reference data cached for offline use");
-      await refreshServerMasterSystemProgress(cachedJobs, operation);
+      await refreshServerMasterSystemProgress(cachedJobs, operation, false, refresh);
     } catch (error) {
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentRefresh()) return;
       const message = error instanceof Error ? error.message : "Server data is currently unavailable";
-      await loadCachedJobs(user.id, operation);
-      if (!isCurrentAuthOperation(operation)) return;
+      try {
+        const loadedJobs = await loadCachedJobs(user.id, operation, refresh);
+        if (!loadedJobs) return;
+        refresh = loadedJobs.refresh ?? refresh;
+      } catch {
+        // The guarded failure below is the terminal fail-closed state.
+      }
+      if (!isCurrentRefresh()) return;
+      setServerMasterSystemInspections([]);
       setServerMasterSystemProgressState("failed");
       setJobMessage(`${message}; existing cached jobs remain available`);
       setReferenceCacheMessage("Reference refresh failed; existing offline cache remains available");
     } finally {
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentRefresh()) return;
       setJobLoading(false);
       setReferenceCacheLoading(false);
     }
@@ -315,17 +447,21 @@ export function App() {
   async function reconcileAuthentication() {
     if (activeExplicitAuthOperation.current !== undefined) return;
     const operation = authOperationGeneration.current;
+    const reconciliation = ++authReconciliationGeneration.current;
+    const isCurrentReconciliation = () => isCurrentAuthOperation(operation)
+      && authReconciliationGeneration.current === reconciliation;
     const deviceState = await getDeviceAuthState();
-    if (!isCurrentAuthOperation(operation)) return;
+    if (!isCurrentReconciliation()) return;
 
     if (deviceState?.serverLogoutPending) {
       setJobs([]);
+      revokeVerifiedAuthority();
       setAuthState({
         status: "logged-out",
         message: "Signed out locally. Completing server logout when available."
       });
       const logoutResult = await resolvePendingServerLogout(operation);
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentReconciliation()) return;
       setAuthState({
         status: "logged-out",
         message: logoutResult === "unavailable"
@@ -336,9 +472,9 @@ export function App() {
     }
 
     const cachedIdentity = identityFromDeviceState(deviceState);
-    if (cachedIdentity) {
-      await loadCachedJobs(cachedIdentity.user.id, operation);
-      if (!isCurrentAuthOperation(operation)) return;
+    if (cachedIdentity && !authAuthorityGuard.current.hasAuthority) {
+      await loadCachedJobs(cachedIdentity.user.id, operation, undefined, isCurrentReconciliation);
+      if (!isCurrentReconciliation()) return;
       setAuthState({
         status: "offline-unverified",
         user: cachedIdentity.user,
@@ -348,20 +484,24 @@ export function App() {
     }
 
     const probe = await getCurrentUser();
-    if (!isCurrentAuthOperation(operation)) return;
+    if (!isCurrentReconciliation()) return;
     const decision = decideAuthRestoration(cachedIdentity, probe);
     if (decision.kind === "verified") {
+      const authorityReplacement = prepareVerifiedAuthority(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentReconciliation()) return;
+      installVerifiedAuthority(decision.user, authorityReplacement);
       setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
-      await loadCachedJobs(decision.user.id, operation);
+      await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
+      if (!isCurrentReconciliation()) return;
       await refreshServerWorkspace(decision.user, operation);
       return;
     }
 
     if (decision.kind === "logged-out") {
+      revokeVerifiedAuthority();
       if (decision.clearIdentity) await clearLocalIdentity();
-      if (!isCurrentAuthOperation(operation)) return;
+      if (!isCurrentReconciliation()) return;
       setJobs([]);
       setAuthState({
         status: "logged-out",
@@ -424,7 +564,7 @@ export function App() {
       else if (resolution.kind === "server") { setActiveDryWetRiser(undefined); setServerDryWetRiser(resolution.inspection); setRiserRouteState("idle"); }
       else { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState(resolution.kind); setRiserRouteMessage("message" in resolution ? resolution.message : ""); }
     });
-  }, [authState.status, masterSystemInspections, route]);
+  }, [authAuthorityGeneration, authState.status, masterSystemInspections, route]);
 
   useEffect(() => {
     const generation = ++sprinklerRouteGeneration.current;
@@ -460,7 +600,7 @@ export function App() {
         );
       }
     });
-  }, [authState.status, masterSystemInspections, route]);
+  }, [authAuthorityGeneration, authState.status, masterSystemInspections, route]);
 
   useEffect(() => {
     setActiveCo2Form(route.name === "co2-form"
@@ -468,12 +608,7 @@ export function App() {
       : undefined);
   }, [masterSystemFormInstances, route]);
 
-  useEffect(() => {
-    setActiveFireAlarm(route.name === "fire-alarm-form"
-      ? masterSystemInspections.find((record): record is FireAlarmInspectionRecord =>
-        record.clientUuid === route.clientUuid && record.systemKey === "fire_alarm_detector")
-      : undefined);
-  }, [masterSystemInspections, route]);
+  useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
 
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
@@ -568,8 +703,10 @@ export function App() {
         return login(username, password);
       });
       if (!isCurrentAuthOperation(operation) || !user) return;
+      const authorityReplacement = prepareVerifiedAuthority(user, true);
       const lastVerifiedAt = await storeVerifiedIdentity(user);
       if (!isCurrentAuthOperation(operation)) return;
+      installVerifiedAuthority(user, authorityReplacement);
       setAuthState({ status: "verified", user, lastVerifiedAt });
       await loadCachedJobs(user.id, operation);
       await refreshServerWorkspace(user, operation);
@@ -582,10 +719,11 @@ export function App() {
   async function handleLogout() {
     const operation = beginExplicitAuthOperation();
     try {
-      await clearLocalIdentity(true);
-      if (!isCurrentAuthOperation(operation)) return;
+      revokeVerifiedAuthority();
       setAuthState({ status: "logged-out", message: "Signed out locally" });
       navigate({ name: "jobs" });
+      await clearLocalIdentity(true);
+      if (!isCurrentAuthOperation(operation)) return;
       setJobs([]);
       setServerRecords([]);
       setServerRecordsMessage("");
@@ -593,7 +731,6 @@ export function App() {
       setServerInspectionsMessage("");
       setServerMasterSystemInspections([]);
       setServerMasterSystemInspectionMessage("");
-      setServerMasterSystemProgressState("idle");
       setServerAutomaticSprinkler(undefined);
       const result = await resolvePendingServerLogout(operation);
       if (!isCurrentAuthOperation(operation)) return;
@@ -685,7 +822,7 @@ export function App() {
     }
   }
   async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
-  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This Fire Alarm inspection is not cached on this device. Reconnect before its first open."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local") { setServerFireAlarmClientUuid(undefined); setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } else { setServerFireAlarmClientUuid(target.clientUuid); } navigate({ name: "fire-alarm-form", clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
+  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This accepted Fire Alarm inspection is not cached. Reconnect to load server detail."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
   async function handleSaveFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleSubmitFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await submitFireAlarmLocal(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleEditFailedFireAlarm() { if (!activeFireAlarm) return; try { setActiveFireAlarm(await returnFailedFireAlarmToDraft(activeFireAlarm)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
@@ -804,13 +941,15 @@ export function App() {
     if (!canUseServer) return;
     setServerMasterSystemInspectionLoading(true);
     setServerMasterSystemInspectionMessage("");
-    try {
-      setServerMasterSystemInspections(await loadServerMasterSystemInspections());
-      setServerMasterSystemProgressState("loaded");
-    } catch (error) {
-      setServerMasterSystemProgressState("failed");
-      setServerMasterSystemInspectionMessage(error instanceof Error ? error.message : "Server Master system inspections are currently unavailable");
-    } finally {
+    const result = await refreshServerMasterSystemProgress(
+      jobs,
+      authOperationGeneration.current,
+      true
+    );
+    if (result !== "stale") {
+      if (result === "failed") {
+        setServerMasterSystemInspectionMessage("Server Master system inspections are currently unavailable");
+      }
       setServerMasterSystemInspectionLoading(false);
     }
   }
@@ -991,7 +1130,7 @@ export function App() {
           ) : route.name === "riser-form" ? (
             activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
-            activeFireAlarm ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : <section className="workspace"><h2>{serverFireAlarmClientUuid === route.clientUuid || serverMasterSystemInspections.some((item) => item.clientUuid === route.clientUuid && item.systemKey === "fire_alarm_detector") ? "Accepted Fire Alarm inspection" : "Fire Alarm inspection unavailable"}</h2><p>{serverFireAlarmClientUuid === route.clientUuid || serverMasterSystemInspections.some((item) => item.clientUuid === route.clientUuid && item.systemKey === "fire_alarm_detector") ? "An accepted Fire Alarm inspection exists on the server. The read-only server-detail view is implemented in Phase 5B4-D." : "This Fire Alarm inspection is not cached on this device. Reconnect and open it from the job systems list."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeFireAlarm ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{fireAlarmRouteState==="loading"?"Loading authoritative accepted detail.":fireAlarmRouteState==="not-cached"?"Accepted detail is not cached on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this accepted inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The accepted inspection is inconsistent with local state.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The accepted detail is invalid and cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm

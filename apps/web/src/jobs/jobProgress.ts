@@ -15,6 +15,10 @@ export type SystemProgress =
   | "In Progress"
   | "Completed";
 
+export type FireAlarmAcceptedSummaryState =
+  | { kind: "current-complete"; accepted: boolean }
+  | { kind: "unavailable" };
+
 export function deriveNoLocalSystemProgress(
   serverAccepted: boolean,
   authStatus: "verified" | "offline-unverified" | "logged-out",
@@ -66,6 +70,25 @@ export function deriveMasterSystemProgress(
   if (record.syncStatus === "Pending") return "Pending Sync";
   if (record.syncStatus === "Syncing") return "Syncing";
   if (record.syncStatus === "Synced") return "Completed";
+  return "Needs Attention";
+}
+
+export function deriveFireAlarmProgress(
+  record: MasterSystemInspectionRecord | undefined,
+  summary: FireAlarmAcceptedSummaryState
+): SystemProgress {
+  if (!record) {
+    if (summary.kind === "unavailable") return "Unknown / Not Cached";
+    return summary.accepted ? "Completed" : "Not Started";
+  }
+  if (record.syncStatus === "Draft") return "Draft";
+  if (record.syncStatus === "Pending") return "Pending Sync";
+  if (record.syncStatus === "Syncing") return "Syncing";
+  if (record.syncStatus === "Synced") {
+    return summary.kind === "current-complete" && summary.accepted
+      ? "Completed"
+      : "Unknown / Not Cached";
+  }
   return "Needs Attention";
 }
 

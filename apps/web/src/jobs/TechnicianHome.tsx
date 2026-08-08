@@ -13,6 +13,7 @@ import { deriveCo2ParentProgress } from "../co2/co2Progress";
 import {
   deriveAutomaticSprinklerProgress,
   deriveAutomaticSprinklerServerProgress,
+  deriveFireAlarmProgress,
   deriveMasterSystemProgress,
   deriveNoLocalSystemProgress,
   deriveSystemProgress
@@ -132,6 +133,13 @@ export function TechnicianHome({
       );
     }
     if (systemKey === "dry_wet_riser") { const record = masterSystemInspections.find((x) => x.jobSystemKey === `${jobId}:${systemKey}`); return record ? deriveMasterSystemProgress(record as MasterSystemInspectionRecord) : noLocalProgress(jobId, systemKey); }
+    if (systemKey === "fire_alarm_detector") {
+      const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:${systemKey}`&&x.systemKey==="fire_alarm_detector");
+      const summary = serverMasterSystemProgressState === "loaded"
+        ? { kind: "current-complete" as const, accepted: serverAccepted(jobId,systemKey) }
+        : { kind: "unavailable" as const };
+      return deriveFireAlarmProgress(record as MasterSystemInspectionRecord|undefined,summary);
+    }
     if (systemKey === "co2_fire_extinguisher") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
       return group

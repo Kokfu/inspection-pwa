@@ -1,4 +1,4 @@
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { localDatabase } from "../db/localDatabase";
 import { ServerDryWetRiserView } from "./ServerDryWetRiserView";
@@ -8,6 +8,7 @@ const uuid = (tail: string) => `41000000-0000-4000-8000-${tail}`;
 const water = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"];
 const pump = ["pump_house_clean", "manual_start_pumps", "jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
 const fixed = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, { result: "good", remarks: `${key} remark` }]));
+const mountedRoots = new WeakMap<HTMLElement, Root>();
 
 export function dryWetRiserServerDetailFixture() {
   return {
@@ -27,13 +28,14 @@ export async function runDryWetRiserServerDetailHarness(mount: HTMLElement) {
   for (const [name, mutate] of mutations) { const candidate = structuredClone(valid); mutate(candidate); check(`parser fails closed: ${name}`, parseServerDryWetRiserDetail(candidate) === undefined); }
   if (parsed) {
     const before = { inspections: await localDatabase.masterSystemInspections.count(), outbox: await localDatabase.syncOutbox.count() };
-    const root = createRoot(mount); flushSync(() => root.render(<ServerDryWetRiserView inspection={parsed} onBack={() => undefined} />));
+    const root = mountedRoots.get(mount) ?? createRoot(mount);
+    mountedRoots.set(mount, root);
+    flushSync(() => root.render(<ServerDryWetRiserView inspection={parsed} onBack={() => undefined} />));
     const visible = mount.textContent || "";
     const visibleDetails = ["Completed", parsed.clientUuid, "RISER-SERVER-1", "Server Riser", "Server Customer", "MFE-FSSR v2", "Dry", "Jockey Cut In", "Canvas hose@2", "Diffuser Nozzle", "Landing Valve", "Crandle", "Door", "Server comments"];
     const missingDetails = visibleDetails.filter((value) => !visible.includes(value));
     check("read-only view renders canonical details", missingDetails.length === 0, missingDetails.join(", "));
     check("read-only view contains no editing controls", mount.querySelectorAll("input, textarea, select").length === 0 && !/Save Draft|Submit Local|Add Row|Remove Row|Camera|Photo/.test(visible));
-    flushSync(() => root.render(<ServerDryWetRiserView inspection={parsed} onBack={() => undefined} />)); root.unmount();
     const after = { inspections: await localDatabase.masterSystemInspections.count(), outbox: await localDatabase.syncOutbox.count() };
     check("server rendering does not write IndexedDB", before.inspections === after.inspections, `${before.inspections} -> ${after.inspections}`);
     check("server rendering does not write sync outbox", before.outbox === after.outbox, `${before.outbox} -> ${after.outbox}`);

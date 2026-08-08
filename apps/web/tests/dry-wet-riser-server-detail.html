@@ -2,10 +2,33 @@
 <html lang="en"><head><meta charset="UTF-8" /><title>Dry/Wet Riser server detail harness</title></head><body>
   <button id="run" type="button">Run Dry/Wet server-detail checks</button><pre id="result">Ready</pre><div id="mount"></div>
   <script type="module">
-    import { runDryWetRiserServerDetailHarness } from "/src/dryWetRiser/dryWetRiserServerDetailHarness.tsx";
-    document.querySelector("#run").addEventListener("click", async () => {
-      const result = document.querySelector("#result"), mount = document.querySelector("#mount"); mount.replaceChildren();
-      try { result.textContent = JSON.stringify(await runDryWetRiserServerDetailHarness(mount), null, 2); } catch (error) { result.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error) }); }
+    const run = document.querySelector("#run"), result = document.querySelector("#result"), mount = document.querySelector("#mount");
+    const fail = (phase, error) => { result.textContent = JSON.stringify({ status: "FAIL", phase, message: error instanceof Error ? error.message : String(error) }, null, 2); };
+    let runHarness;
+    run.disabled = true;
+    result.textContent = "Initializing";
+    try {
+      ({ runDryWetRiserServerDetailHarness: runHarness } = await import("/src/dryWetRiser/dryWetRiserServerDetailHarness.tsx"));
+      run.disabled = false;
+      run.dataset.handlerAttached = "true";
+      result.textContent = "Ready";
+    } catch (error) {
+      fail("module initialization", error);
+    }
+    run.addEventListener("click", async () => {
+      if (!runHarness) return fail("run click", new Error("Harness module is not initialized"));
+      result.textContent = "Running";
+      try {
+        const outcome = await Promise.race([
+          runHarness(mount),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Harness timed out after 15 seconds")), 15_000))
+        ]);
+        if (!mount.textContent?.trim()) throw new Error("React mount remained empty after rendering");
+        if (outcome.status !== "PASS") throw new Error("One or more Dry/Wet server-detail assertions failed");
+        result.textContent = JSON.stringify(outcome, null, 2);
+      } catch (error) {
+        fail("execution", error);
+      }
     });
   </script>
 </body></html>
