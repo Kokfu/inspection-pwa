@@ -8,6 +8,8 @@ services:
         condition: service_started
     environment:
       PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:-localhost}
+      WEB_RELEASE_RETENTION: ${INSPECTION_WEB_RELEASE_RETENTION:-2}
+      WEB_ACTIVE_RELEASE: ${INSPECTION_WEB_ACTIVE_RELEASE:-}
     ports:
       - "80:80"
       - "443:443"
@@ -15,6 +17,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - ${INSPECTION_PROXY_LOGS_PATH:-C:/InspectionSystem/runtime/logs/proxy}:/var/log/caddy
+      - ${INSPECTION_RELEASES_PATH:-C:/InspectionSystem/runtime/releases}:/srv/releases
     networks:
       - public
       - internal

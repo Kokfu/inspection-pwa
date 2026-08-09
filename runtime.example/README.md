@@ -17,7 +17,9 @@ C:\InspectionSystem\runtime\
     manifests\
   restore-staging\
   operational\
+  releases\
 ```
 
 PostgreSQL live data is stored in a Docker named volume, not this folder. PostgreSQL backups are exported here using `pg_dump` or equivalent safe tooling.
 
+The `releases` bind mount retains the active frontend and the configured previous-release window across proxy container replacement. It contains no business data, but it is required for safe installed-PWA upgrades and immediate rollback.

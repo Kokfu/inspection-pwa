@@ -76,5 +76,4 @@ Production runtime data is expected outside this Git repository, for example:
 C:\InspectionSystem\runtime\
 ```
 
-PostgreSQL live data uses a Docker named volume. Uploads, logs, backups, restore staging, and operational files use Windows host bind mounts.
-
+PostgreSQL live data uses a Docker named volume. Uploads, logs, backups, restore staging, operational files, and the bounded frontend release window use Windows host bind mounts.
