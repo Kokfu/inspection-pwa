@@ -11,6 +11,8 @@
     "test:fire-alarm-definition": "tsx --test src/inspections/templates/fireAlarmDefinitionControls.test.ts",
     "validate-fire-alarm": "tsx src/cli/validateFireAlarm.ts",
     "validate-fire-alarm-detail": "tsx src/cli/validateFireAlarmDetail.ts",
+    "acceptance-fire-alarm": "node dist/cli/acceptanceFireAlarm.js",
+    "validate-acceptance-fire-alarm": "node dist/cli/validateAcceptanceFireAlarm.js",
     "start": "node dist/server.js",
     "create-admin": "node dist/cli/createAdmin.js",
     "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js",
