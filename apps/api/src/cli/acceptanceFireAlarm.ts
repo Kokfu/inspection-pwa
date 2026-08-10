@@ -11,6 +11,7 @@ import { masterServiceReportV3, fireAlarmDetectorV3 } from "../inspections/templ
 import { currentUser } from "../middleware/currentUser.js";
 import { authRouter } from "../routes/auth.js";
 import { inspectionJobsRouter } from "../routes/inspectionJobs.js";
+import { checkLegacyOrphanFireAlarm, recoverLegacyOrphanFireAlarm } from "./legacyOrphanFireAlarmRecovery.js";
 
 const runIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const fixturePrefix = "ACCEPTANCE-FIRE-";
@@ -610,7 +611,15 @@ async function main() {
   if (mode === "cleanup" && typeof runId === "string" && process.argv.length === 4) {
     await cleanupAcceptanceFireAlarm(runId); console.log(JSON.stringify({ runId, status: "cleaned" })); return;
   }
-  throw new Error("Usage: npm run acceptance-fire-alarm -- setup [run-id] | cleanup <run-id>");
+  if (mode === "recover-orphan-check" && typeof runId === "string" && process.argv.length === 4) {
+    const result = await checkLegacyOrphanFireAlarm(runId); console.log(JSON.stringify(result, null, 2));
+    if (result.ownershipVerdict !== "SAFE_TO_RECOVER") process.exitCode = 2;
+    return;
+  }
+  if (mode === "recover-orphan" && typeof runId === "string" && process.argv.length === 4) {
+    const result = await recoverLegacyOrphanFireAlarm(runId); console.log(JSON.stringify({ runId, ...result }, null, 2)); return;
+  }
+  throw new Error("Usage: npm run acceptance-fire-alarm -- setup [run-id] | cleanup <run-id> | recover-orphan-check <run-id> | recover-orphan <run-id>");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

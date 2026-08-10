@@ -13,6 +13,7 @@
     "validate-fire-alarm-detail": "tsx src/cli/validateFireAlarmDetail.ts",
     "acceptance-fire-alarm": "node dist/cli/acceptanceFireAlarm.js",
     "validate-acceptance-fire-alarm": "node dist/cli/validateAcceptanceFireAlarm.js",
+    "validate-legacy-orphan-fire-alarm-recovery": "node dist/cli/validateLegacyOrphanFireAlarmRecovery.js",
     "start": "node dist/server.js",
     "create-admin": "node dist/cli/createAdmin.js",
     "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js",
