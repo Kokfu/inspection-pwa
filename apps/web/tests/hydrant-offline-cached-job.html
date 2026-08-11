@@ -1,0 +1,191 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run Hydrant cached offline checks</button>
+  <pre id="result">Ready</pre>
+  <div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDomClient from "react-dom/client";
+    import { App } from "/src/App.tsx";
+    import { localDatabase } from "/src/db/localDatabase.ts";
+    import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+
+    const uuid = n => `95000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const ids = { job: uuid(1), client: uuid(2), template: uuid(3), revision: uuid(4), customer: uuid(5), system: uuid(6), zone: uuid(7), location: uuid(8), row: uuid(9), serverForm: uuid(10) };
+    const user = { id: 95, username: "hydrant-offline-test", role: "inspector" };
+    const system = { enabledSystemId: ids.system, systemKey: "hydrant", displayName: "Hydrant System", sortOrder: 1, definitionStatus: "confirmed", zones: [{ id: ids.zone, enabledSystemId: ids.system, key: "zone-a", displayName: "Zone A", sortOrder: 1 }], locations: [{ id: ids.location, enabledSystemId: ids.system, zoneId: ids.zone, key: "bank", displayName: "Hydrant Bank", presetRowCount: 1, rowPreset: { assetReference: "HYD-OFF-01" }, sortOrder: 1 }] };
+    const job = { id: ids.job, reference: "HYD-OFFLINE", title: "Cached Hydrant Job", status: "open", createdAt: "2026-08-11T00:00:00.000Z", configurationSnapshot: { schemaVersion: 1, customer: { id: ids.customer, code: "HYD", displayName: "Hydrant Client" }, configuration: { revisionId: ids.revision, revisionNumber: 1 }, template: { id: ids.template, code: "MFE-FSSR", name: "Master Service Report", version: 1 }, enabledSystems: [system] } };
+    const row = { rowUuid: ids.row, source: "configured", configuredLocationId: ids.location, configuredRowOrdinal: 1, zoneSnapshot: { id: ids.zone, displayName: "Zone A" }, locationSnapshot: { id: ids.location, displayName: "Hydrant Bank" }, assetReference: "HYD-OFF-01", locationText: "Hydrant Bank", canvasHose1Result: "good", canvasHose2Result: "good", diffuserNozzleResult: "good", landingValveResult: "good", landingValveHandleResult: "good", hoseCabinetResult: "good", keyLockResult: "good", remarks: "Cached row", sortOrder: 1 };
+    const draft = status => ({ schemaVersion: 1, clientUuid: ids.client, jobSystemKey: `${ids.job}:hydrant`, jobId: ids.job, systemKey: "hydrant", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: ids.template, code: "MFE-FSSR", version: 1 }, configuration: { revisionId: ids.revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 1, capturedAt: "2026-08-11T00:00:00.000Z", job: { id: ids.job, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: job.configurationSnapshot.template, system }, responses: { schemaVersion: 1, hydrantType: "meter", rows: [row], comments: "CACHED LOCAL DRAFT" }, performedAt: "2026-08-11T00:00:00.000Z", localCreatedAt: "2026-08-11T00:00:00.000Z", localUpdatedAt: "2026-08-11T00:00:00.000Z", syncStatus: status });
+    const summary = { clientUuid: ids.client, jobId: ids.job, systemKey: "hydrant", instanceKey: "primary", zoneId: null, locationId: null, displaySequence: 1, status: "submitted", performedAt: "2026-08-11T00:00:00.000000Z", deviceReportedCreatorUsername: null, verifiedOriginalCreatorUsername: null, syncedByUsername: user.username };
+    const detail = { clientUuid: ids.client, serverFormInstanceId: ids.serverForm, jobId: ids.job, jobReference: job.reference, jobTitle: job.title, customerName: "Hydrant Client", systemKey: "hydrant", systemLabel: "Hydrant System", instanceKey: "primary", status: "submitted", performedAt: "2026-08-11T00:00:00.000000Z", receivedAt: "2026-08-11T00:01:00.000000Z", responses: { schemaVersion: 1, hydrantType: "meter", rows: [row], comments: "SERVER ACCEPTED AFTER RECONNECT" }, displayControls: null, deviceReportedCreatorUsername: null, verifiedOriginalCreatorUsername: null, syncedByUsername: user.username, evidencePolicyId: null, evidencePolicyVersion: null, evidencePolicyDefinition: null, evidencePolicySha256: null };
+
+    const waitFor = async predicate => { for (let attempt = 0; attempt < 160; attempt += 1) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 25)); } throw new Error(`Timed out. DOM: ${document.querySelector("#mount").textContent}`); };
+    const buttons = mount => [...mount.querySelectorAll("button")];
+    const click = (mount, match, description) => { const button = buttons(mount).find(candidate => match(candidate.textContent.trim())); if (!button) throw new Error(`Missing button ${description}. DOM: ${mount.textContent}`); button.click(); };
+    const editable = mount => buttons(mount).some(button => button.textContent.trim() === "Save Draft") && !mount.querySelector("textarea")?.disabled;
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    let networkOnline = true;
+    let browserOnline = true;
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => browserOnline });
+    const setBrowserOnline = online => { browserOnline = online; };
+    let authMode = "success";
+    let authCalls = 0;
+    let releaseDeferredAuth;
+    let accepted = false;
+    let summaryCalls = 0;
+    let detailCalls = 0;
+    let summaryFailure = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async input => {
+      const url = String(input);
+      if (url === "/api/auth/me") {
+        authCalls += 1;
+        if (authMode === "deferred") return new Promise(resolve => { releaseDeferredAuth = () => resolve(new Response(JSON.stringify({ user }), { status: 200, headers: { "Content-Type": "application/json" } })); });
+        if (authMode === "server-error") return new Response("", { status: 503 });
+        if (authMode === "network-error" || !networkOnline) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({ user }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.startsWith("/api/master-system-inspections?")) {
+        summaryCalls += 1;
+        if (!networkOnline) throw new TypeError("Failed to fetch");
+        if (summaryFailure) return new Response("", { status: 503 });
+        return new Response(JSON.stringify({ inspections: accepted ? [summary] : [], hasMore: false, nextCursor: null }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === `/api/master-system-inspections/${ids.client}`) {
+        detailCalls += 1;
+        if (!networkOnline) throw new TypeError("Failed to fetch");
+        return accepted ? new Response(JSON.stringify({ inspection: detail }), { status: 200, headers: { "Content-Type": "application/json" } }) : new Response("", { status: 404 });
+      }
+      return new Response("", { status: 503 });
+    };
+
+    async function clear() {
+      await localDatabase.open();
+      await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, localDatabase.referenceData, localDatabase.authState, async () => {
+        await localDatabase.masterSystemInspections.clear();
+        await localDatabase.syncOutbox.clear();
+        await localDatabase.referenceData.clear();
+        await localDatabase.authState.clear();
+      });
+    }
+
+    async function seed(status) {
+      await clear();
+      await storeVerifiedIdentity(user);
+      await localDatabase.referenceData.put({ key: `inspection-jobs:user:${user.id}`, payload: [job], version: "test", fetchedAt: "2026-08-11T00:00:00.000Z", expiresAt: "2026-08-12T00:00:00.000Z" });
+      if (status) await localDatabase.masterSystemInspections.put(draft(status));
+    }
+
+    function mountApp() {
+      const mount = document.querySelector("#mount");
+      mount.replaceChildren();
+      const root = ReactDomClient.createRoot(mount);
+      root.render(React.createElement(App));
+      return { mount, root };
+    }
+
+    async function openCachedHydrant(mount) {
+      await waitFor(() => buttons(mount).some(button => button.textContent.includes("Cached Hydrant Job")));
+      click(mount, text => text.includes("Cached Hydrant Job"), "cached Hydrant job");
+      await waitFor(() => mount.textContent.includes("Applicable Systems"));
+      click(mount, text => text.includes("Hydrant System"), "Hydrant system");
+    }
+
+    async function runDraftOfflineAndReconnect(acceptedAfterAuth) {
+      await seed("Draft");
+      networkOnline = true; setBrowserOnline(true); authMode = "success"; authCalls = 0; accepted = false; summaryFailure = false;
+      window.location.hash = "#/jobs";
+      let { mount, root } = mountApp();
+      try {
+        await openCachedHydrant(mount);
+        await waitFor(() => editable(mount) && mount.textContent.includes("CACHED LOCAL DRAFT"));
+        const onlineCalls = summaryCalls > 0;
+        click(mount, text => text === "Back to Systems", "Back to Systems");
+        await waitFor(() => mount.textContent.includes("Applicable Systems"));
+        click(mount, text => text === "Back to Jobs", "Back to Jobs");
+        await waitFor(() => mount.textContent.includes("Available Jobs"));
+
+        networkOnline = false; setBrowserOnline(false);
+        window.dispatchEvent(new Event("offline"));
+        await waitFor(() => mount.textContent.includes("Offline - identity not reverified"));
+        summaryCalls = 0; detailCalls = 0;
+        await openCachedHydrant(mount);
+        await waitFor(() => editable(mount) && mount.textContent.includes("CACHED LOCAL DRAFT"));
+        const offlineOpenNoServerFetch = summaryCalls === 0 && detailCalls === 0;
+        root.unmount(); await sleep(25);
+        summaryCalls = 0; detailCalls = 0;
+        window.location.hash = `#/hydrant-form/${ids.client}`;
+        ({ mount, root } = mountApp());
+        await waitFor(() => editable(mount) && mount.textContent.includes("CACHED LOCAL DRAFT") && mount.textContent.includes("Offline - identity not reverified"));
+        const offlineReloadNoServerFetch = summaryCalls === 0 && detailCalls === 0;
+
+        let editableDuringAuthProbe = false;
+        let watchAuthProbe = false;
+        const observer = new MutationObserver(() => { if (watchAuthProbe && editable(mount)) editableDuringAuthProbe = true; });
+        observer.observe(mount, { childList: true, subtree: true });
+        authCalls = 0; networkOnline = true; accepted = acceptedAfterAuth; authMode = "deferred"; watchAuthProbe = true;
+        setBrowserOnline(true);
+        window.dispatchEvent(new Event("online"));
+        await waitFor(() => authCalls === 1 && mount.textContent.includes("Verifying server session"));
+        const hiddenBeforeAuthResolves = !editable(mount);
+        await sleep(100);
+        const hiddenThroughoutAuthProbe = !editable(mount) && !editableDuringAuthProbe;
+        watchAuthProbe = false; releaseDeferredAuth();
+        if (acceptedAfterAuth) await waitFor(() => mount.textContent.includes("SERVER ACCEPTED AFTER RECONNECT") && mount.textContent.includes("Accepted"));
+        else await waitFor(() => editable(mount) && mount.textContent.includes("CACHED LOCAL DRAFT"));
+        observer.disconnect();
+        return { name: acceptedAfterAuth ? "Draft: reconnect hides local form before Accepted authority" : "Draft: reconnect resumes only after no-Accepted authority", passed: onlineCalls && offlineOpenNoServerFetch && offlineReloadNoServerFetch && hiddenBeforeAuthResolves && hiddenThroughoutAuthProbe && (acceptedAfterAuth ? !editable(mount) : editable(mount)), summaryCalls, detailCalls };
+      } finally { root.unmount(); setBrowserOnline(true); await sleep(25); }
+    }
+
+    async function runPendingOffline() {
+      await seed("Pending");
+      networkOnline = false; setBrowserOnline(false); authMode = "network-error"; accepted = false; summaryFailure = false; summaryCalls = 0; detailCalls = 0;
+      window.location.hash = "#/jobs";
+      const { mount, root } = mountApp();
+      try {
+        await openCachedHydrant(mount);
+        await waitFor(() => mount.textContent.includes("Pending Sync"));
+        return { name: "Pending: cached job opens offline", passed: !editable(mount) && summaryCalls === 0 && detailCalls === 0, summaryCalls, detailCalls };
+      } finally { root.unmount(); setBrowserOnline(true); await sleep(25); }
+    }
+
+    async function runNoLocalOffline() {
+      await seed(undefined);
+      networkOnline = false; setBrowserOnline(false); authMode = "network-error"; accepted = false; summaryFailure = false; summaryCalls = 0; detailCalls = 0;
+      window.location.hash = "#/jobs";
+      const { mount, root } = mountApp();
+      try {
+        await openCachedHydrant(mount);
+        await waitFor(() => mount.textContent.includes("not cached on this device"));
+        return { name: "Offline: no local Hydrant is not created", passed: await localDatabase.masterSystemInspections.count() === 0 && summaryCalls === 0 && detailCalls === 0, summaryCalls, detailCalls };
+      } finally { root.unmount(); setBrowserOnline(true); await sleep(25); }
+    }
+
+    async function runOnlineAuthFailure(mode) {
+      await seed("Draft");
+      networkOnline = true; setBrowserOnline(true); authMode = mode; accepted = false; summaryFailure = false; summaryCalls = 0; detailCalls = 0;
+      window.location.hash = `#/hydrant-form/${ids.client}`;
+      const { mount, root } = mountApp();
+      try {
+        await waitFor(() => mount.textContent.includes("Server session verification is unavailable"));
+        return { name: `Online ${mode} remains fail-closed`, passed: !editable(mount) && !mount.querySelector("textarea") && summaryCalls === 0 && detailCalls === 0, summaryCalls, detailCalls };
+      } finally { root.unmount(); setBrowserOnline(true); await sleep(25); }
+    }
+
+    document.querySelector("#run").onclick = async () => {
+      const output = document.querySelector("#result");
+      try {
+        const cases = [await runDraftOfflineAndReconnect(true), await runDraftOfflineAndReconnect(false), await runPendingOffline(), await runNoLocalOffline(), await runOnlineAuthFailure("server-error"), await runOnlineAuthFailure("network-error")];
+        output.textContent = JSON.stringify({ status: cases.every(item => item.passed) ? "PASS" : "FAIL", cases }, null, 2);
+      } catch (error) {
+        output.textContent = JSON.stringify({ status: "ERROR", message: String(error) }, null, 2);
+      } finally {
+        globalThis.fetch = originalFetch;
+        await clear().catch(() => undefined);
+      }
+    };
+  </script>
+</body></html>

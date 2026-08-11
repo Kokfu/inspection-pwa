@@ -1,0 +1,53 @@
+<!doctype html>
+<html><body>
+<button id="run">Run Hydrant Accepted Detail Tests</button><pre id="result">Ready</pre><div id="view"></div>
+<script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { loadServerHydrantDetail, parseServerHydrantDetail } from "/src/hydrant/serverHydrantApi.ts";
+import { ServerHydrantView } from "/src/hydrant/ServerHydrantView.tsx";
+
+const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const configured=(n,order,ordinal=1,locationId=uuid(20))=>({rowUuid:uuid(n),source:"configured",configuredLocationId:locationId,configuredRowOrdinal:ordinal,zoneSnapshot:{id:uuid(21),displayName:"Zone A"},locationSnapshot:{id:locationId,displayName:"Configured Hydrant"},assetReference:"H-CONFIG",locationText:"Configured Hydrant",canvasHose1Result:"good",canvasHose2Result:"poor",diffuserNozzleResult:"good",landingValveResult:"good",landingValveHandleResult:"poor",hoseCabinetResult:"good",keyLockResult:"good",remarks:"Configured row",sortOrder:order});
+const technician=(n,order,location)=>({rowUuid:uuid(n),source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,assetReference:`H-${n}`,locationText:location,canvasHose1Result:"good",canvasHose2Result:"poor",diffuserNozzleResult:"good",landingValveResult:"good",landingValveHandleResult:"poor",hoseCabinetResult:"good",keyLockResult:"good",remarks:`Server row ${n}`,sortOrder:order});
+const server={clientUuid:uuid(1),serverFormInstanceId:uuid(2),jobId:uuid(3),jobReference:"HYD-ACCEPT-1",jobTitle:"Hydrant Accepted Job",customerName:"Server Customer",systemKey:"hydrant",systemLabel:"Hydrant System",instanceKey:"primary",status:"submitted",performedAt:"2026-08-11T00:00:00.000000Z",receivedAt:"2026-08-11T00:01:00.000000Z",responses:{schemaVersion:1,hydrantType:"meter",rows:[configured(4,1),technician(5,2,"Server technician row")],comments:"SERVER COMMENTS"},displayControls:null,deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"server-user",evidencePolicyId:null,evidencePolicyVersion:null,evidencePolicyDefinition:null,evidencePolicySha256:null};
+
+document.querySelector("#run").onclick=async()=>{
+  const checks=[];const check=(name,passed)=>checks.push({name,passed:!!passed});
+  const reject=(name,mutate)=>{const value=structuredClone(server);mutate(value);check(name,parseServerHydrantDetail(value)===undefined)};
+  const old=globalThis.fetch;let url="";globalThis.fetch=async request=>{url=String(request);return new Response(JSON.stringify({inspection:server}),{status:200})};
+  try {
+    check("P1-2 F. valid configured row accepts",parseServerHydrantDetail(server)?.clientUuid===server.clientUuid);
+    const multiple=structuredClone(server);multiple.responses.rows=[multiple.responses.rows[0],{...multiple.responses.rows[0],rowUuid:uuid(6),configuredRowOrdinal:2,sortOrder:2},{...multiple.responses.rows[1],sortOrder:3}];
+    check("P1-2 B. same configured location with different allowed ordinal accepts",parseServerHydrantDetail(multiple)!==undefined);
+    check("P1-2 G. multiple configured rows with unique identities accept",parseServerHydrantDetail(multiple)!==undefined);
+    reject("P1-2 A. duplicate configured identity rejects",value=>{value.responses.rows=[value.responses.rows[0],{...value.responses.rows[0],rowUuid:uuid(6),sortOrder:2},{...value.responses.rows[1],sortOrder:3}]});
+    reject("P1-2 C. configured ordinal above maximum rejects",value=>value.responses.rows[0].configuredRowOrdinal=251);
+    reject("P1-2 D. configured ordinal zero rejects",value=>value.responses.rows[0].configuredRowOrdinal=0);
+    reject("P1-2 E. configured location text differing from snapshot rejects",value=>value.responses.rows[0].locationText="Forged location");
+    reject("1. invalid performedAt rejects",value=>value.performedAt="2026-02-30T00:00:00.000000Z");
+    reject("2. invalid receivedAt rejects",value=>value.receivedAt="invalid");
+    reject("3. configured row missing configuredLocationId rejects",value=>value.responses.rows[0].configuredLocationId=null);
+    reject("4. configured row invalid configuredRowOrdinal rejects",value=>value.responses.rows[0].configuredRowOrdinal=0);
+    reject("5. configured row with technician provenance rejects",value=>value.responses.rows[0].source="technician");
+    reject("6. technician row carrying configured identity rejects",value=>value.responses.rows[1].configuredLocationId=uuid(30));
+    reject("7. invalid configured UUID rejects",value=>value.responses.rows[0].configuredLocationId="not-a-uuid");
+    reject("8. unknown row key rejects",value=>value.responses.rows[0].foreignRowIdentity="x");
+    reject("9. unknown response key rejects",value=>value.responses.foreignResponse="x");
+    reject("10. unknown detail identity key rejects",value=>value.foreignIdentity="x");
+    reject("11. malformed Hydrant Type rejects",value=>value.responses.hydrantType="other");
+    reject("12. malformed Comments rejects",value=>value.responses.comments=42);
+    const detail=await loadServerHydrantDetail(server.clientUuid);const local={hydrantType:"pressurize",comments:"LOCAL COMMENTS",rows:[]};
+    ReactDomClient.createRoot(document.querySelector("#view")).render(React.createElement(ServerHydrantView,{inspection:detail,onBack:()=>{}}));await new Promise(resolve=>setTimeout(resolve,20));
+    const text=document.querySelector("#view").textContent,editable=document.querySelectorAll("#view input,#view select,#view textarea"),buttons=[...document.querySelectorAll("#view button")].map(button=>button.textContent);
+    check("fetches authoritative master-system endpoint",url===`/api/master-system-inspections/${server.clientUuid}`);
+    check("renders exact server Hydrant Type",text.includes("meter")&&!text.includes(local.hydrantType));
+    check("renders configured and technician rows in submitted order",text.includes("Configured Hydrant")&&text.includes("Server technician row")&&text.indexOf("Configured Hydrant")<text.indexOf("Server technician row"));
+    check("renders exact authoritative comments",text.includes("SERVER COMMENTS")&&!text.includes(local.comments));
+    check("accepted detail has no editable Hydrant controls",editable.length===0&&!buttons.includes("Save Draft")&&!buttons.includes("Submit Local"));
+    const malformed=structuredClone(server);malformed.responses.rows[1].configuredLocationId=uuid(40);globalThis.fetch=async()=>new Response(JSON.stringify({inspection:malformed}),{status:200});let failedClosed=false;try{await loadServerHydrantDetail(server.clientUuid)}catch{failedClosed=true}
+    check("parser failure fails closed without editable local fallback",failedClosed&&editable.length===0&&!text.includes("LOCAL COMMENTS"));
+    document.querySelector("#result").textContent=JSON.stringify({status:checks.every(check=>check.passed)?"PASS":"FAIL",checks},null,2);
+  } catch(error) { document.querySelector("#result").textContent=JSON.stringify({status:"FAIL",message:String(error),checks},null,2); } finally { globalThis.fetch=old; }
+};
+</script></body></html>

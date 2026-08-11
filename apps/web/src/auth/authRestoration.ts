@@ -4,11 +4,13 @@ import type { CachedIdentity } from "./authStateRepository";
 export type AuthRestorationDecision =
   | { kind: "verified"; user: Extract<AuthProbeResult, { status: "authenticated" }>["user"] }
   | { kind: "offline-unverified"; identity: CachedIdentity }
+  | { kind: "online-unavailable"; identity?: CachedIdentity }
   | { kind: "logged-out"; clearIdentity: boolean };
 
 export function decideAuthRestoration(
   cachedIdentity: CachedIdentity | undefined,
-  probe: AuthProbeResult
+  probe: AuthProbeResult,
+  browserOnline: boolean
 ): AuthRestorationDecision {
   if (probe.status === "authenticated") {
     return { kind: "verified", user: probe.user };
@@ -16,8 +18,8 @@ export function decideAuthRestoration(
   if (probe.status === "unauthenticated") {
     return { kind: "logged-out", clearIdentity: true };
   }
-  if (cachedIdentity) {
+  if (!browserOnline && cachedIdentity) {
     return { kind: "offline-unverified", identity: cachedIdentity };
   }
-  return { kind: "logged-out", clearIdentity: false };
+  return { kind: "online-unavailable", identity: cachedIdentity };
 }

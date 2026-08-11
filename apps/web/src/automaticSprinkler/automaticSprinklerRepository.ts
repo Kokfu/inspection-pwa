@@ -7,6 +7,7 @@ import type {
 import type { DeviceReportedCreator, MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
+import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { ResolvedMeasurementRow, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import {
@@ -251,7 +252,7 @@ function updated(
 }
 
 function currentLiveRecord(
-  liveRecord: AutomaticSprinklerInspectionRecord | MasterSystemInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | undefined,
+  liveRecord: AutomaticSprinklerInspectionRecord | MasterSystemInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | undefined,
   caller: AutomaticSprinklerInspectionRecord
 ) {
   if (

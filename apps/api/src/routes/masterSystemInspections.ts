@@ -10,7 +10,7 @@ const uuidPattern =
 const supportedSystemKeys = new Set([
   "hose_reel",
   "co2_fire_extinguisher",
-  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector"
+  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant"
 ]);
 const pageSize = 100;
 const cursorTimestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;

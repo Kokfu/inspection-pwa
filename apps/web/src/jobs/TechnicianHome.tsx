@@ -3,6 +3,7 @@ import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes"
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
+import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -28,7 +29,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord>;
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   inspectionAttachments: InspectionAttachmentRecord[];
@@ -50,6 +51,7 @@ type TechnicianHomeProps = {
   onOpenAutomaticSprinkler: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenDryWetRiser: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireAlarm: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenHydrant: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -75,7 +77,7 @@ export function TechnicianHome({
   onBackToSystems,
   onOpenHoseReel,
   onOpenCo2,
-  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm
+  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -83,6 +85,9 @@ export function TechnicianHome({
     .sort((left, right) => left.sortOrder - right.sortOrder) ?? [];
   const selectedSystem = systems.find((system) => system.systemKey === selectedSystemKey);
   const canUseServer = authState.status === "verified";
+  const progressAuthStatus = authState.status === "verified" || authState.status === "offline-unverified"
+    ? authState.status
+    : "logged-out";
   const serverAccepted = (jobId: string, systemKey: string) =>
     serverMasterSystemInspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey
@@ -96,12 +101,9 @@ export function TechnicianHome({
     return expected.length > 0 && expected.every((location) => acceptedLocations.has(location.id));
   };
   const noLocalProgress = (jobId: string, systemKey: string) => {
-    const status = authState.status === "restoring"
-      ? "logged-out"
-      : authState.status;
     return deriveNoLocalSystemProgress(
       serverAccepted(jobId, systemKey),
-      status,
+      progressAuthStatus,
       serverMasterSystemProgressState
     );
   };
@@ -128,7 +130,7 @@ export function TechnicianHome({
       }
       return deriveAutomaticSprinklerServerProgress(
         summary,
-        authState.status === "restoring" ? "logged-out" : authState.status,
+        progressAuthStatus,
         serverMasterSystemProgressState
       );
     }
@@ -140,6 +142,11 @@ export function TechnicianHome({
         : { kind: "unavailable" as const };
       return deriveFireAlarmProgress(record as MasterSystemInspectionRecord|undefined,summary);
     }
+    if (systemKey === "hydrant") {
+      if (serverMasterSystemProgressState === "loaded" && serverAccepted(jobId, systemKey)) return "Completed";
+      const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:hydrant`&&x.systemKey==="hydrant");
+      return record?deriveMasterSystemProgress(record as MasterSystemInspectionRecord):noLocalProgress(jobId,systemKey);
+    }
     if (systemKey === "co2_fire_extinguisher") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
       return group
@@ -149,7 +156,7 @@ export function TechnicianHome({
         )
         : deriveNoLocalSystemProgress(
           serverCo2Completed(jobId),
-          authState.status === "restoring" ? "logged-out" : authState.status,
+          progressAuthStatus,
           serverMasterSystemProgressState
         );
     }
@@ -216,6 +223,7 @@ export function TechnicianHome({
                       ? onOpenAutomaticSprinkler(selectedJob, system)
                     : system.systemKey === "dry_wet_riser" ? onOpenDryWetRiser(selectedJob, system)
                     : system.systemKey === "fire_alarm_detector" ? onOpenFireAlarm(selectedJob, system)
+                    : system.systemKey === "hydrant" ? onOpenHydrant(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>

@@ -49,19 +49,24 @@
 
           window.fetch = async () => { throw new TypeError("network unavailable"); };
           const unavailableProbe = await getCurrentUser(25);
-          const cachedOffline = decideAuthRestoration(cached, unavailableProbe);
-          const emptyOffline = decideAuthRestoration(undefined, unavailableProbe);
+          const cachedOffline = decideAuthRestoration(cached, unavailableProbe, false);
+          const cachedOnlineFetchError = decideAuthRestoration(cached, unavailableProbe, true);
+          const emptyOffline = decideAuthRestoration(undefined, unavailableProbe, false);
+
+          window.fetch = async () => new Response("", { status: 503 });
+          const serverErrorProbe = await getCurrentUser(25);
+          const cachedOnlineServerError = decideAuthRestoration(cached, serverErrorProbe, true);
 
           window.fetch = async () => new Response("", { status: 401 });
           const unauthorizedProbe = await getCurrentUser(25);
-          const unauthorized = decideAuthRestoration(cached, unauthorizedProbe);
+          const unauthorized = decideAuthRestoration(cached, unauthorizedProbe, true);
           window.fetch = async () => new Response("", { status: 403 });
           const forbiddenProbe = await getCurrentUser(25);
-          const forbidden = decideAuthRestoration(cached, forbiddenProbe);
+          const forbidden = decideAuthRestoration(cached, forbiddenProbe, true);
           const reverified = decideAuthRestoration(cached, {
             status: "authenticated",
             user
-          });
+          }, true);
 
           await clearLocalIdentity(true);
           const explicitLogoutState = await getDeviceAuthState();
@@ -70,7 +75,9 @@
 
           const passed =
             cachedOffline.kind === "offline-unverified"
-            && emptyOffline.kind === "logged-out"
+            && cachedOnlineServerError.kind === "online-unavailable"
+            && cachedOnlineFetchError.kind === "online-unavailable"
+            && emptyOffline.kind === "online-unavailable"
             && unauthorized.kind === "logged-out"
             && unauthorized.clearIdentity
             && forbidden.kind === "logged-out"
@@ -88,7 +95,9 @@
 
           result.textContent = JSON.stringify({
             status: passed ? "PASS" : "FAIL",
-            cachedNetworkFailure: cachedOffline.kind,
+            browserOfflineCachedFailure: cachedOffline.kind,
+            browserOnlineServerError: cachedOnlineServerError.kind,
+            browserOnlineFetchError: cachedOnlineFetchError.kind,
             noCacheNetworkFailure: emptyOffline.kind,
             unauthorized: unauthorized.kind,
             forbidden: forbidden.kind,

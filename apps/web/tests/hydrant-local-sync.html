@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Hydrant local and sync harness</title></head>
+  <body>
+    <button id="run" type="button">Run Hydrant local and sync checks</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { getOrCreateHydrantInspection, saveHydrantDraft, submitLocalHydrant } from "/src/hydrant/hydrantRepository.ts";
+      import { syncPendingRecords } from "/src/sync/syncEngine.ts";
+
+      const uuid = (n) => `92000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+      const ids = { job: uuid(1), customer: uuid(2), revision: uuid(3), template: uuid(4), system: uuid(5), zone: uuid(6), location: uuid(7), technician: uuid(8) };
+      const system = {
+        enabledSystemId: ids.system, systemKey: "hydrant", displayName: "Hydrant System", sortOrder: 1, definitionStatus: "confirmed",
+        zones: [{ id: ids.zone, enabledSystemId: ids.system, key: "zone-a", displayName: "Zone A", sortOrder: 1 }],
+        locations: [{ id: ids.location, enabledSystemId: ids.system, zoneId: ids.zone, key: "main-bank", displayName: "Main Hydrant Bank", presetRowCount: 2, rowPreset: { assetReference: "HYD-DEMO-01" }, sortOrder: 1 }]
+      };
+      const definition = { key: "hydrant", displayName: "Hydrant System", definitionStatus: "confirmed", sections: [] };
+      const job = {
+        id: ids.job, reference: "HYDRANT-LOCAL-HARNESS", title: "Hydrant Local Harness", status: "open", createdAt: new Date().toISOString(),
+        configurationSnapshot: {
+          schemaVersion: 1,
+          customer: { id: ids.customer, code: "TEST-HYDRANT", displayName: "Hydrant Test" },
+          configuration: { revisionId: ids.revision, revisionNumber: 1 },
+          template: { id: ids.template, code: "MFE-FSSR", name: "Test", version: 1 },
+          enabledSystems: [system]
+        }
+      };
+      const catalog = { templates: [{ id: ids.template, code: "MFE-FSSR", name: "Test", version: 1, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: "hydrant", displayName: "Hydrant System", sortOrder: 1, definitionStatus: "confirmed", definition }] }] };
+      const key = `${ids.job}:hydrant`;
+      const outcomes = [];
+      const check = (name, condition, detail = "") => outcomes.push({ name, passed: Boolean(condition), detail });
+      const complete = (record) => {
+        const responses = structuredClone(record.responses);
+        responses.hydrantType = "meter";
+        responses.comments = "Saved Hydrant comments";
+        for (const row of responses.rows) Object.assign(row, {
+          canvasHose1Result: "good", canvasHose2Result: "poor", diffuserNozzleResult: "good", landingValveResult: "good", landingValveHandleResult: "poor", hoseCabinetResult: "good", keyLockResult: "good", remarks: "Checked"
+        });
+        return responses;
+      };
+      async function clear() {
+        const records = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).toArray();
+        await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
+          await localDatabase.masterSystemInspections.bulkDelete(records.map((record) => record.clientUuid));
+          for (const record of records) {
+            const items = await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray();
+            await localDatabase.syncOutbox.bulkDelete(items.map((item) => item.operationId));
+          }
+        });
+      }
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const output = document.querySelector("#result");
+        outcomes.length = 0;
+        const originalFetch = globalThis.fetch;
+        try {
+          await localDatabase.open();
+          await clear();
+          const initial = await getOrCreateHydrantInspection(job, system, catalog);
+          const configuredIdentity = initial.responses.rows.map((row) => ({ rowUuid: row.rowUuid, source: row.source, configuredLocationId: row.configuredLocationId, configuredRowOrdinal: row.configuredRowOrdinal, zoneSnapshot: row.zoneSnapshot, locationSnapshot: row.locationSnapshot }));
+          const technician = { rowUuid: ids.technician, source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, assetReference: "TECH-01", locationText: "Technician-added hydrant", canvasHose1Result: "good", canvasHose2Result: "good", diffuserNozzleResult: "good", landingValveResult: "good", landingValveHandleResult: "good", hoseCabinetResult: "good", keyLockResult: "good", remarks: "Added locally", sortOrder: 3 };
+          const draftResponses = complete(initial);
+          draftResponses.rows.push(technician);
+          const draft = await saveHydrantDraft(initial, draftResponses);
+          const storedDraft = await localDatabase.masterSystemInspections.get(initial.clientUuid);
+          check("Hydrant Type persists in Draft", storedDraft?.responses.hydrantType === "meter");
+          check("Hydrant rows and comments persist in Draft", storedDraft?.responses.rows.length === 3 && storedDraft?.responses.comments === "Saved Hydrant comments");
+          check("configured row identity survives Draft persistence", JSON.stringify(storedDraft?.responses.rows.slice(0, 2).map((row) => ({ rowUuid: row.rowUuid, source: row.source, configuredLocationId: row.configuredLocationId, configuredRowOrdinal: row.configuredRowOrdinal, zoneSnapshot: row.zoneSnapshot, locationSnapshot: row.locationSnapshot }))) === JSON.stringify(configuredIdentity));
+          check("technician row UUID survives Draft persistence", storedDraft?.responses.rows[2]?.rowUuid === ids.technician);
+
+          await localDatabase.close();
+          await localDatabase.open();
+          const reloaded = await localDatabase.masterSystemInspections.get(initial.clientUuid);
+          check("Draft survives normal reload", reloaded?.syncStatus === "Draft" && reloaded.responses.comments === "Saved Hydrant comments");
+          globalThis.fetch = async () => { throw new Error("offline"); };
+          const offlineResponses = structuredClone(reloaded.responses);
+          offlineResponses.comments = "Changed while offline";
+          offlineResponses.rows[2].remarks = "Offline technician edit";
+          const offlineDraft = await saveHydrantDraft(reloaded, offlineResponses);
+          await localDatabase.close();
+          await localDatabase.open();
+          const reopenedOffline = await localDatabase.masterSystemInspections.get(initial.clientUuid);
+          check("offline Draft edit persists", reopenedOffline?.responses.comments === "Changed while offline" && reopenedOffline.responses.rows[2].remarks === "Offline technician edit");
+          check("Draft survives close and reopen while offline", reopenedOffline?.syncStatus === "Draft" && reopenedOffline.responses.rows[2].rowUuid === ids.technician);
+
+          const pending = await submitLocalHydrant(offlineDraft, offlineResponses);
+          const pendingOutbox = await localDatabase.syncOutbox.where("entityId").equals(pending.clientUuid).toArray();
+          check("Submit Local creates Pending Sync", pending.syncStatus === "Pending" && pendingOutbox.length === 1 && pendingOutbox[0].status === "Pending");
+          check("outbox payload retains Hydrant Type, rows and comments", JSON.stringify(pendingOutbox[0]?.payload.responses) === JSON.stringify(offlineResponses));
+
+          let sentItems = [];
+          globalThis.fetch = async (_url, init) => {
+            sentItems = JSON.parse(String(init?.body)).items;
+            return new Response(JSON.stringify({ acceptedIds: sentItems.map((item) => item.entityId), duplicateIds: [], failed: [] }), { status: 200 });
+          };
+          await syncPendingRecords();
+          const synced = await localDatabase.masterSystemInspections.get(initial.clientUuid);
+          const completedOutbox = await localDatabase.syncOutbox.where("entityId").equals(initial.clientUuid).toArray();
+          check("reconnect sync confirms the exact Hydrant UUID", sentItems.length === 1 && sentItems[0]?.entityId === initial.clientUuid && synced?.syncStatus === "Synced");
+          check("successful sync keeps Hydrant responses intact", JSON.stringify(synced?.responses) === JSON.stringify(offlineResponses));
+          check("confirmed sync completes the active outbox operation", completedOutbox.length === 1 && completedOutbox[0]?.status === "Completed" && !completedOutbox[0]?.activeKey);
+          output.textContent = JSON.stringify({ status: outcomes.every((outcome) => outcome.passed) ? "PASS" : "FAIL", outcomes }, null, 2);
+        } catch (error) {
+          output.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error), outcomes }, null, 2);
+        } finally {
+          globalThis.fetch = originalFetch;
+          await clear().catch(() => undefined);
+        }
+      });
+    </script>
+  </body>
+</html>

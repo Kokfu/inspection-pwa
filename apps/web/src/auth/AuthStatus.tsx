@@ -30,6 +30,19 @@ export function AuthStatus({ state, onLogout, onRevalidate }: AuthStatusProps) {
             <button type="button" onClick={onLogout}>Logout</button>
           </div>
         </>
+      ) : state.status === "verifying" ? (
+        <p>
+          Verifying server session{state.user ? <> for <strong>{state.user.username}</strong></> : ""}. Local inspection authority is temporarily unavailable.
+        </p>
+      ) : state.status === "online-unavailable" ? (
+        <>
+          <p>{state.message}</p>
+          <p>Local inspection authority remains protected until the server session is verified.</p>
+          <div className="inline-actions">
+            <button type="button" onClick={onRevalidate}>Verify Session</button>
+            <button type="button" onClick={onLogout}>Logout</button>
+          </div>
+        </>
       ) : state.status === "restoring" ? (
         <p>Restoring local sign-in</p>
       ) : (

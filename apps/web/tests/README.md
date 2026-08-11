@@ -9,6 +9,8 @@ Run these browser harnesses through the Vite development server:
 - `server-sprinkler-resolution.html`
 - `dry-wet-riser-local-and-resolution.html`
 - `dry-wet-riser-server-detail.html`
+- `hydrant-accepted-detail.html`
+- `hydrant-local-sync.html`
 - `hose-reel-regression.html`
 - `co2-concurrent-initialization.html`
 - `server-summary-refresh-authority.html`
@@ -53,6 +55,11 @@ token when the refreshed job context changes, and always settles on success,
 failure, logout, auth replacement, or supersession. It also covers verified-user
 identity replacement, late old-user summary/detail rejection, unchanged-identity
 generation stability, and accepted absence resolving to Not Started.
+
+The Hydrant local/sync harness verifies IndexedDB Draft persistence across a
+database close/reopen, offline-safe Draft edits, configured and technician-row
+identity retention, atomic Pending outbox creation, exact-ID sync confirmation,
+and response retention after sync. Run it manually through Vite.
 
 Production PWA, camera permission, physical camera, force-close, and real
 offline checks remain manual because development-server behavior is not proof

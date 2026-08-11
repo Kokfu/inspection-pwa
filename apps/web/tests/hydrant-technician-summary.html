@@ -1,0 +1,33 @@
+<!doctype html>
+<html><body>
+<button id="run">Run Hydrant Technician Home authority checks</button><pre id="result">Ready</pre><div id="view"></div>
+<script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { TechnicianHome } from "/src/jobs/TechnicianHome.tsx";
+
+const uuid=n=>`72000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const ids={job:uuid(1),otherJob:uuid(2),hydrant:uuid(3),hose:uuid(4),accepted:uuid(5)};
+const hydrantSystem={enabledSystemId:ids.hydrant,systemKey:"hydrant",displayName:"Hydrant System",definitionStatus:"confirmed",sortOrder:1,zones:[],locations:[]};
+const hoseSystem={enabledSystemId:ids.hose,systemKey:"hose_reel",displayName:"Hose Reel",definitionStatus:"confirmed",sortOrder:2,zones:[],locations:[]};
+const job={id:ids.job,reference:"HYD-SUMMARY",title:"Hydrant Summary Authority",configurationSnapshot:{customer:{displayName:"Test Customer"},configuration:{revisionNumber:1},enabledSystems:[hydrantSystem,hoseSystem]}};
+const local=syncStatus=>({jobSystemKey:`${ids.job}:hydrant`,systemKey:"hydrant",syncStatus});
+const accepted={clientUuid:ids.accepted,jobId:ids.job,systemKey:"hydrant",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted"};
+const props=({record,server=[],state="loaded"})=>({authState:{status:"verified",user:{id:1,username:"tech",role:"inspector"},lastVerifiedAt:"2026-08-11T00:00:00.000Z"},jobs:[job],inspections:[],masterSystemInspections:record?[record]:[],masterSystemInspectionGroups:[],masterSystemFormInstances:[],inspectionAttachments:[],serverMasterSystemInspections:server,serverMasterSystemProgressState:state,loading:false,message:"",selectedJobId:ids.job,syncMessage:"",onRefresh:async()=>{},onSync:async()=>{},onSelectJob:()=>{},onSelectSystem:()=>{},onBackToJobs:()=>{},onBackToSystems:()=>{},onOpenHoseReel:()=>{},onOpenCo2:()=>{},onOpenAutomaticSprinkler:()=>{},onOpenDryWetRiser:()=>{},onOpenFireAlarm:()=>{},onOpenHydrant:()=>{}});
+
+document.querySelector("#run").onclick=async()=>{
+  const checks=[];const check=(name,passed)=>checks.push({name,passed:!!passed});const view=document.querySelector("#view");let root;
+  const render=async options=>{root?.unmount();view.replaceChildren();root=ReactDomClient.createRoot(view);root.render(React.createElement(TechnicianHome,props(options)));await new Promise(resolve=>setTimeout(resolve,20));return [...view.querySelectorAll(".status-label")][0]?.textContent};
+  try {
+    check("A. local Draft plus matching server Accepted shows Completed",await render({record:local("Draft"),server:[accepted]})==="Completed");
+    check("B. local Pending plus matching server Accepted shows Completed",await render({record:local("Pending"),server:[accepted]})==="Completed");
+    check("C. local Failed plus matching server Accepted shows Completed",await render({record:local("Failed"),server:[accepted]})==="Completed");
+    check("D. no server Accepted preserves local Draft",await render({record:local("Draft")})==="Draft");
+    check("E. no server Accepted preserves local Pending",await render({record:local("Pending")})==="Pending Sync");
+    check("F. unavailable server summary does not claim Accepted",await render({record:local("Draft"),server:[accepted],state:"failed"})==="Draft");
+    const foreign=[{...accepted,jobId:ids.otherJob},{...accepted,systemKey:"hose_reel"}];
+    check("G. only matching Hydrant job/system Accepted takes precedence",await render({record:local("Draft"),server:foreign})==="Draft");
+    document.querySelector("#result").textContent=JSON.stringify({status:checks.every(check=>check.passed)?"PASS":"FAIL",checks},null,2);
+  } catch(error) { document.querySelector("#result").textContent=JSON.stringify({status:"FAIL",message:String(error),checks},null,2); }
+};
+</script></body></html>

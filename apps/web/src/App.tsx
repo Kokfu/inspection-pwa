@@ -29,6 +29,12 @@ import { returnFailedFireAlarmToDraft, saveFireAlarmDraft, submitFireAlarmLocal 
 import { resolveFireAlarmOpenTarget, resolveFireAlarmRoute } from "./fireAlarm/fireAlarmResolution";
 import { FireAlarmAcceptedDetail } from "./fireAlarm/FireAlarmAcceptedDetail";
 import type { FireAlarmInspectionRecord, FireAlarmResponses, ServerFireAlarmDetail } from "./fireAlarm/fireAlarmTypes";
+import { HydrantInspectionForm } from "./hydrant/HydrantInspectionForm";
+import { returnFailedHydrantToDraft, saveHydrantDraft, submitLocalHydrant } from "./hydrant/hydrantRepository";
+import type { HydrantInspectionRecord, HydrantResponses } from "./hydrant/hydrantTypes";
+import type { ServerHydrantDetail } from "./hydrant/serverHydrantApi";
+import { ServerHydrantView } from "./hydrant/ServerHydrantView";
+import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute, type HydrantAuthorityResolution } from "./hydrant/hydrantResolution";
 import { AuthStatus } from "./auth/AuthStatus";
 import { AuthAuthorityGuard } from "./auth/authAuthority";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
@@ -121,6 +127,7 @@ type AppRoute =
   | { name: "sprinkler-form"; clientUuid: string }
   | { name: "riser-form"; clientUuid: string }
   | { name: "fire-alarm-form"; jobId: string; clientUuid: string }
+  | { name: "hydrant-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "development" };
 
@@ -131,6 +138,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
   if (parts[0] === "fire-alarm-form" && parts[1] && parts[2]) return { name: "fire-alarm-form", jobId: parts[1], clientUuid: parts[2] };
+  if (parts[0] === "hydrant-form" && parts[1]) return { name: "hydrant-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
@@ -143,6 +151,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "hydrant-form") return `#/hydrant-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
@@ -160,6 +169,7 @@ export function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
   const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
+  const [initialAuthRestored, setInitialAuthRestored] = useState(false);
   const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
@@ -172,12 +182,33 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
   const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
+  const [activeHydrant, setActiveHydrant] = useState<HydrantInspectionRecord>();
+  const [serverHydrant, setServerHydrant] = useState<ServerHydrantDetail>();
+  const [serverAcceptedHydrantUuid, setServerAcceptedHydrantUuid] = useState<string>();
+  const [hydrantRouteState, setHydrantRouteState] = useState<"idle" | "loading" | "not-cached" | "server-unavailable">("idle");
+  const [hydrantRouteMessage, setHydrantRouteMessage] = useState("");
+  const [hydrantAuthorityResolution, setHydrantAuthorityResolution] = useState<HydrantAuthorityResolution>();
+  const verifiedHydrantAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  useEffect(() => {
+    if (route.name !== "hydrant-form") { setActiveHydrant(undefined); setServerHydrant(undefined); setServerAcceptedHydrantUuid(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("idle"); setHydrantRouteMessage(""); return; }
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("loading"); setHydrantRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Hydrant inspection." : ""); return; }
+    if (authState.status === "online-unavailable") { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("server-unavailable"); setHydrantRouteMessage(authState.message); return; }
+    let current = true;
+    setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("loading"); setHydrantRouteMessage("");
+    void resolveHydrantRoute(route.clientUuid, serverAcceptedHydrantUuid, authState.status).then((resolution) => {
+      if (!current) return;
+      if (resolution.kind === "local") { setActiveHydrant(resolution.record); setServerHydrant(undefined); if (authState.status === "verified") setHydrantAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setHydrantRouteState("idle"); }
+      else if (resolution.kind === "server") { setActiveHydrant(undefined); setServerHydrant(resolution.inspection); setHydrantRouteState("idle"); }
+      else { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantRouteState(resolution.kind); setHydrantRouteMessage("message" in resolution ? resolution.message : ""); }
+    });
+    return () => { current = false; };
+  }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedHydrantUuid, verifiedHydrantAuthorityToken]);
   const [serverFireAlarm, setServerFireAlarm] = useState<ServerFireAlarmDetail>();
   const [fireAlarmRouteState, setFireAlarmRouteState] = useState<"idle"|"loading"|"not-cached"|"signed-out"|"inconsistent"|"invalid"|"server-unavailable">("idle");
   const [fireAlarmRouteMessage, setFireAlarmRouteMessage] = useState("");
@@ -475,17 +506,23 @@ export function App() {
     if (cachedIdentity && !authAuthorityGuard.current.hasAuthority) {
       await loadCachedJobs(cachedIdentity.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return;
-      setAuthState({
-        status: "offline-unverified",
-        user: cachedIdentity.user,
-        lastVerifiedAt: cachedIdentity.lastVerifiedAt
-      });
+      setAuthState(window.navigator.onLine
+        ? {
+          status: "verifying",
+          user: cachedIdentity.user,
+          lastVerifiedAt: cachedIdentity.lastVerifiedAt
+        }
+        : {
+          status: "offline-unverified",
+          user: cachedIdentity.user,
+          lastVerifiedAt: cachedIdentity.lastVerifiedAt
+        });
       setJobMessage("Using jobs previously cached for this user while verifying the session");
     }
 
     const probe = await getCurrentUser();
     if (!isCurrentReconciliation()) return;
-    const decision = decideAuthRestoration(cachedIdentity, probe);
+    const decision = decideAuthRestoration(cachedIdentity, probe, window.navigator.onLine);
     if (decision.kind === "verified") {
       const authorityReplacement = prepareVerifiedAuthority(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
@@ -512,9 +549,44 @@ export function App() {
       return;
     }
 
+    if (decision.kind === "online-unavailable") {
+      revokeVerifiedAuthority();
+      setAuthState({
+        status: "online-unavailable",
+        user: decision.identity?.user,
+        lastVerifiedAt: decision.identity?.lastVerifiedAt,
+        message: "Server session verification is unavailable while this device is online."
+      });
+      setJobMessage("Server session verification is unavailable; cached local inspection authority remains protected.");
+      return;
+    }
+
     if (decision.kind === "offline-unverified") {
       return;
     }
+  }
+
+  function beginServerVerification() {
+    authReconciliationGeneration.current += 1;
+    if (authAuthorityGuard.current.hasAuthority) revokeVerifiedAuthority();
+    setAuthState((current) => {
+      if (current.status === "verified" || current.status === "offline-unverified") {
+        return { status: "verifying", user: current.user, lastVerifiedAt: current.lastVerifiedAt };
+      }
+      if (current.status === "online-unavailable") {
+        return { status: "verifying", user: current.user, lastVerifiedAt: current.lastVerifiedAt };
+      }
+      return current;
+    });
+  }
+
+  async function revalidateAuthentication() {
+    if (!window.navigator.onLine) {
+      await reconcileAuthentication();
+      return;
+    }
+    beginServerVerification();
+    await reconcileAuthentication();
   }
 
   useEffect(() => {
@@ -533,13 +605,37 @@ export function App() {
         setSyncMessage("Recovered interrupted sync; record is retryable");
       }
       await reconcileAuthentication();
+      setInitialAuthRestored(true);
     });
 
-    const handleOnline = () => void reconcileAuthentication();
+    const handleOffline = () => {
+      // A browser-confirmed offline transition removes the authority to resolve
+      // server-backed inspection state. Keep the cached identity, but require a
+      // fresh verification before permitting server authority again.
+      authReconciliationGeneration.current += 1;
+      if (authAuthorityGuard.current.hasAuthority) revokeVerifiedAuthority();
+      setAuthState((current) => (current.status === "verified" || current.status === "verifying")
+        && current.user && current.lastVerifiedAt
+        ? {
+          status: "offline-unverified",
+          user: current.user,
+          lastVerifiedAt: current.lastVerifiedAt
+        }
+        : current.status === "online-unavailable" && current.user && current.lastVerifiedAt
+          ? {
+            status: "offline-unverified",
+            user: current.user,
+            lastVerifiedAt: current.lastVerifiedAt
+          }
+        : current);
+    };
+    const handleOnline = () => void revalidateAuthentication();
     const handleHashChange = () => setRoute(routeFromHash());
+    window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     window.addEventListener("hashchange", handleHashChange);
     return () => {
+      window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("hashchange", handleHashChange);
     };
@@ -556,7 +652,7 @@ export function App() {
   useEffect(() => {
     const generation = ++riserRouteGeneration.current;
     if (route.name !== "riser-form") { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState("idle"); setRiserRouteMessage(""); return; }
-    if (authState.status === "restoring") { setRiserRouteState("loading"); return; }
+    if (authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") { setRiserRouteState("loading"); return; }
     setRiserRouteState("loading"); setRiserRouteMessage("");
     void resolveDryWetRiserRoute(route.clientUuid, authState.status).then((resolution) => {
       if (riserRouteGeneration.current !== generation) return;
@@ -575,7 +671,7 @@ export function App() {
       setSprinklerRouteMessage("");
       return;
     }
-    if (authState.status === "restoring") {
+    if (authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") {
       setSprinklerRouteState("loading");
       return;
     }
@@ -608,10 +704,18 @@ export function App() {
       : undefined);
   }, [masterSystemFormInstances, route]);
 
-  useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
+  useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
 
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
+  const mayRenderLocalHydrant = canRenderLocalHydrant(
+    activeHydrant,
+    authState.status,
+    route.name === "hydrant-form" ? route.clientUuid : undefined,
+    hydrantAuthorityResolution,
+    authAuthorityGeneration,
+    authState.status === "verified" ? authState.lastVerifiedAt : undefined
+  );
 
   async function refreshRecords() {
     setRecords(await listTestRecords());
@@ -823,6 +927,10 @@ export function App() {
   }
   async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
   async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This accepted Fire Alarm inspection is not cached. Reconnect to load server detail."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
+  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
+  async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
+  async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
+  async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
   async function handleSaveFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleSubmitFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await submitFireAlarmLocal(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleEditFailedFireAlarm() { if (!activeFireAlarm) return; try { setActiveFireAlarm(await returnFailedFireAlarmToDraft(activeFireAlarm)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
@@ -974,13 +1082,13 @@ export function App() {
         <button type="button" className="secondary-command" onClick={checkApiHealth}>Check API</button>
       </header>
 
-      {authState.status === "restoring" ? (
+      {authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
         <section className="login-view workspace">
-          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={reconcileAuthentication} />
+          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
         </section>
       ) : shouldRenderLogin(authState) ? (
         <section className="login-view workspace" aria-label="Server sign-in">
-          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={reconcileAuthentication} />
+          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
           <LoginForm onLogin={handleLogin} />
         </section>
       ) : null}
@@ -1005,7 +1113,7 @@ export function App() {
           </nav>
 
           <section className="session-strip workspace">
-            <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={reconcileAuthentication} />
+            <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
           </section>
 
           {route.name === "development" ? (
@@ -1143,6 +1251,8 @@ export function App() {
             ) : (
               <section className="workspace"><h2>CO2 form unavailable</h2><p>This form is not available in local device storage.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
+          ) : route.name === "hydrant-form" ? (
+            mayRenderLocalHydrant ? <HydrantInspectionForm record={activeHydrant!} onBack={()=>navigate({name:"job",jobId:activeHydrant!.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && route.systemKey === "co2_fire_extinguisher" ? (
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:co2_fire_extinguisher`);
@@ -1192,6 +1302,7 @@ export function App() {
               onOpenAutomaticSprinkler={handleOpenAutomaticSprinkler}
               onOpenDryWetRiser={handleOpenDryWetRiser}
               onOpenFireAlarm={handleOpenFireAlarm}
+              onOpenHydrant={handleOpenHydrant}
             />
           )}
         </>

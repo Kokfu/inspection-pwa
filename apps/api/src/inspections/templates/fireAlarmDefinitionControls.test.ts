@@ -35,7 +35,7 @@ test("V3 is forward-only and preserves the intended mixed-system catalog", () =>
   ]);
   assert.deepEqual(masterServiceReportV3.systems.map((system) => system.definitionStatus), [
     "confirmed", "confirmed", "confirmed", "confirmed", "confirmed",
-    "requires_confirmation", "requires_confirmation", "requires_confirmation", "requires_confirmation"
+    "requires_confirmation", "confirmed", "requires_confirmation", "requires_confirmation"
   ]);
   const v1 = (key: string) => masterServiceReportV1.systems.find((system) => system.key === key);
   for (const key of ["automatic_sprinkler", "hose_reel", "co2_fire_extinguisher"]) {

@@ -184,7 +184,7 @@ export const masterServiceReportV3 = {
     v1System("co2_fire_extinguisher"),
     fireAlarmDetectorV3,
     futureSystem("wet_chemical"),
-    futureSystem("hydrant"),
+    v1System("hydrant"),
     futureSystem("fm200"),
     futureSystem("portable_fire_extinguisher")
   ]

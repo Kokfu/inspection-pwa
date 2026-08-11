@@ -28,11 +28,17 @@ const demoSprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000702";
 const demoPhotoSprinklerCustomerId = "00000000-0000-4000-8000-000000000720";
 const demoPhotoSprinklerRevisionId = "00000000-0000-4000-8000-000000000721";
 const demoPhotoSprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000722";
+const demoHydrantCustomerId = "00000000-0000-4000-8000-000000000730";
+const demoHydrantRevisionId = "00000000-0000-4000-8000-000000000731";
+const demoHydrantEnabledSystemId = "00000000-0000-4000-8000-000000000732";
+const demoHydrantZoneId = "00000000-0000-4000-8000-000000000733";
+const demoHydrantLocationId = "00000000-0000-4000-8000-000000000734";
 const demoSingleJobId = "00000000-0000-4000-8000-000000000580";
 const demoMultiJobId = "00000000-0000-4000-8000-000000000590";
 const demoCo2JobId = "00000000-0000-4000-8000-000000000679";
 const demoSprinklerJobId = "00000000-0000-4000-8000-000000000709";
 const demoPhotoSprinklerJobId = "00000000-0000-4000-8000-000000000729";
+const demoHydrantJobId = "00000000-0000-4000-8000-000000000739";
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
@@ -50,6 +56,12 @@ const demoPhotoSprinklerCustomer = {
   code: "DEMO-SPRINKLER-PHOTO",
   name: "Demo Sprinkler Photo Evidence Client",
   revisionId: demoPhotoSprinklerRevisionId
+} as const;
+const demoHydrantCustomer = {
+  id: demoHydrantCustomerId,
+  code: "DEMO-HYDRANT",
+  name: "Demo Hydrant Client",
+  revisionId: demoHydrantRevisionId
 } as const;
 const demoCo2Zones = [
   { id: "00000000-0000-4000-8000-000000000681", key: "zone-1", name: "Zone 1", sortOrder: 1 },
@@ -766,6 +778,7 @@ async function seedDemoConfigurations(client: PoolClient) {
   await seedCustomer(client, demoCo2Customer);
   await seedCustomer(client, demoSprinklerCustomer);
   await seedCustomer(client, demoPhotoSprinklerCustomer);
+  await seedCustomer(client, demoHydrantCustomer);
 
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
@@ -850,6 +863,18 @@ async function seedDemoConfigurations(client: PoolClient) {
     automaticSprinklerPsiEvidencePolicyId
   );
   await assertPhotoSprinklerFixtureMembership(client);
+  await seedEnabledSystem(client, demoHydrantEnabledSystemId, demoHydrantRevisionId, "hydrant", 1);
+  await seedZone(client, demoHydrantZoneId, demoHydrantEnabledSystemId, "hydrant-zone-a", "Hydrant Zone A", 1);
+  await seedLocation(client, {
+    id: demoHydrantLocationId,
+    enabledSystemId: demoHydrantEnabledSystemId,
+    zoneId: demoHydrantZoneId,
+    key: "hydrant-main",
+    name: "Main Hydrant Bank",
+    rowCount: 2,
+    assetReference: "HYD-DEMO-01",
+    sortOrder: 1
+  });
 }
 
 async function buildJobConfigurationSnapshot(
@@ -1386,6 +1411,13 @@ async function seedDemoJobs(client: PoolClient) {
     title: "Demo Automatic Sprinkler Photo Evidence Job",
     customerId: demoPhotoSprinklerCustomerId,
     revisionId: demoPhotoSprinklerRevisionId
+  });
+  await seedDemoJob(client, {
+    id: demoHydrantJobId,
+    reference: "DEMO-JOB-HYDRANT-001",
+    title: "Demo Hydrant Job",
+    customerId: demoHydrantCustomerId,
+    revisionId: demoHydrantRevisionId
   });
 }
 

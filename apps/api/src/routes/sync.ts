@@ -8,6 +8,7 @@ import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
 import { syncAutomaticSprinklerInspections } from "../sync/automaticSprinklerInspectionSync.js";
 import { syncDryWetRiserInspections } from "../sync/dryWetRiserInspectionSync.js";
 import { syncFireAlarmInspections } from "../sync/fireAlarmInspectionSync.js";
+import { syncHydrantInspections } from "../sync/hydrantInspectionSync.js";
 
 export const syncRouter = Router();
 
@@ -86,27 +87,29 @@ syncRouter.post(
       );
       const dryWetRiserItems = items.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "dry_wet_riser");
       const fireAlarmItems = items.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "fire_alarm_detector");
+      const hydrantItems = items.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "hydrant");
       const masterSystemFormInstanceItems = items.filter(
         (item) => typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "masterSystemFormInstance"
       );
       const unsupportedItems = items.filter(
         (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
-          && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item) && !dryWetRiserItems.includes(item) && !fireAlarmItems.includes(item)
+          && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item) && !dryWetRiserItems.includes(item) && !fireAlarmItems.includes(item) && !hydrantItems.includes(item)
           && !masterSystemFormInstanceItems.includes(item)
       );
-      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, masterSystemFormInstanceResult] = await Promise.all([
+      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, hydrantResult, masterSystemFormInstanceResult] = await Promise.all([
         syncTestRecords(testRecordItems),
         syncInspections(inspectionItems, request.currentUser?.id),
         syncMasterSystemInspections(hoseReelItems, request.currentUser?.id),
         syncAutomaticSprinklerInspections(automaticSprinklerItems, request.currentUser?.id),
         syncDryWetRiserInspections(dryWetRiserItems, request.currentUser?.id),
         syncFireAlarmInspections(fireAlarmItems, request.currentUser?.id),
+        syncHydrantInspections(hydrantItems, request.currentUser?.id),
         syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
-        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
+        duplicateIds: [...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
         failed: [
           ...testRecordResult.failed,
           ...inspectionResult.failed,
@@ -114,6 +117,7 @@ syncRouter.post(
           ...automaticSprinklerResult.failed,
           ...dryWetRiserResult.failed,
           ...fireAlarmResult.failed,
+          ...hydrantResult.failed,
           ...masterSystemFormInstanceResult.failed,
           ...unsupportedItems.map((item) => ({
             id: typeof (item as { entityId?: unknown })?.entityId === "string" ? (item as { entityId: string }).entityId : "unknown",

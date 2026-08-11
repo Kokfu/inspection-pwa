@@ -1,0 +1,49 @@
+<!doctype html><html><body><button id="run">Run Hydrant App resolution checks</button><pre id="result">Ready</pre><script type="module">
+import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute } from "/src/hydrant/hydrantResolution.ts";
+const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const ids={job:uuid(1),system:uuid(2),zone:uuid(3),location:uuid(4),template:uuid(5),revision:uuid(6),accepted:uuid(7),draft:uuid(8)};
+const system={enabledSystemId:ids.system,systemKey:"hydrant",definitionStatus:"confirmed",displayName:"Hydrant",sortOrder:1,zones:[{id:ids.zone,enabledSystemId:ids.system,key:"zone",displayName:"Zone",sortOrder:1}],locations:[{id:ids.location,enabledSystemId:ids.system,zoneId:ids.zone,key:"location",displayName:"Location",presetRowCount:1,rowPreset:{assetReference:"H-1"},sortOrder:1}]};
+const job={id:ids.job,reference:"HYD-ROUTE",title:"Hydrant routing",status:"open",createdAt:"2026-08-10T00:00:00.000Z",configurationSnapshot:{schemaVersion:1,customer:{id:uuid(9),code:"TEST",displayName:"Test"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:ids.template,code:"MFE-FSSR",name:"Test",version:1},enabledSystems:[system]}};
+const catalog={templates:[]};
+const summary={clientUuid:ids.accepted,jobId:ids.job,systemKey:"hydrant",instanceKey:"primary",zoneId:null,locationId:null,displaySequence:1,status:"submitted",performedAt:"2026-08-10T00:00:00.000000Z",deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"server"};
+const draft={clientUuid:ids.draft,jobId:ids.job,systemKey:"hydrant",jobSystemKey:`${ids.job}:hydrant`,syncStatus:"Draft"};
+document.querySelector("#run").onclick=async()=>{const checks=[],check=(name,passed)=>checks.push({name,passed:!!passed});try{
+  let creates=0;const create=async()=>({ ...draft, clientUuid:uuid(20+creates++ ) });
+  const accepted=await resolveHydrantOpenTarget(job,system,undefined,"verified",async()=>catalog,async()=>summary,async()=>undefined,create);
+  check("A. empty local state resolves server Accepted before Draft creation",accepted.kind==="server"&&accepted.clientUuid===ids.accepted&&creates===0);
+  const stale=await resolveHydrantOpenTarget(job,system,undefined,"verified",async()=>catalog,async()=>summary,async()=>draft,create);
+  check("B. server Accepted wins over stale local Draft",stale.kind==="server"&&stale.clientUuid===ids.accepted&&creates===0);
+  const noAccepted=await resolveHydrantOpenTarget(job,system,undefined,"verified",async()=>catalog,async()=>undefined,async()=>undefined,create);
+  check("C. no server Accepted creates normal local Draft",noAccepted.kind==="local"&&creates===1);
+  const secondDevice=await resolveHydrantOpenTarget(job,system,undefined,"verified",async()=>catalog,async()=>summary,async()=>undefined,create);
+  check("D. empty second-device IndexedDB discovers server Accepted",secondDevice.kind==="server"&&secondDevice.clientUuid===ids.accepted&&creates===1);
+  const unavailable=await resolveHydrantOpenTarget(job,system,undefined,"verified",async()=>catalog,async()=>{throw new Error("resolution unavailable")},async()=>undefined,create);
+  check("E. resolution failure cannot create conflicting Draft",unavailable.kind==="server-unavailable"&&creates===1);
+  const offline=await resolveHydrantOpenTarget(job,system,undefined,"offline-unverified",async()=>catalog,async()=>{throw new Error("must not call server")},async()=>draft,create);
+  check("offline cached Draft remains usable without a server check",offline.kind==="local"&&offline.record.clientUuid===ids.draft);
+  const detail={clientUuid:ids.accepted,jobId:ids.job};
+  const appEmpty=await resolveHydrantRoute(ids.accepted,undefined,"verified",async()=>undefined,async()=>{throw new Error("summary is unavailable without job context")},async()=>detail);
+  check("App 1. empty local plus server Accepted selects authoritative detail",appEmpty.kind==="server");
+  const appDifferent=await resolveHydrantRoute(ids.accepted,undefined,"verified",async()=>undefined,async()=>summary,async()=>detail);
+  check("App 2. different local Draft UUID cannot override server Accepted",draft.clientUuid!==ids.accepted&&appDifferent.kind==="server");
+  for(const status of ["Pending","Failed","Draft"]){
+    const sameUuid={...draft,clientUuid:ids.accepted,syncStatus:status};
+    const selected=await resolveHydrantRoute(ids.accepted,undefined,"verified",async()=>sameUuid,async()=>summary,async()=>detail);
+    check(`App same-UUID ${status} cannot override server Accepted`,selected.kind==="server");
+  }
+  const lostResponse={...draft,clientUuid:ids.accepted,syncStatus:"Pending"};
+  const recovered=await resolveHydrantRoute(ids.accepted,undefined,"verified",async()=>lostResponse,async()=>summary,async()=>detail);
+  check("App 6. lost sync response still opens authoritative server detail",recovered.kind==="server");
+  const normalDraft=await resolveHydrantRoute(ids.draft,undefined,"verified",async()=>draft,async()=>undefined,async()=>{throw new Error("must not load detail")});
+  check("App 7. no server Accepted preserves normal local Draft",normalDraft.kind==="local"&&normalDraft.record.clientUuid===ids.draft);
+  const offlineDraft=await resolveHydrantRoute(ids.draft,undefined,"offline-unverified",async()=>draft,async()=>{throw new Error("must not call server")},async()=>{throw new Error("must not load detail")});
+  check("App 8. genuine offline cached Draft remains usable",offlineDraft.kind==="local"&&offlineDraft.record.clientUuid===ids.draft);
+  check("Reconnect A. offline cached Draft is visible before verified authority transition",canRenderLocalHydrant(draft,"offline-unverified",ids.draft,undefined,1,undefined));
+  for(const status of ["Pending","Failed","Draft"]){const stale={...draft,syncStatus:status};check(`Reconnect ${status}: verified transition hides stale editable form before authority result`,!canRenderLocalHydrant(stale,"verified",ids.draft,undefined,2,"verified-2"));}
+  const noAcceptedAfterAuthority={clientUuid:ids.draft,generation:2,verifiedAt:"verified-2"};
+  check("Reconnect E. verified no-Accepted result may resume the local Draft",canRenderLocalHydrant(draft,"verified",ids.draft,noAcceptedAfterAuthority,2,"verified-2"));
+  check("Reconnect F. resolution error keeps local Draft hidden",!canRenderLocalHydrant(draft,"verified",ids.draft,undefined,2,"verified-2"));
+  check("Reconnect A. prior verified authority result cannot survive a new verification",!canRenderLocalHydrant(draft,"verified",ids.draft,{...noAcceptedAfterAuthority,verifiedAt:"old-verification"},2,"verified-2"));
+  document.querySelector("#result").textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checks},null,2);
+}catch(error){document.querySelector("#result").textContent=JSON.stringify({status:"ERROR",message:String(error),checks},null,2)}};
+</script></body></html>
