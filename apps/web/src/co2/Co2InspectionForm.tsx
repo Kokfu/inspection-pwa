@@ -20,6 +20,7 @@ type Props = {
 };
 
 export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
+  const systemLabel = record.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
@@ -111,7 +112,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   }
 
   return <section className="hose-reel-form co2-form" aria-labelledby="co2-form-title">
-    <button type="button" className="secondary-command" onClick={onBack}>Back to CO2 Locations</button>
+      <button type="button" className="secondary-command" onClick={onBack}>Back to {systemLabel} Locations</button>
     <header className="inspection-context">
       <div>
         <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
@@ -125,7 +126,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
     {message ? <p className="form-message">{message}</p> : null}
 
     <fieldset disabled={readOnly}>
-      <legend>CO2 Control Panel</legend>
+      <legend>{systemLabel} Control Panel</legend>
       <label id="co2-panel-location" className={invalidTargets.has("co2-panel-location") ? "field-invalid" : ""}>
         {controls.controlPanelLocation.label}
         <input maxLength={controls.controlPanelLocation.maxLength} value={responses.controlPanelLocation} onChange={(event) => setResponses((current) => ({ ...current, controlPanelLocation: event.target.value }))} />
@@ -139,8 +140,8 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
           <h3>Detector Row {index + 1}</h3>
           <label>{controls.detectorRows.alarmZone.label}<input maxLength={controls.detectorRows.alarmZone.maxLength} value={row.alarmZone} onChange={(event) => updateDetector(row.rowUuid, { alarmZone: event.target.value })} /></label>
           <label>{controls.detectorRows.location.label}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
-          <div><strong>{controls.detectorRows.heatDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label="Heat Detector status" value={row.heatDetectorStatus} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /></div>
-          <div><strong>{controls.detectorRows.smokeDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label="Smoke Detector status" value={row.smokeDetectorStatus} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /></div>
+          <div><strong>{controls.detectorRows.heatDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={row.heatDetectorStatus} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /></div>
+          <div><strong>{controls.detectorRows.smokeDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={row.smokeDetectorStatus} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /></div>
           <RemarksField label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
           {!readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));

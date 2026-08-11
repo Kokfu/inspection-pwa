@@ -8,6 +8,7 @@ import {
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
 import { masterServiceReportV3 } from "../inspections/templates/masterServiceReportV3.js";
+import { masterServiceReportV4 } from "../inspections/templates/masterServiceReportV4.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 
 const demoRiserCustomerId = "00000000-0000-4000-8000-000000000810";
@@ -39,6 +40,12 @@ const demoCo2JobId = "00000000-0000-4000-8000-000000000679";
 const demoSprinklerJobId = "00000000-0000-4000-8000-000000000709";
 const demoPhotoSprinklerJobId = "00000000-0000-4000-8000-000000000729";
 const demoHydrantJobId = "00000000-0000-4000-8000-000000000739";
+const demoWetChemicalCustomerId = "00000000-0000-4000-8000-000000000740";
+const demoWetChemicalRevisionId = "00000000-0000-4000-8000-000000000741";
+const demoWetChemicalEnabledSystemId = "00000000-0000-4000-8000-000000000742";
+const demoWetChemicalZoneId = "00000000-0000-4000-8000-000000000743";
+const demoWetChemicalLocationId = "00000000-0000-4000-8000-000000000744";
+const demoWetChemicalJobId = "00000000-0000-4000-8000-000000000749";
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
@@ -62,6 +69,12 @@ const demoHydrantCustomer = {
   code: "DEMO-HYDRANT",
   name: "Demo Hydrant Client",
   revisionId: demoHydrantRevisionId
+} as const;
+const demoWetChemicalCustomer = {
+  id: demoWetChemicalCustomerId,
+  code: "DEMO-WET-CHEMICAL",
+  name: "Demo Wet Chemical Client",
+  revisionId: demoWetChemicalRevisionId
 } as const;
 const demoCo2Zones = [
   { id: "00000000-0000-4000-8000-000000000681", key: "zone-1", name: "Zone 1", sortOrder: 1 },
@@ -113,7 +126,7 @@ async function insertFixture(entity: string, operation: Promise<unknown>) {
   }
 }
 
-type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3;
+type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3 | typeof masterServiceReportV4;
 
 async function assertPublishedMasterServiceReportTemplateMetadata(
   client: PoolClient,
@@ -335,6 +348,25 @@ async function seedTemplate(client: PoolClient) {
     );
   }
   await assertPublishedMasterServiceReportTemplate(client, "Published Master V3", masterServiceReportV3);
+  await insertFixture("Published Master V4 template", client.query(
+    `INSERT INTO master_service_report_templates
+      (id, code, name, version, selection_policy, header_definition, report_boilerplate, publication_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`,
+    [masterServiceReportV4.id, masterServiceReportV4.code, masterServiceReportV4.name,
+      masterServiceReportV4.version, masterServiceReportV4.selectionPolicy,
+      JSON.stringify(masterServiceReportV4.header), JSON.stringify(masterServiceReportV4.reportBoilerplate)]
+  ));
+  await assertPublishedMasterServiceReportTemplateMetadata(client, "Published Master V4", masterServiceReportV4);
+  for (const system of masterServiceReportV4.systems) {
+    await client.query(
+      `INSERT INTO master_service_report_systems
+        (template_version_id, system_key, display_name, sort_order, definition_status, definition)
+       VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id, system_key) DO NOTHING`,
+      [masterServiceReportV4.id, system.key, system.displayName, system.sortOrder,
+        system.definitionStatus, JSON.stringify(system)]
+    );
+  }
+  await assertPublishedMasterServiceReportTemplate(client, "Published Master V4", masterServiceReportV4);
 }
 
 async function seedDryWetRiserFixture(client: PoolClient) {
@@ -372,7 +404,8 @@ export async function assertDryWetRiserFixture(client: PoolClient, snapshot: unk
 
 async function seedCustomer(
   client: PoolClient,
-  customer: { id: string; code: string; name: string; revisionId: string }
+  customer: { id: string; code: string; name: string; revisionId: string },
+  templateVersionId: string = masterServiceReportV1.id
 ) {
   await insertFixture(`Demo customer ${customer.code}`, client.query(
     `
@@ -402,7 +435,7 @@ async function seedCustomer(
       VALUES ($1, $2, $3, 1, 'active')
       ON CONFLICT (id) DO NOTHING
     `,
-    [customer.revisionId, customer.id, masterServiceReportV1.id]
+    [customer.revisionId, customer.id, templateVersionId]
   ));
   const storedRevision = await client.query<Record<string, unknown>>(
     `SELECT id, customer_id AS "customerId", template_version_id AS "templateVersionId",
@@ -413,7 +446,7 @@ async function seedCustomer(
   assertFixtureFields(`Demo configuration revision ${customer.revisionId}`, storedRevision.rows[0], {
     id: customer.revisionId,
     customerId: customer.id,
-    templateVersionId: masterServiceReportV1.id,
+    templateVersionId,
     revision: 1,
     status: "active"
   });
@@ -470,7 +503,8 @@ async function seedEnabledSystem(
   revisionId: string,
   systemKey: string,
   sortOrder: number,
-  evidencePolicyId: string | null = null
+  evidencePolicyId: string | null = null,
+  templateVersionId: string = masterServiceReportV1.id
 ) {
   await insertFixture(`Demo enabled system ${id}`, client.query(
     `
@@ -481,7 +515,7 @@ async function seedEnabledSystem(
       VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (id) DO NOTHING
     `,
-    [id, revisionId, masterServiceReportV1.id, systemKey, sortOrder, evidencePolicyId]
+    [id, revisionId, templateVersionId, systemKey, sortOrder, evidencePolicyId]
   ));
   const stored = await client.query<Record<string, unknown>>(
     `SELECT enabled.id, enabled.configuration_revision_id AS "configurationRevisionId",
@@ -498,7 +532,7 @@ async function seedEnabledSystem(
   assertFixtureFields(`Demo enabled system ${id}`, stored.rows[0], {
     id,
     configurationRevisionId: revisionId,
-    templateVersionId: masterServiceReportV1.id,
+    templateVersionId,
     systemKey,
     sortOrder,
     definitionStatus: "confirmed",
@@ -779,6 +813,7 @@ async function seedDemoConfigurations(client: PoolClient) {
   await seedCustomer(client, demoSprinklerCustomer);
   await seedCustomer(client, demoPhotoSprinklerCustomer);
   await seedCustomer(client, demoHydrantCustomer);
+  await seedCustomer(client, demoWetChemicalCustomer, masterServiceReportV4.id);
 
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
@@ -873,6 +908,21 @@ async function seedDemoConfigurations(client: PoolClient) {
     name: "Main Hydrant Bank",
     rowCount: 2,
     assetReference: "HYD-DEMO-01",
+    sortOrder: 1
+  });
+  await seedEnabledSystem(
+    client, demoWetChemicalEnabledSystemId, demoWetChemicalRevisionId,
+    "wet_chemical", 1, null, masterServiceReportV4.id
+  );
+  await seedZone(client, demoWetChemicalZoneId, demoWetChemicalEnabledSystemId, "kitchen-a", "Kitchen A", 1);
+  await seedLocation(client, {
+    id: demoWetChemicalLocationId,
+    enabledSystemId: demoWetChemicalEnabledSystemId,
+    zoneId: demoWetChemicalZoneId,
+    key: "kitchen-hood-a",
+    name: "Kitchen Hood A",
+    rowCount: 1,
+    assetReference: "WC-01",
     sortOrder: 1
   });
 }
@@ -1293,8 +1343,10 @@ async function seedDemoJob(
     title: string;
     customerId: string;
     revisionId: string;
+    templateVersionId?: string;
   }
 ) {
+  const templateVersionId = values.templateVersionId ?? masterServiceReportV1.id;
   const snapshot = await buildJobConfigurationSnapshot(
     client,
     values.customerId,
@@ -1312,7 +1364,7 @@ async function seedDemoJob(
     `,
     [
       values.id,
-      masterServiceReportV1.id,
+      templateVersionId,
       values.reference,
       values.title,
       values.customerId,
@@ -1332,7 +1384,7 @@ async function seedDemoJob(
       values.title,
       values.customerId,
       values.revisionId,
-      masterServiceReportV1.id,
+      templateVersionId,
       JSON.stringify(snapshot)
     ]
   );
@@ -1418,6 +1470,14 @@ async function seedDemoJobs(client: PoolClient) {
     title: "Demo Hydrant Job",
     customerId: demoHydrantCustomerId,
     revisionId: demoHydrantRevisionId
+  });
+  await seedDemoJob(client, {
+    id: demoWetChemicalJobId,
+    reference: "DEMO-JOB-WET-CHEMICAL-001",
+    title: "Demo Wet Chemical Job",
+    customerId: demoWetChemicalCustomerId,
+    revisionId: demoWetChemicalRevisionId,
+    templateVersionId: masterServiceReportV4.id
   });
 }
 

@@ -87,8 +87,11 @@ export function resolvePublishedCo2Controls(
   templateCode = "MFE-FSSR",
   templateVersion = 1
 ): ResolvedCo2Controls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 1 || !isRecord(definition) || definition.key !== "co2_fire_extinguisher") {
-    throw new Error("Unsupported CO2 template definition");
+  const wetChemical = isRecord(definition) && definition.key === "wet_chemical";
+  if (templateCode !== "MFE-FSSR" || !isRecord(definition)
+    || (!wetChemical && (templateVersion !== 1 || definition.key !== "co2_fire_extinguisher"))
+    || (wetChemical && templateVersion !== 4)) {
+    throw new Error("Unsupported suppression-system template definition");
   }
   const sections = list(definition.sections, "sections");
   const controlPanel = named(sections, "control_panel", "Control Panel section");
@@ -103,7 +106,7 @@ export function resolvePublishedCo2Controls(
   const alarmZone = named(detectorColumns, "alarm_zone", "Alarm Zone");
   const location = named(detectorColumns, "location", "Location");
   const heatDetector = named(detectorColumns, "heat_detector", "Heat Detector");
-  const smokeDetector = named(detectorColumns, "smoke_detector", "Smoke Detector");
+  const smokeDetector = named(detectorColumns, wetChemical ? "unconfirmed_second_heat_detector" : "smoke_detector", wetChemical ? "Second Heat Detector" : "Smoke Detector");
   const chargerChecks = named(list(charger.blocks, "Charger blocks"), "charger_battery_checks", "Charger checks");
   const physicalChecks = named(list(physical.blocks, "Physical blocks"), "physical_outlook_checks", "Physical checks");
   const functionBlocks = list(functions.blocks, "Function blocks");
@@ -113,7 +116,7 @@ export function resolvePublishedCo2Controls(
 
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "co2_fire_extinguisher" },
+    source: { templateCode: "MFE-FSSR", templateVersion: wetChemical ? 4 : 1, systemKey: wetChemical ? "wet_chemical" : "co2_fire_extinguisher" },
     repetitionMode: "per_location",
     controlPanelLocation: {
       key: "control_panel_location",
@@ -142,8 +145,8 @@ export function controlsForCo2Snapshot(snapshot: {
   system: { definition: unknown; resolvedControls: ResolvedCo2Controls };
 }) {
   const controls = snapshot.system.resolvedControls;
-  if (controls?.schemaVersion !== 1 || controls.source?.systemKey !== "co2_fire_extinguisher" || controls.repetitionMode !== "per_location") {
-    throw new Error("Frozen CO2 controls are invalid");
+  if (controls?.schemaVersion !== 1 || (controls.source?.systemKey !== "co2_fire_extinguisher" && controls.source?.systemKey !== "wet_chemical") || controls.repetitionMode !== "per_location") {
+    throw new Error("Frozen suppression-system controls are invalid");
   }
   return controls;
 }

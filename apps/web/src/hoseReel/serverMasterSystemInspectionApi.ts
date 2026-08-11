@@ -1,7 +1,7 @@
 export type ServerMasterSystemInspectionSummary = {
   clientUuid: string;
   jobId: string;
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
   instanceKey: string;
   zoneId: string | null;
   locationId: string | null;
@@ -17,12 +17,12 @@ export type ServerMasterSystemInspectionSummary = {
   requiredEvidenceCount: number;
   confirmedEvidenceCount: number;
 } | {
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
 });
 
 export type SummaryPage = { inspections: ServerMasterSystemInspectionSummary[]; hasMore: boolean; nextCursor: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant"]);
+const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant"]);
 const keys = ["clientUuid", "jobId", "systemKey", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"];
 const sprinklerKeys = [...keys, "evidenceState", "requiredEvidenceCount", "confirmedEvidenceCount"];
 const evidenceStates = new Set(["not-required", "complete", "pending", "failed", "invalid"]);
@@ -64,7 +64,7 @@ export function parseServerMasterSystemInspectionPage(value: unknown): SummaryPa
         || (item.evidenceState === "not-required" && ((item.requiredEvidenceCount as number) !== 0 || (item.confirmedEvidenceCount as number) !== 0))
         || (item.evidenceState === "complete" && (item.confirmedEvidenceCount as number) !== (item.requiredEvidenceCount as number))) throw new Error("Invalid Automatic Sprinkler evidence summary");
     }
-    const single = systemKey !== "co2_fire_extinguisher";
+    const single = systemKey !== "co2_fire_extinguisher" && systemKey !== "wet_chemical";
     if ((single && (item.instanceKey !== "primary" || item.zoneId !== null || item.locationId !== null || item.displaySequence !== 1)) || (!single && (!/^location:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.instanceKey) || !uuid.test(item.locationId as string) || (item.zoneId !== null && !uuid.test(item.zoneId))))) throw new Error("Invalid server inspection identity");
     if (clientUuids.has(item.clientUuid) || identities.has(`${item.jobId}:${systemKey}:${item.instanceKey}`)) throw new Error("Ambiguous server inspection summaries");
     clientUuids.add(item.clientUuid); identities.add(`${item.jobId}:${systemKey}:${item.instanceKey}`);
@@ -102,8 +102,30 @@ export async function loadAllPages(query: URLSearchParams, action: string, reque
   return all;
 }
 
-export async function findServerMasterSystemInspection(jobId: string, systemKey: string) {
+export type ServerSuppressionLocationIdentity = {
+  configuredLocationId: string;
+  instanceKey: string;
+  configuredZoneId: string | null;
+  displaySequence: number;
+};
+
+export async function findServerMasterSystemInspection(
+  jobId: string,
+  systemKey: string,
+  expectedLocation?: ServerSuppressionLocationIdentity
+) {
   const query = new URLSearchParams({ jobId, systemKey });
+  if (expectedLocation) query.set("locationId", expectedLocation.configuredLocationId);
   const inspections = await loadAllPages(query, "check server inspections");
-  return inspections[0];
+  if (!expectedLocation) return inspections[0];
+  if (inspections.length > 1) throw new Error("Ambiguous server inspection summary for configured location");
+  const inspection = inspections[0];
+  if (!inspection) return undefined;
+  if (inspection.locationId !== expectedLocation.configuredLocationId
+    || inspection.instanceKey !== expectedLocation.instanceKey
+    || inspection.zoneId !== expectedLocation.configuredZoneId
+    || inspection.displaySequence !== expectedLocation.displaySequence) {
+    throw new Error("Server inspection summary does not match configured location");
+  }
+  return inspection;
 }

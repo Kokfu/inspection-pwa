@@ -7,10 +7,10 @@ import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 type UnknownRecord = Record<string, unknown>;
 type SyncItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
 type Payload = {
-  clientUuid: string; jobId: string; systemKey: "co2_fire_extinguisher"; instanceKey: string;
+  clientUuid: string; jobId: string; systemKey: "co2_fire_extinguisher" | "wet_chemical"; instanceKey: string;
   configuredZoneId: string | null; configuredLocationId: string; displaySequence: number;
   originalCreatorSnapshot: UnknownRecord | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 | 4 };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: UnknownRecord; responses: UnknownRecord; performedAt: string;
 };
@@ -19,8 +19,17 @@ type JobRow = {
   customer_configuration_revision_id: string; configuration_snapshot: UnknownRecord;
 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const canonicalUtc = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const locationInstanceKey = /^location:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const envelopeKeys = ["operationId", "entityType", "entityId", "action", "payload"];
+const payloadKeys = ["clientUuid", "jobId", "systemKey", "instanceKey", "configuredZoneId", "configuredLocationId", "displaySequence", "originalCreatorSnapshot", "masterTemplate", "configuration", "inspectionSnapshot", "responses", "performedAt"];
+const templateKeys = ["id", "code", "version"];
+const configurationKeys = ["revisionId", "revisionNumber"];
+const snapshotKeys = ["schemaVersion", "capturedAt", "job", "customer", "configuration", "template", "system", "instance"];
 const isRecord = (value: unknown): value is UnknownRecord => typeof value === "object" && value !== null && !Array.isArray(value);
 const isUuid = (value: unknown): value is string => typeof value === "string" && uuid.test(value);
+const isCanonicalTimestamp = (value: unknown): value is string => typeof value === "string" && canonicalUtc.test(value)
+  && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
 const isTimestamp = (value: unknown): value is string => typeof value === "string" && !Number.isNaN(Date.parse(value));
 const fail = (id: string, code: string, message: string): SyncFailure => ({ id, code, message });
 const exactKeys = (value: UnknownRecord, keys: string[]) => Object.keys(value).length === keys.length && keys.every((key) => key in value);
@@ -35,14 +44,56 @@ function validCreator(value: unknown) {
     && value.source === "device_reported" && Number.isInteger(value.userId) && typeof value.username === "string"
     && (value.role === "admin" || value.role === "inspector") && isTimestamp(value.capturedAt));
 }
+function canonicalWetChemicalCreator(value: unknown): UnknownRecord | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value) || !exactKeys(value, ["source", "userId", "username", "role", "capturedAt"])
+    || value.source !== "device_reported" || typeof value.userId !== "number" || !Number.isSafeInteger(value.userId) || value.userId <= 0
+    || (value.role !== "admin" && value.role !== "inspector") || !isCanonicalTimestamp(value.capturedAt)) return undefined;
+  if (typeof value.username !== "string") return undefined;
+  const username = value.username.trim();
+  return username.length > 0 && username.length <= 160 ? { ...value, username } : undefined;
+}
+function validWetChemicalSnapshot(value: unknown, payload: UnknownRecord) {
+  if (!isRecord(value) || !exactKeys(value, snapshotKeys) || value.schemaVersion !== 1 || !isCanonicalTimestamp(value.capturedAt)
+    || !isRecord(value.job) || !isRecord(value.configuration) || !isRecord(value.template)
+    || !isRecord(value.customer) || !isRecord(value.system) || !isRecord(value.instance)) return false;
+  return value.job.id === payload.jobId && value.configuration.revisionId === (payload.configuration as UnknownRecord).revisionId
+    && value.configuration.revisionNumber === (payload.configuration as UnknownRecord).revisionNumber
+    && value.template.id === (payload.masterTemplate as UnknownRecord).id && value.template.code === "MFE-FSSR"
+    && value.template.version === 4 && value.instance.instanceKey === payload.instanceKey
+    && value.instance.displaySequence === payload.displaySequence;
+}
+function validateWetChemicalEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFailure } {
+  const id = typeof item.entityId === "string" ? item.entityId : "unknown";
+  if (!isRecord(item) || !exactKeys(item, envelopeKeys) || !isUuid(item.operationId)
+    || item.entityType !== "masterSystemFormInstance" || item.action !== "create" || !isUuid(item.entityId)
+    || !isRecord(item.payload)) return { failure: fail(id, "VALIDATION_ERROR", "Wet Chemical form instance operation is invalid") };
+  const payload = item.payload;
+  const originalCreatorSnapshot = canonicalWetChemicalCreator(payload.originalCreatorSnapshot);
+  if (!exactKeys(payload, payloadKeys) || !isUuid(payload.clientUuid) || payload.clientUuid !== item.entityId
+    || !isUuid(payload.jobId) || payload.systemKey !== "wet_chemical" || typeof payload.instanceKey !== "string" || !locationInstanceKey.test(payload.instanceKey)
+    || !isUuid(payload.configuredLocationId) || payload.instanceKey !== `location:${payload.configuredLocationId}` || !(payload.configuredZoneId === null || isUuid(payload.configuredZoneId))
+    || typeof payload.displaySequence !== "number" || !Number.isSafeInteger(payload.displaySequence) || payload.displaySequence < 1 || originalCreatorSnapshot === undefined
+    || !isRecord(payload.masterTemplate) || !exactKeys(payload.masterTemplate, templateKeys) || !isUuid(payload.masterTemplate.id)
+    || payload.masterTemplate.code !== "MFE-FSSR" || payload.masterTemplate.version !== 4
+    || !isRecord(payload.configuration) || !exactKeys(payload.configuration, configurationKeys)
+    || !isUuid(payload.configuration.revisionId) || typeof payload.configuration.revisionNumber !== "number" || !Number.isSafeInteger(payload.configuration.revisionNumber) || payload.configuration.revisionNumber < 1
+    || !validWetChemicalSnapshot(payload.inspectionSnapshot, payload) || !isRecord(payload.responses) || !isCanonicalTimestamp(payload.performedAt)) {
+    return { failure: fail(id, "VALIDATION_ERROR", "Wet Chemical form instance payload is invalid") };
+  }
+  return { payload: { ...payload, originalCreatorSnapshot } as unknown as Payload };
+}
 function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFailure } {
   const id = typeof item.entityId === "string" ? item.entityId : "unknown";
+  if (isRecord(item.payload) && item.payload.systemKey === "wet_chemical") return validateWetChemicalEnvelope(item);
   if (!isUuid(item.operationId) || item.entityType !== "masterSystemFormInstance" || item.action !== "create" || !isUuid(item.entityId) || !isRecord(item.payload)) return { failure: fail(id, "VALIDATION_ERROR", "CO2 form instance operation is invalid") };
   const p = item.payload;
-  if (!isUuid(p.clientUuid) || p.clientUuid !== item.entityId || !isUuid(p.jobId) || p.systemKey !== "co2_fire_extinguisher"
+  if (!isUuid(p.clientUuid) || p.clientUuid !== item.entityId || !isUuid(p.jobId)
+    || p.systemKey !== "co2_fire_extinguisher"
     || typeof p.instanceKey !== "string" || !isUuid(p.configuredLocationId) || !(p.configuredZoneId === null || isUuid(p.configuredZoneId))
     || !Number.isInteger(p.displaySequence) || (p.displaySequence as number) < 1 || !validCreator(p.originalCreatorSnapshot)
-    || !isRecord(p.masterTemplate) || !isUuid(p.masterTemplate.id) || p.masterTemplate.code !== "MFE-FSSR" || p.masterTemplate.version !== 1
+    || !isRecord(p.masterTemplate) || !isUuid(p.masterTemplate.id) || p.masterTemplate.code !== "MFE-FSSR"
+    || p.masterTemplate.version !== 1
     || !isRecord(p.configuration) || !isUuid(p.configuration.revisionId) || !Number.isInteger(p.configuration.revisionNumber)
     || !isRecord(p.inspectionSnapshot) || !isRecord(p.responses) || !isTimestamp(p.performedAt)) {
     return { failure: fail(id, "VALIDATION_ERROR", "CO2 form instance payload is invalid") };
@@ -85,9 +136,9 @@ function validateResponses(value: UnknownRecord, controls: ResolvedCo2Controls) 
     return allowed(controls.detectorRows.heatDetector.result, heat) || allowed(controls.detectorRows.smokeDetector.result, smoke);
   });
 }
-function findSystem(snapshot: UnknownRecord) {
+function findSystem(snapshot: UnknownRecord, systemKey: Payload["systemKey"]) {
   const systems = Array.isArray(snapshot.enabledSystems) ? snapshot.enabledSystems.filter(isRecord) : [];
-  return systems.find((system) => system.systemKey === "co2_fire_extinguisher" && system.definitionStatus === "confirmed");
+  return systems.find((system) => system.systemKey === systemKey && system.definitionStatus === "confirmed");
 }
 function canonicalInstance(system: UnknownRecord, locationId: string) {
   const locations = Array.isArray(system.locations) ? system.locations.filter(isRecord) : [];
@@ -134,11 +185,11 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       const job = jobResult.rows[0];
       const configuration = job && isRecord(job.configuration_snapshot.configuration) ? job.configuration_snapshot.configuration : undefined;
       const template = job && isRecord(job.configuration_snapshot.template) ? job.configuration_snapshot.template : undefined;
-      const system = job ? findSystem(job.configuration_snapshot) : undefined;
+      const system = job ? findSystem(job.configuration_snapshot, payload.systemKey) : undefined;
       if (!job || !system || !configuration || !template || job.master_template_version_id !== payload.masterTemplate.id
         || job.customer_configuration_revision_id !== payload.configuration.revisionId || configuration.revisionId !== payload.configuration.revisionId
         || configuration.revisionNumber !== payload.configuration.revisionNumber || template.id !== payload.masterTemplate.id
-        || template.code !== "MFE-FSSR" || template.version !== 1) {
+        || template.code !== "MFE-FSSR" || template.version !== payload.masterTemplate.version) {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 job configuration is unavailable")); continue;
       }
       const canonical = canonicalInstance(system, payload.configuredLocationId);
@@ -146,13 +197,16 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
         || (canonical.zone?.id ?? null) !== payload.configuredZoneId) {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "Configured CO2 location identity is invalid")); continue;
       }
-      const definitionResult = await client.query<{ definition: unknown; definition_status: string }>("SELECT definition, definition_status FROM master_service_report_systems WHERE template_version_id = $1 AND system_key = 'co2_fire_extinguisher'", [payload.masterTemplate.id]);
+      const definitionResult = await client.query<{ definition: unknown; definition_status: string }>("SELECT definition, definition_status FROM master_service_report_systems WHERE template_version_id = $1 AND system_key = $2", [payload.masterTemplate.id, payload.systemKey]);
       if (definitionResult.rowCount !== 1 || definitionResult.rows[0].definition_status !== "confirmed") {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 definition is unavailable")); continue;
       }
       let controls: ResolvedCo2Controls;
-      try { controls = resolveCo2Controls(definitionResult.rows[0].definition, "MFE-FSSR", 1); }
+      try { controls = resolveCo2Controls(definitionResult.rows[0].definition, "MFE-FSSR", payload.masterTemplate.version); }
       catch { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 definition is invalid")); continue; }
+      if (controls.source.systemKey !== payload.systemKey || controls.source.templateVersion !== payload.masterTemplate.version) {
+        await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "Suppression-system definition identity is invalid")); continue;
+      }
       if (!validateResponses(payload.responses, controls)) {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 form is incomplete or invalid")); continue;
       }
@@ -174,8 +228,8 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       }
       if (job.status !== "open") { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is closed")); continue; }
       const groupId = randomUUID();
-      await client.query("INSERT INTO master_system_inspections (id, job_id, system_key, created_by_user_id) VALUES ($1, $2, 'co2_fire_extinguisher', $3) ON CONFLICT (job_id, system_key) DO NOTHING", [groupId, payload.jobId, actorUserId ?? null]);
-      const group = await client.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = 'co2_fire_extinguisher' FOR UPDATE", [payload.jobId]);
+      await client.query("INSERT INTO master_system_inspections (id, job_id, system_key, created_by_user_id) VALUES ($1, $2, $3, $4) ON CONFLICT (job_id, system_key) DO NOTHING", [groupId, payload.jobId, payload.systemKey, actorUserId ?? null]);
+      const group = await client.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = $2 FOR UPDATE", [payload.jobId, payload.systemKey]);
       const resolvedGroupId = group.rows[0]?.id;
       if (!resolvedGroupId) throw new Error("CO2 group could not be resolved");
       const conflict = await classifyConflict(client, payload, fingerprint, resolvedGroupId);
@@ -193,8 +247,8 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
         job: { id: payload.jobId, reference: job.job_reference, title: job.title },
         customer: job.configuration_snapshot.customer,
         configuration: job.configuration_snapshot.configuration,
-        template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: 1 },
-        system: { key: "co2_fire_extinguisher", displayName: system.displayName, definition: definitionResult.rows[0].definition, resolvedControls: controls, repetitionMode: "per_location" },
+        template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: payload.masterTemplate.version },
+        system: { key: payload.systemKey, displayName: system.displayName, definition: definitionResult.rows[0].definition, resolvedControls: controls, repetitionMode: "per_location" },
         instance: { instanceKey: canonical.instanceKey, displaySequence: canonical.displaySequence, zone: zoneSnapshot, location: locationSnapshot }
       };
       await client.query(
@@ -213,7 +267,7 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       result.acceptedIds.push(payload.clientUuid);
     } catch {
       await client.query("ROLLBACK").catch(() => undefined);
-      const group = await pool.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = 'co2_fire_extinguisher'", [payload.jobId]).catch(() => ({ rows: [] }));
+      const group = await pool.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = $2", [payload.jobId, payload.systemKey]).catch(() => ({ rows: [] }));
       const conflict = group.rows[0] && requestFingerprint
         ? await classifyConflict(client, payload, requestFingerprint, group.rows[0].id).catch(() => undefined)
         : undefined;

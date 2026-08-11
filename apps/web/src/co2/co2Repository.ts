@@ -15,21 +15,27 @@ import type {
   MasterSystemFormInstanceRecord,
   MasterSystemInspectionGroupRecord
 } from "./co2Types";
+import type { SuppressionSystemKey } from "./co2Types";
 
-const systemKey = "co2_fire_extinguisher" as const;
+const co2SystemKey = "co2_fire_extinguisher" as const;
+const wetChemicalSystemKey = "wet_chemical" as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const now = () => new Date().toISOString();
-export const co2GroupKey = (jobId: string) => `${jobId}:${systemKey}`;
+export const co2GroupKey = (jobId: string) => `${jobId}:${co2SystemKey}`;
+export const wetChemicalGroupKey = (jobId: string) => `${jobId}:${wetChemicalSystemKey}`;
 export type Co2SubmitIssue = { section: string; message: string; targetId: string };
 
 const isUuid = (value: string) => uuidPattern.test(value);
 const isExpectedInitializationConstraint = (error: unknown) =>
   error instanceof Error && error.name === "ConstraintError";
 
-function definitionFor(catalog: InspectionCatalogInput) {
-  const template = defaultCatalogTemplate(catalog);
+function definitionFor(catalog: InspectionCatalogInput, systemKey: SuppressionSystemKey, templateVersion: number) {
+  const template = "templates" in catalog
+    ? catalog.templates.find((candidate) => candidate.version === templateVersion)
+    : defaultCatalogTemplate(catalog);
+  if (!template) throw new Error("Cached template version is unavailable. Refresh jobs online first.");
   const system = template.systems.find((candidate) => candidate.key === systemKey && candidate.definitionStatus === "confirmed");
-  if (!system?.definition) throw new Error("Cached CO2 definition is unavailable. Refresh jobs online first.");
+  if (!system?.definition) throw new Error(`Cached ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} definition is unavailable. Refresh jobs online first.`);
   return {
     definition: system.definition,
     controls: resolvePublishedCo2Controls(system.definition, template.code, template.version)
@@ -109,13 +115,14 @@ export async function initializeCo2InspectionGroup(
   catalog: InspectionCatalogInput,
   creator: { id: number; username: string; role: "admin" | "inspector" } | undefined
 ) {
-  if (system.systemKey !== systemKey) throw new Error("Selected system is not CO2");
+  if (system.systemKey !== co2SystemKey && system.systemKey !== wetChemicalSystemKey) throw new Error("Selected system is not a supported suppression system");
+  const systemKey = system.systemKey;
   const expected = expectedInstances(system);
   if (expected.length === 0) {
-    throw new Error("No configured CO2 locations exist. A manager must create a new configuration revision and job.");
+    throw new Error(`No configured ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} locations exist. A manager must create a new configuration revision and job.`);
   }
-  const { definition, controls } = definitionFor(catalog);
-  const groupKey = co2GroupKey(job.id);
+  const { definition, controls } = definitionFor(catalog, systemKey, job.configurationSnapshot.template.version);
+  const groupKey = `${job.id}:${systemKey}`;
   const timestamp = now();
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator
     ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp }
@@ -158,7 +165,7 @@ export async function initializeCo2InspectionGroup(
             configuredLocationId: instance.location.id,
             displaySequence: instance.displaySequence,
             originalCreatorSnapshot,
-            masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 1 },
+            masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version as 1 | 4 },
             configuration: job.configurationSnapshot.configuration,
             inspectionSnapshot,
             responses: blankResponses(instance, controls),
@@ -188,7 +195,7 @@ export async function initializeCo2InspectionGroup(
     }
   }
   const group = await localDatabase.masterSystemInspectionGroups.get(groupKey);
-  if (!group) throw new Error("CO2 inspection group initialization did not complete");
+  if (!group) throw new Error("Suppression-system inspection group initialization did not complete");
   return { group, instances: await listCo2Instances(groupKey) };
 }
 
@@ -222,10 +229,10 @@ export function getCo2SubmitIssues(record: MasterSystemFormInstanceRecord, respo
     if (!row.alarmZone.trim()) issues.push({ section: "Detector Table", message: `${prefix}: Alarm Zone is required`, targetId });
     if (!row.location.trim()) issues.push({ section: "Detector Table", message: `${prefix}: Location is required`, targetId });
     if (!allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus) && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) {
-      issues.push({ section: "Detector Table", message: `${prefix}: complete Heat Detector or Smoke Detector status`, targetId });
+      issues.push({ section: "Detector Table", message: `${prefix}: complete ${controls.detectorRows.heatDetector.label} or ${controls.detectorRows.smokeDetector.label} status`, targetId });
     }
-    if (row.heatDetectorStatus !== null && !allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: Heat Detector status is invalid`, targetId });
-    if (row.smokeDetectorStatus !== null && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: Smoke Detector status is invalid`, targetId });
+    if (row.heatDetectorStatus !== null && !allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.heatDetector.label} status is invalid`, targetId });
+    if (row.smokeDetectorStatus !== null && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.smokeDetector.label} status is invalid`, targetId });
     if (row.alarmZone.length > controls.detectorRows.alarmZone.maxLength || row.location.length > controls.detectorRows.location.maxLength || row.remarks.length > controls.detectorRows.remarks.maxLength) {
       issues.push({ section: "Detector Table", message: `${prefix}: text exceeds the allowed length`, targetId });
     }
@@ -262,13 +269,13 @@ export async function saveCo2Draft(record: MasterSystemFormInstanceRecord, respo
   let next: MasterSystemFormInstanceRecord | undefined;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
-    if (!live || live.systemKey !== systemKey || live.syncStatus !== "Draft" || live.localUpdatedAt !== record.localUpdatedAt) {
-      throw new Error("Only the current Draft CO2 form can be edited");
+    if (!live || live.systemKey !== record.systemKey || live.syncStatus !== "Draft" || live.localUpdatedAt !== record.localUpdatedAt) {
+      throw new Error("Only the current Draft suppression-system form can be edited");
     }
     next = updated(live, responses, "Draft");
     await localDatabase.masterSystemFormInstances.put(next);
   });
-  if (!next) throw new Error("CO2 Draft was not saved");
+  if (!next) throw new Error("Suppression-system Draft was not saved");
   return next;
 }
 
@@ -294,10 +301,10 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
   let next: MasterSystemFormInstanceRecord | undefined;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
-    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") {
-      throw new Error("This CO2 form cannot be submitted in its current state");
+    if (!live || live.systemKey !== record.systemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") {
+      throw new Error("This suppression-system form cannot be submitted in its current state");
     }
-    if (getCo2SubmitIssues(live, responses).length > 0) throw new Error("Complete the required CO2 fields before local submission");
+    if (getCo2SubmitIssues(live, responses).length > 0) throw new Error("Complete the required suppression-system fields before local submission");
     next = updated(live, responses, "Pending");
     const activeKey = `masterSystemFormInstance:create:${live.clientUuid}`;
     const outbox: SyncOutboxItem = {
@@ -309,7 +316,7 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
     if (existing) await localDatabase.syncOutbox.update(existing.operationId, { payload: outbox.payload, status: "Pending", lastError: undefined });
     else await localDatabase.syncOutbox.add(outbox);
   });
-  if (!next) throw new Error("CO2 form was not submitted locally");
+  if (!next) throw new Error("Suppression-system form was not submitted locally");
   return next;
 }
 
@@ -318,15 +325,15 @@ export async function returnFailedCo2ToDraft(record: MasterSystemFormInstanceRec
   const activeKey = `masterSystemFormInstance:create:${record.clientUuid}`;
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
-    if (!live || live.systemKey !== systemKey || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
-      throw new Error("This CO2 form changed elsewhere. Reload before correcting it.");
+    if (!live || live.systemKey !== record.systemKey || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) {
+      throw new Error("This suppression-system form changed elsewhere. Reload before correcting it.");
     }
     next = { ...live, syncStatus: "Draft", localUpdatedAt: now(), lastSyncError: undefined };
     const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
     if (item) await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: now(), lastError: "Superseded by technician correction" });
     await localDatabase.masterSystemFormInstances.put(next);
   });
-  if (!next) throw new Error("CO2 form was not corrected");
+  if (!next) throw new Error("Suppression-system form was not corrected");
   return next;
 }
 

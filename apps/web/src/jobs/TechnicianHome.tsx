@@ -25,6 +25,34 @@ import type {
   ServerMasterSystemInspectionSummary
 } from "../hoseReel/serverMasterSystemInspectionApi";
 
+export function deriveWetChemicalAuthorityProgress(
+  group: MasterSystemInspectionGroupRecord,
+  instances: MasterSystemFormInstanceRecord[],
+  serverSummaries: ServerMasterSystemInspectionSummary[]
+) {
+  const states = group.expectedInstances.map((expected) => {
+    const accepted = serverSummaries.some((summary) => summary.jobId === group.jobId
+      && summary.systemKey === "wet_chemical"
+      && summary.locationId === expected.location.id
+      && summary.instanceKey === expected.instanceKey
+      && summary.zoneId === (expected.zone?.id ?? null)
+      && summary.displaySequence === expected.displaySequence);
+    if (accepted) return { syncStatus: "Synced" as const, startedAt: "server" };
+    const local = instances.find((record) => record.groupKey === group.groupKey
+      && record.instanceKey === expected.instanceKey
+      && record.configuredLocationId === expected.location.id
+      && record.configuredZoneId === (expected.zone?.id ?? null)
+      && record.displaySequence === expected.displaySequence);
+    return local ? { syncStatus: local.syncStatus, startedAt: local.startedAt } : undefined;
+  });
+  if (states.some((state) => state?.syncStatus === "Failed" || state?.syncStatus === "Conflict")) return "Needs Attention";
+  if (states.some((state) => state?.syncStatus === "Syncing")) return "Syncing";
+  if (states.some((state) => state?.syncStatus === "Pending")) return "Pending Sync";
+  if (states.length > 0 && states.every((state) => state?.syncStatus === "Synced")) return "Completed";
+  if (states.some((state) => state?.startedAt !== null && state?.startedAt !== undefined || state?.syncStatus === "Synced")) return "In Progress";
+  return "Not Started";
+}
+
 type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
@@ -92,11 +120,11 @@ export function TechnicianHome({
     serverMasterSystemInspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey
     );
-  const serverCo2Completed = (jobId: string) => {
+  const serverSuppressionCompleted = (jobId: string, systemKey: "co2_fire_extinguisher" | "wet_chemical") => {
     const expected = jobs.find((job) => job.id === jobId)?.configurationSnapshot.enabledSystems
-      .find((system) => system.systemKey === "co2_fire_extinguisher")?.locations ?? [];
+      .find((system) => system.systemKey === systemKey)?.locations ?? [];
     const acceptedLocations = new Set(serverMasterSystemInspections
-      .filter((record) => record.jobId === jobId && record.systemKey === "co2_fire_extinguisher")
+      .filter((record) => record.jobId === jobId && record.systemKey === systemKey)
       .map((record) => record.locationId));
     return expected.length > 0 && expected.every((location) => acceptedLocations.has(location.id));
   };
@@ -147,15 +175,22 @@ export function TechnicianHome({
       const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:hydrant`&&x.systemKey==="hydrant");
       return record?deriveMasterSystemProgress(record as MasterSystemInspectionRecord):noLocalProgress(jobId,systemKey);
     }
-    if (systemKey === "co2_fire_extinguisher") {
+    if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
+      if (systemKey === "wet_chemical" && group) {
+        return deriveWetChemicalAuthorityProgress(
+          group,
+          masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey),
+          serverMasterSystemInspections
+        );
+      }
       return group
         ? deriveCo2ParentProgress(
           group,
           masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey)
         )
         : deriveNoLocalSystemProgress(
-          serverCo2Completed(jobId),
+          serverSuppressionCompleted(jobId, systemKey),
           progressAuthStatus,
           serverMasterSystemProgressState
         );
@@ -198,6 +233,7 @@ export function TechnicianHome({
         progress={progressFor(selectedJob.id, selectedSystem.systemKey)}
         onBack={() => onBackToSystems(selectedJob)}
         onOpenHoseReel={() => onOpenHoseReel(selectedJob, selectedSystem)}
+        onOpenSuppressionLocations={selectedSystem.systemKey === "co2_fire_extinguisher" || selectedSystem.systemKey === "wet_chemical" ? () => onOpenCo2(selectedJob, selectedSystem) : undefined}
       />
     ) : selectedJob ? (
       <section aria-labelledby="applicable-systems-title">
@@ -217,7 +253,7 @@ export function TechnicianHome({
                 type="button"
                 onClick={() => system.systemKey === "hose_reel"
                   ? onOpenHoseReel(selectedJob, system)
-                  : system.systemKey === "co2_fire_extinguisher"
+                  : system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical"
                     ? onOpenCo2(selectedJob, system)
                     : system.systemKey === "automatic_sprinkler"
                       ? onOpenAutomaticSprinkler(selectedJob, system)

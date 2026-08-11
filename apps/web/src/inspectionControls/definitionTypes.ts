@@ -68,8 +68,8 @@ export type ResolvedCo2Controls = {
   schemaVersion: 1;
   source: {
     templateCode: "MFE-FSSR";
-    templateVersion: 1;
-    systemKey: "co2_fire_extinguisher";
+    templateVersion: 1 | 4;
+    systemKey: "co2_fire_extinguisher" | "wet_chemical";
   };
   repetitionMode: "per_location";
   controlPanelLocation: {

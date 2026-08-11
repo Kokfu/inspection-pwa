@@ -7,7 +7,12 @@ export type AuthUser = {
 export type AuthProbeResult =
   | { status: "authenticated"; user: AuthUser }
   | { status: "unauthenticated" }
-  | { status: "unavailable" };
+  // A reachable server responded, but did not provide a usable authenticated
+  // response (for example 5xx or malformed JSON).
+  | { status: "unavailable" }
+  // Fetch did not yield an HTTP response at all. This is deliberately distinct
+  // from a reachable-server error so cached offline access can remain usable.
+  | { status: "transport-unavailable" };
 
 export const authVerificationTimeoutMs = 5_000;
 
@@ -27,25 +32,32 @@ async function fetchWithAuthTimeout(
 }
 
 export async function getCurrentUser(timeoutMs = authVerificationTimeoutMs) {
+  let response: Response;
   try {
-    const response = await fetchWithAuthTimeout(
+    response = await fetchWithAuthTimeout(
       "/api/auth/me",
       { credentials: "same-origin", cache: "no-store" },
       timeoutMs
     );
+  } catch {
+    return { status: "transport-unavailable" } as const;
+  }
 
-    if (response.status === 401 || response.status === 403) {
-      return { status: "unauthenticated" } as const;
-    }
-    if (!response.ok) {
-      return { status: "unavailable" } as const;
-    }
+  if (response.status === 401 || response.status === 403) {
+    return { status: "unauthenticated" } as const;
+  }
+  if (!response.ok) {
+    return { status: "unavailable" } as const;
+  }
 
+  try {
     const data = (await response.json()) as { user?: AuthUser };
     return data.user
       ? { status: "authenticated", user: data.user } as const
       : { status: "unavailable" } as const;
   } catch {
+    // An HTTP response existed, so malformed JSON is a server-response failure,
+    // not evidence that the device is offline.
     return { status: "unavailable" } as const;
   }
 }

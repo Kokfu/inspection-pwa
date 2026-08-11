@@ -4,11 +4,12 @@ import type {
   ResolvedRepeatableResultColumn,
   ResultControlDefinition
 } from "./definitionControls.js";
+import { wetChemicalV4 } from "./masterServiceReportV4.js";
 
 type UnknownRecord = Record<string, unknown>;
 export type ResolvedCo2Controls = {
   schemaVersion: 1;
-  source: { templateCode: "MFE-FSSR"; templateVersion: 1; systemKey: "co2_fire_extinguisher" };
+  source: { templateCode: "MFE-FSSR"; templateVersion: 1 | 4; systemKey: "co2_fire_extinguisher" | "wet_chemical" };
   repetitionMode: "per_location";
   controlPanelLocation: { key: "control_panel_location"; label: string; required: true; maxLength: number };
   detectorRows: {
@@ -51,8 +52,25 @@ function detector(item: UnknownRecord): ResolvedRepeatableResultColumn {
 }
 const sorted = <T extends { sortOrder: number }>(items: T[]) => items.sort((a, b) => a.sortOrder - b.sortOrder);
 
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
+
+/** Wet Chemical accepts only the published V3 definition, including every
+ * field, control, result value and source wording. */
+export function isPublishedWetChemicalDefinition(value: unknown) {
+  return canonicalize(value) === canonicalize(wetChemicalV4);
+}
+
 export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR", templateVersion = 1): ResolvedCo2Controls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 1 || !isRecord(definition) || definition.key !== "co2_fire_extinguisher") throw new Error("Unsupported CO2 template definition");
+  const wetChemical = isRecord(definition) && definition.key === "wet_chemical";
+  if (templateCode !== "MFE-FSSR" || !isRecord(definition)
+    || (!wetChemical && (templateVersion !== 1 || definition.key !== "co2_fire_extinguisher"))
+    || (wetChemical && (templateVersion !== 4 || !isPublishedWetChemicalDefinition(definition)))) {
+    throw new Error("Unsupported suppression-system template definition");
+  }
   const sections = list(definition.sections, "sections");
   const panel = named(sections, "control_panel", "Control Panel section");
   const charger = named(sections, "charger_batteries", "Charger section");
@@ -68,7 +86,11 @@ export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR
   if (!isRecord(comments.field) || comments.field.control !== "remarks") throw new Error("CO2 comments metadata is invalid");
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "co2_fire_extinguisher" },
+    source: {
+      templateCode: "MFE-FSSR",
+      templateVersion: wetChemical ? 4 : 1,
+      systemKey: wetChemical ? "wet_chemical" : "co2_fire_extinguisher"
+    },
     repetitionMode: "per_location",
     controlPanelLocation: { key: "control_panel_location", label: text(panelField.label, "panel label"), required: true, maxLength: 300 },
     detectorRows: {
@@ -77,7 +99,9 @@ export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR
       alarmZone: { key: "alarm_zone", label: text(named(columns, "alarm_zone", "Alarm Zone").label, "Alarm Zone label"), required: true, maxLength: 200 },
       location: { key: "location", label: text(named(columns, "location", "Location").label, "Location label"), required: true, maxLength: 300 },
       heatDetector: detector(named(columns, "heat_detector", "Heat Detector")),
-      smokeDetector: detector(named(columns, "smoke_detector", "Smoke Detector")),
+      // Wet Chemical's second source column is deliberately not normalized to
+      // Smoke Detector.  It is preserved under the V1 field key.
+      smokeDetector: detector(named(columns, wetChemical ? "unconfirmed_second_heat_detector" : "smoke_detector", wetChemical ? "Second Heat Detector" : "Smoke Detector")),
       remarks: remarks()
     },
     chargerAndBatteries: sorted(list(named(list(charger.blocks, "Charger blocks"), "charger_battery_checks", "Charger checks").items, "Charger items").map(checklist)),

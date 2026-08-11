@@ -2,6 +2,7 @@ import type { ServerMasterSystemInspectionSummary } from "./serverMasterSystemIn
 
 function systemLabel(systemKey: ServerMasterSystemInspectionSummary["systemKey"]) {
   if (systemKey === "co2_fire_extinguisher") return "CO2 Fire Extinguisher System";
+  if (systemKey === "wet_chemical") return "Wet Chemical System";
   if (systemKey === "automatic_sprinkler") return "Automatic Sprinkler System";
   if (systemKey === "dry_wet_riser") return "Dry / Wet Riser";
   return "Hose Reel";

@@ -8,8 +8,24 @@ import { masterSystemInspectionsRouter } from "./masterSystemInspections.js";
 const jobId = "00000000-0000-4000-8000-000000000101";
 const otherJobId = "00000000-0000-4000-8000-000000000102";
 const hydrantUuid = "00000000-0000-4000-8000-000000000103";
+const wetChemicalUuid = "00000000-0000-4000-8000-000000000106";
+const wetChemicalLocationId = "00000000-0000-4000-8000-000000000107";
 
 const summaries = [
+  {
+    clientUuid: wetChemicalUuid,
+    jobId,
+    systemKey: "wet_chemical",
+    instanceKey: `location:${wetChemicalLocationId}`,
+    status: "submitted",
+    zoneId: null,
+    locationId: wetChemicalLocationId,
+    displaySequence: 2,
+    performedAt: "2026-08-10T12:00:00.000000Z",
+    deviceReportedCreatorUsername: null,
+    verifiedOriginalCreatorUsername: null,
+    syncedByUsername: "wet-chemical-inspector"
+  },
   {
     clientUuid: hydrantUuid,
     jobId,
@@ -74,8 +90,8 @@ test("real master-system summary route supports the authoritative Hydrant filter
     queryCount += 1;
     assert.match(sql, /job\.id = \$1/);
     assert.match(sql, /inspection\.system_key = \$2/);
-    assert.deepEqual(values, [jobId, "hydrant"]);
-    const rows = summaries.filter((summary) => summary.jobId === values[0] && summary.systemKey === values[1]);
+    const rows = summaries.filter((summary) => summary.jobId === values[0] && summary.systemKey === values[1]
+      && (values[2] === undefined || summary.locationId === values[2]));
     return { rows, rowCount: rows.length };
   };
 
@@ -92,9 +108,15 @@ test("real master-system summary route supports the authoritative Hydrant filter
     const acceptedResponse = await fetch(`${origin}/master-system-inspections?jobId=${jobId}&systemKey=hydrant`);
     assert.equal(acceptedResponse.status, 200);
     const accepted = await acceptedResponse.json() as { inspections: Array<{ clientUuid: string; jobId: string; systemKey: string }> };
-    assert.deepEqual(accepted.inspections, [summaries[0]]);
+    assert.deepEqual(accepted.inspections, [summaries[1]]);
     assert.equal(accepted.inspections[0]?.clientUuid, hydrantUuid);
     assert.equal(accepted.inspections.some((summary) => summary.systemKey !== "hydrant" || summary.jobId !== jobId), false);
+
+    const wetChemicalResponse = await fetch(`${origin}/master-system-inspections?jobId=${jobId}&systemKey=wet_chemical&locationId=${wetChemicalLocationId}`);
+    assert.equal(wetChemicalResponse.status, 200);
+    const wetChemical = await wetChemicalResponse.json() as { inspections: Array<{ clientUuid: string; locationId: string }> };
+    assert.deepEqual(wetChemical.inspections, [summaries[0]]);
+    assert.equal(wetChemical.inspections[0]?.clientUuid, wetChemicalUuid);
 
     const beforeInvalid = queryCount;
     const invalidResponse = await fetch(`${origin}/master-system-inspections?jobId=${jobId}&systemKey=not_a_real_system`);

@@ -15,11 +15,12 @@
         identityFromDeviceState,
         storeVerifiedIdentity
       } from "/src/auth/authStateRepository.ts";
-      import { decideAuthRestoration } from "/src/auth/authRestoration.ts";
+      import { beginAuthVerificationState, decideAuthRestoration } from "/src/auth/authRestoration.ts";
       import { shouldRenderLogin } from "/src/auth/authStateTypes.ts";
       import { localDatabase } from "/src/db/localDatabase.ts";
 
       const draftId = "auth-restoration-business-data";
+      const pendingId = "auth-restoration-pending-data";
       const user = { id: 41, username: "cached-inspector", role: "inspector" };
 
       document.querySelector("#run").addEventListener("click", async () => {
@@ -32,6 +33,12 @@
             id: draftId,
             entityType: "auth-test",
             payload: { preserved: true },
+            updatedAt: new Date().toISOString()
+          });
+          await localDatabase.drafts.put({
+            id: pendingId,
+            entityType: "auth-test",
+            payload: { preserved: true, status: "Pending" },
             updatedAt: new Date().toISOString()
           });
           await storeVerifiedIdentity(user);
@@ -48,25 +55,33 @@
             && !JSON.stringify(persisted).match(/password|token|cookie|secret|csrf/i);
 
           window.fetch = async () => { throw new TypeError("network unavailable"); };
-          const unavailableProbe = await getCurrentUser(25);
-          const cachedOffline = decideAuthRestoration(cached, unavailableProbe, false);
-          const cachedOnlineFetchError = decideAuthRestoration(cached, unavailableProbe, true);
-          const emptyOffline = decideAuthRestoration(undefined, unavailableProbe, false);
+          const transportFailureProbe = await getCurrentUser(25);
+          // The decision must be identical for both browser connectivity hints:
+          // only the lack of an HTTP response establishes offline-unverified.
+          const browserOfflineCachedFailure = decideAuthRestoration(cached, transportFailureProbe);
+          const browserOnlineCachedFailure = decideAuthRestoration(cached, transportFailureProbe);
+          const coldOffline = decideAuthRestoration(cached, transportFailureProbe);
+          const emptyTransportFailure = decideAuthRestoration(undefined, transportFailureProbe);
+          const cachedDraftBeforeAuthCleanup = await localDatabase.drafts.get(draftId);
+          const cachedPendingBeforeAuthCleanup = await localDatabase.drafts.get(pendingId);
 
           window.fetch = async () => new Response("", { status: 503 });
           const serverErrorProbe = await getCurrentUser(25);
-          const cachedOnlineServerError = decideAuthRestoration(cached, serverErrorProbe, true);
+          const cachedOnlineServerError = decideAuthRestoration(cached, serverErrorProbe);
 
           window.fetch = async () => new Response("", { status: 401 });
           const unauthorizedProbe = await getCurrentUser(25);
-          const unauthorized = decideAuthRestoration(cached, unauthorizedProbe, true);
+          const unauthorized = decideAuthRestoration(cached, unauthorizedProbe);
           window.fetch = async () => new Response("", { status: 403 });
           const forbiddenProbe = await getCurrentUser(25);
-          const forbidden = decideAuthRestoration(cached, forbiddenProbe, true);
+          const forbidden = decideAuthRestoration(cached, forbiddenProbe);
           const reverified = decideAuthRestoration(cached, {
             status: "authenticated",
             user
-          }, true);
+          });
+          const reconnectGate = beginAuthVerificationState({
+            status: "offline-unverified", user, lastVerifiedAt: cached.lastVerifiedAt
+          });
 
           await clearLocalIdentity(true);
           const explicitLogoutState = await getDeviceAuthState();
@@ -74,16 +89,21 @@
           const businessDraftAfterLogout = await localDatabase.drafts.get(draftId);
 
           const passed =
-            cachedOffline.kind === "offline-unverified"
+            transportFailureProbe.status === "transport-unavailable"
+            && browserOfflineCachedFailure.kind === "offline-unverified"
+            && browserOnlineCachedFailure.kind === "offline-unverified"
+            && coldOffline.kind === "offline-unverified"
             && cachedOnlineServerError.kind === "online-unavailable"
-            && cachedOnlineFetchError.kind === "online-unavailable"
-            && emptyOffline.kind === "online-unavailable"
+            && emptyTransportFailure.kind === "online-unavailable"
             && unauthorized.kind === "logged-out"
             && unauthorized.clearIdentity
             && forbidden.kind === "logged-out"
             && forbidden.clearIdentity
             && reverified.kind === "verified"
+            && reconnectGate.status === "verifying"
             && safePersistedShape
+            && cachedDraftBeforeAuthCleanup?.payload?.preserved === true
+            && cachedPendingBeforeAuthCleanup?.payload?.status === "Pending"
             && explicitLogoutState?.explicitLogout === true
             && loggedOutIdentity === undefined
             && businessDraftAfterLogout?.payload?.preserved === true
@@ -95,13 +115,18 @@
 
           result.textContent = JSON.stringify({
             status: passed ? "PASS" : "FAIL",
-            browserOfflineCachedFailure: cachedOffline.kind,
+            browserOfflineCachedFailure: browserOfflineCachedFailure.kind,
+            browserOnlineCachedFailure: browserOnlineCachedFailure.kind,
+            transportFailureProbe: transportFailureProbe.status,
+            coldStartWithoutRefresh: coldOffline.kind,
             browserOnlineServerError: cachedOnlineServerError.kind,
-            browserOnlineFetchError: cachedOnlineFetchError.kind,
-            noCacheNetworkFailure: emptyOffline.kind,
+            noCacheNetworkFailure: emptyTransportFailure.kind,
+            cachedLocalWorkAvailable: cachedDraftBeforeAuthCleanup?.payload?.preserved === true,
+            cachedPendingWorkAvailable: cachedPendingBeforeAuthCleanup?.payload?.status === "Pending",
             unauthorized: unauthorized.kind,
             forbidden: forbidden.kind,
             reconnect200: reverified.kind,
+            reconnectHidesEditableStateBeforeAuthority: reconnectGate.status,
             safePersistedShape,
             explicitLogoutBlocksRestore: loggedOutIdentity === undefined,
             businessDataPreserved: businessDraftAfterLogout?.payload?.preserved === true,
@@ -115,6 +140,7 @@
         } finally {
           window.fetch = originalFetch;
           await localDatabase.drafts.delete(draftId);
+          await localDatabase.drafts.delete(pendingId);
           await localDatabase.authState.clear();
         }
       });

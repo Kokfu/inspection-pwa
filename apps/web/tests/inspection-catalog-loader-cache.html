@@ -107,7 +107,12 @@
         v3Unavailable.has(key) ? "requires_confirmation" : "confirmed",
         key === "fire_alarm_detector" ? fireAlarmV3 : { key, marker: key === "dry_wet_riser" ? "v2" : "v1" }
       )));
-      const response = { template: v1, templates: [v1, v2, v3] };
+      const v4 = template("00000000-0000-4000-8000-000000000804", 4, catalogKeys.map((key, index) => systemEntry(
+        key, index + 1,
+        key === "wet_chemical" ? "confirmed" : (v3Unavailable.has(key) ? "requires_confirmation" : "confirmed"),
+        { key, marker: key === "wet_chemical" ? "wet-v4" : "v4", sections: [] }
+      )));
+      const response = { template: v1, templates: [v1, v2, v3, v4] };
       const system = {
         enabledSystemId: ids.system, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser",
         sortOrder: 1, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" },
@@ -162,25 +167,27 @@
           await clear();
           installFetch(response);
           const loaded = await loadInspectionCatalog();
-          check("loader retains V1 default plus V2 and V3", loaded.template.version === 1 && loaded.templates.length === 3 && loaded.templates[1].id === ids.v2 && loaded.templates[2].id === ids.v3);
+          check("loader retains V1 default plus V2, V3 and V4", loaded.template.version === 1 && loaded.templates.length === 4 && loaded.templates[1].id === ids.v2 && loaded.templates[2].id === ids.v3 && loaded.templates[3].version === 4);
           const loadedV1 = loaded.templates.find((item) => item.version === 1);
           const loadedV2 = loaded.templates.find((item) => item.version === 2);
           const loadedV3 = loaded.templates.find((item) => item.version === 3);
+          const loadedV4 = loaded.templates.find((item) => item.version === 4);
           check("V1 retains its original nine-system catalog", loadedV1?.systems.length === 9 && loadedV1.systems.map((item) => item.key).join(",") === catalogKeys.join(","));
           check("V2 remains Dry/Wet-only", loadedV2?.systems.length === 1 && loadedV2.systems[0]?.key === "dry_wet_riser");
           check("V3 contains exactly nine systems", loadedV3?.systems.length === 9 && loadedV3.systems.map((item) => item.key).join(",") === catalogKeys.join(","));
           const loadedFireAlarm = loadedV3?.systems.find((item) => item.key === "fire_alarm_detector");
           check("V3 Fire Alarm is confirmed and resolves exact controls", loadedFireAlarm?.definitionStatus === "confirmed" && resolveFireAlarmControls(loadedFireAlarm.definition).source.templateVersion === 3);
           check("V3 unimplemented systems remain unavailable", [...v3Unavailable].every((key) => loadedV3?.systems.find((item) => item.key === key)?.definitionStatus === "requires_confirmation"));
+          check("V4 promotes only Wet Chemical", loadedV4?.systems.find((item) => item.key === "wet_chemical")?.definitionStatus === "confirmed");
           const selectedMarkers = [loadedV1, loadedV2, loadedV3, loadedV1].map((selected) => selected?.systems.find((item) => item.key === "dry_wet_riser")?.definition.marker);
           check("V1 to V2 to V3 to V1 does not reuse stale definitions", selectedMarkers.join(",") === "v1,v2,v2,v1");
           check("returning from V3 restores the original V1 catalog", loadedV1?.id === loaded.template.id && loadedV1?.version === loaded.template.version && loadedV1?.systems.length === 9 && loadedV1.systems.map((item) => item.key).join(",") === catalogKeys.join(",") && loadedV1.systems[0]?.definition.marker === "v1");
           await refreshInspectionReferenceData(320);
           const cached = await getCachedInspectionCatalog();
-          check("IndexedDB reload retains V1, V2 and V3", cached?.template.id === ids.v1 && cached.templates.map((item) => item.version).join(",") === "1,2,3");
+          check("IndexedDB reload retains V1 through V4", cached?.template.id === ids.v1 && cached.templates.map((item) => item.version).join(",") === "1,2,3,4");
           const cachedEntry = await localDatabase.referenceData.get("inspection-catalog:MFE-FSSR:versions");
           const cachedIdentities = cached?.templates.map((item) => `${item.code}:${item.version}`) ?? [];
-          check("cache identity distinguishes template code and version", cachedEntry?.key === "inspection-catalog:MFE-FSSR:versions" && new Set(cachedIdentities).size === 3 && cachedIdentities.join(",") === "MFE-FSSR:1,MFE-FSSR:2,MFE-FSSR:3");
+          check("cache identity distinguishes template code and version", cachedEntry?.key === "inspection-catalog:MFE-FSSR:versions" && new Set(cachedIdentities).size === 4 && cachedIdentities.join(",") === "MFE-FSSR:1,MFE-FSSR:2,MFE-FSSR:3,MFE-FSSR:4");
           const first = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
           const second = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
           const createdId = first.kind === "local" ? first.record.clientUuid : "";
@@ -199,7 +206,7 @@
           installFetch(response);
           await refreshInspectionReferenceData(320);
           const upgraded = await getCachedInspectionCatalog();
-          check("online refresh upgrades legacy cache to V1, V2 and V3", upgraded?.templates.length === 3 && upgraded.templates.some((item) => item.id === ids.v2) && upgraded.templates.some((item) => item.id === ids.v3));
+          check("online refresh upgrades legacy cache to V1 through V4", upgraded?.templates.length === 4 && upgraded?.templates.some((item) => item.id === ids.v2) && upgraded?.templates.some((item) => item.id === ids.v3) && upgraded?.templates.some((item) => item.version === 4));
 
           const malformedFireAlarm = structuredClone(fireAlarmV3);
           malformedFireAlarm.sections[0].blocks[1].columns.reverse();

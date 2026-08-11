@@ -9,6 +9,8 @@
     "build": "npm run clean && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test:fire-alarm-definition": "tsx --test src/inspections/templates/fireAlarmDefinitionControls.test.ts",
+    "test:wet-chemical-definition": "tsx --test src/inspections/templates/wetChemicalDefinitionControls.test.ts",
+    "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "validate-fire-alarm": "tsx src/cli/validateFireAlarm.ts",
     "validate-fire-alarm-detail": "tsx src/cli/validateFireAlarmDetail.ts",
     "acceptance-fire-alarm": "node dist/cli/acceptanceFireAlarm.js",

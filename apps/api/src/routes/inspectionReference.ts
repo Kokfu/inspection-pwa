@@ -85,10 +85,11 @@ function assertVersionedCatalogRows(templates: TemplateRow[]) {
     identities.add(identity);
   }
   if (
-    templates.length !== 3
+    templates.length !== 4
     || !templates.some((template) => template.version === 1)
     || !templates.some((template) => template.version === 2)
     || !templates.some((template) => template.version === 3)
+    || !templates.some((template) => template.version === 4)
   ) {
     throw new Error("Inspection catalog is missing a required published MFE-FSSR version");
   }
@@ -121,7 +122,8 @@ async function loadCatalogTemplate(template: TemplateRow) {
             template.version
           )
         }
-      : system.key === "co2_fire_extinguisher" && template.version === 1
+      : (system.key === "co2_fire_extinguisher" && template.version === 1)
+          || (system.key === "wet_chemical" && template.version === 4)
         ? {
             ...system,
             resolvedRuntimeControls: resolveCo2Controls(
@@ -161,7 +163,7 @@ inspectionReferenceRouter.get(
           report_boilerplate AS "reportBoilerplate"
         FROM master_service_report_templates
         WHERE code = 'MFE-FSSR'
-          AND version IN (1, 2, 3)
+          AND version IN (1, 2, 3, 4)
           AND publication_status = 'published'
         ORDER BY version
       `);

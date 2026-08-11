@@ -22,6 +22,7 @@ export function groupCo2InstancesByZone(group: MasterSystemInspectionGroupRecord
 }
 
 export function Co2LocationList({ group, instances, onBack, onOpen }: Props) {
+  const systemLabel = group.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
   const byKey = new Map(instances.map((instance) => [instance.instanceKey, instance]));
   const zones = groupCo2InstancesByZone(group);
   return <section className="co2-location-list" aria-labelledby="co2-locations-title">
@@ -29,7 +30,7 @@ export function Co2LocationList({ group, instances, onBack, onOpen }: Props) {
     <div className="workspace-heading">
       <div>
         <p className="eyebrow">{group.jobReference}</p>
-        <h2 id="co2-locations-title">CO2 Locations</h2>
+        <h2 id="co2-locations-title">{systemLabel} Locations</h2>
         <p>{group.customer.displayName}</p>
       </div>
       <span className="status-label">{deriveCo2ParentProgress(group, instances)}</span>

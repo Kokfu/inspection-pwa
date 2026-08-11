@@ -10,6 +10,7 @@ const uuidPattern =
 const supportedSystemKeys = new Set([
   "hose_reel",
   "co2_fire_extinguisher",
+  "wet_chemical",
   "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant"
 ]);
 const pageSize = 100;
@@ -121,6 +122,9 @@ masterSystemInspectionsRouter.get(
       const systemKey = typeof request.query.systemKey === "string"
         ? request.query.systemKey
         : undefined;
+      const locationId = typeof request.query.locationId === "string"
+        ? request.query.locationId
+        : undefined;
       const jobIds = typeof request.query.jobIds === "string"
         ? request.query.jobIds.split(",").filter(Boolean)
         : [];
@@ -128,6 +132,7 @@ masterSystemInspectionsRouter.get(
       if (
         (jobId !== undefined && !uuidPattern.test(jobId))
         || (systemKey !== undefined && !supportedSystemKeys.has(systemKey))
+        || (locationId !== undefined && !uuidPattern.test(locationId))
         || jobIds.length > 100
         || jobIds.some((value) => !uuidPattern.test(value))
         || (request.query.cursor !== undefined && !cursor)
@@ -146,6 +151,10 @@ masterSystemInspectionsRouter.get(
       if (systemKey) {
         values.push(systemKey);
         filters.push(`inspection.system_key = $${values.length}`);
+      }
+      if (locationId) {
+        values.push(locationId);
+        filters.push(`instance.location_id = $${values.length}`);
       }
       if (jobIds.length > 0) {
         values.push(jobIds);

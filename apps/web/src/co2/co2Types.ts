@@ -3,6 +3,7 @@ import type { ResolvedCo2Controls } from "../inspectionControls/definitionTypes"
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot, JobZoneSnapshot } from "../jobs/jobTypes";
 
 export type Co2Result = "good" | "poor";
+export type SuppressionSystemKey = "co2_fire_extinguisher" | "wet_chemical";
 export type DetectorStatus = "normal" | "test" | "isolation";
 export type Co2SyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type Co2ChecklistResponse = { result: Co2Result | null; remarks: string };
@@ -32,7 +33,7 @@ export type Co2ConfiguredInstance = {
 export type MasterSystemInspectionGroupRecord = {
   groupKey: string;
   jobId: string;
-  systemKey: "co2_fire_extinguisher";
+  systemKey: SuppressionSystemKey;
   jobReference: string;
   jobTitle: string;
   customer: InspectionJob["configurationSnapshot"]["customer"];
@@ -60,12 +61,12 @@ export type MasterSystemFormInstanceRecord = {
   groupKey: string;
   instanceKey: string;
   jobId: string;
-  systemKey: "co2_fire_extinguisher";
+  systemKey: SuppressionSystemKey;
   configuredZoneId: string | null;
   configuredLocationId: string;
   displaySequence: number;
   originalCreatorSnapshot: DeviceReportedCreator | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 | 4 };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: Co2InspectionSnapshot;
   responses: Co2Responses;

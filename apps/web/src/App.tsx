@@ -50,6 +50,9 @@ import type {
   MasterSystemFormInstanceRecord,
   MasterSystemInspectionGroupRecord
 } from "./co2/co2Types";
+import { ServerWetChemicalView } from "./wetChemical/ServerWetChemicalView";
+import { loadServerWetChemicalDetail, type ServerWetChemicalDetail } from "./wetChemical/serverWetChemicalApi";
+import { resolveWetChemicalAuthority } from "./wetChemical/wetChemicalAuthority";
 import { getCurrentUser, login, logout, type AuthUser } from "./auth/authApi";
 import {
   clearLocalIdentity,
@@ -62,7 +65,7 @@ import {
   shouldRenderLogin,
   type ClientAuthState
 } from "./auth/authStateTypes";
-import { decideAuthRestoration } from "./auth/authRestoration";
+import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRestoration";
 import { LoginForm } from "./auth/LoginForm";
 import { initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
@@ -83,7 +86,7 @@ import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
 import type { HoseReelResponses, MasterSystemInspectionRecord } from "./hoseReel/hoseReelTypes";
 import { ServerMasterSystemInspectionList } from "./hoseReel/ServerMasterSystemInspectionList";
-import { loadServerMasterSystemInspections, type ServerMasterSystemInspectionSummary } from "./hoseReel/serverMasterSystemInspectionApi";
+import { findServerMasterSystemInspection, loadServerMasterSystemInspections, type ServerMasterSystemInspectionSummary } from "./hoseReel/serverMasterSystemInspectionApi";
 import {
   ServerSummaryRefreshGuard,
   type ServerSummaryRefreshToken
@@ -129,6 +132,7 @@ type AppRoute =
   | { name: "fire-alarm-form"; jobId: string; clientUuid: string }
   | { name: "hydrant-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
+  | { name: "wet-chemical-form"; clientUuid: string }
   | { name: "development" };
 
 function routeFromHash(): AppRoute {
@@ -140,6 +144,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "fire-alarm-form" && parts[1] && parts[2]) return { name: "fire-alarm-form", jobId: parts[1], clientUuid: parts[2] };
   if (parts[0] === "hydrant-form" && parts[1]) return { name: "hydrant-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
+  if (parts[0] === "wet-chemical-form" && parts[1]) return { name: "wet-chemical-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
   return { name: "jobs" };
@@ -153,6 +158,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "hydrant-form") return `#/hydrant-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "wet-chemical-form") return `#/wet-chemical-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
   return "#/jobs";
@@ -225,6 +231,9 @@ export function App() {
   const [masterSystemFormInstances, setMasterSystemFormInstances] = useState<MasterSystemFormInstanceRecord[]>([]);
   const [inspectionAttachments, setInspectionAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const [activeCo2Form, setActiveCo2Form] = useState<MasterSystemFormInstanceRecord>();
+  const [serverWetChemical, setServerWetChemical] = useState<ServerWetChemicalDetail>();
+  const [wetChemicalAuthorityState, setWetChemicalAuthorityState] = useState<"idle" | "loading" | "server" | "local" | "server-unavailable">("idle");
+  const [wetChemicalRouteMessage, setWetChemicalRouteMessage] = useState("");
   const [serverMasterSystemInspections, setServerMasterSystemInspections] = useState<ServerMasterSystemInspectionSummary[]>([]);
   const [serverMasterSystemInspectionMessage, setServerMasterSystemInspectionMessage] = useState("");
   const [serverMasterSystemInspectionLoading, setServerMasterSystemInspectionLoading] = useState(false);
@@ -240,6 +249,7 @@ export function App() {
   const [referenceCacheLoading, setReferenceCacheLoading] = useState(false);
   const authOperationGeneration = useRef(0);
   const authReconciliationGeneration = useRef(0);
+  const authRestorationReady = useRef(false);
   const activeExplicitAuthOperation = useRef<number | undefined>(undefined);
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
   const authAuthorityGuard = useRef(new AuthAuthorityGuard());
@@ -506,23 +516,17 @@ export function App() {
     if (cachedIdentity && !authAuthorityGuard.current.hasAuthority) {
       await loadCachedJobs(cachedIdentity.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return;
-      setAuthState(window.navigator.onLine
-        ? {
-          status: "verifying",
-          user: cachedIdentity.user,
-          lastVerifiedAt: cachedIdentity.lastVerifiedAt
-        }
-        : {
-          status: "offline-unverified",
-          user: cachedIdentity.user,
-          lastVerifiedAt: cachedIdentity.lastVerifiedAt
-        });
+      setAuthState({
+        status: "verifying",
+        user: cachedIdentity.user,
+        lastVerifiedAt: cachedIdentity.lastVerifiedAt
+      });
       setJobMessage("Using jobs previously cached for this user while verifying the session");
     }
 
     const probe = await getCurrentUser();
     if (!isCurrentReconciliation()) return;
-    const decision = decideAuthRestoration(cachedIdentity, probe, window.navigator.onLine);
+    const decision = decideAuthRestoration(cachedIdentity, probe);
     if (decision.kind === "verified") {
       const authorityReplacement = prepareVerifiedAuthority(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
@@ -555,13 +559,20 @@ export function App() {
         status: "online-unavailable",
         user: decision.identity?.user,
         lastVerifiedAt: decision.identity?.lastVerifiedAt,
-        message: "Server session verification is unavailable while this device is online."
+        message: "Server session verification is unavailable."
       });
       setJobMessage("Server session verification is unavailable; cached local inspection authority remains protected.");
       return;
     }
 
     if (decision.kind === "offline-unverified") {
+      revokeVerifiedAuthority();
+      setAuthState({
+        status: "offline-unverified",
+        user: decision.identity.user,
+        lastVerifiedAt: decision.identity.lastVerifiedAt
+      });
+      setJobMessage("Using cached jobs while the server transport is unavailable.");
       return;
     }
   }
@@ -569,27 +580,22 @@ export function App() {
   function beginServerVerification() {
     authReconciliationGeneration.current += 1;
     if (authAuthorityGuard.current.hasAuthority) revokeVerifiedAuthority();
-    setAuthState((current) => {
-      if (current.status === "verified" || current.status === "offline-unverified") {
-        return { status: "verifying", user: current.user, lastVerifiedAt: current.lastVerifiedAt };
-      }
-      if (current.status === "online-unavailable") {
-        return { status: "verifying", user: current.user, lastVerifiedAt: current.lastVerifiedAt };
-      }
-      return current;
-    });
+    setAuthState(beginAuthVerificationState);
   }
 
   async function revalidateAuthentication() {
-    if (!window.navigator.onLine) {
-      await reconcileAuthentication();
-      return;
-    }
     beginServerVerification();
     await reconcileAuthentication();
   }
 
   useEffect(() => {
+    const handleConnectivityHint = () => {
+      if (authRestorationReady.current) void revalidateAuthentication();
+    };
+    const handleHashChange = () => setRoute(routeFromHash());
+    window.addEventListener("offline", handleConnectivityHint);
+    window.addEventListener("online", handleConnectivityHint);
+    window.addEventListener("hashchange", handleHashChange);
     void initializeLocalDatabase().then(async () => {
       const recovered = await recoverInterruptedSync();
       setDatabaseReady(true);
@@ -605,38 +611,14 @@ export function App() {
         setSyncMessage("Recovered interrupted sync; record is retryable");
       }
       await reconcileAuthentication();
+      authRestorationReady.current = true;
       setInitialAuthRestored(true);
     });
 
-    const handleOffline = () => {
-      // A browser-confirmed offline transition removes the authority to resolve
-      // server-backed inspection state. Keep the cached identity, but require a
-      // fresh verification before permitting server authority again.
-      authReconciliationGeneration.current += 1;
-      if (authAuthorityGuard.current.hasAuthority) revokeVerifiedAuthority();
-      setAuthState((current) => (current.status === "verified" || current.status === "verifying")
-        && current.user && current.lastVerifiedAt
-        ? {
-          status: "offline-unverified",
-          user: current.user,
-          lastVerifiedAt: current.lastVerifiedAt
-        }
-        : current.status === "online-unavailable" && current.user && current.lastVerifiedAt
-          ? {
-            status: "offline-unverified",
-            user: current.user,
-            lastVerifiedAt: current.lastVerifiedAt
-          }
-        : current);
-    };
-    const handleOnline = () => void revalidateAuthentication();
-    const handleHashChange = () => setRoute(routeFromHash());
-    window.addEventListener("offline", handleOffline);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("hashchange", handleHashChange);
     return () => {
-      window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("online", handleOnline);
+      authRestorationReady.current = false;
+      window.removeEventListener("offline", handleConnectivityHint);
+      window.removeEventListener("online", handleConnectivityHint);
       window.removeEventListener("hashchange", handleHashChange);
     };
   }, []);
@@ -699,10 +681,38 @@ export function App() {
   }, [authAuthorityGeneration, authState.status, masterSystemInspections, route]);
 
   useEffect(() => {
-    setActiveCo2Form(route.name === "co2-form"
+    setActiveCo2Form((route.name === "co2-form" || route.name === "wet-chemical-form")
       ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
       : undefined);
   }, [masterSystemFormInstances, route]);
+  useEffect(() => {
+    if (route.name !== "wet-chemical-form") {
+      setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("idle"); return;
+    }
+    let current = true;
+    setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("loading");
+    const local = masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid && record.systemKey === "wet_chemical");
+    void resolveWetChemicalAuthority(authState.status, route.clientUuid, local, {
+      findSummary: (record) => findServerMasterSystemInspection(record.jobId, "wet_chemical", {
+        configuredLocationId: record.configuredLocationId,
+        instanceKey: record.instanceKey,
+        configuredZoneId: record.configuredZoneId,
+        displaySequence: record.displaySequence
+      }),
+      loadDetail: loadServerWetChemicalDetail
+    }).then((resolution) => {
+      if (!current) return;
+      if (resolution.kind === "server") {
+        setServerWetChemical(resolution.inspection); setActiveCo2Form(undefined); setWetChemicalAuthorityState("server");
+      } else if (resolution.kind === "local") {
+        setServerWetChemical(undefined); setWetChemicalAuthorityState("local");
+      } else {
+        setServerWetChemical(undefined); setActiveCo2Form(undefined); setWetChemicalAuthorityState(resolution.kind);
+        setWetChemicalRouteMessage(resolution.kind === "server-unavailable" ? resolution.message : "");
+      }
+    });
+    return () => { current = false; };
+  }, [authAuthorityGeneration, authState.status, masterSystemFormInstances, route]);
 
   useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
 
@@ -893,6 +903,12 @@ export function App() {
 
   async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
     try {
+      if (authState.status === "verified" && system.systemKey !== "wet_chemical") {
+        const accepted = await findServerMasterSystemInspection(job.id, system.systemKey);
+        if (accepted) {
+          throw new Error(`${system.displayName} is already accepted on the server. Its authoritative completion status is shown on Technician Home.`);
+        }
+      }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
       await initializeCo2InspectionGroup(job, system, catalog, currentUser);
@@ -1239,6 +1255,8 @@ export function App() {
             activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
             activeFireAlarm ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{fireAlarmRouteState==="loading"?"Loading authoritative accepted detail.":fireAlarmRouteState==="not-cached"?"Accepted detail is not cached on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this accepted inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The accepted inspection is inconsistent with local state.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The accepted detail is invalid and cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+          ) : route.name === "wet-chemical-form" ? (
+            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking server acceptance before displaying editable local data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             activeCo2Form ? (
               <Co2InspectionForm
@@ -1253,18 +1271,18 @@ export function App() {
             )
           ) : route.name === "hydrant-form" ? (
             mayRenderLocalHydrant ? <HydrantInspectionForm record={activeHydrant!} onBack={()=>navigate({name:"job",jobId:activeHydrant!.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
-          ) : route.name === "system" && route.systemKey === "co2_fire_extinguisher" ? (
+          ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
             (() => {
-              const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:co2_fire_extinguisher`);
+              const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
               return group ? (
                 <Co2LocationList
                   group={group}
                   instances={masterSystemFormInstances.filter((instance) => instance.groupKey === group.groupKey)}
                   onBack={() => navigate({ name: "job", jobId: route.jobId })}
-                  onOpen={(record) => navigate({ name: "co2-form", clientUuid: record.clientUuid })}
+                  onOpen={(record) => navigate({ name: route.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: record.clientUuid })}
                 />
               ) : (
-                <section className="workspace"><h2>CO2 locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
+                <section className="workspace"><h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
               );
             })()
           ) : (
