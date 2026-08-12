@@ -9,6 +9,7 @@ import { masterServiceReportV1 } from "../inspections/templates/masterServiceRep
 import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
 import { masterServiceReportV3 } from "../inspections/templates/masterServiceReportV3.js";
 import { masterServiceReportV4 } from "../inspections/templates/masterServiceReportV4.js";
+import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 
 const demoRiserCustomerId = "00000000-0000-4000-8000-000000000810";
@@ -46,6 +47,10 @@ const demoWetChemicalEnabledSystemId = "00000000-0000-4000-8000-000000000742";
 const demoWetChemicalZoneId = "00000000-0000-4000-8000-000000000743";
 const demoWetChemicalLocationId = "00000000-0000-4000-8000-000000000744";
 const demoWetChemicalJobId = "00000000-0000-4000-8000-000000000749";
+const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
+const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
+const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
+const demoPortableJobId = "00000000-0000-4000-8000-000000000759";
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
@@ -75,6 +80,12 @@ const demoWetChemicalCustomer = {
   code: "DEMO-WET-CHEMICAL",
   name: "Demo Wet Chemical Client",
   revisionId: demoWetChemicalRevisionId
+} as const;
+const demoPortableCustomer = {
+  id: demoPortableCustomerId,
+  code: "DEMO-PORTABLE-FIRE-EXTINGUISHER",
+  name: "Demo Portable Fire Extinguisher",
+  revisionId: demoPortableRevisionId
 } as const;
 const demoCo2Zones = [
   { id: "00000000-0000-4000-8000-000000000681", key: "zone-1", name: "Zone 1", sortOrder: 1 },
@@ -126,7 +137,7 @@ async function insertFixture(entity: string, operation: Promise<unknown>) {
   }
 }
 
-type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3 | typeof masterServiceReportV4;
+type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3 | typeof masterServiceReportV4 | typeof masterServiceReportV5;
 
 async function assertPublishedMasterServiceReportTemplateMetadata(
   client: PoolClient,
@@ -367,6 +378,16 @@ async function seedTemplate(client: PoolClient) {
     );
   }
   await assertPublishedMasterServiceReportTemplate(client, "Published Master V4", masterServiceReportV4);
+  await insertFixture("Published Master V5 template", client.query(
+    `INSERT INTO master_service_report_templates (id,code,name,version,selection_policy,header_definition,report_boilerplate,publication_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`,
+    [masterServiceReportV5.id, masterServiceReportV5.code, masterServiceReportV5.name, masterServiceReportV5.version, masterServiceReportV5.selectionPolicy, JSON.stringify(masterServiceReportV5.header), JSON.stringify(masterServiceReportV5.reportBoilerplate)]
+  ));
+  await assertPublishedMasterServiceReportTemplateMetadata(client, "Published Master V5", masterServiceReportV5);
+  for (const system of masterServiceReportV5.systems) await client.query(
+    `INSERT INTO master_service_report_systems (template_version_id,system_key,display_name,sort_order,definition_status,definition) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id,system_key) DO NOTHING`,
+    [masterServiceReportV5.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]
+  );
+  await assertPublishedMasterServiceReportTemplate(client, "Published Master V5", masterServiceReportV5);
 }
 
 async function seedDryWetRiserFixture(client: PoolClient) {
@@ -814,6 +835,7 @@ async function seedDemoConfigurations(client: PoolClient) {
   await seedCustomer(client, demoPhotoSprinklerCustomer);
   await seedCustomer(client, demoHydrantCustomer);
   await seedCustomer(client, demoWetChemicalCustomer, masterServiceReportV4.id);
+  await seedCustomer(client, demoPortableCustomer, masterServiceReportV5.id);
 
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
@@ -925,6 +947,7 @@ async function seedDemoConfigurations(client: PoolClient) {
     assetReference: "WC-01",
     sortOrder: 1
   });
+  await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
 }
 
 async function buildJobConfigurationSnapshot(
@@ -1478,6 +1501,14 @@ async function seedDemoJobs(client: PoolClient) {
     customerId: demoWetChemicalCustomerId,
     revisionId: demoWetChemicalRevisionId,
     templateVersionId: masterServiceReportV4.id
+  });
+  await seedDemoJob(client, {
+    id: demoPortableJobId,
+    reference: "DEMO-JOB-PORTABLE-FIRE-EXTINGUISHER-001",
+    title: "Portable Fire Extinguisher",
+    customerId: demoPortableCustomerId,
+    revisionId: demoPortableRevisionId,
+    templateVersionId: masterServiceReportV5.id
   });
 }
 

@@ -13,6 +13,7 @@
       } from "/src/referenceData/referenceDataCache.ts";
       import { parseInspectionCatalog } from "/src/referenceData/referenceDataTypes.ts";
       import { resolveDryWetRiserOpenTarget } from "/src/dryWetRiser/dryWetRiserResolution.ts";
+      import { resolvePortableOpenTarget } from "/src/portableFireExtinguisher/portableFireExtinguisher.ts";
       import {
         resolveFireAlarmControls
       } from "/src/fireAlarm/fireAlarmDefinition.ts";
@@ -24,6 +25,7 @@
         v1: "32000000-0000-4000-8000-000000000004",
         v2: "32000000-0000-4000-8000-000000000005",
         v3: "32000000-0000-4000-8000-000000000008",
+        v5: "32000000-0000-4000-8000-000000000009",
         system: "32000000-0000-4000-8000-000000000006",
         location: "32000000-0000-4000-8000-000000000007"
       };
@@ -112,7 +114,11 @@
         key === "wet_chemical" ? "confirmed" : (v3Unavailable.has(key) ? "requires_confirmation" : "confirmed"),
         { key, marker: key === "wet_chemical" ? "wet-v4" : "v4", sections: [] }
       )));
-      const response = { template: v1, templates: [v1, v2, v3, v4] };
+      const v5 = template(ids.v5, 5, v4.systems.map((system) => system.key === "portable_fire_extinguisher"
+        ? systemEntry(system.key, system.sortOrder, "confirmed", { key: system.key, marker: "portable-v5", sections: [] })
+        : system
+      ));
+      const response = { template: v1, templates: [v1, v2, v3, v4, v5] };
       const system = {
         enabledSystemId: ids.system, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser",
         sortOrder: 1, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" },
@@ -132,18 +138,27 @@
           enabledSystems: [system]
         }
       };
+      const portableSystem = {
+        enabledSystemId: ids.system, systemKey: "portable_fire_extinguisher", displayName: "Portable Fire Extinguisher",
+        sortOrder: 1, definitionStatus: "confirmed", zones: [], locations: []
+      };
+      const portableJob = {
+        ...job, id: "32000000-0000-4000-8000-000000000010", reference: "CATALOG-PORTABLE", title: "Portable Catalog Harness",
+        configurationSnapshot: { ...job.configurationSnapshot, template: { id: ids.v5, code: "MFE-FSSR", name: v5.name, version: 5 }, enabledSystems: [portableSystem] }
+      };
       const responseFor = (payload) => ({ ok: true, status: 200, json: async () => payload });
       const installFetch = (catalogPayload) => {
         globalThis.fetch = async (path) => {
           if (path === "/api/inspection-catalog") return responseFor(catalogPayload);
           if (path === "/api/customers") return responseFor({ customers: [] });
           if (path === "/api/inspection-jobs") return responseFor({ jobs: [] });
+          if (typeof path === "string" && path.startsWith("/api/master-system-inspections?")) return responseFor({ inspections: [], hasMore: false, nextCursor: null });
           throw new Error(`Unexpected request: ${path}`);
         };
       };
       async function clear() {
         const records = await localDatabase.masterSystemInspections
-          .where("jobSystemKey").equals(`${ids.job}:dry_wet_riser`).toArray();
+          .where("jobSystemKey").anyOf(`${ids.job}:dry_wet_riser`, `${portableJob.id}:portable_fire_extinguisher`).toArray();
         await localDatabase.transaction("rw", localDatabase.referenceData, localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => {
           await localDatabase.referenceData.bulkDelete([
             "inspection-catalog:MFE-FSSR:versions",
@@ -167,11 +182,12 @@
           await clear();
           installFetch(response);
           const loaded = await loadInspectionCatalog();
-          check("loader retains V1 default plus V2, V3 and V4", loaded.template.version === 1 && loaded.templates.length === 4 && loaded.templates[1].id === ids.v2 && loaded.templates[2].id === ids.v3 && loaded.templates[3].version === 4);
+          check("loader retains V1 default plus V2 through V5", loaded.template.version === 1 && loaded.templates.length === 5 && loaded.templates[1].id === ids.v2 && loaded.templates[2].id === ids.v3 && loaded.templates[3].version === 4 && loaded.templates[4].id === ids.v5);
           const loadedV1 = loaded.templates.find((item) => item.version === 1);
           const loadedV2 = loaded.templates.find((item) => item.version === 2);
           const loadedV3 = loaded.templates.find((item) => item.version === 3);
           const loadedV4 = loaded.templates.find((item) => item.version === 4);
+          const loadedV5 = loaded.templates.find((item) => item.version === 5);
           check("V1 retains its original nine-system catalog", loadedV1?.systems.length === 9 && loadedV1.systems.map((item) => item.key).join(",") === catalogKeys.join(","));
           check("V2 remains Dry/Wet-only", loadedV2?.systems.length === 1 && loadedV2.systems[0]?.key === "dry_wet_riser");
           check("V3 contains exactly nine systems", loadedV3?.systems.length === 9 && loadedV3.systems.map((item) => item.key).join(",") === catalogKeys.join(","));
@@ -179,20 +195,25 @@
           check("V3 Fire Alarm is confirmed and resolves exact controls", loadedFireAlarm?.definitionStatus === "confirmed" && resolveFireAlarmControls(loadedFireAlarm.definition).source.templateVersion === 3);
           check("V3 unimplemented systems remain unavailable", [...v3Unavailable].every((key) => loadedV3?.systems.find((item) => item.key === key)?.definitionStatus === "requires_confirmation"));
           check("V4 promotes only Wet Chemical", loadedV4?.systems.find((item) => item.key === "wet_chemical")?.definitionStatus === "confirmed");
+          check("V5 publishes confirmed Portable definition", loadedV5?.systems.find((item) => item.key === "portable_fire_extinguisher")?.definitionStatus === "confirmed" && loadedV5.systems.find((item) => item.key === "portable_fire_extinguisher")?.definition.marker === "portable-v5");
           const selectedMarkers = [loadedV1, loadedV2, loadedV3, loadedV1].map((selected) => selected?.systems.find((item) => item.key === "dry_wet_riser")?.definition.marker);
           check("V1 to V2 to V3 to V1 does not reuse stale definitions", selectedMarkers.join(",") === "v1,v2,v2,v1");
           check("returning from V3 restores the original V1 catalog", loadedV1?.id === loaded.template.id && loadedV1?.version === loaded.template.version && loadedV1?.systems.length === 9 && loadedV1.systems.map((item) => item.key).join(",") === catalogKeys.join(",") && loadedV1.systems[0]?.definition.marker === "v1");
           await refreshInspectionReferenceData(320);
           const cached = await getCachedInspectionCatalog();
-          check("IndexedDB reload retains V1 through V4", cached?.template.id === ids.v1 && cached.templates.map((item) => item.version).join(",") === "1,2,3,4");
+          check("IndexedDB reload retains V1 through V5", cached?.template.id === ids.v1 && cached.templates.map((item) => item.version).join(",") === "1,2,3,4,5");
           const cachedEntry = await localDatabase.referenceData.get("inspection-catalog:MFE-FSSR:versions");
           const cachedIdentities = cached?.templates.map((item) => `${item.code}:${item.version}`) ?? [];
-          check("cache identity distinguishes template code and version", cachedEntry?.key === "inspection-catalog:MFE-FSSR:versions" && new Set(cachedIdentities).size === 4 && cachedIdentities.join(",") === "MFE-FSSR:1,MFE-FSSR:2,MFE-FSSR:3,MFE-FSSR:4");
+          check("cache identity distinguishes template code and version", cachedEntry?.key === "inspection-catalog:MFE-FSSR:versions" && new Set(cachedIdentities).size === 5 && cachedIdentities.join(",") === "MFE-FSSR:1,MFE-FSSR:2,MFE-FSSR:3,MFE-FSSR:4,MFE-FSSR:5");
           const first = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
           const second = await resolveDryWetRiserOpenTarget(job, system, cached, undefined, "verified", async () => undefined);
           const createdId = first.kind === "local" ? first.record.clientUuid : "";
           const outbox = createdId ? await localDatabase.syncOutbox.where("entityId").equals(createdId).count() : -1;
           check("refreshed V2 job creates exactly one Draft with frozen V2 identity", first.kind === "local" && first.record.masterTemplate.id === ids.v2 && first.record.masterTemplate.version === 2 && second.kind === "local" && second.record.clientUuid === first.record.clientUuid && outbox === 0, JSON.stringify({ first: first.kind, second: second.kind, outbox }));
+          const portableOnline = await resolvePortableOpenTarget(portableJob, portableSystem, undefined, "verified", async () => cached);
+          const portableOffline = await resolvePortableOpenTarget(portableJob, portableSystem, undefined, "offline-unverified", async () => { throw new Error("offline catalog fetch"); });
+          check("online V5 Portable job opens an editable Draft from cached catalog", portableOnline.kind === "local" && portableOnline.record.masterTemplate.id === ids.v5 && portableOnline.record.masterTemplate.version === 5 && portableOnline.record.inspectionSnapshot.system.definition.marker === "portable-v5" && portableOnline.record.syncStatus === "Draft");
+          check("offline Portable reopen uses the cached local Draft without fetch", portableOffline.kind === "local" && portableOnline.kind === "local" && portableOffline.record.clientUuid === portableOnline.record.clientUuid);
 
           await clear();
           await localDatabase.referenceData.put({
@@ -206,7 +227,7 @@
           installFetch(response);
           await refreshInspectionReferenceData(320);
           const upgraded = await getCachedInspectionCatalog();
-          check("online refresh upgrades legacy cache to V1 through V4", upgraded?.templates.length === 4 && upgraded?.templates.some((item) => item.id === ids.v2) && upgraded?.templates.some((item) => item.id === ids.v3) && upgraded?.templates.some((item) => item.version === 4));
+          check("online refresh upgrades legacy cache to V1 through V5", upgraded?.templates.length === 5 && upgraded?.templates.some((item) => item.id === ids.v2) && upgraded?.templates.some((item) => item.id === ids.v3) && upgraded?.templates.some((item) => item.version === 4) && upgraded?.templates.some((item) => item.id === ids.v5));
 
           const malformedFireAlarm = structuredClone(fireAlarmV3);
           malformedFireAlarm.sections[0].blocks[1].columns.reverse();

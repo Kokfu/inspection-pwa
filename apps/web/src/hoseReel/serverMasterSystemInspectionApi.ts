@@ -1,7 +1,7 @@
 export type ServerMasterSystemInspectionSummary = {
   clientUuid: string;
   jobId: string;
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher";
   instanceKey: string;
   zoneId: string | null;
   locationId: string | null;
@@ -17,12 +17,12 @@ export type ServerMasterSystemInspectionSummary = {
   requiredEvidenceCount: number;
   confirmedEvidenceCount: number;
 } | {
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher";
 });
 
 export type SummaryPage = { inspections: ServerMasterSystemInspectionSummary[]; hasMore: boolean; nextCursor: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant"]);
+const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher"]);
 const keys = ["clientUuid", "jobId", "systemKey", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"];
 const sprinklerKeys = [...keys, "evidenceState", "requiredEvidenceCount", "confirmedEvidenceCount"];
 const evidenceStates = new Set(["not-required", "complete", "pending", "failed", "invalid"]);

@@ -35,6 +35,9 @@ import type { HydrantInspectionRecord, HydrantResponses } from "./hydrant/hydran
 import type { ServerHydrantDetail } from "./hydrant/serverHydrantApi";
 import { ServerHydrantView } from "./hydrant/ServerHydrantView";
 import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute, type HydrantAuthorityResolution } from "./hydrant/hydrantResolution";
+import { PortableFireExtinguisherForm } from "./portableFireExtinguisher/PortableFireExtinguisherForm";
+import { ServerPortableFireExtinguisherView } from "./portableFireExtinguisher/ServerPortableFireExtinguisherView";
+import { resolvePortableOpenTarget, resolvePortableRoute, returnFailedPortableToDraft, savePortableDraft, submitLocalPortable, type PortableRecord, type PortableResponses, type ServerPortableDetail } from "./portableFireExtinguisher/portableFireExtinguisher";
 import { AuthStatus } from "./auth/AuthStatus";
 import { AuthAuthorityGuard } from "./auth/authAuthority";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
@@ -131,6 +134,7 @@ type AppRoute =
   | { name: "riser-form"; clientUuid: string }
   | { name: "fire-alarm-form"; jobId: string; clientUuid: string }
   | { name: "hydrant-form"; clientUuid: string }
+  | { name: "portable-fire-extinguisher-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "wet-chemical-form"; clientUuid: string }
   | { name: "development" };
@@ -143,6 +147,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
   if (parts[0] === "fire-alarm-form" && parts[1] && parts[2]) return { name: "fire-alarm-form", jobId: parts[1], clientUuid: parts[2] };
   if (parts[0] === "hydrant-form" && parts[1]) return { name: "hydrant-form", clientUuid: parts[1] };
+  if (parts[0] === "portable-fire-extinguisher-form" && parts[1]) return { name: "portable-fire-extinguisher-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "wet-chemical-form" && parts[1]) return { name: "wet-chemical-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
@@ -157,6 +162,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "hydrant-form") return `#/hydrant-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "portable-fire-extinguisher-form") return `#/portable-fire-extinguisher-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "wet-chemical-form") return `#/wet-chemical-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
@@ -188,13 +194,18 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | PortableRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
   const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
   const [activeHydrant, setActiveHydrant] = useState<HydrantInspectionRecord>();
+  const [activePortable, setActivePortable] = useState<PortableRecord>();
+  const [serverPortable, setServerPortable] = useState<ServerPortableDetail>();
+  const [serverAcceptedPortableUuid, setServerAcceptedPortableUuid] = useState<string>();
+  const [portableRouteState, setPortableRouteState] = useState<"idle" | "loading" | "not-cached" | "server-unavailable">("idle");
+  const [portableRouteMessage, setPortableRouteMessage] = useState("");
   const [serverHydrant, setServerHydrant] = useState<ServerHydrantDetail>();
   const [serverAcceptedHydrantUuid, setServerAcceptedHydrantUuid] = useState<string>();
   const [hydrantRouteState, setHydrantRouteState] = useState<"idle" | "loading" | "not-cached" | "server-unavailable">("idle");
@@ -215,6 +226,14 @@ export function App() {
     });
     return () => { current = false; };
   }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedHydrantUuid, verifiedHydrantAuthorityToken]);
+  useEffect(() => {
+    if (route.name !== "portable-fire-extinguisher-form") { setActivePortable(undefined); setServerPortable(undefined); setServerAcceptedPortableUuid(undefined); setPortableRouteState("idle"); setPortableRouteMessage(""); return; }
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); return; }
+    if (authState.status === "online-unavailable") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("server-unavailable"); setPortableRouteMessage(authState.message); return; }
+    let current=true; setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); setPortableRouteMessage("");
+    void resolvePortableRoute(route.clientUuid,serverAcceptedPortableUuid,authState.status).then(resolution=>{if(!current)return;if(resolution.kind==="local"){setActivePortable(resolution.record);setPortableRouteState("idle");}else if(resolution.kind==="server"){setServerPortable(resolution.inspection);setPortableRouteState("idle");}else{setPortableRouteState(resolution.kind);setPortableRouteMessage(("message" in resolution?resolution.message:"")??"");}});
+    return()=>{current=false;};
+  },[authAuthorityGeneration,authState.status,initialAuthRestored,masterSystemInspections,route,serverAcceptedPortableUuid]);
   const [serverFireAlarm, setServerFireAlarm] = useState<ServerFireAlarmDetail>();
   const [fireAlarmRouteState, setFireAlarmRouteState] = useState<"idle"|"loading"|"not-cached"|"signed-out"|"inconsistent"|"invalid"|"server-unavailable">("idle");
   const [fireAlarmRouteMessage, setFireAlarmRouteMessage] = useState("");
@@ -947,6 +966,10 @@ export function App() {
   async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
+  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
+  async function handleSavePortable(responses:PortableResponses){if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}}
+  async function handleSubmitPortable(responses:PortableResponses){if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}}
+  async function handleEditFailedPortable(){if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePortable));await refreshMasterSystemInspections();}}
   async function handleSaveFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleSubmitFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await submitFireAlarmLocal(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
   async function handleEditFailedFireAlarm() { if (!activeFireAlarm) return; try { setActiveFireAlarm(await returnFailedFireAlarmToDraft(activeFireAlarm)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
@@ -1271,6 +1294,8 @@ export function App() {
             )
           ) : route.name === "hydrant-form" ? (
             mayRenderLocalHydrant ? <HydrantInspectionForm record={activeHydrant!} onBack={()=>navigate({name:"job",jobId:activeHydrant!.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+          ) : route.name === "portable-fire-extinguisher-form" ? (
+            activePortable ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{portableRouteState==="loading"?"Loading authoritative accepted Portable Fire Extinguisher detail.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":portableRouteMessage||"Accepted Portable Fire Extinguisher detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
@@ -1321,6 +1346,7 @@ export function App() {
               onOpenDryWetRiser={handleOpenDryWetRiser}
               onOpenFireAlarm={handleOpenFireAlarm}
               onOpenHydrant={handleOpenHydrant}
+              onOpenPortableFireExtinguisher={handleOpenPortableFireExtinguisher}
             />
           )}
         </>

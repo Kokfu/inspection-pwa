@@ -7,6 +7,7 @@ type SystemNavigatorProps = {
   onBack: () => void;
   onOpenHoseReel?: () => void;
   onOpenSuppressionLocations?: () => void;
+  onOpenPortableFireExtinguisher?: () => void;
 };
 
 function presetDescription(rowPreset: unknown) {
@@ -21,7 +22,7 @@ function presetDescription(rowPreset: unknown) {
   return undefined;
 }
 
-export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOpenSuppressionLocations }: SystemNavigatorProps) {
+export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOpenSuppressionLocations, onOpenPortableFireExtinguisher }: SystemNavigatorProps) {
   const zones = system.zones.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const locations = system.locations.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const unzonedLocations = locations.filter((location) => location.zoneId === null);
@@ -73,6 +74,7 @@ export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOp
     ) : null}
     {system.systemKey === "hose_reel" && onOpenHoseReel ? <button type="button" onClick={onOpenHoseReel}>Open Hose Reel Inspection</button>
       : (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical") && onOpenSuppressionLocations ? <button type="button" onClick={onOpenSuppressionLocations}>Open {system.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} Locations</button>
+        : system.systemKey === "portable_fire_extinguisher" && onOpenPortableFireExtinguisher ? <button type="button" onClick={onOpenPortableFireExtinguisher}>Open Portable Fire Extinguisher Inspection</button>
         : <p className="form-message">Detailed inspection entry is not available for this system yet.</p>}
   </section>;
 }

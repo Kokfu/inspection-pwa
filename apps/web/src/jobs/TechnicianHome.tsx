@@ -4,6 +4,7 @@ import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/a
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
+import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
@@ -57,7 +58,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord>;
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | PortableRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   inspectionAttachments: InspectionAttachmentRecord[];
@@ -80,6 +81,7 @@ type TechnicianHomeProps = {
   onOpenDryWetRiser: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireAlarm: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenHydrant: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenPortableFireExtinguisher: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -105,7 +107,7 @@ export function TechnicianHome({
   onBackToSystems,
   onOpenHoseReel,
   onOpenCo2,
-  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant
+  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher
 }: TechnicianHomeProps) {
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
@@ -175,6 +177,11 @@ export function TechnicianHome({
       const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:hydrant`&&x.systemKey==="hydrant");
       return record?deriveMasterSystemProgress(record as MasterSystemInspectionRecord):noLocalProgress(jobId,systemKey);
     }
+    if (systemKey === "portable_fire_extinguisher") {
+      if (serverMasterSystemProgressState === "loaded" && serverAccepted(jobId, systemKey)) return "Completed";
+      const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:${systemKey}`&&x.systemKey===systemKey);
+      return record?deriveMasterSystemProgress(record as MasterSystemInspectionRecord):noLocalProgress(jobId,systemKey);
+    }
     if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
       if (systemKey === "wet_chemical" && group) {
@@ -234,6 +241,7 @@ export function TechnicianHome({
         onBack={() => onBackToSystems(selectedJob)}
         onOpenHoseReel={() => onOpenHoseReel(selectedJob, selectedSystem)}
         onOpenSuppressionLocations={selectedSystem.systemKey === "co2_fire_extinguisher" || selectedSystem.systemKey === "wet_chemical" ? () => onOpenCo2(selectedJob, selectedSystem) : undefined}
+        onOpenPortableFireExtinguisher={selectedSystem.systemKey === "portable_fire_extinguisher" ? () => onOpenPortableFireExtinguisher(selectedJob, selectedSystem) : undefined}
       />
     ) : selectedJob ? (
       <section aria-labelledby="applicable-systems-title">
@@ -260,6 +268,7 @@ export function TechnicianHome({
                     : system.systemKey === "dry_wet_riser" ? onOpenDryWetRiser(selectedJob, system)
                     : system.systemKey === "fire_alarm_detector" ? onOpenFireAlarm(selectedJob, system)
                     : system.systemKey === "hydrant" ? onOpenHydrant(selectedJob, system)
+                    : system.systemKey === "portable_fire_extinguisher" ? onOpenPortableFireExtinguisher(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
                 <span>{system.displayName}</span>

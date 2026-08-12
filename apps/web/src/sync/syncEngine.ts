@@ -1,5 +1,6 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
+import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import {
   AttachmentUploadError,
   uploadInspectionAttachment
@@ -23,6 +24,12 @@ function isFireAlarmOutboxItem(item: SyncOutboxItem) {
     && (item.payload as { systemKey?: unknown }).systemKey === "fire_alarm_detector";
 }
 
+function isPortableOutboxItem(item: SyncOutboxItem) {
+  return item.entityType === "masterSystemInspection"
+    && typeof item.payload === "object" && item.payload !== null
+    && (item.payload as { systemKey?: unknown }).systemKey === "portable_fire_extinguisher";
+}
+
 function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, item: SyncOutboxItem) {
   if (record?.systemKey !== "fire_alarm_detector") return false;
   const expected = {
@@ -34,6 +41,44 @@ function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, 
     responses: record.responses, performedAt: record.performedAt
   };
   return JSON.stringify(item.payload) === JSON.stringify(expected);
+}
+
+function portablePayloadMatches(record: PortableRecord | undefined, item: SyncOutboxItem) {
+  if (record?.systemKey !== "portable_fire_extinguisher") return false;
+  const expected = {
+    clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey,
+    instanceKey: record.instanceKey, configuredZoneId: record.configuredZoneId,
+    configuredLocationId: record.configuredLocationId, displaySequence: record.displaySequence,
+    originalCreatorSnapshot: record.originalCreatorSnapshot, masterTemplate: record.masterTemplate,
+    configuration: record.configuration, inspectionSnapshot: record.inspectionSnapshot,
+    responses: record.responses, performedAt: record.performedAt
+  };
+  return JSON.stringify(item.payload) === JSON.stringify(expected);
+}
+
+function currentPortableWorkIsSyncable(record: PortableRecord | undefined, work: SyncOutboxItem | undefined, entityId: string) {
+  return record?.systemKey === "portable_fire_extinguisher"
+    && record.clientUuid === entityId
+    && (record.syncStatus === "Pending" || record.syncStatus === "Failed")
+    && work?.entityId === entityId
+    && work.activeKey === `masterSystemInspection:create:${entityId}`
+    && (work.status === "Pending" || work.status === "Failed")
+    && portablePayloadMatches(record, work);
+}
+
+/** A response may only complete the exact operation and payload that dispatched it. */
+function currentPortableResponseOwnsWork(record: PortableRecord | undefined, work: SyncOutboxItem | undefined, dispatched: SyncOutboxItem) {
+  return record?.systemKey === "portable_fire_extinguisher"
+    && record.clientUuid === dispatched.entityId
+    && record.syncStatus === "Syncing"
+    && work?.operationId === dispatched.operationId
+    && work.entityType === dispatched.entityType
+    && work.entityId === dispatched.entityId
+    && work.action === dispatched.action
+    && work.activeKey === `masterSystemInspection:create:${dispatched.entityId}`
+    && work.status === "Syncing"
+    && JSON.stringify(work.payload) === JSON.stringify(dispatched.payload)
+    && portablePayloadMatches(record, dispatched);
 }
 
 async function validateFireAlarmWork(items: SyncOutboxItem[]) {
@@ -68,6 +113,10 @@ async function validateFireAlarmWork(items: SyncOutboxItem[]) {
 }
 
 let syncInProgress = false;
+export type SyncEngineTestBoundary = "afterCandidatesCaptured" | "afterSyncingItemsCapturedForFailure";
+let testBoundaryHook: ((boundary: SyncEngineTestBoundary) => Promise<void>) | undefined;
+/** Test-only deterministic boundary. Production leaves this undefined. */
+export function setSyncEngineTestBoundaryHook(hook: ((boundary: SyncEngineTestBoundary) => Promise<void>) | undefined) { testBoundaryHook = hook; }
 const interruptedSyncMessage = "Recovered from interrupted sync";
 const completedOutboxRetentionMs = 30 * 24 * 60 * 60 * 1000;
 
@@ -317,6 +366,7 @@ export async function syncPendingRecords() {
 
   syncInProgress = true;
   const startedAt = new Date().toISOString();
+  let dispatchedItems: SyncOutboxItem[] = [];
 
   try {
     await recoverInterruptedSync();
@@ -329,6 +379,8 @@ export async function syncPendingRecords() {
         item.entityType !== "inspectionAttachment" && shouldSync(item)
       );
     let items = await validateFireAlarmWork(candidateItems);
+
+    await testBoundaryHook?.("afterCandidatesCaptured");
 
     if (items.length === 0) {
       const evidence = await syncPendingAttachments();
@@ -359,6 +411,11 @@ export async function syncPendingRecords() {
               || !fireAlarmPayloadMatches(currentRecord as FireAlarmInspectionRecord | undefined, currentWork)
               || (currentRecord.syncStatus !== "Pending" && currentRecord.syncStatus !== "Failed")) continue;
           }
+          if (isPortableOutboxItem(item)) {
+            const currentWork = await localDatabase.syncOutbox.get(item.operationId);
+            const currentRecord = await localDatabase.masterSystemInspections.get(item.entityId);
+            if (!currentPortableWorkIsSyncable(currentRecord as PortableRecord | undefined, currentWork, item.entityId)) continue;
+          }
           await localDatabase.syncOutbox.update(item.operationId, {
               status: "Syncing",
               attempts: item.attempts + 1,
@@ -376,6 +433,7 @@ export async function syncPendingRecords() {
     );
     items = readyItems;
     if (items.length === 0) return { started: true, message: "No pending records" };
+    dispatchedItems = items;
 
     const response = await fetch("/api/sync", {
       method: "POST",
@@ -418,6 +476,15 @@ export async function syncPendingRecords() {
       async () => {
         await Promise.all(
           items.map(async (item) => {
+            if (isPortableOutboxItem(item)) {
+              const currentWork = await localDatabase.syncOutbox.get(item.operationId);
+              const currentRecord = await localDatabase.masterSystemInspections.get(item.entityId);
+              if (!currentPortableResponseOwnsWork(
+                currentRecord as unknown as PortableRecord | undefined,
+                currentWork,
+                item
+              )) return;
+            }
             if (confirmedIds.has(item.entityId)) {
               const update = {
                 syncStatus: "Synced" as const,
@@ -485,6 +552,8 @@ export async function syncPendingRecords() {
       .equals("Syncing")
       .toArray();
 
+    await testBoundaryHook?.("afterSyncingItemsCapturedForFailure");
+
     await localDatabase.transaction(
       "rw",
       localDatabase.testRecords,
@@ -495,6 +564,17 @@ export async function syncPendingRecords() {
       async () => {
         await Promise.all(
           syncingItems.map(async (item) => {
+            if (isPortableOutboxItem(item)) {
+              const dispatchedItem = dispatchedItems.find((candidate) => candidate.operationId === item.operationId);
+              const currentWork = await localDatabase.syncOutbox.get(item.operationId);
+              const currentRecord = await localDatabase.masterSystemInspections.get(item.entityId);
+              if (!dispatchedItem || !isPortableOutboxItem(dispatchedItem)
+                || !currentPortableResponseOwnsWork(
+                  currentRecord as unknown as PortableRecord | undefined,
+                  currentWork,
+                  dispatchedItem
+                )) return;
+            }
             const currentFireAlarm = isFireAlarmOutboxItem(item)
               ? await localDatabase.masterSystemInspections.get(item.entityId)
               : undefined;
