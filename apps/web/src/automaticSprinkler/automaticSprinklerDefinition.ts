@@ -165,7 +165,7 @@ export function resolvePublishedAutomaticSprinklerControls(
   templateCode = "MFE-FSSR",
   templateVersion = 1
 ): ResolvedAutomaticSprinklerControls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 1 || !isRecord(definition)
+  if (templateCode !== "MFE-FSSR" || !Number.isSafeInteger(templateVersion) || templateVersion < 1 || !isRecord(definition)
     || definition.key !== "automatic_sprinkler" || !isRecord(definition.configuration)
     || definition.configuration.supportsZones !== false
     || definition.configuration.supportsLocations !== false

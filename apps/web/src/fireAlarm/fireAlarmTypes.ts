@@ -153,7 +153,7 @@ export type FireAlarmInspectionSnapshot = {
   job: { id: string; reference: string; title: string };
   customer: InspectionJob["configurationSnapshot"]["customer"];
   configuration: InspectionJob["configurationSnapshot"]["configuration"];
-  template: InspectionJob["configurationSnapshot"]["template"] & { code: "MFE-FSSR"; version: 3 };
+  template: InspectionJob["configurationSnapshot"]["template"] & { code: "MFE-FSSR" };
   system: JobSystemSnapshot & {
     systemKey: "fire_alarm_detector";
     definition: FireAlarmSystemDefinition;
@@ -166,7 +166,7 @@ export type FireAlarmInspectionRecord = {
   systemKey: "fire_alarm_detector"; instanceKey: "primary";
   configuredZoneId: null; configuredLocationId: null; displaySequence: 1;
   originalCreatorSnapshot: DeviceReportedCreator | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 3 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: FireAlarmInspectionSnapshot;
   responses: FireAlarmResponses; performedAt: string; localCreatedAt: string; localUpdatedAt: string;
@@ -181,7 +181,7 @@ export type ServerFireAlarmDetail = {
   customer: { id: string; code: string; displayName: string };
   systemKey: "fire_alarm_detector"; systemLabel: "Fire Alarm / Detector System"; instanceKey: "primary";
   status: "submitted"; performedAt: string; receivedAt: string;
-  template: { id: string; code: "MFE-FSSR"; version: 3 };
+  template: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number }; responses: FireAlarmResponses;
   deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string;
 };

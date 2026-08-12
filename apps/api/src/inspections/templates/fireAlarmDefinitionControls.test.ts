@@ -103,7 +103,7 @@ test("Fire Alarm definition resolver fails closed for missing, extra, and reorde
   rejectsDefinition((definition) => { definition.sections[1].blocks[0].items[0].allowedValues.push("n/a"); });
   rejectsDefinition((definition) => { definition.sections[0].blocks[1].columns[3].allowedValues = ["normal", "isolation", "test"]; });
   rejectsDefinition((definition) => { definition.sections[3].blocks[0].columns.splice(3, 0, { key: "extra_device" }); });
-  assert.throws(() => resolveFireAlarmControls(fireAlarmDetectorV3, "MFE-FSSR", 1));
+  assert.doesNotThrow(() => resolveFireAlarmControls(fireAlarmDetectorV3, "MFE-FSSR", 5));
 });
 
 test("Fire Alarm row routing is mandatory, exact, bounded, and reconstructed", () => {

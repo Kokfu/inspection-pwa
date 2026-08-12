@@ -11,9 +11,9 @@ import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { ResolvedMeasurementRow, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import {
-  defaultCatalogTemplate,
   type InspectionCatalogInput
 } from "../referenceData/referenceDataTypes";
+import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import {
   controlsForAutomaticSprinklerSnapshot,
   resolvePublishedAutomaticSprinklerControls
@@ -37,12 +37,14 @@ const staleRecordMessage = "This Automatic Sprinkler record changed elsewhere. R
 export const automaticSprinklerJobSystemKey = (jobId: string) => `${jobId}:${systemKey}`;
 export type AutomaticSprinklerSubmitIssue = { section: string; message: string; targetId: string };
 
-function definitionFor(catalog: InspectionCatalogInput) {
-  const template = defaultCatalogTemplate(catalog);
-  const system = template.systems.find((candidate) =>
-    candidate.key === systemKey && candidate.definitionStatus === "confirmed"
-  );
-  if (!system?.definition) throw new Error("Cached Automatic Sprinkler definition is unavailable. Refresh jobs online first.");
+function definitionFor(catalog: InspectionCatalogInput, currentTemplateIdentity: InspectionJob["configurationSnapshot"]["template"]) {
+  const resolved = "templates" in catalog
+    ? compatibleCatalogSystem(catalog, currentTemplateIdentity, systemKey)
+    : undefined;
+  const template = resolved?.template ?? ("templates" in catalog ? undefined : catalog);
+  const system = resolved?.system ?? template?.systems.find((candidate) =>
+    candidate.key === systemKey && candidate.definitionStatus === "confirmed");
+  if (!template || !system?.definition) throw new Error("Cached Automatic Sprinkler definition is unavailable. Refresh jobs online first.");
   return {
     definition: system.definition,
     controls: resolvePublishedAutomaticSprinklerControls(system.definition, template.code, template.version)
@@ -144,7 +146,7 @@ export async function getOrCreateAutomaticSprinklerInspection(
   if (system.systemKey !== systemKey || system.zones.length !== 0 || system.locations.length !== 0) {
     throw new Error("Automatic Sprinkler V1 supports one fixed form without configured zones or locations");
   }
-  const { definition, controls } = definitionFor(catalog);
+  const { definition, controls } = definitionFor(catalog, job.configurationSnapshot.template);
   const timestamp = now();
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator
     ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp }
@@ -161,7 +163,7 @@ export async function getOrCreateAutomaticSprinklerInspection(
     configuredLocationId: null,
     displaySequence: 1,
     originalCreatorSnapshot,
-    masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 1 },
+    masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version },
     configuration: job.configurationSnapshot.configuration,
     inspectionSnapshot,
     responses: emptyResponses(controls),

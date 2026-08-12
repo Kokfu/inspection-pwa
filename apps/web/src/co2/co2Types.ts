@@ -66,7 +66,7 @@ export type MasterSystemFormInstanceRecord = {
   configuredLocationId: string;
   displaySequence: number;
   originalCreatorSnapshot: DeviceReportedCreator | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 | 4 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: Co2InspectionSnapshot;
   responses: Co2Responses;

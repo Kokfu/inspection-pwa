@@ -8,6 +8,7 @@ import type {
   ResolvedFireAlarmControls,
   ResolvedFireAlarmResult
 } from "./fireAlarmTypes.js";
+import { isCompatibleSystemContract } from "./systemContractCompatibility.js";
 
 type UnknownRecord = Record<string, unknown>;
 type ExpectedField = {
@@ -219,7 +220,9 @@ export function resolveFireAlarmControls(
   templateCode = "MFE-FSSR",
   templateVersion = 3
 ): ResolvedFireAlarmControls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 3 || !parseFireAlarmSystemDefinition(definition)) {
+  if (templateCode !== "MFE-FSSR" || !Number.isSafeInteger(templateVersion) || templateVersion < 1
+    || !isCompatibleSystemContract("fire_alarm_detector", "confirmed", definition)
+    || !parseFireAlarmSystemDefinition(definition)) {
     throw new Error("Unsupported or malformed Fire Alarm MFE-FSSR V3 definition");
   }
   return {

@@ -5,6 +5,7 @@ import type {
   ResultControlDefinition
 } from "./definitionControls.js";
 import { wetChemicalV4 } from "./masterServiceReportV4.js";
+import { isCompatibleSystemContract } from "./systemContractCompatibility.js";
 
 type UnknownRecord = Record<string, unknown>;
 export type ResolvedCo2Controls = {
@@ -67,8 +68,11 @@ export function isPublishedWetChemicalDefinition(value: unknown) {
 export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR", templateVersion = 1): ResolvedCo2Controls {
   const wetChemical = isRecord(definition) && definition.key === "wet_chemical";
   if (templateCode !== "MFE-FSSR" || !isRecord(definition)
-    || (!wetChemical && (templateVersion !== 1 || definition.key !== "co2_fire_extinguisher"))
-    || (wetChemical && (templateVersion !== 4 || !isPublishedWetChemicalDefinition(definition)))) {
+    || !Number.isSafeInteger(templateVersion) || templateVersion < 1
+    || (!wetChemical && (definition.key !== "co2_fire_extinguisher"
+      || !isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", definition)))
+    || (wetChemical && (!isPublishedWetChemicalDefinition(definition)
+      || !isCompatibleSystemContract("wet_chemical", "confirmed", definition)))) {
     throw new Error("Unsupported suppression-system template definition");
   }
   const sections = list(definition.sections, "sections");

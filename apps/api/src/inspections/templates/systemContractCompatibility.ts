@@ -1,0 +1,88 @@
+import { masterServiceReportV1 } from "./masterServiceReportV1.js";
+import { masterServiceReportV2 } from "./masterServiceReportV2.js";
+import { masterServiceReportV3 } from "./masterServiceReportV3.js";
+import { masterServiceReportV4 } from "./masterServiceReportV4.js";
+import { masterServiceReportV5 } from "./masterServiceReportV5.js";
+import type { MasterServiceReportDefinition } from "./templateTypes.js";
+
+export const implementedSystemKeys = [
+  "automatic_sprinkler",
+  "dry_wet_riser",
+  "hose_reel",
+  "fire_alarm_detector",
+  "hydrant",
+  "co2_fire_extinguisher",
+  "wet_chemical",
+  "portable_fire_extinguisher"
+] as const;
+
+export type ImplementedSystemKey = typeof implementedSystemKeys[number];
+
+const contractTemplateVersion: Readonly<Record<ImplementedSystemKey, number>> = {
+  automatic_sprinkler: 1,
+  dry_wet_riser: 2,
+  hose_reel: 1,
+  fire_alarm_detector: 3,
+  hydrant: 1,
+  co2_fire_extinguisher: 1,
+  wet_chemical: 4,
+  portable_fire_extinguisher: 5
+};
+
+const templates = new Map<number, MasterServiceReportDefinition>([
+  [1, masterServiceReportV1],
+  [2, masterServiceReportV2],
+  [3, masterServiceReportV3],
+  [4, masterServiceReportV4],
+  [5, masterServiceReportV5]
+]);
+
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Catalog placement may move when a later template adds systems. It is not a
+// runtime control contract; nested sortOrder values remain part of the exact
+// form definition and are intentionally retained.
+function runtimeContract(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { sortOrder: _catalogPlacement, ...contract } = value as Record<string, unknown>;
+  return contract;
+}
+
+const authoritativeContracts = Object.fromEntries(implementedSystemKeys.map((systemKey) => {
+  const version = contractTemplateVersion[systemKey];
+  const system = templates.get(version)?.systems.find((candidate) => candidate.key === systemKey);
+  if (!system || system.definitionStatus !== "confirmed") {
+    throw new Error(`Missing authoritative ${systemKey} runtime contract`);
+  }
+  return [systemKey, canonicalize(runtimeContract(system))];
+})) as Record<ImplementedSystemKey, string>;
+
+export function isImplementedSystemKey(value: string): value is ImplementedSystemKey {
+  return (implementedSystemKeys as readonly string[]).includes(value);
+}
+
+/**
+ * Compatibility belongs to the immutable system definition, not to the
+ * enclosing report-template version. Exact identity includes the system key,
+ * definitionStatus, configuration flags, labels, controls and source wording.
+ */
+export function isCompatibleSystemContract(
+  systemKey: ImplementedSystemKey,
+  definitionStatus: unknown,
+  definition: unknown
+): boolean {
+  if (definitionStatus !== "confirmed" || !definition || typeof definition !== "object") return false;
+  return canonicalize(runtimeContract({ ...(definition as Record<string, unknown>), definitionStatus }))
+    === authoritativeContracts[systemKey];
+}
+
+export function systemContractVersion(systemKey: ImplementedSystemKey) {
+  return contractTemplateVersion[systemKey];
+}

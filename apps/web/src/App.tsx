@@ -42,6 +42,9 @@ import { AuthStatus } from "./auth/AuthStatus";
 import { AuthAuthorityGuard } from "./auth/authAuthority";
 import { Co2InspectionForm } from "./co2/Co2InspectionForm";
 import { Co2LocationList } from "./co2/Co2LocationList";
+import { resolveCo2Authority } from "./co2/co2Authority";
+import { loadServerCo2Detail, type ServerCo2Detail } from "./co2/serverCo2Api";
+import { ServerCo2View } from "./co2/ServerCo2View";
 import {
   initializeCo2InspectionGroup,
   returnFailedCo2ToDraft,
@@ -88,6 +91,9 @@ import { TechnicianHome } from "./jobs/TechnicianHome";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
 import type { HoseReelResponses, MasterSystemInspectionRecord } from "./hoseReel/hoseReelTypes";
+import { resolveHoseReelAuthority } from "./hoseReel/hoseReelAuthority";
+import { loadServerHoseReelDetail, type ServerHoseReelDetail } from "./hoseReel/serverHoseReelApi";
+import { ServerHoseReelView } from "./hoseReel/ServerHoseReelView";
 import { ServerMasterSystemInspectionList } from "./hoseReel/ServerMasterSystemInspectionList";
 import { findServerMasterSystemInspection, loadServerMasterSystemInspections, type ServerMasterSystemInspectionSummary } from "./hoseReel/serverMasterSystemInspectionApi";
 import {
@@ -197,6 +203,9 @@ export function App() {
     MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | PortableRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
+  const [serverHoseReel, setServerHoseReel] = useState<ServerHoseReelDetail>();
+  const [hoseReelAuthorityState, setHoseReelAuthorityState] = useState<"idle"|"loading"|"local"|"server"|"server-unavailable">("idle");
+  const [hoseReelRouteMessage, setHoseReelRouteMessage] = useState("");
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
   const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
@@ -250,6 +259,9 @@ export function App() {
   const [masterSystemFormInstances, setMasterSystemFormInstances] = useState<MasterSystemFormInstanceRecord[]>([]);
   const [inspectionAttachments, setInspectionAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const [activeCo2Form, setActiveCo2Form] = useState<MasterSystemFormInstanceRecord>();
+  const [serverCo2, setServerCo2] = useState<ServerCo2Detail>();
+  const [co2AuthorityState, setCo2AuthorityState] = useState<"idle"|"loading"|"local"|"server"|"server-unavailable">("idle");
+  const [co2RouteMessage, setCo2RouteMessage] = useState("");
   const [serverWetChemical, setServerWetChemical] = useState<ServerWetChemicalDetail>();
   const [wetChemicalAuthorityState, setWetChemicalAuthorityState] = useState<"idle" | "loading" | "server" | "local" | "server-unavailable">("idle");
   const [wetChemicalRouteMessage, setWetChemicalRouteMessage] = useState("");
@@ -704,6 +716,8 @@ export function App() {
       ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
       : undefined);
   }, [masterSystemFormInstances, route]);
+  useEffect(()=>{if(route.name!=="inspection"){setServerHoseReel(undefined);setHoseReelAuthorityState("idle");setHoseReelRouteMessage("");return;}let current=true;setServerHoseReel(undefined);setHoseReelAuthorityState("loading");setHoseReelRouteMessage("");const local=masterSystemInspections.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="hose_reel") as MasterSystemInspectionRecord|undefined;void resolveHoseReelAuthority(authState.status,route.clientUuid,local,{findSummary:(jobId)=>findServerMasterSystemInspection(jobId,"hose_reel"),loadDetail:loadServerHoseReelDetail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveHoseReel(undefined);setServerHoseReel(resolution.inspection);setHoseReelAuthorityState("server");}else if(resolution.kind==="local"){setActiveHoseReel(resolution.record);setServerHoseReel(undefined);setHoseReelAuthorityState("local");}else{setActiveHoseReel(undefined);setServerHoseReel(undefined);setHoseReelAuthorityState(resolution.kind);setHoseReelRouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
+  useEffect(()=>{if(route.name!=="co2-form"){setServerCo2(undefined);setCo2AuthorityState("idle");setCo2RouteMessage("");return;}let current=true;setServerCo2(undefined);setCo2AuthorityState("loading");setCo2RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="co2_fire_extinguisher");void resolveCo2Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"co2_fire_extinguisher",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerCo2Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveCo2Form(undefined);setServerCo2(resolution.inspection);setCo2AuthorityState("server");}else if(resolution.kind==="local"){setActiveCo2Form(resolution.record);setServerCo2(undefined);setCo2AuthorityState("local");}else{setActiveCo2Form(undefined);setServerCo2(undefined);setCo2AuthorityState(resolution.kind);setCo2RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
   useEffect(() => {
     if (route.name !== "wet-chemical-form") {
       setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("idle"); return;
@@ -909,6 +923,10 @@ export function App() {
 
   async function handleOpenHoseReel(job: InspectionJob, system: JobSystemSnapshot) {
     try {
+      if (authState.status === "verified") {
+        const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
+        if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
+      }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
       const record = await getOrCreateHoseReelInspection(job, system, catalog, currentUser);
@@ -922,12 +940,6 @@ export function App() {
 
   async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
     try {
-      if (authState.status === "verified" && system.systemKey !== "wet_chemical") {
-        const accepted = await findServerMasterSystemInspection(job.id, system.systemKey);
-        if (accepted) {
-          throw new Error(`${system.displayName} is already accepted on the server. Its authoritative completion status is shown on Technician Home.`);
-        }
-      }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
       await initializeCo2InspectionGroup(job, system, catalog, currentUser);
@@ -1226,7 +1238,7 @@ export function App() {
               </div>
             </section>
           ) : route.name === "inspection" ? (
-            activeHoseReel ? (
+            hoseReelAuthorityState === "server" && serverHoseReel ? <ServerHoseReelView inspection={serverHoseReel} onBack={()=>navigate({name:"job",jobId:serverHoseReel.jobId})}/> : hoseReelAuthorityState === "local" && activeHoseReel ? (
               <HoseReelInspectionForm
                 record={activeHoseReel}
                 onSaveDraft={handleSaveHoseReelDraft}
@@ -1237,7 +1249,7 @@ export function App() {
             ) : (
               <section className="workspace">
                 <h2>Inspection unavailable</h2>
-                <p>{databaseReady ? "This inspection is not available in local device storage." : "Loading the local inspection."}</p>
+                <p>{hoseReelAuthorityState==="loading"?"Checking authoritative Hose Reel acceptance before displaying local data.":hoseReelRouteMessage||"This inspection is not available in local device storage."}</p>
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
@@ -1281,7 +1293,7 @@ export function App() {
           ) : route.name === "wet-chemical-form" ? (
             wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking server acceptance before displaying editable local data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
-            activeCo2Form ? (
+            co2AuthorityState === "server" && serverCo2 ? <ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/> : co2AuthorityState === "local" && activeCo2Form ? (
               <Co2InspectionForm
                 record={activeCo2Form}
                 onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })}
@@ -1290,7 +1302,7 @@ export function App() {
                 onEditFailed={handleEditFailedCo2}
               />
             ) : (
-              <section className="workspace"><h2>CO2 form unavailable</h2><p>This form is not available in local device storage.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+              <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking authoritative CO2 acceptance for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "hydrant-form" ? (
             mayRenderLocalHydrant ? <HydrantInspectionForm record={activeHydrant!} onBack={()=>navigate({name:"job",jobId:activeHydrant!.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
@@ -1303,6 +1315,7 @@ export function App() {
                 <Co2LocationList
                   group={group}
                   instances={masterSystemFormInstances.filter((instance) => instance.groupKey === group.groupKey)}
+                  serverSummaries={serverMasterSystemInspections.filter((summary)=>summary.jobId===route.jobId&&summary.systemKey===route.systemKey)}
                   onBack={() => navigate({ name: "job", jobId: route.jobId })}
                   onOpen={(record) => navigate({ name: route.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: record.clientUuid })}
                 />

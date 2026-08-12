@@ -47,15 +47,15 @@ function responses(v:unknown,expected:Expected[],controls:ResolvedFireAlarmContr
   void controls; return v as unknown as FireAlarmResponses;
 }
 
-export type StoredFireAlarmDetail = { responses: FireAlarmResponses; template:{id:string;code:"MFE-FSSR";version:3}; configuration:{revisionId:string;revisionNumber:number} };
+export type StoredFireAlarmDetail = { responses: FireAlarmResponses; template:{id:string;code:"MFE-FSSR";version:number}; configuration:{revisionId:string;revisionNumber:number} };
 export function validateStoredFireAlarmDetail(row:R):StoredFireAlarmDetail|undefined{
   const snap=row.inspectionSnapshot;if(!rec(snap)||!exact(snap,["schemaVersion","acceptedAt","job","customer","configuration","template","system","instance"])||snap.schemaVersion!==1||!rec(snap.job)||!rec(snap.customer)||!rec(snap.configuration)||!rec(snap.template)||!rec(snap.system)||!rec(snap.instance))return;
   if(!canonicalTime(row.performedAt,6)||!canonicalTime(row.receivedAt,6)||!canonicalTime(snap.acceptedAt,3))return;
   if(!exact(snap.job,["id","reference","title"])||snap.job.id!==row.jobId||snap.job.reference!==row.jobReference||snap.job.title!==row.jobTitle||!exact(snap.customer,["id","code","displayName"])||snap.customer.id!==row.customerId||snap.customer.code!==row.customerCode||snap.customer.displayName!==row.customerName)return;
-  if(!exact(snap.configuration,["revisionId","revisionNumber"])||snap.configuration.revisionId!==row.configurationRevisionId||!Number.isInteger(snap.configuration.revisionNumber)||Number(snap.configuration.revisionNumber)<1||!exact(snap.template,["id","code","version"])||snap.template.id!==row.templateId||snap.template.code!=="MFE-FSSR"||snap.template.version!==3||!creator(row.originalCreatorSnapshot))return;
+  if(!exact(snap.configuration,["revisionId","revisionNumber"])||snap.configuration.revisionId!==row.configurationRevisionId||!Number.isInteger(snap.configuration.revisionNumber)||Number(snap.configuration.revisionNumber)<1||!exact(snap.template,["id","code","version"])||snap.template.id!==row.templateId||snap.template.code!=="MFE-FSSR"||!Number.isSafeInteger(snap.template.version)||Number(snap.template.version)<1||!creator(row.originalCreatorSnapshot))return;
   if(!exact(snap.instance,["instanceKey","displaySequence","zone","location"])||snap.instance.instanceKey!=="primary"||snap.instance.displaySequence!==1||snap.instance.zone!==null||snap.instance.location!==null)return;
   const system=snap.system;if(!exact(system,["enabledSystemId","systemKey","displayName","sortOrder","definitionStatus","zones","locations","definition","resolvedControls","repetitionMode"])||!uuid.test(String(system.enabledSystemId))||system.systemKey!=="fire_alarm_detector"||system.displayName!=="Fire Alarm / Detector System"||system.sortOrder!==5||system.definitionStatus!=="confirmed"||system.repetitionMode!=="single_with_two_repeatable_tables"||!parseFireAlarmSystemDefinition(system.definition))return;
-  let controls:ResolvedFireAlarmControls;try{controls=resolveFireAlarmControls(system.definition,"MFE-FSSR",3);}catch{return;}if(!same(system.resolvedControls,controls))return;
+  let controls:ResolvedFireAlarmControls;try{controls=resolveFireAlarmControls(system.definition,"MFE-FSSR",snap.template.version as number);}catch{return;}if(!same(system.resolvedControls,controls))return;
   const expected=expectedRows(system),parsed=expected&&responses(row.responses,expected,controls);if(!parsed)return;
-  return {responses:parsed,template:{id:row.templateId as string,code:"MFE-FSSR",version:3},configuration:{revisionId:row.configurationRevisionId as string,revisionNumber:snap.configuration.revisionNumber as number}};
+  return {responses:parsed,template:{id:row.templateId as string,code:"MFE-FSSR",version:snap.template.version as number},configuration:{revisionId:row.configurationRevisionId as string,revisionNumber:snap.configuration.revisionNumber as number}};
 }

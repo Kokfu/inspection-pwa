@@ -4,6 +4,7 @@ import { resolveHoseReelControls } from "../inspections/templates/definitionCont
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { resolveFireAlarmControls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
+import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -114,7 +115,8 @@ async function loadCatalogTemplate(template: TemplateRow) {
 
   return {
     ...template,
-    systems: systemsResult.rows.map((system) => system.key === "hose_reel" && template.version === 1
+    systems: systemsResult.rows.map((system) => system.key === "hose_reel"
+      && isCompatibleSystemContract("hose_reel", system.definitionStatus, system.definition)
       ? {
           ...system,
           resolvedRuntimeControls: resolveHoseReelControls(
@@ -123,8 +125,8 @@ async function loadCatalogTemplate(template: TemplateRow) {
             template.version
           )
         }
-      : (system.key === "co2_fire_extinguisher" && template.version === 1)
-          || (system.key === "wet_chemical" && template.version === 4)
+      : (system.key === "co2_fire_extinguisher" || system.key === "wet_chemical")
+          && isCompatibleSystemContract(system.key, system.definitionStatus, system.definition)
         ? {
             ...system,
             resolvedRuntimeControls: resolveCo2Controls(
@@ -133,7 +135,8 @@ async function loadCatalogTemplate(template: TemplateRow) {
               template.version
             )
           }
-        : system.key === "fire_alarm_detector" && template.version === 3
+        : system.key === "fire_alarm_detector"
+          && isCompatibleSystemContract("fire_alarm_detector", system.definitionStatus, system.definition)
           ? {
               ...system,
               resolvedRuntimeControls: resolveFireAlarmControls(
@@ -142,7 +145,11 @@ async function loadCatalogTemplate(template: TemplateRow) {
                 template.version
               )
             }
-          : system)
+          : (isImplementedSystemKey(system.key)
+            && system.definitionStatus === "confirmed"
+            && !isCompatibleSystemContract(system.key, system.definitionStatus, system.definition))
+            ? { ...system, definitionStatus: "requires_confirmation" as const }
+            : system)
   };
 }
 

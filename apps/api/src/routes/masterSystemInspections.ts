@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
+import { validateAcceptedCo2Detail, validateAcceptedHoseReelDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -48,6 +49,72 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
   return Buffer.from(JSON.stringify({ performedAt: row.performedAt, clientUuid: row.clientUuid })).toString("base64url");
 }
 export const masterSystemInspectionsRouter = Router();
+
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher") {
+  const result = await pool.query(`
+    SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
+      job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
+      customer.display_name AS "customerName", inspection.system_key AS "systemKey",
+      instance.instance_key AS "instanceKey", instance.zone_id AS "zoneId", instance.location_id AS "locationId",
+      instance.display_sequence AS "displaySequence", instance.status,
+      to_char(instance.performed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "performedAt",
+      to_char(instance.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",
+      instance.master_template_version_id AS "templateId",
+      instance.customer_configuration_revision_id AS "configurationRevisionId",
+      instance.inspection_snapshot AS "inspectionSnapshot", instance.response_payload AS responses,
+      instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
+      creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername"
+    FROM master_system_form_instances instance
+    INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
+    INNER JOIN inspection_jobs job ON job.id=inspection.job_id
+    INNER JOIN customers customer ON customer.id=job.customer_id
+    LEFT JOIN users creator ON creator.id=instance.original_created_by_user_id
+    INNER JOIN users syncer ON syncer.id=instance.synced_by_user_id
+    WHERE instance.client_uuid=$1 AND instance.status='submitted' AND inspection.system_key=$2`,
+    [clientUuid, systemKey]
+  );
+  return result.rows[0] as Record<string, unknown> | undefined;
+}
+
+function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: string) {
+  const snapshot = row.inspectionSnapshot as Record<string, unknown>;
+  const system = snapshot.system as Record<string, unknown>;
+  return {
+    clientUuid: row.clientUuid, serverFormInstanceId: row.serverFormInstanceId,
+    jobId: row.jobId, jobReference: row.jobReference, jobTitle: row.jobTitle,
+    customerName: row.customerName, systemKey: row.systemKey, systemLabel,
+    instanceKey: row.instanceKey, zoneId: row.zoneId, locationId: row.locationId,
+    displaySequence: row.displaySequence, status: row.status,
+    performedAt: row.performedAt, receivedAt: row.receivedAt,
+    template: snapshot.template, configuration: snapshot.configuration,
+    responses: row.responses, displayControls: system.resolvedControls,
+    deviceReportedCreatorUsername: row.deviceReportedCreatorUsername,
+    verifiedOriginalCreatorUsername: row.verifiedOriginalCreatorUsername,
+    syncedByUsername: row.syncedByUsername
+  };
+}
+
+masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireRole("admin", "inspector"), async (request, response, next) => {
+  try {
+    const clientUuid = request.params.clientUuid;
+    if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
+    const row = await acceptedDetailRow(clientUuid, "hose_reel");
+    if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+    if (!validateAcceptedHoseReelDetail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+    response.json({ inspection: acceptedDetailResponse(row, "Hose Reel System") });
+  } catch (error) { next(error); }
+});
+
+masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("admin", "inspector"), async (request, response, next) => {
+  try {
+    const clientUuid = request.params.clientUuid;
+    if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
+    const row = await acceptedDetailRow(clientUuid, "co2_fire_extinguisher");
+    if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+    if (!validateAcceptedCo2Detail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+    response.json({ inspection: acceptedDetailResponse(row, "CO2 Fire Extinguisher System") });
+  } catch (error) { next(error); }
+});
 
 masterSystemInspectionsRouter.get(
   "/fire-alarm-inspections/:clientUuid",

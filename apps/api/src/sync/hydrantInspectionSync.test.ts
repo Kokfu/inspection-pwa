@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { pool } from "../db/pool.js";
 import { syncHydrantInspections } from "./hydrantInspectionSync.js";
+import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 
 type R = Record<string, any>;
 type TestSyncItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
 
 let sequence = 1000;
 const id = () => `00000000-0000-4000-8000-${String(sequence++).padStart(12, "0")}`;
+const hydrantDefinition = masterServiceReportV1.systems.find((system) => system.key === "hydrant")!;
 
 type JobFixture = {
   id: string;
@@ -63,7 +65,7 @@ function inspectionSnapshotFor(job: JobFixture): R {
     template: structuredClone(job.snapshot.template),
     system: {
       ...structuredClone(job.snapshot.enabledSystems[0]),
-      definition: { key: "hydrant", version: 1 },
+      definition: structuredClone(hydrantDefinition),
       repetitionMode: "single_with_repeatable_rows"
     }
   };
@@ -167,7 +169,7 @@ class DisposableHydrantDatabase {
       if (sql.startsWith("SELECT 1 FROM master_system_inspections")) {
         return { rowCount: this.groups.has(params[0] as string) ? 1 : 0, rows: [] };
       }
-      if (sql.startsWith("SELECT definition")) return { rowCount: 1, rows: [{ definition: { key: "hydrant", version: 1 } }] };
+      if (sql.startsWith("SELECT definition")) return { rowCount: 1, rows: [{ definition: structuredClone(hydrantDefinition), definition_status: "confirmed" }] };
       if (sql.startsWith("INSERT INTO master_system_inspections")) {
         this.groups.set(params[1] as string, params[0] as string);
         return { rowCount: 1, rows: [] };

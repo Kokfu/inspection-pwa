@@ -11,7 +11,6 @@ import type {
   MasterSystemFormInstanceRecord,
   MasterSystemInspectionGroupRecord
 } from "../co2/co2Types";
-import { deriveCo2ParentProgress } from "../co2/co2Progress";
 import {
   deriveAutomaticSprinklerProgress,
   deriveAutomaticSprinklerServerProgress,
@@ -33,7 +32,7 @@ export function deriveWetChemicalAuthorityProgress(
 ) {
   const states = group.expectedInstances.map((expected) => {
     const accepted = serverSummaries.some((summary) => summary.jobId === group.jobId
-      && summary.systemKey === "wet_chemical"
+      && summary.systemKey === group.systemKey
       && summary.locationId === expected.location.id
       && summary.instanceKey === expected.instanceKey
       && summary.zoneId === (expected.zone?.id ?? null)
@@ -139,6 +138,7 @@ export function TechnicianHome({
   };
   const progressFor = (jobId: string, systemKey: string) => {
     if (systemKey === "hose_reel") {
+      if (serverMasterSystemProgressState === "loaded" && serverAccepted(jobId, systemKey)) return "Completed";
       const record = masterSystemInspections.find((candidate) =>
         candidate.jobSystemKey === `${jobId}:${systemKey}` && candidate.systemKey === "hose_reel"
       ) as MasterSystemInspectionRecord | undefined;
@@ -184,23 +184,18 @@ export function TechnicianHome({
     }
     if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
-      if (systemKey === "wet_chemical" && group) {
+      if (group) {
         return deriveWetChemicalAuthorityProgress(
           group,
           masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey),
           serverMasterSystemInspections
         );
       }
-      return group
-        ? deriveCo2ParentProgress(
-          group,
-          masterSystemFormInstances.filter((record) => record.groupKey === group.groupKey)
-        )
-        : deriveNoLocalSystemProgress(
-          serverSuppressionCompleted(jobId, systemKey),
-          progressAuthStatus,
-          serverMasterSystemProgressState
-        );
+      return deriveNoLocalSystemProgress(
+        serverSuppressionCompleted(jobId, systemKey),
+        progressAuthStatus,
+        serverMasterSystemProgressState
+      );
     }
     const local = inspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey

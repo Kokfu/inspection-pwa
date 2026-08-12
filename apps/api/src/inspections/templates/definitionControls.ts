@@ -1,3 +1,5 @@
+import { isCompatibleSystemContract } from "./systemContractCompatibility.js";
+
 type UnknownRecord = Record<string, unknown>;
 
 export type ResultOptionDefinition = {
@@ -185,7 +187,9 @@ export function resolveHoseReelControls(
   templateCode = "MFE-FSSR",
   templateVersion = 1
 ): ResolvedHoseReelControls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 1 || !isRecord(definition) || definition.key !== "hose_reel") {
+  if (templateCode !== "MFE-FSSR" || !Number.isSafeInteger(templateVersion) || templateVersion < 1
+    || !isCompatibleSystemContract("hose_reel", "confirmed", definition)
+    || !isRecord(definition) || definition.key !== "hose_reel") {
     throw new Error("Unsupported Hose Reel template definition");
   }
 

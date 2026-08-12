@@ -2,6 +2,7 @@ import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
+import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { parseFireAlarmRowPreset, parseFireAlarmSystemDefinition, resolveFireAlarmControls } from "./fireAlarmDefinition";
 import type { FireAlarmInspectionRecord, FireAlarmInspectionSnapshot, FireAlarmPrimaryDeviceRow, FireAlarmResponses, FireAlarmSecondaryAlarmDeviceRow } from "./fireAlarmTypes";
 import { canonicalizeFireAlarmResponses, getFireAlarmSubmissionIssues } from "./fireAlarmValidation";
@@ -16,12 +17,12 @@ const nextUpdatedAt = (previous: string) => {
 export const fireAlarmJobSystemKey = (jobId: string) => `${jobId}:${systemKey}`;
 
 function definition(job: InspectionJob, catalog: InspectionCatalog) {
-  if (job.configurationSnapshot.template.code !== "MFE-FSSR" || job.configurationSnapshot.template.version !== 3) throw new Error("Fire Alarm requires the frozen MFE-FSSR V3 job template");
-  const template = catalog.templates.find((item) => item.id === job.configurationSnapshot.template.id && item.code === "MFE-FSSR" && item.version === 3);
-  const candidate = template?.systems.find((item) => item.key === systemKey && item.definitionStatus === "confirmed");
+  const compatible = compatibleCatalogSystem(catalog, job.configurationSnapshot.template, systemKey);
+  const template = compatible?.template;
+  const candidate = compatible?.system;
   const parsed = parseFireAlarmSystemDefinition(candidate?.definition);
-  if (!template || !candidate || !parsed) throw new Error("Confirmed Fire Alarm MFE-FSSR V3 reference data is unavailable or malformed");
-  return { definition: parsed, controls: resolveFireAlarmControls(parsed) };
+  if (!template || !candidate || !parsed) throw new Error("Compatible confirmed Fire Alarm reference data is unavailable or malformed");
+  return { definition: parsed, controls: resolveFireAlarmControls(parsed, template.code, template.version) };
 }
 function configuredRows(system: JobSystemSnapshot) {
   const zones = new Map(system.zones.map((zone) => [zone.id, zone]));
@@ -54,8 +55,8 @@ export async function getOrCreateFireAlarmInspection(job: InspectionJob, system:
   if (system.systemKey !== systemKey || !job.configurationSnapshot.enabledSystems.some((item) => item.enabledSystemId === system.enabledSystemId && item.systemKey === systemKey)) throw new Error("Invalid frozen Fire Alarm system identity");
   const resolved = definition(job, catalog); const timestamp = now();
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null;
-  const inspectionSnapshot: FireAlarmInspectionSnapshot = { schemaVersion: 1, capturedAt: timestamp, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: { ...job.configurationSnapshot.template, code: "MFE-FSSR", version: 3 }, system: { ...structuredClone(system), systemKey, definition: resolved.definition, resolvedControls: resolved.controls, repetitionMode: "single_with_two_repeatable_tables" } };
-  const record: FireAlarmInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: key, jobId: job.id, systemKey, instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 3 }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" };
+  const inspectionSnapshot: FireAlarmInspectionSnapshot = { schemaVersion: 1, capturedAt: timestamp, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: { ...job.configurationSnapshot.template, code: "MFE-FSSR" }, system: { ...structuredClone(system), systemKey, definition: resolved.definition, resolvedControls: resolved.controls, repetitionMode: "single_with_two_repeatable_tables" } };
+  const record: FireAlarmInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: key, jobId: job.id, systemKey, instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" };
   record.responses = canonicalizeFireAlarmResponses(record.responses, inspectionSnapshot);
   try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { if (!(error instanceof Error) || error.name !== "ConstraintError") throw error; const winner = await getFireAlarmInspection(key); if (!winner) throw error; return winner; }
 }

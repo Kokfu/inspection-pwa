@@ -82,6 +82,41 @@ function sorted<T extends { sortOrder: number }>(items: T[]) {
   return items.sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
+const exact = (value: UnknownRecord, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+function frozenRemarks(value: unknown, maximum: number) { return isRecord(value) && exact(value, ["policy", "maxLength"]) && value.policy === "optional" && value.maxLength === maximum; }
+function frozenResult(value: unknown, values: readonly string[], required: boolean) {
+  return isRecord(value) && exact(value, ["type", "required", "options"]) && value.type === "single_select" && value.required === required
+    && Array.isArray(value.options) && value.options.length === values.length
+    && value.options.every((option, index) => isRecord(option) && exact(option, ["value", "label"])
+      && option.value === values[index] && option.label === optionLabels[values[index]]);
+}
+function frozenChecklist(value: unknown, definitions: readonly (readonly [string, string])[]) {
+  return Array.isArray(value) && value.length === definitions.length && value.every((item, index) => isRecord(item)
+    && exact(item, ["key", "label", "sortOrder", "result", "remarks"]) && item.key === definitions[index]?.[0]
+    && item.label === definitions[index]?.[1] && item.sortOrder === index + 1
+    && frozenResult(item.result, ["good", "poor"], true) && frozenRemarks(item.remarks, 2000));
+}
+
+export function parseFrozenCo2Controls(value: unknown): ResolvedCo2Controls | undefined {
+  const physical = [["co2_cylinder", "CO2 Cylinder"], ["electric_actuator", "Electric Actuator"], ["manual_release_key", "Manual Release Key"], ["alarm_bell", "Alarm Bell"], ["twin_flashing_light", "Twin Flashing Light"], ["24v_dc_tripping_device", "24V DC Tripping Device"], ["manual_pull_station", "Manual Pull Station"], ["high_pressure_hose", "High Pressure Hose"], ["discharge_nozzles", "Discharge Nozzles"], ["pilot_cylinder", "Pilot Cylinder"]] as const;
+  const functions = [["main_alarm_reset", "Main Alarm Reset"], ["lamp_test", "Lamp Test"], ["evacuate", "Evacuate"], ["ac_supply", "A/C Supply"], ["dc_supply", "D/C Supply"], ["signal_alarm_to_mfap", "Signal Alarm to MFAP"]] as const;
+  if (!isRecord(value) || !exact(value, ["schemaVersion", "source", "repetitionMode", "controlPanelLocation", "detectorRows", "chargerAndBatteries", "physicalOutlook", "mainFunctionKeys", "comments"])
+    || value.schemaVersion !== 1 || !isRecord(value.source) || !exact(value.source, ["templateCode", "templateVersion", "systemKey"])
+    || value.source.templateCode !== "MFE-FSSR" || value.source.templateVersion !== 1 || value.source.systemKey !== "co2_fire_extinguisher"
+    || value.repetitionMode !== "per_location" || !isRecord(value.controlPanelLocation)
+    || !exact(value.controlPanelLocation, ["key", "label", "required", "maxLength"]) || value.controlPanelLocation.key !== "control_panel_location"
+    || value.controlPanelLocation.label !== "Control Panel Location" || value.controlPanelLocation.required !== true || value.controlPanelLocation.maxLength !== 300
+    || !isRecord(value.detectorRows) || !exact(value.detectorRows, ["minimum", "maximum", "alarmZone", "location", "heatDetector", "smokeDetector", "remarks"])
+    || value.detectorRows.minimum !== 1 || value.detectorRows.maximum !== 250 || !isRecord(value.detectorRows.alarmZone) || !isRecord(value.detectorRows.location)
+    || !exact(value.detectorRows.alarmZone, ["key", "label", "required", "maxLength"]) || value.detectorRows.alarmZone.key !== "alarm_zone" || value.detectorRows.alarmZone.label !== "Alarm Zone" || value.detectorRows.alarmZone.required !== true || value.detectorRows.alarmZone.maxLength !== 200
+    || !exact(value.detectorRows.location, ["key", "label", "required", "maxLength"]) || value.detectorRows.location.key !== "location" || value.detectorRows.location.label !== "Location" || value.detectorRows.location.required !== true || value.detectorRows.location.maxLength !== 300
+    || !isRecord(value.detectorRows.heatDetector) || !exact(value.detectorRows.heatDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.heatDetector.key !== "heat_detector" || value.detectorRows.heatDetector.label !== "Heat Detector" || value.detectorRows.heatDetector.sortOrder !== 3 || !frozenResult(value.detectorRows.heatDetector.result, ["normal", "test", "isolation"], false)
+    || !isRecord(value.detectorRows.smokeDetector) || !exact(value.detectorRows.smokeDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.smokeDetector.key !== "smoke_detector" || value.detectorRows.smokeDetector.label !== "Smoke Detector" || value.detectorRows.smokeDetector.sortOrder !== 4 || !frozenResult(value.detectorRows.smokeDetector.result, ["normal", "test", "isolation"], false)
+    || !frozenRemarks(value.detectorRows.remarks, 2000) || !frozenChecklist(value.chargerAndBatteries, [["main_supply", "Main Supply"], ["battery", "Battery"], ["charger", "Charger"]])
+    || !frozenChecklist(value.physicalOutlook, physical) || !frozenChecklist(value.mainFunctionKeys, functions) || !frozenRemarks(value.comments, 4000)) return undefined;
+  return value as unknown as ResolvedCo2Controls;
+}
+
 export function resolvePublishedCo2Controls(
   definition: unknown,
   templateCode = "MFE-FSSR",
@@ -89,8 +124,8 @@ export function resolvePublishedCo2Controls(
 ): ResolvedCo2Controls {
   const wetChemical = isRecord(definition) && definition.key === "wet_chemical";
   if (templateCode !== "MFE-FSSR" || !isRecord(definition)
-    || (!wetChemical && (templateVersion !== 1 || definition.key !== "co2_fire_extinguisher"))
-    || (wetChemical && templateVersion !== 4)) {
+    || !Number.isSafeInteger(templateVersion) || templateVersion < 1
+    || (!wetChemical && definition.key !== "co2_fire_extinguisher")) {
     throw new Error("Unsupported suppression-system template definition");
   }
   const sections = list(definition.sections, "sections");

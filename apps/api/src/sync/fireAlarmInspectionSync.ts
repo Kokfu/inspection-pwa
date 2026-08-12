@@ -13,7 +13,7 @@ type Payload = {
   clientUuid: string; jobId: string; systemKey: "fire_alarm_detector"; instanceKey: "primary";
   configuredZoneId: null; configuredLocationId: null; displaySequence: 1;
   originalCreatorSnapshot: UnknownRecord | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 3 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: UnknownRecord; responses: UnknownRecord; performedAt: string;
 };
@@ -82,7 +82,7 @@ function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFa
     || payload.configuredZoneId !== null || payload.configuredLocationId !== null || payload.displaySequence !== 1
     || originalCreatorSnapshot === undefined || !isRecord(payload.masterTemplate)
     || !exactKeys(payload.masterTemplate, ["id", "code", "version"]) || !isUuid(payload.masterTemplate.id)
-    || payload.masterTemplate.code !== "MFE-FSSR" || payload.masterTemplate.version !== 3
+    || payload.masterTemplate.code !== "MFE-FSSR" || !Number.isSafeInteger(payload.masterTemplate.version) || Number(payload.masterTemplate.version) < 1
     || !isRecord(payload.configuration) || !exactKeys(payload.configuration, ["revisionId", "revisionNumber"])
     || !isUuid(payload.configuration.revisionId) || !Number.isInteger(payload.configuration.revisionNumber)
     || !isRecord(payload.inspectionSnapshot) || !isRecord(payload.responses) || !isTimestamp(payload.performedAt)) {
@@ -217,14 +217,14 @@ export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: 
       if (!job || job.status !== "open" || !system || !configuration || !template
         || job.master_template_version_id !== payload.masterTemplate.id || job.customer_configuration_revision_id !== payload.configuration.revisionId
         || configuration.revisionId !== payload.configuration.revisionId || configuration.revisionNumber !== payload.configuration.revisionNumber
-        || template.id !== payload.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== 3) {
+        || template.id !== payload.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== payload.masterTemplate.version) {
         await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Fire Alarm job configuration is unavailable")); continue;
       }
       const definition = await client.query<{ definition: unknown; definition_status: string }>("SELECT definition,definition_status FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='fire_alarm_detector'", [payload.masterTemplate.id]);
       let controls: ResolvedFireAlarmControls;
       try {
         if (definition.rowCount !== 1 || definition.rows[0].definition_status !== "confirmed") throw new Error("unavailable");
-        controls = resolveFireAlarmControls(definition.rows[0].definition, "MFE-FSSR", 3);
+        controls = resolveFireAlarmControls(definition.rows[0].definition, "MFE-FSSR", payload.masterTemplate.version);
       } catch {
         await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Fire Alarm definition is unavailable or invalid")); continue;
       }
@@ -232,7 +232,7 @@ export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: 
       const responses = expected ? canonicalResponses(payload.responses, expected, controls) : undefined;
       if (!responses) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Fire Alarm inspection or configured row identity is incomplete or invalid")); continue; }
       const authority = { job: { id: payload.jobId, reference: job.job_reference, title: job.title }, customer: job.configuration_snapshot.customer,
-        configuration: job.configuration_snapshot.configuration, template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: 3 }, system };
+        configuration: job.configuration_snapshot.configuration, template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: payload.masterTemplate.version }, system };
       fingerprint = createHash("sha256").update(canonicalize({ clientUuid: payload.clientUuid, jobId: payload.jobId, systemKey: "fire_alarm_detector", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, authority, responses, performedAt: payload.performedAt, originalCreatorSnapshot: payload.originalCreatorSnapshot, actorUserId: actorUserId ?? null })).digest("hex");
       const existing = await client.query<{ request_fingerprint: string }>("SELECT request_fingerprint FROM master_system_form_instances WHERE client_uuid=$1", [payload.clientUuid]);
       if (existing.rowCount) { await client.query("ROLLBACK"); existing.rows[0].request_fingerprint === fingerprint ? result.duplicateIds.push(payload.clientUuid) : result.failed.push(failure(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different Fire Alarm data")); continue; }

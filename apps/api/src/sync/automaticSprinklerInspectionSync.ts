@@ -23,7 +23,7 @@ type Payload = {
   configuredLocationId: null;
   displaySequence: 1;
   originalCreatorSnapshot: UnknownRecord | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: UnknownRecord;
   responses: UnknownRecord;
@@ -92,7 +92,7 @@ function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFa
     || !isRecord(payload.masterTemplate)
     || !exactKeys(payload.masterTemplate, ["id", "code", "version"])
     || !isUuid(payload.masterTemplate.id) || payload.masterTemplate.code !== "MFE-FSSR"
-    || payload.masterTemplate.version !== 1
+    || !Number.isSafeInteger(payload.masterTemplate.version) || Number(payload.masterTemplate.version) < 1
     || !isRecord(payload.configuration)
     || !exactKeys(payload.configuration, ["revisionId", "revisionNumber"])
     || !isUuid(payload.configuration.revisionId)
@@ -239,7 +239,7 @@ export async function syncAutomaticSprinklerInspections(
         || configuration.revisionId !== payload.configuration.revisionId
         || configuration.revisionNumber !== payload.configuration.revisionNumber
         || template.id !== payload.masterTemplate.id || template.code !== "MFE-FSSR"
-        || template.version !== 1 || !Array.isArray(system.zones) || system.zones.length !== 0
+        || template.version !== payload.masterTemplate.version || !Array.isArray(system.zones) || system.zones.length !== 0
         || !Array.isArray(system.locations) || system.locations.length !== 0) {
         await client.query("ROLLBACK");
         result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Automatic Sprinkler job configuration is unavailable"));
@@ -293,7 +293,7 @@ export async function syncAutomaticSprinklerInspections(
       }
       let controls: ResolvedAutomaticSprinklerControls;
       try {
-        controls = resolveAutomaticSprinklerControls(definitionResult.rows[0].definition, "MFE-FSSR", 1);
+        controls = resolveAutomaticSprinklerControls(definitionResult.rows[0].definition, "MFE-FSSR", payload.masterTemplate.version);
       } catch {
         await client.query("ROLLBACK");
         result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Automatic Sprinkler definition is invalid"));
@@ -349,7 +349,7 @@ export async function syncAutomaticSprinklerInspections(
         job: { id: payload.jobId, reference: job.job_reference, title: job.title },
         customer: job.configuration_snapshot.customer,
         configuration: job.configuration_snapshot.configuration,
-        template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: 1 },
+        template: { id: payload.masterTemplate.id, code: "MFE-FSSR", version: payload.masterTemplate.version },
         system: {
           ...system,
           definition: definitionResult.rows[0].definition,

@@ -150,7 +150,7 @@ function resolvedChecklist<K extends string>(key: K, label: string, sortOrder: n
 }
 
 export function resolveFireAlarmControls(definition: unknown, templateCode = "MFE-FSSR", templateVersion = 3): ResolvedFireAlarmControls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 3 || !parseFireAlarmSystemDefinition(definition)) {
+  if (templateCode !== "MFE-FSSR" || !Number.isSafeInteger(templateVersion) || templateVersion < 1 || !parseFireAlarmSystemDefinition(definition)) {
     throw new Error("Unsupported or malformed Fire Alarm MFE-FSSR V3 definition");
   }
   return {

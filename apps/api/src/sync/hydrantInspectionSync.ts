@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { pool } from "../db/pool.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { isCompatibleSystemContract } from "../inspections/templates/systemContractCompatibility.js";
 type R=Record<string,unknown>;const rec=(x:unknown):x is R=>typeof x==="object"&&x!==null&&!Array.isArray(x);const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;const fail=(id:string,code:string,message:string):SyncFailure=>({id,code,message});
 type SyncItem={operationId:unknown;entityType:unknown;entityId:unknown;action:unknown;payload:unknown};
-type HydrantPayload=R&{clientUuid:string;jobId:string;systemKey:"hydrant";masterTemplate:R&{id:string;code:"MFE-FSSR";version:1};configuration:R&{revisionId:string;revisionNumber:number};inspectionSnapshot:R;responses:R;performedAt:string;originalCreatorSnapshot:R|null};
+type HydrantPayload=R&{clientUuid:string;jobId:string;systemKey:"hydrant";masterTemplate:R&{id:string;code:"MFE-FSSR";version:number};configuration:R&{revisionId:string;revisionNumber:number};inspectionSnapshot:R;responses:R;performedAt:string;originalCreatorSnapshot:R|null};
 const canonicalUtc=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const exactKeys=(value:R,keys:string[])=>Object.keys(value).length===keys.length&&keys.every((key)=>Object.hasOwn(value,key));
 const timestamp=(value:unknown):value is string=>typeof value==="string"&&value.length<=24&&canonicalUtc.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString()===value;
@@ -139,7 +140,7 @@ function validTemplate(value: unknown) {
   return rec(value) && exactKeys(value, ["id", "code", "name", "version"])
     && typeof value.id === "string" && uuid.test(value.id)
     && value.code === "MFE-FSSR" && typeof value.name === "string" && value.name.length > 0 && value.name.length <= 300
-    && value.version === 1;
+    && Number.isSafeInteger(value.version) && Number(value.version) > 0;
 }
 
 function isExpectedUniqueViolation(error: unknown) {
@@ -182,7 +183,7 @@ export async function syncHydrantInspections(
       || typeof candidate.masterTemplate.id !== "string"
       || !uuid.test(candidate.masterTemplate.id)
       || candidate.masterTemplate.code !== "MFE-FSSR"
-      || candidate.masterTemplate.version !== 1
+      || !Number.isSafeInteger(candidate.masterTemplate.version) || Number(candidate.masterTemplate.version) < 1
       || !rec(candidate.configuration)
       || !exactKeys(candidate.configuration, ["revisionId", "revisionNumber"])
       || typeof candidate.configuration.revisionId !== "string"
@@ -219,18 +220,18 @@ export async function syncHydrantInspections(
       const customer = jobSnapshot && rec(jobSnapshot.customer) ? jobSnapshot.customer : undefined;
       if (!j || j.status !== "open" || hydrantSystems.length !== 1
         || !configuration || configuration.revisionId !== p.configuration.revisionId || configuration.revisionNumber !== p.configuration.revisionNumber
-        || !template || template.id !== p.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== 1
+        || !template || template.id !== p.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== p.masterTemplate.version
         || !validCustomer(customer) || !validConfiguration(configuration) || !validTemplate(template)) {
         await client.query("ROLLBACK");
         out.failed.push(fail(id, "VALIDATION_ERROR", "Hydrant job configuration is unavailable"));
         continue;
       }
 
-      const definition = await client.query<{ definition: R }>(
-        "SELECT definition FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='hydrant' AND definition_status='confirmed'",
+      const definition = await client.query<{ definition: R; definition_status: string }>(
+        "SELECT definition, definition_status FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='hydrant'",
         [p.masterTemplate.id]
       );
-      if (definition.rowCount !== 1) {
+      if (definition.rowCount !== 1 || !isCompatibleSystemContract("hydrant", definition.rows[0].definition_status, definition.rows[0].definition)) {
         await client.query("ROLLBACK");
         out.failed.push(fail(id, "VALIDATION_ERROR", "Hydrant definition is unavailable"));
         continue;

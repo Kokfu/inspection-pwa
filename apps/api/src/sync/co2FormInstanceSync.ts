@@ -10,7 +10,7 @@ type Payload = {
   clientUuid: string; jobId: string; systemKey: "co2_fire_extinguisher" | "wet_chemical"; instanceKey: string;
   configuredZoneId: string | null; configuredLocationId: string; displaySequence: number;
   originalCreatorSnapshot: UnknownRecord | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 | 4 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: UnknownRecord; responses: UnknownRecord; performedAt: string;
 };
@@ -60,7 +60,7 @@ function validWetChemicalSnapshot(value: unknown, payload: UnknownRecord) {
   return value.job.id === payload.jobId && value.configuration.revisionId === (payload.configuration as UnknownRecord).revisionId
     && value.configuration.revisionNumber === (payload.configuration as UnknownRecord).revisionNumber
     && value.template.id === (payload.masterTemplate as UnknownRecord).id && value.template.code === "MFE-FSSR"
-    && value.template.version === 4 && value.instance.instanceKey === payload.instanceKey
+    && value.template.version === (payload.masterTemplate as UnknownRecord).version && value.instance.instanceKey === payload.instanceKey
     && value.instance.displaySequence === payload.displaySequence;
 }
 function validateWetChemicalEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFailure } {
@@ -75,7 +75,7 @@ function validateWetChemicalEnvelope(item: SyncItem): { payload?: Payload; failu
     || !isUuid(payload.configuredLocationId) || payload.instanceKey !== `location:${payload.configuredLocationId}` || !(payload.configuredZoneId === null || isUuid(payload.configuredZoneId))
     || typeof payload.displaySequence !== "number" || !Number.isSafeInteger(payload.displaySequence) || payload.displaySequence < 1 || originalCreatorSnapshot === undefined
     || !isRecord(payload.masterTemplate) || !exactKeys(payload.masterTemplate, templateKeys) || !isUuid(payload.masterTemplate.id)
-    || payload.masterTemplate.code !== "MFE-FSSR" || payload.masterTemplate.version !== 4
+    || payload.masterTemplate.code !== "MFE-FSSR" || !Number.isSafeInteger(payload.masterTemplate.version) || Number(payload.masterTemplate.version) < 1
     || !isRecord(payload.configuration) || !exactKeys(payload.configuration, configurationKeys)
     || !isUuid(payload.configuration.revisionId) || typeof payload.configuration.revisionNumber !== "number" || !Number.isSafeInteger(payload.configuration.revisionNumber) || payload.configuration.revisionNumber < 1
     || !validWetChemicalSnapshot(payload.inspectionSnapshot, payload) || !isRecord(payload.responses) || !isCanonicalTimestamp(payload.performedAt)) {
@@ -93,7 +93,7 @@ function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFa
     || typeof p.instanceKey !== "string" || !isUuid(p.configuredLocationId) || !(p.configuredZoneId === null || isUuid(p.configuredZoneId))
     || !Number.isInteger(p.displaySequence) || (p.displaySequence as number) < 1 || !validCreator(p.originalCreatorSnapshot)
     || !isRecord(p.masterTemplate) || !isUuid(p.masterTemplate.id) || p.masterTemplate.code !== "MFE-FSSR"
-    || p.masterTemplate.version !== 1
+    || !Number.isSafeInteger(p.masterTemplate.version) || Number(p.masterTemplate.version) < 1
     || !isRecord(p.configuration) || !isUuid(p.configuration.revisionId) || !Number.isInteger(p.configuration.revisionNumber)
     || !isRecord(p.inspectionSnapshot) || !isRecord(p.responses) || !isTimestamp(p.performedAt)) {
     return { failure: fail(id, "VALIDATION_ERROR", "CO2 form instance payload is invalid") };
@@ -110,7 +110,7 @@ function validChecklist(value: unknown, definitions: ResolvedCo2Controls["charge
     return isRecord(response) && exactKeys(response, ["result", "remarks"]) && allowed(item.result, response.result) && validText(response.remarks, item.remarks.maxLength);
   });
 }
-function validateResponses(value: UnknownRecord, controls: ResolvedCo2Controls) {
+export function validateCo2Responses(value: UnknownRecord, controls: ResolvedCo2Controls) {
   if (!exactKeys(value, ["controlPanelLocation", "detectorRows", "chargerAndBatteries", "physicalOutlook", "mainFunctionKeys", "comments"])
     || !validText(value.controlPanelLocation, controls.controlPanelLocation.maxLength, true)
     || !Array.isArray(value.detectorRows) || value.detectorRows.length < controls.detectorRows.minimum || value.detectorRows.length > controls.detectorRows.maximum
@@ -204,10 +204,10 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       let controls: ResolvedCo2Controls;
       try { controls = resolveCo2Controls(definitionResult.rows[0].definition, "MFE-FSSR", payload.masterTemplate.version); }
       catch { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 definition is invalid")); continue; }
-      if (controls.source.systemKey !== payload.systemKey || controls.source.templateVersion !== payload.masterTemplate.version) {
+      if (controls.source.systemKey !== payload.systemKey) {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "Suppression-system definition identity is invalid")); continue;
       }
-      if (!validateResponses(payload.responses, controls)) {
+      if (!validateCo2Responses(payload.responses, controls)) {
         await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "CO2 form is incomplete or invalid")); continue;
       }
       const fingerprint = createHash("sha256").update(canonicalize({

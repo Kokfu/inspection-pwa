@@ -3,10 +3,12 @@ import type {
   MasterSystemFormInstanceRecord,
   MasterSystemInspectionGroupRecord
 } from "./co2Types";
+import type { ServerMasterSystemInspectionSummary } from "../hoseReel/serverMasterSystemInspectionApi";
 
 type Props = {
   group: MasterSystemInspectionGroupRecord;
   instances: MasterSystemFormInstanceRecord[];
+  serverSummaries: ServerMasterSystemInspectionSummary[];
   onBack: () => void;
   onOpen: (record: MasterSystemFormInstanceRecord) => void;
 };
@@ -21,7 +23,7 @@ export function groupCo2InstancesByZone(group: MasterSystemInspectionGroupRecord
   }, []);
 }
 
-export function Co2LocationList({ group, instances, onBack, onOpen }: Props) {
+export function Co2LocationList({ group, instances, serverSummaries, onBack, onOpen }: Props) {
   const systemLabel = group.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
   const byKey = new Map(instances.map((instance) => [instance.instanceKey, instance]));
   const zones = groupCo2InstancesByZone(group);
@@ -33,7 +35,7 @@ export function Co2LocationList({ group, instances, onBack, onOpen }: Props) {
         <h2 id="co2-locations-title">{systemLabel} Locations</h2>
         <p>{group.customer.displayName}</p>
       </div>
-      <span className="status-label">{deriveCo2ParentProgress(group, instances)}</span>
+      <span className="status-label">{group.expectedInstances.every(expected=>serverSummaries.some(summary=>summary.instanceKey===expected.instanceKey&&summary.locationId===expected.location.id&&summary.zoneId===(expected.zone?.id??null)&&summary.displaySequence===expected.displaySequence))?"Completed":deriveCo2ParentProgress(group, instances)}</span>
     </div>
     {zones.map((zone) => (
       <section className="location-group" key={zone.key}>
@@ -43,13 +45,14 @@ export function Co2LocationList({ group, instances, onBack, onOpen }: Props) {
             .filter((expected) => (expected.zone ? `zone:${expected.zone.id}` : "zone:unconfigured") === zone.key)
             .map((expected) => {
               const record = byKey.get(expected.instanceKey);
+              const accepted=serverSummaries.some(summary=>summary.instanceKey===expected.instanceKey&&summary.locationId===expected.location.id&&summary.zoneId===(expected.zone?.id??null)&&summary.displaySequence===expected.displaySequence);
               return <li key={expected.instanceKey}>
                 <button type="button" disabled={!record} onClick={() => record && onOpen(record)}>
                   <span>
                     <strong>{expected.location.displayName}</strong>
                     <small>{expected.zone?.displayName ?? "Unzoned configured location"}</small>
                   </span>
-                  <span className="status-label">{record ? deriveCo2InstanceProgress(record) : "Not Started"}</span>
+                  <span className="status-label">{accepted ? "Accepted" : record ? deriveCo2InstanceProgress(record) : "Not Started"}</span>
                 </button>
               </li>;
             })}

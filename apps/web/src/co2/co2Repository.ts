@@ -6,6 +6,7 @@ import {
   defaultCatalogTemplate,
   type InspectionCatalogInput
 } from "../referenceData/referenceDataTypes";
+import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { resolvePublishedCo2Controls } from "./co2Definition";
 import type {
   Co2ConfiguredInstance,
@@ -29,12 +30,13 @@ const isUuid = (value: string) => uuidPattern.test(value);
 const isExpectedInitializationConstraint = (error: unknown) =>
   error instanceof Error && error.name === "ConstraintError";
 
-function definitionFor(catalog: InspectionCatalogInput, systemKey: SuppressionSystemKey, templateVersion: number) {
-  const template = "templates" in catalog
-    ? catalog.templates.find((candidate) => candidate.version === templateVersion)
-    : defaultCatalogTemplate(catalog);
+function definitionFor(catalog: InspectionCatalogInput, systemKey: SuppressionSystemKey, job: InspectionJob) {
+  const compatible = "templates" in catalog
+    ? compatibleCatalogSystem(catalog, job.configurationSnapshot.template, systemKey)
+    : undefined;
+  const template = compatible?.template ?? ("templates" in catalog ? undefined : defaultCatalogTemplate(catalog));
   if (!template) throw new Error("Cached template version is unavailable. Refresh jobs online first.");
-  const system = template.systems.find((candidate) => candidate.key === systemKey && candidate.definitionStatus === "confirmed");
+  const system = compatible?.system ?? template.systems.find((candidate) => candidate.key === systemKey && candidate.definitionStatus === "confirmed");
   if (!system?.definition) throw new Error(`Cached ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} definition is unavailable. Refresh jobs online first.`);
   return {
     definition: system.definition,
@@ -121,7 +123,7 @@ export async function initializeCo2InspectionGroup(
   if (expected.length === 0) {
     throw new Error(`No configured ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} locations exist. A manager must create a new configuration revision and job.`);
   }
-  const { definition, controls } = definitionFor(catalog, systemKey, job.configurationSnapshot.template.version);
+  const { definition, controls } = definitionFor(catalog, systemKey, job);
   const groupKey = `${job.id}:${systemKey}`;
   const timestamp = now();
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator
@@ -165,7 +167,7 @@ export async function initializeCo2InspectionGroup(
             configuredLocationId: instance.location.id,
             displaySequence: instance.displaySequence,
             originalCreatorSnapshot,
-            masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version as 1 | 4 },
+            masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version },
             configuration: job.configurationSnapshot.configuration,
             inspectionSnapshot,
             responses: blankResponses(instance, controls),

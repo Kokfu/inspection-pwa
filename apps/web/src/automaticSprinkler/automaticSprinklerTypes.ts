@@ -134,7 +134,7 @@ export type AutomaticSprinklerInspectionRecord = {
   configuredLocationId: null;
   displaySequence: 1;
   originalCreatorSnapshot: DeviceReportedCreator | null;
-  masterTemplate: { id: string; code: "MFE-FSSR"; version: 1 };
+  masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: AutomaticSprinklerInspectionSnapshot;
   responses: AutomaticSprinklerResponses;

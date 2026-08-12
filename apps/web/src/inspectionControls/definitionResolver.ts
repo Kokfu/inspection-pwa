@@ -123,7 +123,7 @@ export function resolvePublishedHoseReelControls(
   templateCode = "MFE-FSSR",
   templateVersion = 1
 ): ResolvedHoseReelControls {
-  if (templateCode !== "MFE-FSSR" || templateVersion !== 1 || !isRecord(definition) || definition.key !== "hose_reel") {
+  if (templateCode !== "MFE-FSSR" || !Number.isSafeInteger(templateVersion) || templateVersion < 1 || !isRecord(definition) || definition.key !== "hose_reel") {
     throw new Error("Unsupported Hose Reel template definition");
   }
   const sections = list(definition.sections, "sections");
