@@ -103,6 +103,22 @@ export async function refreshInspectionReferenceData(
   };
 }
 
+export async function refreshCachedInspectionJobs(
+  userId: number,
+  canCommit: () => boolean = () => true
+) {
+  const jobs = await loadInspectionJobs();
+  if (!canCommit()) throw new Error("AUTH_OPERATION_SUPERSEDED");
+  const fetchedAt = new Date().toISOString();
+  await localDatabase.transaction("rw", localDatabase.referenceData, async () => {
+    if (!canCommit()) throw new Error("AUTH_OPERATION_SUPERSEDED");
+    await localDatabase.referenceData.put(
+      entry(inspectionJobsKey(userId), jobs, fetchedAt, fetchedAt)
+    );
+  });
+  return jobs;
+}
+
 export async function getCachedInspectionCatalog() {
   const payload = ((await localDatabase.referenceData.get(catalogKey))
     ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload;

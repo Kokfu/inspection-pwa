@@ -101,6 +101,7 @@ import {
   type ServerSummaryRefreshToken
 } from "./jobs/serverSummaryRefreshGuard";
 import type { InspectionJob, JobSystemSnapshot } from "./jobs/jobTypes";
+import { closeInspectionJob } from "./jobs/jobApi";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
@@ -122,6 +123,7 @@ import {
   getCachedInspectionJobs,
   getCachedInspectionCatalog,
   getReferenceCacheSummary,
+  refreshCachedInspectionJobs,
   refreshInspectionReferenceData
 } from "./referenceData/referenceDataCache";
 import {
@@ -208,6 +210,8 @@ export function App() {
   const [hoseReelRouteMessage, setHoseReelRouteMessage] = useState("");
   const [activeAutomaticSprinkler, setActiveAutomaticSprinkler] = useState<AutomaticSprinklerInspectionRecord>();
   const [activeDryWetRiser, setActiveDryWetRiser] = useState<DryWetRiserInspectionRecord>();
+  const [serverAcceptedAutomaticSprinklerUuid, setServerAcceptedAutomaticSprinklerUuid] = useState<string>();
+  const [serverAcceptedDryWetRiserUuid, setServerAcceptedDryWetRiserUuid] = useState<string>();
   const [activeFireAlarm, setActiveFireAlarm] = useState<FireAlarmInspectionRecord>();
   const [activeHydrant, setActiveHydrant] = useState<HydrantInspectionRecord>();
   const [activePortable, setActivePortable] = useState<PortableRecord>();
@@ -469,6 +473,8 @@ export function App() {
     setJobMessage("");
     setReferenceCacheMessage("");
     try {
+      await refreshCachedInspectionJobs(user.id, isCurrentRefresh);
+      if (!isCurrentRefresh()) return;
       await refreshInspectionReferenceData(
         user.id,
         isCurrentRefresh
@@ -664,33 +670,40 @@ export function App() {
   }, [masterSystemInspections, route]);
   useEffect(() => {
     const generation = ++riserRouteGeneration.current;
-    if (route.name !== "riser-form") { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState("idle"); setRiserRouteMessage(""); return; }
-    if (authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") { setRiserRouteState("loading"); return; }
+    if (route.name !== "riser-form") { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setServerAcceptedDryWetRiserUuid(undefined); setRiserRouteState("idle"); setRiserRouteMessage(""); return; }
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") { setRiserRouteState("loading"); return; }
     setRiserRouteState("loading"); setRiserRouteMessage("");
-    void resolveDryWetRiserRoute(route.clientUuid, authState.status).then((resolution) => {
+    const restoredCompletedJob = masterSystemInspections.find((record) => record.clientUuid === route.clientUuid);
+    const preferAcceptedServer = serverAcceptedDryWetRiserUuid === route.clientUuid
+      || Boolean(restoredCompletedJob && jobs.some((job) => job.id === restoredCompletedJob.jobId && job.status === "closed"));
+    void resolveDryWetRiserRoute(route.clientUuid, authState.status, undefined, preferAcceptedServer).then((resolution) => {
       if (riserRouteGeneration.current !== generation) return;
       if (resolution.kind === "local") { setActiveDryWetRiser(resolution.record); setServerDryWetRiser(undefined); setRiserRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveDryWetRiser(undefined); setServerDryWetRiser(resolution.inspection); setRiserRouteState("idle"); }
       else { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState(resolution.kind); setRiserRouteMessage("message" in resolution ? resolution.message : ""); }
     });
-  }, [authAuthorityGeneration, authState.status, masterSystemInspections, route]);
+  }, [authAuthorityGeneration, authState.status, initialAuthRestored, jobs, masterSystemInspections, route, serverAcceptedDryWetRiserUuid]);
 
   useEffect(() => {
     const generation = ++sprinklerRouteGeneration.current;
     if (route.name !== "sprinkler-form") {
       setActiveAutomaticSprinkler(undefined);
       setServerAutomaticSprinkler(undefined);
+      setServerAcceptedAutomaticSprinklerUuid(undefined);
       setSprinklerRouteState("idle");
       setSprinklerRouteMessage("");
       return;
     }
-    if (authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") {
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") {
       setSprinklerRouteState("loading");
       return;
     }
     setSprinklerRouteState("loading");
     setSprinklerRouteMessage("");
-    void resolveAutomaticSprinklerRoute(route.clientUuid, authState.status).then((resolution) => {
+    const restoredCompletedJob = masterSystemInspections.find((record) => record.clientUuid === route.clientUuid);
+    const preferAcceptedServer = serverAcceptedAutomaticSprinklerUuid === route.clientUuid
+      || Boolean(restoredCompletedJob && jobs.some((job) => job.id === restoredCompletedJob.jobId && job.status === "closed"));
+    void resolveAutomaticSprinklerRoute(route.clientUuid, authState.status, undefined, preferAcceptedServer).then((resolution) => {
       if (sprinklerRouteGeneration.current !== generation) return;
       if (resolution.kind === "local") {
         setActiveAutomaticSprinkler(resolution.record);
@@ -709,7 +722,7 @@ export function App() {
         );
       }
     });
-  }, [authAuthorityGeneration, authState.status, masterSystemInspections, route]);
+  }, [authAuthorityGeneration, authState.status, initialAuthRestored, jobs, masterSystemInspections, route, serverAcceptedAutomaticSprinklerUuid]);
 
   useEffect(() => {
     setActiveCo2Form((route.name === "co2-form" || route.name === "wet-chemical-form")
@@ -751,6 +764,7 @@ export function App() {
 
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
+  const jobIsCompleted = (jobId: string) => jobs.some((job) => job.id === jobId && job.status === "closed");
   const mayRenderLocalHydrant = canRenderLocalHydrant(
     activeHydrant,
     authState.status,
@@ -830,6 +844,34 @@ export function App() {
     await refreshMasterSystemInspections();
     await refreshCo2Inspections();
     await refreshInspectionAttachments();
+    if (currentUser) {
+      await refreshServerWorkspace(currentUser, authOperationGeneration.current);
+    }
+  }
+
+  async function handleCloseJob(job: InspectionJob) {
+    if (!canUseServer || !currentUser) {
+      setJobMessage("Reconnect and verify your session before completing this job");
+      return;
+    }
+    setJobLoading(true);
+    setJobMessage("Verifying accepted inspection work with the server");
+    try {
+      const result = await closeInspectionJob(job.id);
+      setJobs((current) => current.map((candidate) => candidate.id === job.id
+        ? { ...candidate, status: result.completion.jobStatus, completion: result.completion }
+        : candidate));
+      setJobMessage(result.outcome === "incomplete"
+        ? "Job remains open because required inspection work is incomplete"
+        : result.outcome === "already-completed"
+          ? "Job was already completed"
+          : "Job completed successfully");
+      await refreshServerWorkspace(currentUser, authOperationGeneration.current);
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "Job could not be completed");
+    } finally {
+      setJobLoading(false);
+    }
   }
 
   async function handleLogin(username: string, password: string) {
@@ -927,6 +969,7 @@ export function App() {
         const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
         if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
       }
+      if (job.status === "closed") throw new Error("This completed job is read-only. Reconnect to load its Accepted inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
       const record = await getOrCreateHoseReelInspection(job, system, catalog, currentUser);
@@ -940,6 +983,11 @@ export function App() {
 
   async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
     try {
+      if (job.status === "closed") {
+        if (!canUseServer) throw new Error("This completed job is read-only. Reconnect to load Accepted location details.");
+        navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
+        return;
+      }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
       await initializeCo2InspectionGroup(job, system, catalog, currentUser);
@@ -952,6 +1000,7 @@ export function App() {
 
   async function handleOpenAutomaticSprinkler(job: InspectionJob, system: JobSystemSnapshot) {
     try {
+      if (job.status === "closed" && !canUseServer) throw new Error("This completed job is read-only. Reconnect to load its Accepted inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Automatic Sprinkler reference data is not cached yet. Refresh jobs online first.");
       const target = await resolveAutomaticSprinklerOpenTarget(
@@ -962,9 +1011,12 @@ export function App() {
         canUseServer
       );
       if (target.kind === "server") {
+        setServerAcceptedAutomaticSprinklerUuid(target.clientUuid);
         navigate({ name: "sprinkler-form", clientUuid: target.clientUuid });
         return;
       }
+      if (job.status === "closed") throw new Error("Completed jobs cannot create a new Automatic Sprinkler Draft");
+      setServerAcceptedAutomaticSprinklerUuid(undefined);
       setActiveAutomaticSprinkler(target.record);
       await refreshMasterSystemInspections();
       navigate({ name: "sprinkler-form", clientUuid: target.record.clientUuid });
@@ -972,13 +1024,13 @@ export function App() {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
   }
-  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
-  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This accepted Fire Alarm inspection is not cached. Reconnect to load server detail."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
-  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
+  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;} const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { setServerAcceptedDryWetRiserUuid(target.clientUuid); navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Dry/Wet Riser Draft");return;} setServerAcceptedDryWetRiserUuid(undefined); setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
+  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;} const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This accepted Fire Alarm inspection is not cached. Reconnect to load server detail."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local" && job.status === "closed") { setJobMessage("Completed jobs cannot create a new Fire Alarm Draft"); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
+  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;}const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Hydrant Draft");return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
   async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
-  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
+  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Portable Fire Extinguisher Draft");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
   async function handleSavePortable(responses:PortableResponses){if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitPortable(responses:PortableResponses){if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedPortable(){if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePortable));await refreshMasterSystemInspections();}}
@@ -1238,7 +1290,7 @@ export function App() {
               </div>
             </section>
           ) : route.name === "inspection" ? (
-            hoseReelAuthorityState === "server" && serverHoseReel ? <ServerHoseReelView inspection={serverHoseReel} onBack={()=>navigate({name:"job",jobId:serverHoseReel.jobId})}/> : hoseReelAuthorityState === "local" && activeHoseReel ? (
+            hoseReelAuthorityState === "server" && serverHoseReel ? <ServerHoseReelView inspection={serverHoseReel} onBack={()=>navigate({name:"job",jobId:serverHoseReel.jobId})}/> : hoseReelAuthorityState === "local" && activeHoseReel && !jobIsCompleted(activeHoseReel.jobId) ? (
               <HoseReelInspectionForm
                 record={activeHoseReel}
                 onSaveDraft={handleSaveHoseReelDraft}
@@ -1254,7 +1306,7 @@ export function App() {
               </section>
             )
           ) : route.name === "sprinkler-form" ? (
-            activeAutomaticSprinkler ? (
+            activeAutomaticSprinkler && !jobIsCompleted(activeAutomaticSprinkler.jobId) ? (
               <AutomaticSprinklerInspectionForm
                 record={activeAutomaticSprinkler}
                 onBack={() => navigate({ name: "job", jobId: activeAutomaticSprinkler.jobId })}
@@ -1287,13 +1339,13 @@ export function App() {
               </section>
             )
           ) : route.name === "riser-form" ? (
-            activeDryWetRiser ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This completed job is read-only. Reconnect to load its Accepted inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
-            activeFireAlarm ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{fireAlarmRouteState==="loading"?"Loading authoritative accepted detail.":fireAlarmRouteState==="not-cached"?"Accepted detail is not cached on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this accepted inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The accepted inspection is inconsistent with local state.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The accepted detail is invalid and cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":fireAlarmRouteState==="loading"?"Loading authoritative accepted detail.":fireAlarmRouteState==="not-cached"?"Accepted detail is not cached on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this accepted inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The accepted inspection is inconsistent with local state.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The accepted detail is invalid and cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "wet-chemical-form" ? (
-            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking server acceptance before displaying editable local data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking server acceptance before displaying editable local data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
-            co2AuthorityState === "server" && serverCo2 ? <ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/> : co2AuthorityState === "local" && activeCo2Form ? (
+            co2AuthorityState === "server" && serverCo2 ? <ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/> : co2AuthorityState === "local" && activeCo2Form && !jobIsCompleted(activeCo2Form.jobId) ? (
               <Co2InspectionForm
                 record={activeCo2Form}
                 onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })}
@@ -1305,13 +1357,21 @@ export function App() {
               <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking authoritative CO2 acceptance for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "hydrant-form" ? (
-            mayRenderLocalHydrant ? <HydrantInspectionForm record={activeHydrant!} onBack={()=>navigate({name:"job",jobId:activeHydrant!.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
-            activePortable ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{portableRouteState==="loading"?"Loading authoritative accepted Portable Fire Extinguisher detail.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":portableRouteMessage||"Accepted Portable Fire Extinguisher detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":portableRouteState==="loading"?"Loading authoritative accepted Portable Fire Extinguisher detail.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":portableRouteMessage||"Accepted Portable Fire Extinguisher detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
-              return group ? (
+              const completedJob = jobs.find((candidate) => candidate.id === route.jobId && candidate.status === "closed");
+              const acceptedLocations = serverMasterSystemInspections.filter((summary) => summary.jobId === route.jobId && summary.systemKey === route.systemKey);
+              return completedJob ? (
+                <section className="workspace">
+                  <button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button>
+                  <h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} Accepted Locations</h2>
+                  {acceptedLocations.length > 0 ? <ul className="navigation-list">{acceptedLocations.map((summary) => <li key={summary.clientUuid}><button type="button" onClick={() => navigate({ name: route.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: summary.clientUuid })}><span>{summary.instanceKey}</span><span className="status-label">Accepted</span></button></li>)}</ul> : <p>Reconnect and refresh to load Accepted location details.</p>}
+                </section>
+              ) : group ? (
                 <Co2LocationList
                   group={group}
                   instances={masterSystemFormInstances.filter((instance) => instance.groupKey === group.groupKey)}
@@ -1345,6 +1405,7 @@ export function App() {
                 }
               }}
               onSync={handleSync}
+              onCloseJob={handleCloseJob}
               onSelectJob={(job) => navigate({ name: "job", jobId: job.id })}
               onSelectSystem={(job, system) => navigate({
                 name: "system",

@@ -112,6 +112,22 @@ async function validateFireAlarmWork(items: SyncOutboxItem[]) {
   return valid;
 }
 
+async function filterTerminalConflictWork(items: SyncOutboxItem[]) {
+  const valid: SyncOutboxItem[] = [];
+  for (const item of items) {
+    let status: string | undefined;
+    if (item.entityType === "inspection") {
+      status = (await localDatabase.inspectionRecords.get(item.entityId))?.syncStatus;
+    } else if (item.entityType === "masterSystemInspection") {
+      status = (await localDatabase.masterSystemInspections.get(item.entityId))?.syncStatus;
+    } else if (item.entityType === "masterSystemFormInstance") {
+      status = (await localDatabase.masterSystemFormInstances.get(item.entityId))?.syncStatus;
+    }
+    if (status !== "Conflict") valid.push(item);
+  }
+  return valid;
+}
+
 let syncInProgress = false;
 export type SyncEngineTestBoundary = "afterCandidatesCaptured" | "afterSyncingItemsCapturedForFailure";
 let testBoundaryHook: ((boundary: SyncEngineTestBoundary) => Promise<void>) | undefined;
@@ -278,6 +294,7 @@ async function syncPendingAttachments() {
       failed += 1;
       continue;
     }
+    if (attachment.syncStatus === "Conflict") continue;
     const parent = await localDatabase.masterSystemInspections.get(
       attachment.inspectionClientUuid
     );
@@ -334,6 +351,7 @@ async function syncPendingAttachments() {
         && (
           error.code === "IDEMPOTENCY_CONFLICT"
           || error.code === "ATTACHMENT_FIELD_OCCUPIED"
+          || error.code === "JOB_CLOSED"
         );
       const failedAt = new Date().toISOString();
       await localDatabase.transaction(
@@ -378,7 +396,9 @@ export async function syncPendingRecords() {
       .filter((item) =>
         item.entityType !== "inspectionAttachment" && shouldSync(item)
       );
-    let items = await validateFireAlarmWork(candidateItems);
+    let items = await filterTerminalConflictWork(
+      await validateFireAlarmWork(candidateItems)
+    );
 
     await testBoundaryHook?.("afterCandidatesCaptured");
 
@@ -512,17 +532,25 @@ export async function syncPendingRecords() {
             const failed = failedById.get(item.entityId);
             const message =
               failed?.message ?? "Server did not confirm this record UUID";
-            const conflict = isFireAlarmOutboxItem(item)
-              && (failed?.code === "IDEMPOTENCY_CONFLICT" || failed?.code === "ACTIVE_INSPECTION_EXISTS");
+            const conflict = failed !== undefined && new Set([
+              "JOB_CLOSED",
+              "IDEMPOTENCY_CONFLICT",
+              "ACTIVE_INSPECTION_EXISTS",
+              "INSTANCE_ALREADY_EXISTS"
+            ]).has(failed.code);
             const update = { syncStatus: "Failed" as const, lastSyncError: message };
             if (item.entityType === "inspection") {
-              await localDatabase.inspectionRecords.update(item.entityId, update);
+              await localDatabase.inspectionRecords.update(item.entityId, conflict
+                ? { syncStatus: "Conflict", lastSyncError: message }
+                : update);
             } else if (item.entityType === "masterSystemInspection") {
               await localDatabase.masterSystemInspections.update(item.entityId, conflict
                 ? { syncStatus: "Conflict", lastSyncError: message }
                 : update);
             } else if (item.entityType === "masterSystemFormInstance") {
-              await localDatabase.masterSystemFormInstances.update(item.entityId, update);
+              await localDatabase.masterSystemFormInstances.update(item.entityId, conflict
+                ? { syncStatus: "Conflict", lastSyncError: message }
+                : update);
             } else {
               await localDatabase.testRecords.update(item.entityId, update);
             }

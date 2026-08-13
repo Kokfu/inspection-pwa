@@ -130,6 +130,27 @@
               return {};
             }
           );
+          await localDatabase.masterSystemInspections.delete(ids.local);
+          await localDatabase.masterSystemInspections.put({
+            ...localDraft,
+            clientUuid: ids.server,
+            syncStatus: "Failed"
+          });
+          const completedServerOpen = await resolveAutomaticSprinklerOpenTarget(
+            { ...job, status: "closed" },
+            system,
+            {},
+            undefined,
+            true,
+            async () => ({ clientUuid: ids.server }),
+            async () => { throw new Error("completed job must not create a Draft"); }
+          );
+          const completedServerRoute = await resolveAutomaticSprinklerRoute(
+            ids.server,
+            "verified",
+            async () => serverDetail,
+            true
+          );
 
           const serverProgress = (evidenceState, requiredEvidenceCount, confirmedEvidenceCount) =>
             deriveAutomaticSprinklerServerProgress(
@@ -167,6 +188,8 @@
             && confirmedEmptyOpen.kind === "local"
             && existingLocalOpen.kind === "local"
             && localServerChecks === 0
+            && completedServerOpen.kind === "server"
+            && completedServerRoute.kind === "server"
             && serverAttachmentContentUrl(ids.photo) ===
               `/api/inspection-attachments/${ids.photo}/content`
             && progress.noEvidenceRequired === "Completed"
@@ -198,6 +221,7 @@
             duplicatePrevention: serverOpen.kind,
             createAfterConfirmedNone: confirmedEmptyOpen.kind,
             existingLocalPrecedence: existingLocalOpen.kind,
+            completedServerPrecedence: completedServerOpen.kind,
             progress
           }, null, 2);
         } catch (error) {
@@ -206,7 +230,7 @@
             message: error instanceof Error ? error.message : String(error)
           }, null, 2);
         } finally {
-          await localDatabase.masterSystemInspections.delete(ids.local);
+          await localDatabase.masterSystemInspections.bulkDelete([ids.local, ids.server]);
         }
       });
     </script>

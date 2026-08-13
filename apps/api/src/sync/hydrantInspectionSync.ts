@@ -218,7 +218,7 @@ export async function syncHydrantInspections(
       const configuration = jobSnapshot && rec(jobSnapshot.configuration) ? jobSnapshot.configuration : undefined;
       const template = jobSnapshot && rec(jobSnapshot.template) ? jobSnapshot.template : undefined;
       const customer = jobSnapshot && rec(jobSnapshot.customer) ? jobSnapshot.customer : undefined;
-      if (!j || j.status !== "open" || hydrantSystems.length !== 1
+      if (!j || hydrantSystems.length !== 1
         || !configuration || configuration.revisionId !== p.configuration.revisionId || configuration.revisionNumber !== p.configuration.revisionNumber
         || !template || template.id !== p.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== p.masterTemplate.version
         || !validCustomer(customer) || !validConfiguration(configuration) || !validTemplate(template)) {
@@ -277,6 +277,11 @@ export async function syncHydrantInspections(
         await client.query("ROLLBACK");
         if (old.rows[0].request_fingerprint === fingerprint) out.duplicateIds.push(id);
         else out.failed.push(fail(id, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different Hydrant data"));
+        continue;
+      }
+      if (j.status !== "open") {
+        await client.query("ROLLBACK");
+        out.failed.push(fail(id, "JOB_CLOSED", "Inspection job is completed"));
         continue;
       }
 

@@ -65,4 +65,29 @@ export type InspectionJob = {
   status: "open" | "closed";
   createdAt: string;
   configurationSnapshot: JobConfigurationSnapshot;
+  completion?: JobCompletion;
+};
+
+export type JobCompletionUnit = {
+  authorityKey: string;
+  label: string;
+  status: "accepted" | "incomplete";
+  reason?: "ACCEPTED_INSPECTION_MISSING" | "EVIDENCE_PENDING" | "EVIDENCE_INVALID" | "CONFIGURATION_INVALID" | "SYSTEM_NOT_SUPPORTED";
+};
+
+export type JobCompletion = {
+  jobId: string;
+  jobStatus: "open" | "closed";
+  eligible: boolean;
+  checkedAt: string;
+  requiredUnitCount: number;
+  acceptedUnitCount: number;
+  completedAt: string | null;
+  completedBy: { id: number; username: string } | null;
+  systems: Array<{
+    systemKey: string;
+    systemLabel: string;
+    status: "accepted" | "incomplete";
+    units: JobCompletionUnit[];
+  }>;
 };

@@ -210,11 +210,11 @@ export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: 
     const payload = checked.payload; const client = await pool.connect(); let fingerprint = "";
     try {
       await client.query("BEGIN");
-      const loaded = await client.query<JobRow>("SELECT status,job_reference,title,master_template_version_id,customer_configuration_revision_id,configuration_snapshot FROM inspection_jobs WHERE id=$1", [payload.jobId]);
+      const loaded = await client.query<JobRow>("SELECT status,job_reference,title,master_template_version_id,customer_configuration_revision_id,configuration_snapshot FROM inspection_jobs WHERE id=$1 FOR UPDATE", [payload.jobId]);
       const job = loaded.rows[0]; const system = job ? enabledSystem(job.configuration_snapshot) : undefined;
       const configuration = job && isRecord(job.configuration_snapshot.configuration) ? job.configuration_snapshot.configuration : undefined;
       const template = job && isRecord(job.configuration_snapshot.template) ? job.configuration_snapshot.template : undefined;
-      if (!job || job.status !== "open" || !system || !configuration || !template
+      if (!job || !system || !configuration || !template
         || job.master_template_version_id !== payload.masterTemplate.id || job.customer_configuration_revision_id !== payload.configuration.revisionId
         || configuration.revisionId !== payload.configuration.revisionId || configuration.revisionNumber !== payload.configuration.revisionNumber
         || template.id !== payload.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== payload.masterTemplate.version) {
@@ -236,6 +236,7 @@ export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: 
       fingerprint = createHash("sha256").update(canonicalize({ clientUuid: payload.clientUuid, jobId: payload.jobId, systemKey: "fire_alarm_detector", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, authority, responses, performedAt: payload.performedAt, originalCreatorSnapshot: payload.originalCreatorSnapshot, actorUserId: actorUserId ?? null })).digest("hex");
       const existing = await client.query<{ request_fingerprint: string }>("SELECT request_fingerprint FROM master_system_form_instances WHERE client_uuid=$1", [payload.clientUuid]);
       if (existing.rowCount) { await client.query("ROLLBACK"); existing.rows[0].request_fingerprint === fingerprint ? result.duplicateIds.push(payload.clientUuid) : result.failed.push(failure(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different Fire Alarm data")); continue; }
+      if (job.status !== "open") { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "JOB_CLOSED", "Inspection job is completed")); continue; }
       const existingGroup = await client.query("SELECT 1 FROM master_system_inspections WHERE job_id=$1 AND system_key='fire_alarm_detector' FOR UPDATE", [payload.jobId]);
       if (existingGroup.rowCount) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "ACTIVE_INSPECTION_EXISTS", "This job already has a Fire Alarm inspection")); continue; }
       const canonicalSnapshot = { schemaVersion: 1, acceptedAt: new Date().toISOString(), ...authority,

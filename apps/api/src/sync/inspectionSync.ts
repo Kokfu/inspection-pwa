@@ -207,16 +207,27 @@ export async function syncInspections(items: SyncRequestItem[], actorUserId?: nu
         continue;
       }
 
-      const jobAndTemplate = await client.query<{ template_id: string; version: number; name: string }>(
+      const jobAndTemplate = await client.query<{ status: "open" | "closed"; template_id: string; version: number; name: string }>(
         `
-          SELECT job.template_id, template.version, template.name
+          SELECT job.status, job.template_id, template.version, template.name
           FROM inspection_jobs job
           INNER JOIN inspection_templates template ON template.id = job.template_id
-          WHERE job.id = $1 AND job.status = 'open'
+          WHERE job.id = $1
+          FOR UPDATE OF job
         `,
         [payload.jobId]
       );
-      if (jobAndTemplate.rowCount !== 1 || jobAndTemplate.rows[0].template_id !== payload.templateId || jobAndTemplate.rows[0].version !== payload.templateVersion) {
+      if (jobAndTemplate.rowCount !== 1) {
+        await client.query("ROLLBACK");
+        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job or template is unavailable"));
+        continue;
+      }
+      if (jobAndTemplate.rows[0].status !== "open") {
+        await client.query("ROLLBACK");
+        result.failed.push(failure(payload.clientUuid, "JOB_CLOSED", "Inspection job is completed"));
+        continue;
+      }
+      if (jobAndTemplate.rows[0].template_id !== payload.templateId || jobAndTemplate.rows[0].version !== payload.templateVersion) {
         await client.query("ROLLBACK");
         result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job or template is unavailable"));
         continue;

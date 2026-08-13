@@ -143,6 +143,7 @@ export async function getOrCreateAutomaticSprinklerInspection(
     if (existing.systemKey !== systemKey) throw new Error("Stored Master-system inspection identity is invalid");
     return existing;
   }
+  if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts");
   if (system.systemKey !== systemKey || system.zones.length !== 0 || system.locations.length !== 0) {
     throw new Error("Automatic Sprinkler V1 supports one fixed form without configured zones or locations");
   }

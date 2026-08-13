@@ -222,7 +222,7 @@ export async function syncAutomaticSprinklerInspections(
       const jobResult = await client.query<JobRow>(
         `SELECT status, job_reference, title, master_template_version_id,
           customer_configuration_revision_id, configuration_snapshot
-         FROM inspection_jobs WHERE id = $1`,
+         FROM inspection_jobs WHERE id = $1 FOR UPDATE`,
         [payload.jobId]
       );
       const job = jobResult.rows[0];
@@ -243,11 +243,6 @@ export async function syncAutomaticSprinklerInspections(
         || !Array.isArray(system.locations) || system.locations.length !== 0) {
         await client.query("ROLLBACK");
         result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Automatic Sprinkler job configuration is unavailable"));
-        continue;
-      }
-      if (job.status !== "open") {
-        await client.query("ROLLBACK");
-        result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is closed"));
         continue;
       }
       let acceptedEvidencePolicy: ReturnType<typeof evidencePolicy>;
@@ -330,6 +325,11 @@ export async function syncAutomaticSprinklerInspections(
         } else {
           result.failed.push(failure(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different Automatic Sprinkler data"));
         }
+        continue;
+      }
+      if (job.status !== "open") {
+        await client.query("ROLLBACK");
+        result.failed.push(failure(payload.clientUuid, "JOB_CLOSED", "Inspection job is completed"));
         continue;
       }
       const existingGroup = await client.query(

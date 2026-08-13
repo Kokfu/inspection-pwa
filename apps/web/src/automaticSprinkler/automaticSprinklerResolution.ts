@@ -23,8 +23,18 @@ export type SprinklerRouteResolution =
 export async function resolveAutomaticSprinklerRoute(
   clientUuid: string,
   authStatus: "verified" | "offline-unverified" | "logged-out",
-  loadServer = loadServerAutomaticSprinklerDetail
+  loadServer = loadServerAutomaticSprinklerDetail,
+  preferServerAccepted = false
 ): Promise<SprinklerRouteResolution> {
+  if (preferServerAccepted) {
+    if (authStatus !== "verified") return { kind: "not-cached" };
+    try {
+      return { kind: "server", inspection: await loadServer(clientUuid) };
+    } catch (error) {
+      if (error instanceof ServerInspectionNotFoundError) return { kind: "not-found" };
+      return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection is currently unavailable" };
+    }
+  }
   const local = await localDatabase.masterSystemInspections.get(clientUuid);
   if (local?.systemKey === "automatic_sprinkler") {
     return { kind: "local", record: local };
@@ -63,6 +73,10 @@ export async function resolveAutomaticSprinklerOpenTarget(
   createLocal = getOrCreateAutomaticSprinklerInspection
 ): Promise<SprinklerOpenTarget> {
   const jobSystemKey = `${job.id}:${system.systemKey}`;
+  if (job.status === "closed" && verified) {
+    const server = await findServer(job.id, system.systemKey);
+    if (server) return { kind: "server", clientUuid: server.clientUuid };
+  }
   const local = await localDatabase.masterSystemInspections
     .where("jobSystemKey")
     .equals(jobSystemKey)

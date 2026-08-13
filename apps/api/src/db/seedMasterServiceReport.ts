@@ -1158,7 +1158,7 @@ async function assertExistingCo2FixtureBeforeSeed(client: PoolClient) {
   const job = await client.query<Record<string, unknown>>(
     `SELECT id, template_id AS "templateId",
         master_template_version_id AS "masterTemplateVersionId",
-        job_reference AS reference, title, status, is_sample AS "isSample",
+        job_reference AS reference, title, is_sample AS "isSample",
         customer_id AS "customerId",
         customer_configuration_revision_id AS "configurationRevisionId",
         configuration_snapshot AS snapshot
@@ -1171,7 +1171,6 @@ async function assertExistingCo2FixtureBeforeSeed(client: PoolClient) {
     masterTemplateVersionId: masterServiceReportV1.id,
     reference: "DEMO-JOB-CO2-ACCEPT-001",
     title: "Demo CO2 Multi-Zone Job",
-    status: "open",
     isSample: true,
     customerId: demoCo2CustomerId,
     configurationRevisionId: demoCo2RevisionId,
@@ -1236,7 +1235,7 @@ export async function assertExistingSprinklerFixtureBeforeSeed(client: PoolClien
   const job = await client.query<Record<string, unknown>>(
     `SELECT id, template_id AS "templateId",
         master_template_version_id AS "masterTemplateVersionId",
-        job_reference AS reference, title, status, is_sample AS "isSample",
+        job_reference AS reference, title, is_sample AS "isSample",
         customer_id AS "customerId",
         customer_configuration_revision_id AS "configurationRevisionId",
         configuration_snapshot AS snapshot
@@ -1249,7 +1248,6 @@ export async function assertExistingSprinklerFixtureBeforeSeed(client: PoolClien
     masterTemplateVersionId: masterServiceReportV1.id,
     reference: "DEMO-JOB-SPRINKLER-001",
     title: "Demo Automatic Sprinkler Job",
-    status: "open",
     isSample: true,
     customerId: demoSprinklerCustomerId,
     configurationRevisionId: demoSprinklerRevisionId,
@@ -1396,7 +1394,7 @@ async function seedDemoJob(
     ]
   ));
   const verified = await client.query<{ matches: boolean }>(
-    `SELECT job_reference = $2 AND title = $3 AND status = 'open' AND is_sample = true
+    `SELECT job_reference = $2 AND title = $3 AND is_sample = true
        AND template_id IS NULL
        AND customer_id = $4 AND customer_configuration_revision_id = $5
        AND master_template_version_id = $6 AND configuration_snapshot = $7::jsonb AS matches

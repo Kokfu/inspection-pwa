@@ -181,8 +181,11 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
     let requestFingerprint = "";
     try {
       await client.query("BEGIN");
-      const jobResult = await client.query<JobRow>("SELECT status, job_reference, title, master_template_version_id, customer_configuration_revision_id, configuration_snapshot FROM inspection_jobs WHERE id = $1", [payload.jobId]);
+      const jobResult = await client.query<JobRow>("SELECT status, job_reference, title, master_template_version_id, customer_configuration_revision_id, configuration_snapshot FROM inspection_jobs WHERE id = $1 FOR UPDATE", [payload.jobId]);
       const job = jobResult.rows[0];
+      if (job?.status === "closed") {
+        await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "JOB_CLOSED", "Inspection job is completed")); continue;
+      }
       const configuration = job && isRecord(job.configuration_snapshot.configuration) ? job.configuration_snapshot.configuration : undefined;
       const template = job && isRecord(job.configuration_snapshot.template) ? job.configuration_snapshot.template : undefined;
       const system = job ? findSystem(job.configuration_snapshot, payload.systemKey) : undefined;
@@ -226,7 +229,6 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
         else result.failed.push(fail(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different CO2 data"));
         continue;
       }
-      if (job.status !== "open") { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is closed")); continue; }
       const groupId = randomUUID();
       await client.query("INSERT INTO master_system_inspections (id, job_id, system_key, created_by_user_id) VALUES ($1, $2, $3, $4) ON CONFLICT (job_id, system_key) DO NOTHING", [groupId, payload.jobId, payload.systemKey, actorUserId ?? null]);
       const group = await client.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = $2 FOR UPDATE", [payload.jobId, payload.systemKey]);

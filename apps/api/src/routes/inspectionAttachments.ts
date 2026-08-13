@@ -29,7 +29,8 @@ type UploadFailureCode =
   | "ATTACHMENT_FIELD_OCCUPIED"
   | "ATTACHMENT_STORAGE_INTEGRITY_ERROR"
   | "ATTACHMENT_STORAGE_ERROR"
-  | "IMAGE_INVALID";
+  | "IMAGE_INVALID"
+  | "JOB_CLOSED";
 
 class UploadError extends Error {
   constructor(
@@ -49,6 +50,7 @@ type ParentRow = {
   evidencePolicyVersion: number | null;
   evidencePolicySnapshot: unknown;
   evidencePolicySha256: string | null;
+  jobStatus: "open" | "closed";
 };
 
 type ExistingRow = {
@@ -310,6 +312,9 @@ function fingerprint(values: {
 
 function uploadFailure(error: unknown) {
   if (error instanceof UploadError) return error;
+  if (isRecord(error) && error.message === "JOB_CLOSED") {
+    return new UploadError(409, "JOB_CLOSED", "This job is completed; new evidence is not accepted");
+  }
   if (error instanceof Error && (
     error.message === "IMAGE_SIZE_INVALID"
     || error.message === "IMAGE_DIMENSIONS_INVALID"
@@ -361,10 +366,12 @@ inspectionAttachmentsRouter.post(
             instance.evidence_policy_id AS "evidencePolicyId",
             instance.evidence_policy_version AS "evidencePolicyVersion",
             instance.evidence_policy_snapshot AS "evidencePolicySnapshot",
-            instance.evidence_policy_sha256 AS "evidencePolicySha256"
+            instance.evidence_policy_sha256 AS "evidencePolicySha256",
+            job.status AS "jobStatus"
            FROM master_system_form_instances instance
            INNER JOIN master_system_inspections parent
              ON parent.id = instance.inspection_group_id
+           INNER JOIN inspection_jobs job ON job.id = parent.job_id
            WHERE instance.client_uuid = $1 AND instance.status = 'submitted'`,
         [inspectionClientUuid]
       );
@@ -429,7 +436,6 @@ inspectionAttachmentsRouter.post(
         response.json({ outcome: "duplicate", attachment: safeMetadata(existing) });
         return;
       }
-
       const storage = attachmentPaths(inspectionClientUuid, photoUuid);
       finalPath = storage.finalPath;
       const client = await pool.connect();
@@ -461,6 +467,40 @@ inspectionAttachmentsRouter.post(
           }).catch(() => undefined);
           response.json({ outcome: "duplicate", attachment: safeMetadata(lockedExisting) });
           return;
+        }
+
+        const lockedParentResult = await client.query<ParentRow>(
+          `SELECT instance.id AS "formInstanceId",
+              instance.client_uuid AS "inspectionClientUuid",
+              parent.system_key AS "systemKey",
+              instance.evidence_policy_id AS "evidencePolicyId",
+              instance.evidence_policy_version AS "evidencePolicyVersion",
+              instance.evidence_policy_snapshot AS "evidencePolicySnapshot",
+              instance.evidence_policy_sha256 AS "evidencePolicySha256",
+              job.status AS "jobStatus"
+             FROM master_system_form_instances instance
+             INNER JOIN master_system_inspections parent
+               ON parent.id = instance.inspection_group_id
+             INNER JOIN inspection_jobs job ON job.id = parent.job_id
+             WHERE instance.client_uuid = $1 AND instance.status = 'submitted'
+             FOR UPDATE OF job`,
+          [inspectionClientUuid]
+        );
+        const lockedParent = lockedParentResult.rows[0];
+        if (!lockedParent) {
+          throw new UploadError(409, "PARENT_NOT_SYNCED", "Parent inspection has not been accepted");
+        }
+        if (lockedParent.jobStatus === "closed") {
+          throw new UploadError(409, "JOB_CLOSED", "This job is completed; new evidence is not accepted");
+        }
+        if (
+          lockedParent.systemKey !== "automatic_sprinkler"
+          || lockedParent.evidencePolicyId !== parent.evidencePolicyId
+          || lockedParent.evidencePolicyVersion !== parent.evidencePolicyVersion
+          || lockedParent.evidencePolicySha256 !== parent.evidencePolicySha256
+          || !pointAllowed(lockedParent.evidencePolicySnapshot, fieldPath)
+        ) {
+          throw new UploadError(403, "EVIDENCE_NOT_ALLOWED", "Photo evidence is not enabled for this field");
         }
 
         const existingCanonicalFile = await stat(finalPath).then(
@@ -508,8 +548,8 @@ inspectionAttachmentsRouter.post(
           [
             randomUUID(),
             photoUuid,
-            parent.formInstanceId,
-            parent.evidencePolicyId,
+            lockedParent.formInstanceId,
+            lockedParent.evidencePolicyId,
             fieldPath,
             captureSource,
             storage.relativePath,

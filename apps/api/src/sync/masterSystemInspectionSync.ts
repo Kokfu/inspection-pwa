@@ -190,9 +190,11 @@ export async function syncMasterSystemInspections(items: SyncRequestItem[], acto
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const job = await client.query<JobRow>(`SELECT status, job_reference, title, master_template_version_id, customer_configuration_revision_id, configuration_snapshot FROM inspection_jobs WHERE id = $1`, [payload.jobId]);
+      const job = await client.query<JobRow>(`SELECT status, job_reference, title, master_template_version_id, customer_configuration_revision_id, configuration_snapshot FROM inspection_jobs WHERE id = $1 FOR UPDATE`, [payload.jobId]);
       const jobRow = job.rows[0];
-      if (!jobRow || jobRow.master_template_version_id !== payload.masterTemplate.id || jobRow.customer_configuration_revision_id !== payload.configuration.revisionId) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Hose Reel job identity is unavailable")); continue; }
+      if (!jobRow) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Hose Reel job identity is unavailable")); continue; }
+      if (jobRow.status !== "open") { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "JOB_CLOSED", "Inspection job is completed")); continue; }
+      if (jobRow.master_template_version_id !== payload.masterTemplate.id || jobRow.customer_configuration_revision_id !== payload.configuration.revisionId) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Hose Reel job identity is unavailable")); continue; }
       const system = enabledSystem(jobRow.configuration_snapshot);
       const configuration = isRecord(jobRow.configuration_snapshot.configuration) ? jobRow.configuration_snapshot.configuration : undefined;
       const template = isRecord(jobRow.configuration_snapshot.template) ? jobRow.configuration_snapshot.template : undefined;
@@ -213,7 +215,6 @@ export async function syncMasterSystemInspections(items: SyncRequestItem[], acto
       const requestFingerprint = fingerprint(payload, normalizedResponses);
       const existing = await client.query<{ request_fingerprint: string }>("SELECT request_fingerprint FROM master_system_form_instances WHERE client_uuid = $1", [payload.clientUuid]);
       if (existing.rowCount) { await client.query("ROLLBACK"); if (existing.rows[0].request_fingerprint === requestFingerprint) result.duplicateIds.push(payload.clientUuid); else result.failed.push(failure(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This UUID was already accepted with different inspection data")); continue; }
-      if (jobRow.status !== "open") { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "VALIDATION_ERROR", "Inspection job is closed")); continue; }
       const existingGroup = await client.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = 'hose_reel' FOR UPDATE", [payload.jobId]);
       if (existingGroup.rowCount) { await client.query("ROLLBACK"); result.failed.push(failure(payload.clientUuid, "ACTIVE_INSPECTION_EXISTS", "This job already has a Hose Reel inspection group")); continue; }
       const acceptedAt = new Date().toISOString();

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { Pool } from "pg";
 import { pool } from "./pool.js";
 import { seedMasterServiceReport } from "./seedMasterServiceReport.js";
 
@@ -21,9 +22,12 @@ const inspectionPhotoEvidenceMigrationUrl = new URL(
 const customerEnabledSystemConfigurationMigrationUrl = new URL(
   "../../migrations/008_customer_enabled_system_configuration.sql", import.meta.url
 );
+const jobCompletionMigrationUrl = new URL(
+  "../../migrations/009_job_completion.sql", import.meta.url
+);
 
-export async function runMigrations() {
-  await pool.query(`
+export async function runMigrations(database: Pool = pool) {
+  await database.query(`
     CREATE TABLE IF NOT EXISTS test_records (
       id BIGSERIAL PRIMARY KEY,
       client_uuid UUID NOT NULL UNIQUE,
@@ -35,12 +39,12 @@ export async function runMigrations() {
     );
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_test_records_created_at
       ON test_records (created_at);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE TABLE IF NOT EXISTS users (
       id BIGSERIAL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
@@ -52,7 +56,7 @@ export async function runMigrations() {
     );
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE TABLE IF NOT EXISTS user_sessions (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id),
@@ -63,7 +67,7 @@ export async function runMigrations() {
     );
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE TABLE IF NOT EXISTS audit_events (
       id BIGSERIAL PRIMARY KEY,
       actor_user_id BIGINT REFERENCES users(id),
@@ -76,32 +80,32 @@ export async function runMigrations() {
     );
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash
       ON user_sessions (token_hash);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
       ON user_sessions (user_id);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at
       ON user_sessions (expires_at);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
       ON audit_events (created_at);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE INDEX IF NOT EXISTS idx_audit_events_actor_user_id
       ON audit_events (actor_user_id);
   `);
 
-  await pool.query(`
+  await database.query(`
     CREATE TABLE IF NOT EXISTS inspection_templates (
       id UUID PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
       version INTEGER NOT NULL CHECK (version > 0), is_sample BOOLEAN NOT NULL DEFAULT false,
@@ -145,7 +149,7 @@ export async function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_inspection_template_items_section_id ON inspection_template_items (section_id, sort_order);
   `);
 
-  await pool.query(`
+  await database.query(`
     INSERT INTO inspection_templates (id, code, name, version, is_sample)
     VALUES ('00000000-0000-4000-8000-000000000401', 'SAMPLE-INSPECTION-V1', 'Sample Inspection Template', 1, true)
     ON CONFLICT DO NOTHING;
@@ -165,20 +169,20 @@ export async function runMigrations() {
   `);
 
   const masterServiceReportMigrationSql = await readFile(masterServiceReportMigrationUrl, "utf8");
-  await pool.query(masterServiceReportMigrationSql);
+  await database.query(masterServiceReportMigrationSql);
   const technicianJobNavigationMigrationSql = await readFile(technicianJobNavigationMigrationUrl, "utf8");
-  await pool.query(technicianJobNavigationMigrationSql);
+  await database.query(technicianJobNavigationMigrationSql);
   const masterSystemInspectionMigrationSql = await readFile(masterSystemInspectionMigrationUrl, "utf8");
-  await pool.query(masterSystemInspectionMigrationSql);
+  await database.query(masterSystemInspectionMigrationSql);
   const inspectionPhotoEvidenceMigrationSql = await readFile(
     inspectionPhotoEvidenceMigrationUrl,
     "utf8"
   );
-  await pool.query(inspectionPhotoEvidenceMigrationSql);
+  await database.query(inspectionPhotoEvidenceMigrationSql);
   // Migration 008 intentionally keeps its named CHECK constraint simple and
   // immutable. PostgreSQL has no `ADD CONSTRAINT IF NOT EXISTS`, so the runner
   // must avoid executing that unchanged migration again on subsequent starts.
-  const configurationConstraint = await pool.query<{ exists: boolean }>(
+  const configurationConstraint = await database.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM pg_constraint
        WHERE conname = 'customer_enabled_systems_system_configuration_object'
@@ -186,7 +190,8 @@ export async function runMigrations() {
      ) AS exists`
   );
   if (!configurationConstraint.rows[0]?.exists) {
-    await pool.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
+    await database.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
   }
-  await seedMasterServiceReport(pool);
+  await database.query(await readFile(jobCompletionMigrationUrl, "utf8"));
+  await seedMasterServiceReport(database);
 }

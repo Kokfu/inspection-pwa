@@ -70,6 +70,7 @@ type TechnicianHomeProps = {
   syncMessage: string;
   onRefresh: () => Promise<void>;
   onSync: () => Promise<void>;
+  onCloseJob: (job: InspectionJob) => Promise<void>;
   onSelectJob: (job: InspectionJob) => void;
   onSelectSystem: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onBackToJobs: () => void;
@@ -100,6 +101,7 @@ export function TechnicianHome({
   syncMessage,
   onRefresh,
   onSync,
+  onCloseJob,
   onSelectJob,
   onSelectSystem,
   onBackToJobs,
@@ -121,6 +123,9 @@ export function TechnicianHome({
     serverMasterSystemInspections.some((record) =>
       record.jobId === jobId && record.systemKey === systemKey
     );
+  const completionSystem = (jobId: string, systemKey: string) => jobs
+    .find((job) => job.id === jobId)?.completion?.systems
+    .find((system) => system.systemKey === systemKey);
   const serverSuppressionCompleted = (jobId: string, systemKey: "co2_fire_extinguisher" | "wet_chemical") => {
     const expected = jobs.find((job) => job.id === jobId)?.configurationSnapshot.enabledSystems
       .find((system) => system.systemKey === systemKey)?.locations ?? [];
@@ -137,6 +142,7 @@ export function TechnicianHome({
     );
   };
   const progressFor = (jobId: string, systemKey: string) => {
+    if (completionSystem(jobId, systemKey)?.status === "accepted") return "Completed";
     if (systemKey === "hose_reel") {
       if (serverMasterSystemProgressState === "loaded" && serverAccepted(jobId, systemKey)) return "Completed";
       const record = masterSystemInspections.find((candidate) =>
@@ -246,7 +252,57 @@ export function TechnicianHome({
           <h3>{selectedJob.title}</h3>
           <p>{selectedJob.configurationSnapshot.customer.displayName}</p>
           <p className="secondary-metadata">Configuration revision {selectedJob.configurationSnapshot.configuration.revisionNumber}</p>
+          {selectedJob.status === "closed" ? (
+            <>
+              <p className="status-label">Completed</p>
+              <p className="secondary-metadata">
+                {selectedJob.completion?.completedAt
+                  ? `Completed ${new Date(selectedJob.completion.completedAt).toLocaleString()}`
+                  : "Completion time unavailable"}
+                {selectedJob.completion?.completedBy
+                  ? ` by ${selectedJob.completion.completedBy.username}`
+                  : ""}
+              </p>
+              <p className="form-message">Accepted inspections remain viewable. New local inspection entry is disabled for this completed job.</p>
+            </>
+          ) : null}
         </div>
+        {selectedJob.status === "open" ? (
+          <section className="job-completion" aria-labelledby="job-completion-title">
+            <div className="workspace-heading">
+              <div>
+                <p className="eyebrow">Server Verification</p>
+                <h3 id="job-completion-title">Job Completion</h3>
+              </div>
+              <span>{selectedJob.completion
+                ? `${selectedJob.completion.acceptedUnitCount}/${selectedJob.completion.requiredUnitCount} accepted`
+                : "Verification unavailable"}</span>
+            </div>
+            {selectedJob.completion?.eligible ? (
+              <p>All required authority units are Accepted by the server.</p>
+            ) : selectedJob.completion ? (
+              <ul className="record-list">
+                {selectedJob.completion.systems.flatMap((system) => system.units
+                  .filter((unit) => unit.status === "incomplete")
+                  .map((unit) => <li key={`${system.systemKey}:${unit.authorityKey}`}>
+                    <strong>{system.systemLabel}</strong>
+                    <span>{unit.label}</span>
+                    <small>{unit.reason === "EVIDENCE_PENDING" ? "Required evidence is pending"
+                      : unit.reason === "EVIDENCE_INVALID" ? "Required evidence is invalid"
+                      : unit.reason === "SYSTEM_NOT_SUPPORTED" ? "Configured system is not supported"
+                      : unit.reason === "CONFIGURATION_INVALID" ? "Authoritative job configuration is invalid"
+                      : "Accepted inspection is missing"}</small>
+                  </li>))}
+              </ul>
+            ) : <p>Reconnect and refresh to verify completion with the server.</p>}
+            <button
+              type="button"
+              disabled={!canUseServer || !selectedJob.completion?.eligible || loading}
+              onClick={() => void onCloseJob(selectedJob)}
+            >Complete Job</button>
+            {!canUseServer ? <p className="offline-notice">Completion requires server verification and cannot be performed offline.</p> : null}
+          </section>
+        ) : null}
         <h3 id="applicable-systems-title">Applicable Systems</h3>
         <ul className="navigation-list">
           {systems.map((system) => {
@@ -287,7 +343,7 @@ export function TechnicianHome({
                   <strong>{job.title}</strong>
                   <small>{job.reference} - {job.configurationSnapshot.customer.displayName}</small>
                 </span>
-                <span>{job.configurationSnapshot.enabledSystems.length} systems</span>
+                <span>{job.status === "closed" ? "Completed" : `${job.configurationSnapshot.enabledSystems.length} systems`}</span>
               </button>
             </li>)}
           </ul>

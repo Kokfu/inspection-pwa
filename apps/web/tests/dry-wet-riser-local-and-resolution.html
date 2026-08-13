@@ -82,6 +82,10 @@
           let created = 0;
           const acceptedOpen = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => ({ clientUuid: ids.server }), async () => { created += 1; return first; });
           const createdAfterAcceptedServer = created;
+          await localDatabase.masterSystemInspections.put({ ...first, clientUuid: ids.server, syncStatus: "Failed" });
+          const completedAcceptedOpen = await resolveDryWetRiserOpenTarget({ ...job, status: "closed" }, system, catalog, undefined, "verified", async () => ({ clientUuid: ids.server }), async () => { throw new Error("completed job must not create a Draft"); });
+          const completedServerRoute = await resolveDryWetRiserRoute(ids.server, "verified", async () => ({ clientUuid: ids.server }), true);
+          await localDatabase.masterSystemInspections.delete(ids.server);
           const afterServerResolutionInspectionCount = await localDatabase.masterSystemInspections.count(), afterServerResolutionOutboxCount = await localDatabase.syncOutbox.count();
           await removeHarnessRecords();
           const absentOpen = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => undefined, async () => { created += 1; return first; });
@@ -89,6 +93,7 @@
           check("exact local record wins during resolution", localRoute.kind === "local");
           check("verified accepted server record resolves by exact UUID", serverRoute.kind === "server" && serverRoute.inspection.clientUuid === ids.server, serverRoute.kind);
           check("accepted server record prevents Draft creation", acceptedOpen.kind === "server" && createdAfterAcceptedServer === 0, acceptedOpen.kind);
+          check("completed job prioritizes Accepted server detail over local record", completedAcceptedOpen.kind === "server" && completedServerRoute.kind === "server");
           check("verified server not-found permits Draft creation", absentOpen.kind === "local");
           check("network/server failure does not create a Draft", unavailableOpen.kind === "server-unavailable" && created === 1, unavailableOpen.kind);
           check("offline-unverified with no local record returns Not cached", offlineRoute.kind === "not-cached", offlineRoute.kind);

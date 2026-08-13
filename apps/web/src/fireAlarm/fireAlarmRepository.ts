@@ -52,6 +52,7 @@ export async function getFireAlarmInspection(jobSystemKey: string) {
 }
 export async function getOrCreateFireAlarmInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined) {
   const key = fireAlarmJobSystemKey(job.id); const existing = await getFireAlarmInspection(key); if (existing) return existing;
+  if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts");
   if (system.systemKey !== systemKey || !job.configurationSnapshot.enabledSystems.some((item) => item.enabledSystemId === system.enabledSystemId && item.systemKey === systemKey)) throw new Error("Invalid frozen Fire Alarm system identity");
   const resolved = definition(job, catalog); const timestamp = now();
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null;
