@@ -24,6 +24,7 @@ import { SystemNavigator } from "./SystemNavigator";
 import type {
   ServerMasterSystemInspectionSummary
 } from "../hoseReel/serverMasterSystemInspectionApi";
+import { inspectionStatusLabel, inspectionStatusTone, jobStatusLabel } from "../uiPresentation";
 
 export function deriveWetChemicalAuthorityProgress(
   group: MasterSystemInspectionGroupRecord,
@@ -67,7 +68,6 @@ type TechnicianHomeProps = {
   message: string;
   selectedJobId?: string;
   selectedSystemKey?: string;
-  syncMessage: string;
   onRefresh: () => Promise<void>;
   onSync: () => Promise<void>;
   onCloseJob: (job: InspectionJob) => Promise<void>;
@@ -98,7 +98,6 @@ export function TechnicianHome({
   message,
   selectedJobId,
   selectedSystemKey,
-  syncMessage,
   onRefresh,
   onSync,
   onCloseJob,
@@ -211,18 +210,25 @@ export function TechnicianHome({
       : noLocalProgress(jobId, systemKey);
   };
 
+  const jobProgress = (job: InspectionJob) => {
+    const applicable = job.configurationSnapshot.enabledSystems
+      .filter((system) => system.definitionStatus === "confirmed");
+    const complete = applicable.filter((system) => progressFor(job.id, system.systemKey) === "Completed").length;
+    return { complete, total: applicable.length };
+  };
+
   return <section className="technician-home" aria-labelledby="technician-home-title">
     <div className="workspace-heading">
       <div>
-        <p className="eyebrow">Field Work</p>
-        <h2 id="technician-home-title">Technician Home</h2>
+        <p className="eyebrow">Today&rsquo;s field work</p>
+        <h2 id="technician-home-title">My Service Jobs</h2>
       </div>
       <div className="inline-actions">
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
-          {loading ? "Refreshing" : "Refresh Jobs"}
+          {loading ? "Refreshing\u2026" : "Refresh Jobs"}
         </button>
         <button type="button" disabled={!canUseServer} onClick={() => void onSync()}>
-          Sync Pending
+          Sync Now
         </button>
       </div>
     </div>
@@ -230,10 +236,9 @@ export function TechnicianHome({
     {authState.status === "restoring" ? <p>Preparing local workspace.</p> : null}
     {authState.status === "logged-out" ? <p>Sign in online to prepare technician jobs for offline use.</p> : null}
     {authState.status === "offline-unverified" ? (
-      <p className="offline-notice">Cached jobs are available. Server actions require session verification.</p>
+      <p className="offline-notice">Offline — changes are saved on this device. Reconnect for refresh and sync.</p>
     ) : null}
     {message ? <p className="form-message">{message}</p> : null}
-    {syncMessage ? <p className="form-message">{syncMessage}</p> : null}
 
     {selectedJob && selectedSystem ? (
       <SystemNavigator
@@ -246,40 +251,48 @@ export function TechnicianHome({
       />
     ) : selectedJob ? (
       <section aria-labelledby="applicable-systems-title">
-        <button type="button" className="secondary-command" onClick={onBackToJobs}>Back to Jobs</button>
-        <div className="job-context">
-          <p className="eyebrow">{selectedJob.reference}</p>
-          <h3>{selectedJob.title}</h3>
-          <p>{selectedJob.configurationSnapshot.customer.displayName}</p>
-          <p className="secondary-metadata">Configuration revision {selectedJob.configurationSnapshot.configuration.revisionNumber}</p>
+        <button type="button" className="secondary-command back-command" onClick={onBackToJobs}>Back to My Jobs</button>
+        <div className="job-context job-context-card">
+          <div className="job-context-title">
+            <div>
+              <p className="eyebrow">Customer</p>
+              <h3>{selectedJob.configurationSnapshot.customer.displayName}</h3>
+            </div>
+            <span className={`status-badge status-badge--${selectedJob.status === "closed" ? "complete" : "draft"}`}>
+              {jobStatusLabel(selectedJob.status)}
+            </span>
+          </div>
+          <dl className="job-facts">
+            <div><dt>Site / Service</dt><dd>{selectedJob.title}</dd></div>
+            <div><dt>Service Date</dt><dd>Not provided</dd></div>
+            <div><dt>Job Reference</dt><dd>{selectedJob.reference}</dd></div>
+          </dl>
           {selectedJob.status === "closed" ? (
-            <>
-              <p className="status-label">Completed</p>
-              <p className="secondary-metadata">
-                {selectedJob.completion?.completedAt
-                  ? `Completed ${new Date(selectedJob.completion.completedAt).toLocaleString()}`
-                  : "Completion time unavailable"}
-                {selectedJob.completion?.completedBy
-                  ? ` by ${selectedJob.completion.completedBy.username}`
-                  : ""}
-              </p>
-              <p className="form-message">Accepted inspections remain viewable. New local inspection entry is disabled for this completed job.</p>
-            </>
+            <div className="read-only-banner">
+              <strong>Service Completed</strong>
+              <span>{selectedJob.completion?.completedAt
+                ? `Completed on ${new Date(selectedJob.completion.completedAt).toLocaleString()}`
+                : "Completion date unavailable"}</span>
+              <span>{selectedJob.completion?.completedBy
+                ? `Completed by ${selectedJob.completion.completedBy.username}`
+                : "Completed by unavailable"}</span>
+              <p>This service visit is complete and read-only.</p>
+            </div>
           ) : null}
         </div>
         {selectedJob.status === "open" ? (
           <section className="job-completion" aria-labelledby="job-completion-title">
             <div className="workspace-heading">
               <div>
-                <p className="eyebrow">Server Verification</p>
-                <h3 id="job-completion-title">Job Completion</h3>
+                <p className="eyebrow">Service visit</p>
+                <h3 id="job-completion-title">Complete Service</h3>
               </div>
               <span>{selectedJob.completion
-                ? `${selectedJob.completion.acceptedUnitCount}/${selectedJob.completion.requiredUnitCount} accepted`
-                : "Verification unavailable"}</span>
+                ? `${selectedJob.completion.acceptedUnitCount}/${selectedJob.completion.requiredUnitCount} inspections complete`
+                : "Progress unavailable"}</span>
             </div>
             {selectedJob.completion?.eligible ? (
-              <p>All required authority units are Accepted by the server.</p>
+              <p>All required inspections are complete and ready to close.</p>
             ) : selectedJob.completion ? (
               <ul className="record-list">
                 {selectedJob.completion.systems.flatMap((system) => system.units
@@ -291,16 +304,16 @@ export function TechnicianHome({
                       : unit.reason === "EVIDENCE_INVALID" ? "Required evidence is invalid"
                       : unit.reason === "SYSTEM_NOT_SUPPORTED" ? "Configured system is not supported"
                       : unit.reason === "CONFIGURATION_INVALID" ? "Authoritative job configuration is invalid"
-                      : "Accepted inspection is missing"}</small>
+                      : "Inspection is not complete"}</small>
                   </li>))}
               </ul>
-            ) : <p>Reconnect and refresh to verify completion with the server.</p>}
+            ) : <p>Reconnect and refresh to confirm completion readiness.</p>}
             <button
               type="button"
               disabled={!canUseServer || !selectedJob.completion?.eligible || loading}
               onClick={() => void onCloseJob(selectedJob)}
-            >Complete Job</button>
-            {!canUseServer ? <p className="offline-notice">Completion requires server verification and cannot be performed offline.</p> : null}
+            >Complete Service</button>
+            {!canUseServer ? <p className="offline-notice">Reconnect before completing this service visit.</p> : null}
           </section>
         ) : null}
         <h3 id="applicable-systems-title">Applicable Systems</h3>
@@ -322,8 +335,8 @@ export function TechnicianHome({
                     : system.systemKey === "portable_fire_extinguisher" ? onOpenPortableFireExtinguisher(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
-                <span>{system.displayName}</span>
-                <span className="status-label">{progress}</span>
+                <span className="navigation-primary"><strong>{system.displayName}</strong><small>Open inspection</small></span>
+                <span className={`status-badge status-badge--${inspectionStatusTone(progress)}`}>{inspectionStatusLabel(progress)}</span>
               </button>
             </li>;
           })}
@@ -332,20 +345,33 @@ export function TechnicianHome({
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
         <div className="list-heading">
-          <h3 id="available-jobs-title">Available Jobs</h3>
-          <span>{jobs.length} cached</span>
+          <div><p className="eyebrow">Assigned work</p><h3 id="available-jobs-title">My Service Jobs</h3></div>
+          <span>{jobs.length} {jobs.length === 1 ? "job" : "jobs"}</span>
         </div>
         {jobs.length === 0 ? <p className="empty-state">No cached technician jobs are available.</p> : (
-          <ul className="navigation-list">
-            {jobs.map((job) => <li key={job.id}>
-              <button type="button" onClick={() => onSelectJob(job)}>
-                <span>
-                  <strong>{job.title}</strong>
-                  <small>{job.reference} - {job.configurationSnapshot.customer.displayName}</small>
-                </span>
-                <span>{job.status === "closed" ? "Completed" : `${job.configurationSnapshot.enabledSystems.length} systems`}</span>
-              </button>
-            </li>)}
+          <ul className="job-card-list">
+            {jobs.map((job) => {
+              const progress = jobProgress(job);
+              return <li key={job.id}>
+                <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
+                  <div className="job-card-heading">
+                    <div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div>
+                    <span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span>
+                  </div>
+                  <dl className="job-card-facts">
+                    <div><dt>Site / Service</dt><dd>{job.title}</dd></div>
+                    <div><dt>Service Date</dt><dd>Not provided</dd></div>
+                  </dl>
+                  <div className="job-progress-row">
+                    <span><strong>{progress.complete}/{progress.total}</strong> inspections complete</span>
+                    <span className="job-reference">{job.reference}</span>
+                  </div>
+                  <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}>
+                    <span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} />
+                  </div>
+                </button>
+              </li>;
+            })}
           </ul>
         )}
       </section>

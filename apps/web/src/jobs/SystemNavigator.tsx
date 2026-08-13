@@ -1,5 +1,6 @@
 import type { JobSystemSnapshot } from "./jobTypes";
 import type { SystemProgress } from "./jobProgress";
+import { inspectionStatusLabel, inspectionStatusTone } from "../uiPresentation";
 
 type SystemNavigatorProps = {
   system: JobSystemSnapshot;
@@ -49,7 +50,7 @@ export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOp
         <p className="eyebrow">System Overview</p>
         <h3 id="selected-system-title">{system.displayName}</h3>
       </div>
-      <span className="status-label">{progress}</span>
+      <span className={`status-badge status-badge--${inspectionStatusTone(progress)}`}>{inspectionStatusLabel(progress)}</span>
     </div>
     {zones.length > 0 ? zones.map((zone) => (
       <section className="location-group" key={zone.id}>

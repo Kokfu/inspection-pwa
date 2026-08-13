@@ -9,42 +9,38 @@ type AuthStatusProps = {
 export function AuthStatus({ state, onLogout, onRevalidate }: AuthStatusProps) {
   return (
     <section className="auth-panel" aria-label="Authentication status">
-      <h2>Server Access</h2>
+      <h2>{state.status === "verified" || state.status === "offline-unverified" ? "Technician" : "Account"}</h2>
       {state.status === "verified" ? (
         <>
-          <p>
-            Signed in as <strong>{state.user.username}</strong> ({state.user.role}) - Verified
-          </p>
+          <p>Signed in as <strong>{state.user.username}</strong></p>
           <button type="button" onClick={onLogout}>
-            Logout
+            Sign out
           </button>
         </>
       ) : state.status === "offline-unverified" ? (
         <>
-          <p>
-            Offline - identity not reverified. Last verified as <strong>{state.user.username}</strong> at {new Date(state.lastVerifiedAt).toLocaleString()}
-          </p>
-          <p>Reconnect to verify your session before using server actions.</p>
+          <p>Offline — continuing as <strong>{state.user.username}</strong></p>
+          <p>Your jobs and changes remain available on this device.</p>
           <div className="inline-actions">
-            <button type="button" onClick={onRevalidate}>Verify Session</button>
-            <button type="button" onClick={onLogout}>Logout</button>
+            <button type="button" onClick={onRevalidate}>Reconnect</button>
+            <button type="button" onClick={onLogout}>Sign out</button>
           </div>
         </>
       ) : state.status === "verifying" ? (
         <p>
-          Verifying server session{state.user ? <> for <strong>{state.user.username}</strong></> : ""}. Local inspection authority is temporarily unavailable.
+          Reconnecting{state.user ? <> for <strong>{state.user.username}</strong></> : ""}…
         </p>
       ) : state.status === "online-unavailable" ? (
         <>
           <p>{state.message}</p>
-          <p>Local inspection authority remains protected until the server session is verified.</p>
+          <p>Your saved work remains protected on this device.</p>
           <div className="inline-actions">
-            <button type="button" onClick={onRevalidate}>Verify Session</button>
-            <button type="button" onClick={onLogout}>Logout</button>
+            <button type="button" onClick={onRevalidate}>Try Again</button>
+            <button type="button" onClick={onLogout}>Sign out</button>
           </div>
         </>
       ) : state.status === "restoring" ? (
-        <p>Restoring local sign-in</p>
+        <p>Preparing your service jobs…</p>
       ) : (
         <p>{state.message}</p>
       )}

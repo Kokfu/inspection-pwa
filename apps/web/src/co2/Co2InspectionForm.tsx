@@ -119,7 +119,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
         <h2 id="co2-form-title">{record.inspectionSnapshot.instance.location.displayName}</h2>
         <p>{record.inspectionSnapshot.customer.displayName} - {record.inspectionSnapshot.instance.zone?.displayName ?? "Unzoned"}</p>
       </div>
-      <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>{deriveCo2InstanceProgress(record)}</strong>
+      <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>{record.syncStatus === "Synced" ? "Inspection Complete" : record.syncStatus === "Pending" ? "Waiting to Sync" : record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? "Needs Attention" : record.syncStatus === "Syncing" ? "Syncing…" : deriveCo2InstanceProgress(record)}</strong>
     </header>
     {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}
     {grouped.length ? <section className="validation-summary" aria-live="polite"><h3>Complete before submitting</h3>{grouped.map(([section, messages]) => <div key={section}><strong>{section}</strong><ul>{messages.map((item) => <li key={item}>{item}</li>)}</ul></div>)}</section> : null}
@@ -159,7 +159,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
       <RemarksField label="Comments" definition={controls.comments} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} />
     </fieldset>
 
-    {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Local</button></div> : null}
+    {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Inspection</button></div> : null}
     {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed()}>Return to Draft</button> : null}
   </section>;
 }

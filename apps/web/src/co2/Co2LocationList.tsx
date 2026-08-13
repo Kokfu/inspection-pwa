@@ -4,6 +4,7 @@ import type {
   MasterSystemInspectionGroupRecord
 } from "./co2Types";
 import type { ServerMasterSystemInspectionSummary } from "../hoseReel/serverMasterSystemInspectionApi";
+import { inspectionStatusLabel, inspectionStatusTone } from "../uiPresentation";
 
 type Props = {
   group: MasterSystemInspectionGroupRecord;
@@ -27,6 +28,7 @@ export function Co2LocationList({ group, instances, serverSummaries, onBack, onO
   const systemLabel = group.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
   const byKey = new Map(instances.map((instance) => [instance.instanceKey, instance]));
   const zones = groupCo2InstancesByZone(group);
+  const parentProgress = group.expectedInstances.every(expected=>serverSummaries.some(summary=>summary.instanceKey===expected.instanceKey&&summary.locationId===expected.location.id&&summary.zoneId===(expected.zone?.id??null)&&summary.displaySequence===expected.displaySequence)) ? "Completed" : deriveCo2ParentProgress(group, instances);
   return <section className="co2-location-list" aria-labelledby="co2-locations-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
     <div className="workspace-heading">
@@ -35,7 +37,7 @@ export function Co2LocationList({ group, instances, serverSummaries, onBack, onO
         <h2 id="co2-locations-title">{systemLabel} Locations</h2>
         <p>{group.customer.displayName}</p>
       </div>
-      <span className="status-label">{group.expectedInstances.every(expected=>serverSummaries.some(summary=>summary.instanceKey===expected.instanceKey&&summary.locationId===expected.location.id&&summary.zoneId===(expected.zone?.id??null)&&summary.displaySequence===expected.displaySequence))?"Completed":deriveCo2ParentProgress(group, instances)}</span>
+      <span className={`status-badge status-badge--${inspectionStatusTone(parentProgress)}`}>{inspectionStatusLabel(parentProgress)}</span>
     </div>
     {zones.map((zone) => (
       <section className="location-group" key={zone.key}>
@@ -52,7 +54,10 @@ export function Co2LocationList({ group, instances, serverSummaries, onBack, onO
                     <strong>{expected.location.displayName}</strong>
                     <small>{expected.zone?.displayName ?? "Unzoned configured location"}</small>
                   </span>
-                  <span className="status-label">{accepted ? "Accepted" : record ? deriveCo2InstanceProgress(record) : "Not Started"}</span>
+                  {(() => {
+                    const progress = accepted ? "Completed" : record ? deriveCo2InstanceProgress(record) : "Not Started";
+                    return <span className={`status-badge status-badge--${inspectionStatusTone(progress)}`}>{inspectionStatusLabel(progress)}</span>;
+                  })()}
                 </button>
               </li>;
             })}

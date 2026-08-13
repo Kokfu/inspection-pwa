@@ -10,7 +10,7 @@ const system={enabledSystemId:"30000000-0000-4000-8000-000000000002",systemKey:"
 const completion={jobId:"30000000-0000-4000-8000-000000000001",jobStatus:"open",eligible:true,checkedAt:"2026-08-13T01:00:00.000Z",requiredUnitCount:1,acceptedUnitCount:1,completedAt:null,completedBy:null,systems:[{systemKey:"hose_reel",systemLabel:"Hose Reel",status:"accepted",units:[{authorityKey:"primary",label:"Primary inspection",status:"accepted"}]}]};
 const baseJob={id:completion.jobId,reference:"JOB-CLOSE-001",title:"Completion acceptance job",status:"open",createdAt:"2026-08-13T00:00:00.000Z",configurationSnapshot:{schemaVersion:1,customer:{id:"30000000-0000-4000-8000-000000000003",code:"C",displayName:"Completion Customer"},configuration:{revisionId:"30000000-0000-4000-8000-000000000004",revisionNumber:1},template:{id:"30000000-0000-4000-8000-000000000005",code:"MFE-FSSR",name:"Master",version:5},enabledSystems:[system]},completion};
 const noop=async()=>{};
-const common={inspections:[],masterSystemInspections:[],masterSystemInspectionGroups:[],masterSystemFormInstances:[],inspectionAttachments:[],serverMasterSystemInspections:[],serverMasterSystemProgressState:"loaded",loading:false,message:"",selectedJobId:baseJob.id,syncMessage:"",onRefresh:noop,onSync:noop,onSelectJob:()=>{},onSelectSystem:()=>{},onBackToJobs:()=>{},onBackToSystems:()=>{},onOpenHoseReel:()=>{},onOpenCo2:()=>{},onOpenAutomaticSprinkler:()=>{},onOpenDryWetRiser:()=>{},onOpenFireAlarm:()=>{},onOpenHydrant:()=>{},onOpenPortableFireExtinguisher:()=>{}};
+const common={inspections:[],masterSystemInspections:[],masterSystemInspectionGroups:[],masterSystemFormInstances:[],inspectionAttachments:[],serverMasterSystemInspections:[],serverMasterSystemProgressState:"loaded",loading:false,message:"",selectedJobId:baseJob.id,onRefresh:noop,onSync:noop,onSelectJob:()=>{},onSelectSystem:()=>{},onBackToJobs:()=>{},onBackToSystems:()=>{},onOpenHoseReel:()=>{},onOpenCo2:()=>{},onOpenAutomaticSprinkler:()=>{},onOpenDryWetRiser:()=>{},onOpenFireAlarm:()=>{},onOpenHydrant:()=>{},onOpenPortableFireExtinguisher:()=>{}};
 const root=createRoot(document.querySelector("#app"));
 const settle=()=>new Promise(resolve=>setTimeout(resolve,200));
 
@@ -18,19 +18,19 @@ document.querySelector("#run").onclick=async()=>{
   const checks=[],check=(name,passed)=>checks.push({name,passed:Boolean(passed)});let closes=0;
   root.render(React.createElement(TechnicianHome,{...common,jobs:[baseJob],authState:{status:"verified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:async()=>{closes+=1}}));
   await settle();
-  let complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Job");
-  check("eligible verified job exposes enabled Complete Job",complete&&!complete.disabled);
-  check("server Accepted progress is displayed",document.body.textContent.includes("1/1 accepted")&&document.body.textContent.includes("Completed"));
+  let complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Service");
+  check("eligible verified job exposes enabled Complete Service",complete&&!complete.disabled);
+  check("server accepted progress is presented as complete",document.body.textContent.includes("1/1 inspections complete")&&document.body.textContent.includes("Inspection Complete"));
   complete?.click();await settle();check("close command is dispatched once",closes===1);
 
   root.render(React.createElement(TechnicianHome,{...common,jobs:[baseJob],authState:{status:"offline-unverified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:async()=>{closes+=1}}));
-  await settle();complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Job");
-  check("offline cannot authoritatively close",complete?.disabled&&document.body.textContent.includes("cannot be performed offline"));
+  await settle();complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Service");
+  check("offline cannot authoritatively close",complete?.disabled&&document.body.textContent.includes("Reconnect before completing"));
 
   const incomplete={...baseJob,completion:{...completion,eligible:false,acceptedUnitCount:0,systems:[{systemKey:"hose_reel",systemLabel:"Hose Reel",status:"incomplete",units:[{authorityKey:"primary",label:"Primary inspection",status:"incomplete",reason:"ACCEPTED_INSPECTION_MISSING"}]}]}};
   root.render(React.createElement(TechnicianHome,{...common,jobs:[incomplete],authState:{status:"verified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:noop}));
-  await settle();complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Job");
-  check("incomplete authority is explained and close disabled",complete?.disabled&&document.body.textContent.includes("Accepted inspection is missing"));
+  await settle();complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Service");
+  check("incomplete authority is explained and close disabled",complete?.disabled&&document.body.textContent.includes("Inspection is not complete"));
 
   const closed={...baseJob,status:"closed",completion:{...completion,jobStatus:"closed",completedAt:"2026-08-13T02:00:00.000Z",completedBy:{id:1,username:"inspector"}}};
   root.render(React.createElement(TechnicianHome,{...common,jobs:[closed],authState:{status:"verified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:noop}));
@@ -38,8 +38,8 @@ document.querySelector("#run").onclick=async()=>{
   check("completed state shows immutable metadata",document.body.textContent.includes("Completed")&&document.body.textContent.includes("by inspector"));
   const completedButtons=[...document.querySelector("#app").querySelectorAll("button")].map(button=>button.textContent);
   const completedText=document.querySelector("#app").textContent;
-  check("completed state removes close command",!completedButtons.some(text=>text==="Complete Job"));
-  check("completed state explains read-only mode",completedText.includes("disabled for this completed job"));
+  check("completed state removes close command",!completedButtons.some(text=>text==="Complete Service"));
+  check("completed state explains read-only mode",completedText.includes("This service visit is complete and read-only."));
   check("Accepted inspection navigation remains available",[...document.querySelectorAll("button")].some(button=>button.textContent.includes("Hose Reel")));
   document.querySelector("#result").textContent=JSON.stringify({status:checks.every(item=>item.passed)?"PASS":"FAIL",checkCount:checks.length,checks},null,2);
 };

@@ -13,7 +13,7 @@ export function ServerCo2View({ inspection, onBack }: { inspection: ServerCo2Det
   ];
   return <section className="hose-reel-form server-inspection-detail">
     <button type="button" className="secondary-command" onClick={onBack}>Back to CO2 Locations</button>
-    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2>{inspection.systemLabel}</h2><p>{inspection.customerName}</p></div><strong className="inspection-status status-synced">Accepted</strong></header>
+    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2>{inspection.systemLabel}</h2><p>{inspection.customerName}</p></div><strong className="inspection-status status-synced">Inspection Complete</strong></header>
     <p>Submitted {new Date(inspection.performedAt).toLocaleString()} - Synced by {inspection.syncedByUsername}</p>
     <section><h3>Control Panel</h3><p>{controls.controlPanelLocation.label}: {responses.controlPanelLocation}</p></section>
     <section><h3>Detector Rows</h3>{responses.detectorRows.map((row) => <article className="hose-row-card" key={row.rowUuid}><strong>Row {row.displaySequence}</strong><p>{controls.detectorRows.alarmZone.label}: {row.alarmZone}</p><p>{controls.detectorRows.location.label}: {row.location}</p><p>{controls.detectorRows.heatDetector.label}: {label(row.heatDetectorStatus)}</p><p>{controls.detectorRows.smokeDetector.label}: {label(row.smokeDetectorStatus)}</p><p>Remarks: {row.remarks || "None"}</p></article>)}</section>

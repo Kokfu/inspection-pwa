@@ -103,18 +103,17 @@ export function ServerAutomaticSprinklerView({ inspection, onBack }: Props) {
     );
   }
 
-  return <section className="hose-reel-form sprinkler-form" aria-labelledby="server-sprinkler-title">
+  return <section className="hose-reel-form sprinkler-form server-inspection-detail" aria-labelledby="server-sprinkler-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
     <header className="inspection-context">
       <div>
         <p className="eyebrow">{inspection.jobReference}</p>
         <h2 id="server-sprinkler-title">{inspection.jobTitle}</h2>
         <p>{inspection.customerName}</p>
-        <p className="secondary-metadata">Inspection UUID: {inspection.clientUuid}</p>
       </div>
       <div>
         <span className="status-caption">{inspection.systemLabel}</span>
-        <strong className="inspection-status status-synced">Completed</strong>
+        <strong className="inspection-status status-synced">Inspection Complete</strong>
       </div>
     </header>
     <p className="success-message">

@@ -133,7 +133,7 @@
         await sleep(100);
         const hiddenThroughoutAuthProbe = !editable(mount) && !editableDuringAuthProbe;
         watchAuthProbe = false; releaseDeferredAuth();
-        if (acceptedAfterAuth) await waitFor(() => mount.textContent.includes("SERVER ACCEPTED AFTER RECONNECT") && mount.textContent.includes("Accepted"));
+        if (acceptedAfterAuth) await waitFor(() => mount.textContent.includes("SERVER ACCEPTED AFTER RECONNECT") && mount.textContent.includes("Inspection Complete"));
         else await waitFor(() => editable(mount) && mount.textContent.includes("CACHED LOCAL DRAFT"));
         observer.disconnect();
         return { name: acceptedAfterAuth ? "Draft: reconnect hides local form before Accepted authority" : "Draft: reconnect resumes only after no-Accepted authority", passed: onlineCalls && offlineOpenNoServerFetch && offlineReloadNoServerFetch && hiddenBeforeAuthResolves && hiddenThroughoutAuthProbe && (acceptedAfterAuth ? !editable(mount) : editable(mount)), summaryCalls, detailCalls };

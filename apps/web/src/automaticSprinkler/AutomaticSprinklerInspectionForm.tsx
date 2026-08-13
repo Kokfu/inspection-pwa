@@ -33,9 +33,9 @@ type Props = {
 
 const statusLabels = {
   Draft: "Draft",
-  Pending: "Pending Sync",
-  Syncing: "Syncing",
-  Synced: "Completed",
+  Pending: "Waiting to Sync",
+  Syncing: "Syncing…",
+  Synced: "Inspection Complete",
   Failed: "Needs Attention",
   Conflict: "Needs Attention"
 } as const;
@@ -69,16 +69,16 @@ export function AutomaticSprinklerInspectionForm({
   const readOnly = record.syncStatus !== "Draft";
   const evidenceStatus = record.syncStatus === "Synced"
     ? attachments.some((attachment) => attachment.syncStatus === "Uploading")
-      ? "Uploading Evidence"
+      ? "Uploading Evidence…"
       : attachments.some((attachment) =>
         attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict"
       )
-        ? "Photo Upload Failed"
+        ? "Needs Attention"
         : attachments.some((attachment) =>
           attachment.syncStatus === "Pending" || attachment.syncStatus === "Draft"
         )
-          ? "Pending Evidence"
-          : "Completed"
+          ? "Waiting for Evidence"
+          : "Inspection Complete"
     : statusLabels[record.syncStatus];
   const evidencePolicy = useMemo(() => {
     try {
@@ -251,7 +251,7 @@ export function AutomaticSprinklerInspectionForm({
     ? "Inspection submitted locally and waiting for sync."
     : record.syncStatus === "Syncing"
       ? "Inspection is syncing."
-      : record.syncStatus === "Synced" && evidenceStatus === "Completed"
+      : record.syncStatus === "Synced" && evidenceStatus === "Inspection Complete"
         ? "Inspection data and attached evidence are synced."
         : record.syncStatus === "Synced"
           ? "Inspection data is synced; attached evidence still needs attention."
@@ -264,7 +264,6 @@ export function AutomaticSprinklerInspectionForm({
         <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
         <h2 id="sprinkler-form-title">{record.inspectionSnapshot.job.title}</h2>
         <p>{record.inspectionSnapshot.customer.displayName}</p>
-        <p className="secondary-metadata">Configuration revision {record.configuration.revisionNumber}</p>
       </div>
       <div>
         <span className="status-caption">Automatic Sprinkler System</span>
@@ -305,7 +304,7 @@ export function AutomaticSprinklerInspectionForm({
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions">
       <button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button>
-      <button type="button" onClick={() => void submit()}>Submit Local</button>
+      <button type="button" onClick={() => void submit()}>Submit Inspection</button>
     </div> : null}
   </section>;
 }

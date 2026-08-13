@@ -44,7 +44,7 @@ document.querySelector("#run").onclick=async()=>{
     check("renders exact server Hydrant Type",text.includes("meter")&&!text.includes(local.hydrantType));
     check("renders configured and technician rows in submitted order",text.includes("Configured Hydrant")&&text.includes("Server technician row")&&text.indexOf("Configured Hydrant")<text.indexOf("Server technician row"));
     check("renders exact authoritative comments",text.includes("SERVER COMMENTS")&&!text.includes(local.comments));
-    check("accepted detail has no editable Hydrant controls",editable.length===0&&!buttons.includes("Save Draft")&&!buttons.includes("Submit Local"));
+    check("accepted detail has no editable Hydrant controls",editable.length===0&&!buttons.includes("Save Draft")&&!buttons.includes("Submit Inspection"));
     const malformed=structuredClone(server);malformed.responses.rows[1].configuredLocationId=uuid(40);globalThis.fetch=async()=>new Response(JSON.stringify({inspection:malformed}),{status:200});let failedClosed=false;try{await loadServerHydrantDetail(server.clientUuid)}catch{failedClosed=true}
     check("parser failure fails closed without editable local fallback",failedClosed&&editable.length===0&&!text.includes("LOCAL COMMENTS"));
     document.querySelector("#result").textContent=JSON.stringify({status:checks.every(check=>check.passed)?"PASS":"FAIL",checks},null,2);

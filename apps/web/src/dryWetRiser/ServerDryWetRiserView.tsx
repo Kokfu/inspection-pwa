@@ -9,11 +9,10 @@ const name = (value: string) => value.replaceAll("_", " ");
 
 export function ServerDryWetRiserView({ inspection, onBack }: Props) {
   const checklist = (keys: string[], source: Record<string, RiserRow>) => keys.map((key) => <section className="hose-check-row" key={key}><strong>{name(key)}</strong><span>{label(source[key].result)}</span><p>{source[key].remarks || "No remarks"}</p></section>);
-  return <section className="hose-reel-form" aria-labelledby="server-riser-title">
+  return <section className="hose-reel-form server-inspection-detail" aria-labelledby="server-riser-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2 id="server-riser-title">{inspection.jobTitle}</h2><p>{inspection.customer.displayName}</p><p className="secondary-metadata">Inspection UUID: {inspection.clientUuid}</p></div><div><span className="status-caption">{inspection.systemLabel}</span><strong className="inspection-status status-synced">Completed</strong></div></header>
+    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2 id="server-riser-title">{inspection.jobTitle}</h2><p>{inspection.customer.displayName}</p></div><div><span className="status-caption">{inspection.systemLabel}</span><strong className="inspection-status status-synced">Inspection Complete</strong></div></header>
     <p className="success-message">Submitted {new Date(inspection.performedAt).toLocaleString()} · Synced by {inspection.syncedByUsername}</p>
-    <p>Template {inspection.template.code} v{inspection.template.version} · Configuration revision {inspection.configuration.revisionNumber}</p>
     <section><h3>Frozen Riser Mode</h3><p>{inspection.systemConfiguration.riserMode === "dry" ? "Dry" : "Wet"}</p></section>
     <section><h3>Water Tank</h3>{checklist(waterTank, inspection.responses.waterTank)}</section>
     <section><h3>Pump House</h3>{checklist(pumpHouse, inspection.responses.pumpHouse)}</section>

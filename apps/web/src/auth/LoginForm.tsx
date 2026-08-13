@@ -23,7 +23,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
   return (
     <section className="auth-panel" aria-label="Sign in">
-      <h2>Sign In</h2>
+      <p className="eyebrow">Technician access</p>
+      <h2>Sign in to your service jobs</h2>
       <label>
         <span>Username</span>
         <input
@@ -42,7 +43,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
         />
       </label>
       <button type="button" onClick={handleLogin}>
-        Login
+        Sign in
       </button>
       {error ? <p className="error-text">{error}</p> : null}
     </section>

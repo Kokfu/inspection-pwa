@@ -969,7 +969,7 @@ export function App() {
         const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
         if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
       }
-      if (job.status === "closed") throw new Error("This completed job is read-only. Reconnect to load its Accepted inspection.");
+      if (job.status === "closed") throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
       const record = await getOrCreateHoseReelInspection(job, system, catalog, currentUser);
@@ -984,7 +984,7 @@ export function App() {
   async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
     try {
       if (job.status === "closed") {
-        if (!canUseServer) throw new Error("This completed job is read-only. Reconnect to load Accepted location details.");
+        if (!canUseServer) throw new Error("This service visit is complete and read-only. Reconnect to view completed location details.");
         navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
         return;
       }
@@ -1000,7 +1000,7 @@ export function App() {
 
   async function handleOpenAutomaticSprinkler(job: InspectionJob, system: JobSystemSnapshot) {
     try {
-      if (job.status === "closed" && !canUseServer) throw new Error("This completed job is read-only. Reconnect to load its Accepted inspection.");
+      if (job.status === "closed" && !canUseServer) throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Automatic Sprinkler reference data is not cached yet. Refresh jobs online first.");
       const target = await resolveAutomaticSprinklerOpenTarget(
@@ -1024,13 +1024,13 @@ export function App() {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
   }
-  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;} const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { setServerAcceptedDryWetRiserUuid(target.clientUuid); navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Dry/Wet Riser Draft");return;} setServerAcceptedDryWetRiserUuid(undefined); setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
-  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;} const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This accepted Fire Alarm inspection is not cached. Reconnect to load server detail."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local" && job.status === "closed") { setJobMessage("Completed jobs cannot create a new Fire Alarm Draft"); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
-  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;}const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Hydrant Draft");return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
+  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { setServerAcceptedDryWetRiserUuid(target.clientUuid); navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;} setServerAcceptedDryWetRiserUuid(undefined); setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
+  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This completed Fire Alarm inspection is not available on this device. Reconnect to view it."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local" && job.status === "closed") { setJobMessage("This service visit is complete and read-only."); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
+  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
   async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
-  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This completed job is read-only. Reconnect to load its Accepted inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to check accepted server detail before creating a Draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("Completed jobs cannot create a new Portable Fire Extinguisher Draft");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
+  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
   async function handleSavePortable(responses:PortableResponses){if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitPortable(responses:PortableResponses){if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedPortable(){if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePortable));await refreshMasterSystemInspections();}}
@@ -1170,19 +1170,40 @@ export function App() {
     : undefined;
   const selectedSystemKey = route.name === "system" ? route.systemKey : undefined;
   const authenticated = authState.status === "verified" || authState.status === "offline-unverified";
+  const inspectionStatuses = [
+    ...inspections.map((record) => record.syncStatus),
+    ...masterSystemInspections.map((record) => record.syncStatus),
+    ...masterSystemFormInstances.map((record) => record.syncStatus)
+  ];
+  const waitingToSyncCount = inspectionStatuses.filter((status) => status === "Pending").length;
+  const syncIsRunning = inspectionStatuses.some((status) => status === "Syncing")
+    || inspectionAttachments.some((attachment) => attachment.syncStatus === "Uploading");
+  const syncNeedsAttention = inspectionStatuses.some((status) => status === "Failed" || status === "Conflict")
+    || inspectionAttachments.some((attachment) => attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict");
+  const syncSummary = syncNeedsAttention
+    ? "Sync needs attention"
+    : syncIsRunning
+      ? "Syncing\u2026"
+      : waitingToSyncCount > 0
+        ? `${waitingToSyncCount} ${waitingToSyncCount === 1 ? "inspection" : "inspections"} waiting to sync`
+        : "All submitted changes synced";
 
   return (
     <main className="app-shell">
       <header className="app-header" aria-labelledby="app-title">
-        <div>
-          <p className="eyebrow">Field Inspection</p>
-          <h1 id="app-title">Inspection PWA</h1>
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">MFE</span>
+          <div>
+            <p className="eyebrow">MFE Services Sdn. Bhd.</p>
+            <h1 id="app-title">Field Service Inspections</h1>
+          </div>
         </div>
-        <dl>
-          <div><dt>Local database</dt><dd>{databaseReady ? "Ready" : "Starting"}</dd></div>
-          <div><dt>API health</dt><dd>{apiHealth}</dd></div>
-        </dl>
-        <button type="button" className="secondary-command" onClick={checkApiHealth}>Check API</button>
+        {authenticated ? <div className="connection-summary" aria-live="polite">
+          <span className={`connection-state connection-state--${authState.status === "verified" ? "online" : "offline"}`}>
+            <i aria-hidden="true" />{authState.status === "verified" ? "Online" : "Offline"}
+          </span>
+          <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
+        </div> : null}
       </header>
 
       {authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
@@ -1204,14 +1225,7 @@ export function App() {
               className={route.name !== "development" ? "active-navigation" : "secondary-command"}
               onClick={() => navigate({ name: "jobs" })}
             >
-              Jobs
-            </button>
-            <button
-              type="button"
-              className={route.name === "development" ? "active-navigation" : "secondary-command"}
-              onClick={() => navigate({ name: "development" })}
-            >
-              Development Tools
+              My Service Jobs
             </button>
           </nav>
 
@@ -1225,6 +1239,11 @@ export function App() {
                 <p className="eyebrow">For Development / Testing Only</p>
                 <h2 id="development-tools-title">Development / Regression Tools</h2>
                 <p>Legacy fixtures and server verification controls are isolated from technician field work.</p>
+                <dl>
+                  <div><dt>Local database</dt><dd>{databaseReady ? "Ready" : "Starting"}</dd></div>
+                  <div><dt>API health</dt><dd>{apiHealth}</dd></div>
+                </dl>
+                <button type="button" className="secondary-command" onClick={checkApiHealth}>Check API</button>
               </header>
               <div className="development-tools-content">
                 <section className="workspace" aria-label="Generic test record workspace">
@@ -1301,7 +1320,7 @@ export function App() {
             ) : (
               <section className="workspace">
                 <h2>Inspection unavailable</h2>
-                <p>{hoseReelAuthorityState==="loading"?"Checking authoritative Hose Reel acceptance before displaying local data.":hoseReelRouteMessage||"This inspection is not available in local device storage."}</p>
+                <p>{hoseReelAuthorityState==="loading"?"Checking inspection completion before displaying local data.":hoseReelRouteMessage||"This inspection is not available in local device storage."}</p>
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
@@ -1332,18 +1351,18 @@ export function App() {
                     : sprinklerRouteState === "not-cached"
                       ? "This inspection is not cached on this device. Reconnect to view the accepted server inspection."
                       : sprinklerRouteState === "not-found"
-                        ? "No local or accepted server inspection exists for this UUID."
+                        ? "No inspection is available for this record."
                         : sprinklerRouteMessage || "The server inspection is currently unavailable."
                 }</p>
                 <button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button>
               </section>
             )
           ) : route.name === "riser-form" ? (
-            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This completed job is read-only. Reconnect to load its Accepted inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No local or accepted server inspection exists for this UUID." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
-            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":fireAlarmRouteState==="loading"?"Loading authoritative accepted detail.":fireAlarmRouteState==="not-cached"?"Accepted detail is not cached on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this accepted inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The accepted inspection is inconsistent with local state.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The accepted detail is invalid and cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading completed inspection detail.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "wet-chemical-form" ? (
-            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking server acceptance before displaying editable local data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             co2AuthorityState === "server" && serverCo2 ? <ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/> : co2AuthorityState === "local" && activeCo2Form && !jobIsCompleted(activeCo2Form.jobId) ? (
               <Co2InspectionForm
@@ -1354,12 +1373,12 @@ export function App() {
                 onEditFailed={handleEditFailedCo2}
               />
             ) : (
-              <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking authoritative CO2 acceptance for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+              <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking inspection completion for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "hydrant-form" ? (
-            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading authoritative accepted Hydrant detail.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":hydrantRouteMessage||"Accepted Hydrant detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading completed Hydrant inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
-            activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This completed job is read-only. Reconnect to load its Accepted inspection.":portableRouteState==="loading"?"Loading authoritative accepted Portable Fire Extinguisher detail.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view accepted server detail.":portableRouteMessage||"Accepted Portable Fire Extinguisher detail is not available from the server."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading completed Portable Fire Extinguisher inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
@@ -1368,8 +1387,8 @@ export function App() {
               return completedJob ? (
                 <section className="workspace">
                   <button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button>
-                  <h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} Accepted Locations</h2>
-                  {acceptedLocations.length > 0 ? <ul className="navigation-list">{acceptedLocations.map((summary) => <li key={summary.clientUuid}><button type="button" onClick={() => navigate({ name: route.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: summary.clientUuid })}><span>{summary.instanceKey}</span><span className="status-label">Accepted</span></button></li>)}</ul> : <p>Reconnect and refresh to load Accepted location details.</p>}
+                  <h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} Completed Locations</h2>
+                  {acceptedLocations.length > 0 ? <ul className="navigation-list">{acceptedLocations.map((summary) => <li key={summary.clientUuid}><button type="button" onClick={() => navigate({ name: route.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: summary.clientUuid })}><span>{summary.instanceKey}</span><span className="status-badge status-badge--complete">Inspection Complete</span></button></li>)}</ul> : <p>Reconnect and refresh to load completed location details.</p>}
                 </section>
               ) : group ? (
                 <Co2LocationList
@@ -1398,7 +1417,6 @@ export function App() {
               message={jobMessage}
               selectedJobId={selectedJobId}
               selectedSystemKey={selectedSystemKey}
-              syncMessage={syncMessage}
               onRefresh={async () => {
                 if (currentUser && canUseServer) {
                   await refreshServerWorkspace(currentUser, authOperationGeneration.current);

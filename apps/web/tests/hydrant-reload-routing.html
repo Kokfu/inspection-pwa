@@ -34,7 +34,7 @@ async function runCase({name,status,accepted=true,offline=false,error=false,empt
   };
   window.location.hash=`#/hydrant-form/${ids.client}`;
   const mount=document.querySelector("#mount");mount.replaceChildren();
-  let editableFormSeen=false;const observer=new MutationObserver(()=>{const buttons=[...mount.querySelectorAll("button")].map(button=>button.textContent);if(buttons.includes("Save Draft")||buttons.includes("Submit Local"))editableFormSeen=true});observer.observe(mount,{subtree:true,childList:true});
+  let editableFormSeen=false;const observer=new MutationObserver(()=>{const buttons=[...mount.querySelectorAll("button")].map(button=>button.textContent);if(buttons.includes("Save Draft")||buttons.includes("Submit Inspection"))editableFormSeen=true});observer.observe(mount,{subtree:true,childList:true});
   const root=ReactDomClient.createRoot(mount);root.render(React.createElement(App));
   try{
     if(offline||!accepted&&!error)await waitFor(()=>mount.textContent.includes("Draft"));

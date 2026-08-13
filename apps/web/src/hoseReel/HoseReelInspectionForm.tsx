@@ -23,9 +23,9 @@ type Props = {
 
 const statusLabels = {
   Draft: "Draft",
-  Pending: "Pending Sync",
-  Syncing: "Syncing",
-  Synced: "Completed",
+  Pending: "Waiting to Sync",
+  Syncing: "Syncing…",
+  Synced: "Inspection Complete",
   Failed: "Needs Attention",
   Conflict: "Needs Attention"
 } as const;
@@ -220,9 +220,6 @@ export function HoseReelInspectionForm({
           <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
           <h2 id="hose-reel-form-title">{record.inspectionSnapshot.job.title}</h2>
           <p>{record.inspectionSnapshot.customer.displayName}</p>
-          <p className="secondary-metadata">
-            Configuration revision {record.configuration.revisionNumber}
-          </p>
         </div>
         <div>
           <span className="status-caption">Hose Reel System</span>
@@ -502,7 +499,7 @@ export function HoseReelInspectionForm({
             Save Draft
           </button>
           <button type="button" onClick={() => void submit()}>
-            Submit Local
+            Submit Inspection
           </button>
         </div>
       ) : null}
