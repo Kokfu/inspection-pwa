@@ -488,7 +488,7 @@ export function App() {
       const summary = await getReferenceCacheSummary();
       if (!isCurrentRefresh()) return;
       setReferenceCache(summary);
-      setJobMessage(`${cachedJobs.length} technician jobs cached for offline use`);
+      setJobMessage(`${cachedJobs.length} ${cachedJobs.length === 1 ? "job" : "jobs"} available on this device`);
       setReferenceCacheMessage("Reference data cached for offline use");
       await refreshServerMasterSystemProgress(cachedJobs, operation, false, refresh);
     } catch (error) {
@@ -609,7 +609,7 @@ export function App() {
         user: decision.identity.user,
         lastVerifiedAt: decision.identity.lastVerifiedAt
       });
-      setJobMessage("Using cached jobs while the server transport is unavailable.");
+      setJobMessage("Using jobs saved on this device while the service is unavailable.");
       return;
     }
   }
@@ -1198,11 +1198,19 @@ export function App() {
             <h1 id="app-title">Field Service Inspections</h1>
           </div>
         </div>
-        {authenticated ? <div className="connection-summary" aria-live="polite">
-          <span className={`connection-state connection-state--${authState.status === "verified" ? "online" : "offline"}`}>
-            <i aria-hidden="true" />{authState.status === "verified" ? "Online" : "Offline"}
-          </span>
-          <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
+        {authenticated ? <div className="header-utilities">
+          <div className="connection-summary" aria-live="polite">
+            <span className={`connection-state connection-state--${authState.status === "verified" ? "online" : "offline"}`}>
+              <i aria-hidden="true" />{authState.status === "verified" ? "Online" : "Offline"}
+            </span>
+            <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
+          </div>
+          <div className="app-account">
+            <span className="app-account-name">{authState.user.username}</span>
+            {route.name === "development" ? <button type="button" onClick={() => navigate({ name: "jobs" })}>Service Jobs</button> : null}
+            {authState.status === "offline-unverified" ? <button type="button" onClick={() => void revalidateAuthentication()}>Reconnect</button> : null}
+            <button type="button" onClick={() => void handleLogout()}>Sign out</button>
+          </div>
         </div> : null}
       </header>
 
@@ -1219,20 +1227,6 @@ export function App() {
 
       {authenticated ? (
         <>
-          <nav className="app-navigation" aria-label="Application views">
-            <button
-              type="button"
-              className={route.name !== "development" ? "active-navigation" : "secondary-command"}
-              onClick={() => navigate({ name: "jobs" })}
-            >
-              My Service Jobs
-            </button>
-          </nav>
-
-          <section className="session-strip workspace">
-            <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
-          </section>
-
           {route.name === "development" ? (
             <section className="development-tools" aria-labelledby="development-tools-title">
               <header className="development-header">

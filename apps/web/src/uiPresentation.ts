@@ -39,3 +39,13 @@ export function inspectionStatusTone(status: PresentationStatus) {
 export function jobStatusLabel(status: "open" | "closed") {
   return status === "closed" ? "Service Completed" : "In Progress";
 }
+
+export function technicianOperationalMessage(message: string) {
+  if (message === "Cached template version is unavailable. Refresh jobs online first.") {
+    return {
+      text: "Inspection setup is not available on this device yet. Refresh while online to continue.",
+      tone: "warning" as const
+    };
+  }
+  return { text: message, tone: "info" as const };
+}

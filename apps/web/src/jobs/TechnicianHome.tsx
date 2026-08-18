@@ -24,7 +24,12 @@ import { SystemNavigator } from "./SystemNavigator";
 import type {
   ServerMasterSystemInspectionSummary
 } from "../hoseReel/serverMasterSystemInspectionApi";
-import { inspectionStatusLabel, inspectionStatusTone, jobStatusLabel } from "../uiPresentation";
+import {
+  inspectionStatusLabel,
+  inspectionStatusTone,
+  jobStatusLabel,
+  technicianOperationalMessage
+} from "../uiPresentation";
 
 export function deriveWetChemicalAuthorityProgress(
   group: MasterSystemInspectionGroupRecord,
@@ -216,29 +221,33 @@ export function TechnicianHome({
     const complete = applicable.filter((system) => progressFor(job.id, system.systemKey) === "Completed").length;
     return { complete, total: applicable.length };
   };
+  const selectedJobProgress = selectedJob ? jobProgress(selectedJob) : undefined;
+  const operationalMessage = message ? technicianOperationalMessage(message) : undefined;
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
-    <div className="workspace-heading">
+    {!selectedJob ? <div className="home-toolbar">
       <div>
-        <p className="eyebrow">Today&rsquo;s field work</p>
         <h2 id="technician-home-title">My Service Jobs</h2>
+        <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
       </div>
-      <div className="inline-actions">
+      <div className="home-utility-actions">
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
-          {loading ? "Refreshing\u2026" : "Refresh Jobs"}
+          {loading ? "Refreshing\u2026" : "Refresh"}
         </button>
         <button type="button" disabled={!canUseServer} onClick={() => void onSync()}>
           Sync Now
         </button>
       </div>
-    </div>
+    </div> : null}
 
     {authState.status === "restoring" ? <p>Preparing local workspace.</p> : null}
     {authState.status === "logged-out" ? <p>Sign in online to prepare technician jobs for offline use.</p> : null}
     {authState.status === "offline-unverified" ? (
       <p className="offline-notice">Offline — changes are saved on this device. Reconnect for refresh and sync.</p>
     ) : null}
-    {message ? <p className="form-message">{message}</p> : null}
+    {operationalMessage ? <p className={`operational-message operational-message--${operationalMessage.tone}`}>
+      {operationalMessage.text}
+    </p> : null}
 
     {selectedJob && selectedSystem ? (
       <SystemNavigator
@@ -267,6 +276,15 @@ export function TechnicianHome({
             <div><dt>Service Date</dt><dd>Not provided</dd></div>
             <div><dt>Job Reference</dt><dd>{selectedJob.reference}</dd></div>
           </dl>
+          <div className="job-detail-progress">
+            <div>
+              <span>Inspection progress</span>
+              <strong>{selectedJobProgress?.complete}/{selectedJobProgress?.total} complete</strong>
+            </div>
+            <div className="progress-track" aria-label={`${selectedJobProgress?.complete} of ${selectedJobProgress?.total} inspections complete`}>
+              <span style={{ width: selectedJobProgress?.total ? `${(selectedJobProgress.complete / selectedJobProgress.total) * 100}%` : "0%" }} />
+            </div>
+          </div>
           {selectedJob.status === "closed" ? (
             <div className="read-only-banner">
               <strong>Service Completed</strong>
@@ -344,11 +362,8 @@ export function TechnicianHome({
       </section>
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
-        <div className="list-heading">
-          <div><p className="eyebrow">Assigned work</p><h3 id="available-jobs-title">My Service Jobs</h3></div>
-          <span>{jobs.length} {jobs.length === 1 ? "job" : "jobs"}</span>
-        </div>
-        {jobs.length === 0 ? <p className="empty-state">No cached technician jobs are available.</p> : (
+        <h3 className="visually-hidden" id="available-jobs-title">Available service jobs</h3>
+        {jobs.length === 0 ? <p className="empty-state">No service jobs are available on this device.</p> : (
           <ul className="job-card-list">
             {jobs.map((job) => {
               const progress = jobProgress(job);
@@ -358,17 +373,18 @@ export function TechnicianHome({
                     <div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div>
                     <span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span>
                   </div>
-                  <dl className="job-card-facts">
-                    <div><dt>Site / Service</dt><dd>{job.title}</dd></div>
-                    <div><dt>Service Date</dt><dd>Not provided</dd></div>
-                  </dl>
-                  <div className="job-progress-row">
-                    <span><strong>{progress.complete}/{progress.total}</strong> inspections complete</span>
-                    <span className="job-reference">{job.reference}</span>
+                  <div className="job-service-line">
+                    <span className="job-card-label">Site / Service</span>
+                    <strong>{job.title}</strong>
+                  </div>
+                  <div className="job-card-meta">
+                    <span><small>Service Date</small><strong>Not provided</strong></span>
+                    <span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span>
                   </div>
                   <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}>
                     <span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} />
                   </div>
+                  <span className="job-reference">{job.reference}</span>
                 </button>
               </li>;
             })}
