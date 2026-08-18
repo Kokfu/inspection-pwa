@@ -837,6 +837,23 @@ async function seedDemoConfigurations(client: PoolClient) {
   await seedCustomer(client, demoWetChemicalCustomer, masterServiceReportV4.id);
   await seedCustomer(client, demoPortableCustomer, masterServiceReportV5.id);
 
+  // Sites are minimal master data for the service-visit demo. They are
+  // independent of jobs so later visits can reuse the same customer/site.
+  const demoSites = [
+    ["00000000-0000-4000-8000-000000000820", demoRiserCustomerId],
+    ["00000000-0000-4000-8000-000000000561", demoSingleCustomerId],
+    ["00000000-0000-4000-8000-000000000562", demoMultiCustomerId],
+    ["00000000-0000-4000-8000-000000000663", demoCo2CustomerId],
+    ["00000000-0000-4000-8000-000000000703", demoSprinklerCustomerId],
+    ["00000000-0000-4000-8000-000000000723", demoPhotoSprinklerCustomerId],
+    ["00000000-0000-4000-8000-000000000735", demoHydrantCustomerId],
+    ["00000000-0000-4000-8000-000000000745", demoWetChemicalCustomerId],
+    ["00000000-0000-4000-8000-000000000755", demoPortableCustomerId]
+  ] as const;
+  for (const [id, customerId] of demoSites) {
+    await seedSite(client, { id, customerId, code: "PRIMARY", name: "Primary Service Site" });
+  }
+
   const singleSystems = [
     ["00000000-0000-4000-8000-000000000531", "hose_reel"],
     ["00000000-0000-4000-8000-000000000532", "fire_alarm_detector"],
@@ -948,6 +965,25 @@ async function seedDemoConfigurations(client: PoolClient) {
     sortOrder: 1
   });
   await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
+}
+
+async function seedSite(
+  client: PoolClient,
+  site: { id: string; customerId: string; code: string; name: string }
+) {
+  await insertFixture(`Demo site ${site.id}`, client.query(
+    `INSERT INTO customer_sites (id, customer_id, site_code, display_name, is_active)
+     VALUES ($1, $2, $3, $4, true) ON CONFLICT (id) DO NOTHING`,
+    [site.id, site.customerId, site.code, site.name]
+  ));
+  const stored = await client.query<Record<string, unknown>>(
+    `SELECT id, customer_id AS "customerId", site_code AS code,
+      display_name AS name, is_active AS "isActive"
+     FROM customer_sites WHERE id = $1`, [site.id]
+  );
+  assertFixtureFields(`Demo site ${site.id}`, stored.rows[0], {
+    id: site.id, customerId: site.customerId, code: site.code, name: site.name, isActive: true
+  });
 }
 
 async function buildJobConfigurationSnapshot(
@@ -1411,41 +1447,6 @@ async function seedDemoJob(
   );
   if (verified.rowCount !== 1 || !verified.rows[0].matches) {
     throw new Error(`Demo job ${values.reference} differs from the deterministic seed`);
-  }
-  if (values.id === demoCo2JobId) {
-    const jobs = await client.query<{ id: string }>(
-      `SELECT id FROM inspection_jobs
-        WHERE customer_configuration_revision_id = $1
-        ORDER BY id`,
-      [demoCo2RevisionId]
-    );
-    if (jobs.rowCount !== 1 || jobs.rows[0]?.id !== demoCo2JobId) {
-      throw new Error(`CO2 demo configuration must have exactly its deterministic job; found ${jobs.rowCount}`);
-    }
-  }
-  if (values.id === demoSprinklerJobId) {
-    const jobs = await client.query<{ id: string }>(
-      `SELECT id FROM inspection_jobs
-        WHERE customer_configuration_revision_id = $1
-        ORDER BY id`,
-      [demoSprinklerRevisionId]
-    );
-    if (jobs.rowCount !== 1 || jobs.rows[0]?.id !== demoSprinklerJobId) {
-      throw new Error(`Automatic Sprinkler demo configuration must have exactly its deterministic job; found ${jobs.rowCount}`);
-    }
-  }
-  if (values.id === demoPhotoSprinklerJobId) {
-    const jobs = await client.query<{ id: string }>(
-      `SELECT id FROM inspection_jobs
-        WHERE customer_configuration_revision_id = $1
-        ORDER BY id`,
-      [demoPhotoSprinklerRevisionId]
-    );
-    if (jobs.rowCount !== 1 || jobs.rows[0]?.id !== demoPhotoSprinklerJobId) {
-      throw new Error(
-        `Photo-enabled sprinkler configuration must have exactly its deterministic job; found ${jobs.rowCount}`
-      );
-    }
   }
 }
 

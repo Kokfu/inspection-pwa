@@ -88,6 +88,8 @@ import {
 } from "./inspections/serverInspectionApi";
 import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
+import { NewServiceVisit } from "./jobs/NewServiceVisit";
+import { acceptCanonicalNewServiceVisit } from "./jobs/newServiceVisitSuccess";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
 import type { HoseReelResponses, MasterSystemInspectionRecord } from "./hoseReel/hoseReelTypes";
@@ -123,6 +125,7 @@ import {
   getCachedInspectionJobs,
   getCachedInspectionCatalog,
   getReferenceCacheSummary,
+  cacheCanonicalInspectionJob,
   refreshCachedInspectionJobs,
   refreshInspectionReferenceData
 } from "./referenceData/referenceDataCache";
@@ -135,6 +138,7 @@ import {
 type ApiHealth = "Not checked" | "Reachable" | "Unavailable";
 type AppRoute =
   | { name: "jobs" }
+  | { name: "new-service-visit" }
   | { name: "job"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
@@ -150,6 +154,7 @@ type AppRoute =
 function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
+  if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
@@ -165,6 +170,7 @@ function routeFromHash(): AppRoute {
 
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
+  if (route.name === "new-service-visit") return "#/new-service-visit";
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
@@ -1396,6 +1402,25 @@ export function App() {
                 <section className="workspace"><h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
               );
             })()
+          ) : route.name === "new-service-visit" ? (
+            <NewServiceVisit
+              onCancel={() => navigate({ name: "jobs" })}
+              onCreated={async (job) => {
+                if (!currentUser || !canUseServer) {
+                  throw new Error("Connect to the server to create a new service visit.");
+                }
+                try {
+                  await acceptCanonicalNewServiceVisit(job, {
+                    cacheCanonicalJob: (canonicalJob) => cacheCanonicalInspectionJob(currentUser.id, canonicalJob),
+                    setJobs,
+                    navigateToJob: (jobId) => navigate({ name: "job", jobId }),
+                    reconcileWorkspace: () => refreshServerWorkspace(currentUser, authOperationGeneration.current)
+                  });
+                } catch {
+                  throw new Error("Service visit was created on the server but could not be saved on this device. Reconnect and refresh My Service Jobs; do not create it again.");
+                }
+              }}
+            />
           ) : (
             <TechnicianHome
               authState={authState}
@@ -1418,6 +1443,7 @@ export function App() {
               }}
               onSync={handleSync}
               onCloseJob={handleCloseJob}
+              onNewServiceVisit={() => navigate({ name: "new-service-visit" })}
               onSelectJob={(job) => navigate({ name: "job", jobId: job.id })}
               onSelectSystem={(job, system) => navigate({
                 name: "system",

@@ -119,6 +119,19 @@ export async function refreshCachedInspectionJobs(
   return jobs;
 }
 
+/** Cache the exact authoritative response before navigating to a newly-created job. */
+export async function cacheCanonicalInspectionJob(userId: number, job: InspectionJob) {
+  const key = inspectionJobsKey(userId);
+  const fetchedAt = new Date().toISOString();
+  await localDatabase.transaction("rw", localDatabase.referenceData, async () => {
+    const existing = await localDatabase.referenceData.get(key);
+    const jobs = Array.isArray(existing?.payload) ? existing.payload as InspectionJob[] : [];
+    const nextJobs = [...jobs.filter((candidate) => candidate.id !== job.id), job]
+      .sort((left, right) => left.reference.localeCompare(right.reference) || left.id.localeCompare(right.id));
+    await localDatabase.referenceData.put(entry(key, nextJobs, fetchedAt, fetchedAt));
+  });
+}
+
 export async function getCachedInspectionCatalog() {
   const payload = ((await localDatabase.referenceData.get(catalogKey))
     ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload;

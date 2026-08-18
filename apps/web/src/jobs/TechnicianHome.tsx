@@ -76,6 +76,7 @@ type TechnicianHomeProps = {
   onRefresh: () => Promise<void>;
   onSync: () => Promise<void>;
   onCloseJob: (job: InspectionJob) => Promise<void>;
+  onNewServiceVisit: () => void;
   onSelectJob: (job: InspectionJob) => void;
   onSelectSystem: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onBackToJobs: () => void;
@@ -105,7 +106,7 @@ export function TechnicianHome({
   selectedSystemKey,
   onRefresh,
   onSync,
-  onCloseJob,
+  onCloseJob, onNewServiceVisit,
   onSelectJob,
   onSelectSystem,
   onBackToJobs,
@@ -231,6 +232,7 @@ export function TechnicianHome({
         <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
       </div>
       <div className="home-utility-actions">
+        <button type="button" onClick={onNewServiceVisit} disabled={!canUseServer || loading}>+ New Service Visit</button>
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
           {loading ? "Refreshing\u2026" : "Refresh"}
         </button>
@@ -272,8 +274,8 @@ export function TechnicianHome({
             </span>
           </div>
           <dl className="job-facts">
-            <div><dt>Site / Service</dt><dd>{selectedJob.title}</dd></div>
-            <div><dt>Service Date</dt><dd>Not provided</dd></div>
+            <div><dt>Site / Service</dt><dd>{selectedJob.site?.displayName ?? selectedJob.title}</dd></div>
+            <div><dt>Service Date</dt><dd>{selectedJob.serviceDate ?? "Not provided"}</dd></div>
             <div><dt>Job Reference</dt><dd>{selectedJob.reference}</dd></div>
           </dl>
           <div className="job-detail-progress">
@@ -375,10 +377,10 @@ export function TechnicianHome({
                   </div>
                   <div className="job-service-line">
                     <span className="job-card-label">Site / Service</span>
-                    <strong>{job.title}</strong>
+                    <strong>{job.site?.displayName ?? job.title}</strong>
                   </div>
                   <div className="job-card-meta">
-                    <span><small>Service Date</small><strong>Not provided</strong></span>
+                    <span><small>Service Date</small><strong>{job.serviceDate ?? "Not provided"}</strong></span>
                     <span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span>
                   </div>
                   <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}>

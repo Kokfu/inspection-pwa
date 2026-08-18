@@ -25,8 +25,22 @@ const customerEnabledSystemConfigurationMigrationUrl = new URL(
 const jobCompletionMigrationUrl = new URL(
   "../../migrations/009_job_completion.sql", import.meta.url
 );
+const serviceVisitsMigrationUrl = new URL(
+  "../../migrations/010_service_visits.sql", import.meta.url
+);
+const serviceVisitActorIdempotencyMigrationUrl = new URL(
+  "../../migrations/011_service_visit_idempotency_actor_scope.sql", import.meta.url
+);
+const serviceVisitLegacyIdempotencyMigrationUrl = new URL(
+  "../../migrations/012_service_visit_legacy_idempotency.sql", import.meta.url
+);
 
-export async function runMigrations(database: Pool = pool) {
+export type ServiceVisitMigrationTarget = 10 | 11 | 12;
+
+export async function runMigrations(
+  database: Pool = pool,
+  options: { serviceVisitMigrationTarget?: ServiceVisitMigrationTarget } = {}
+) {
   await database.query(`
     CREATE TABLE IF NOT EXISTS test_records (
       id BIGSERIAL PRIMARY KEY,
@@ -193,5 +207,13 @@ export async function runMigrations(database: Pool = pool) {
     await database.query(await readFile(customerEnabledSystemConfigurationMigrationUrl, "utf8"));
   }
   await database.query(await readFile(jobCompletionMigrationUrl, "utf8"));
+  await database.query(await readFile(serviceVisitsMigrationUrl, "utf8"));
+  const target = options.serviceVisitMigrationTarget ?? 12;
+  if (target >= 11) {
+    await database.query(await readFile(serviceVisitActorIdempotencyMigrationUrl, "utf8"));
+  }
+  if (target >= 12) {
+    await database.query(await readFile(serviceVisitLegacyIdempotencyMigrationUrl, "utf8"));
+  }
   await seedMasterServiceReport(database);
 }

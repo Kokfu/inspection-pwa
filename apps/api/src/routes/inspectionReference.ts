@@ -74,6 +74,8 @@ type LocationRow = {
   sortOrder: number;
 };
 
+type SiteRow = { id: string; customerId: string; code: string; displayName: string };
+
 function assertVersionedCatalogRows(templates: TemplateRow[]) {
   const identities = new Set<string>();
   const ids = new Set<string>();
@@ -213,6 +215,25 @@ inspectionReferenceRouter.get(
     } catch (error) {
       next(error);
     }
+  }
+);
+
+inspectionReferenceRouter.get(
+  "/customers/:id/sites",
+  requireRole("admin", "inspector"),
+  async (request, response, next) => {
+    try {
+      const customerId = request.params.id;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) {
+        response.status(400).json({ error: "INVALID_CUSTOMER_ID" });
+        return;
+      }
+      const result = await pool.query<SiteRow>(`
+        SELECT id, customer_id AS "customerId", site_code AS code, display_name AS "displayName"
+        FROM customer_sites WHERE customer_id = $1 AND is_active = true
+        ORDER BY display_name, id`, [customerId]);
+      response.json({ sites: result.rows });
+    } catch (error) { next(error); }
   }
 );
 

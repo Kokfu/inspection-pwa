@@ -11,6 +11,8 @@
     "test:fire-alarm-definition": "tsx --test src/inspections/templates/fireAlarmDefinitionControls.test.ts",
     "test:wet-chemical-definition": "tsx --test src/inspections/templates/wetChemicalDefinitionControls.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
+    "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
+    "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",
     "validate-fire-alarm": "tsx src/cli/validateFireAlarm.ts",
     "validate-fire-alarm-detail": "tsx src/cli/validateFireAlarmDetail.ts",
     "acceptance-fire-alarm": "node dist/cli/acceptanceFireAlarm.js",

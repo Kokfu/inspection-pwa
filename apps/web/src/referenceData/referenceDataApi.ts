@@ -2,6 +2,7 @@ import type {
   CustomerConfigurationResponse,
   InspectionCatalog,
   ReferenceCustomer,
+  ReferenceSite,
 } from "./referenceDataTypes";
 import { parseInspectionCatalog } from "./referenceDataTypes";
 
@@ -34,4 +35,11 @@ export function loadCustomerConfiguration(customerId: string) {
   return getJson<CustomerConfigurationResponse>(
     `/api/customers/${encodeURIComponent(customerId)}/configuration`
   );
+}
+
+export async function loadCustomerSites(customerId: string): Promise<ReferenceSite[]> {
+  const data = await getJson<{ sites: ReferenceSite[] }>(
+    `/api/customers/${encodeURIComponent(customerId)}/sites`
+  );
+  return Array.isArray(data.sites) ? data.sites : [];
 }

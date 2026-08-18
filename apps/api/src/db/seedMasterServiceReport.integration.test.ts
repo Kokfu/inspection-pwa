@@ -8,6 +8,7 @@ const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const portableJobId = "00000000-0000-4000-8000-000000000759";
 const historyId = "90000000-0000-4000-8000-000000000001";
 const completedAt = "2026-08-13T01:02:03.456Z";
+const portableSiteId = "00000000-0000-4000-8000-000000000755";
 
 test("production seed preserves completed demo runtime state and rejects immutable drift", {
   skip: !databaseUrl
@@ -35,6 +36,24 @@ test("production seed preserves completed demo runtime state and rejects immutab
       [portableJobId]
     );
     assert.equal(untouched.rows[0]?.count, "1", "untouched rerun is idempotent");
+
+    const seededSite = await pool.query<{ customer_id: string; site_code: string; display_name: string; is_active: boolean }>(
+      "SELECT customer_id, site_code, display_name, is_active FROM customer_sites WHERE id = $1",
+      [portableSiteId]
+    );
+    assert.deepEqual(seededSite.rows[0], {
+      customer_id: "00000000-0000-4000-8000-000000000750",
+      site_code: "PRIMARY",
+      display_name: "Primary Service Site",
+      is_active: true
+    }, "fresh startup creates deterministic Site master data");
+    await pool.query("UPDATE customer_sites SET display_name = 'drifted site' WHERE id = $1", [portableSiteId]);
+    await assert.rejects(
+      () => seedMasterServiceReport(pool),
+      /Demo site 00000000-0000-4000-8000-000000000755 differs from the deterministic seed/
+    );
+    await pool.query("UPDATE customer_sites SET display_name = 'Primary Service Site' WHERE id = $1", [portableSiteId]);
+    await seedMasterServiceReport(pool);
 
     const user = await pool.query<{ id: number }>(
       "INSERT INTO users (username, password_hash, role) VALUES ($1, $2, 'inspector') RETURNING id",
@@ -70,11 +89,11 @@ test("production seed preserves completed demo runtime state and rejects immutab
       history_count: "1"
     });
 
-    await pool.query("UPDATE inspection_jobs SET title = 'immutable drift' WHERE id = $1", [portableJobId]);
     await assert.rejects(
-      () => seedMasterServiceReport(pool),
-      /Demo job DEMO-JOB-PORTABLE-FIRE-EXTINGUISHER-001 differs from the deterministic seed/
+      () => pool.query("UPDATE inspection_jobs SET title = 'immutable drift' WHERE id = $1", [portableJobId]),
+      /Completed inspection jobs are immutable historical service data/
     );
+    await seedMasterServiceReport(pool);
   } finally {
     await pool.end();
   }

@@ -172,6 +172,13 @@ export type ReferenceCustomer = {
   isDemo: boolean;
 };
 
+export type ReferenceSite = {
+  id: string;
+  customerId: string;
+  code: string;
+  displayName: string;
+};
+
 export type CustomerSystemZone = {
   id: string;
   enabledSystemId: string;

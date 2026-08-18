@@ -16,6 +16,27 @@ export async function loadInspectionJobs() {
   return Array.isArray(data.jobs) ? data.jobs : [];
 }
 
+export async function createServiceVisit(input: {
+  requestId: string;
+  customerId: string;
+  siteId: string;
+  serviceDate: string;
+  systemKeys: string[];
+}) {
+  const response = await fetch("/api/inspection-jobs/service-visits", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+  const data = await response.json() as { job?: InspectionJob; message?: string };
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Connect to the server to create a new service visit.");
+  }
+  if (!response.ok || !data.job) {
+    throw new Error(data.message ?? "Service visit could not be created.");
+  }
+  return data.job;
+}
+
 export async function closeInspectionJob(jobId: string): Promise<{
   outcome: "completed" | "already-completed" | "incomplete";
   completion: JobCompletion;

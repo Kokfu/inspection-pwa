@@ -53,6 +53,7 @@ export type EvidencePolicySnapshot = {
 export type JobConfigurationSnapshot = {
   schemaVersion: 1;
   customer: { id: string; code: string; displayName: string };
+  site?: { id: string; displayName: string };
   configuration: { revisionId: string; revisionNumber: number };
   template: { id: string; code: string; name: string; version: number };
   enabledSystems: JobSystemSnapshot[];
@@ -64,6 +65,8 @@ export type InspectionJob = {
   title: string;
   status: "open" | "closed";
   createdAt: string;
+  serviceDate: string | null;
+  site: { id: string; displayName: string } | null;
   configurationSnapshot: JobConfigurationSnapshot;
   completion?: JobCompletion;
 };
