@@ -51,6 +51,18 @@ const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
 const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
 const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
 const demoPortableJobId = "00000000-0000-4000-8000-000000000759";
+const deterministicRegressionFixtureJobIds = [
+  "00000000-0000-4000-8000-000000000580",
+  "00000000-0000-4000-8000-000000000590",
+  "00000000-0000-4000-8000-000000000649",
+  "00000000-0000-4000-8000-000000000679",
+  "00000000-0000-4000-8000-000000000709",
+  "00000000-0000-4000-8000-000000000729",
+  "00000000-0000-4000-8000-000000000739",
+  "00000000-0000-4000-8000-000000000749",
+  "00000000-0000-4000-8000-000000000759",
+  "00000000-0000-4000-8000-000000000819"
+] as const;
 const demoCo2Customer = {
   id: demoCo2CustomerId,
   code: "DEMO-CO2-MULTI-ZONE-ACCEPT",
@@ -397,7 +409,7 @@ async function seedDryWetRiserFixture(client: PoolClient) {
   const locations = [["00000000-0000-4000-8000-000000000813","ground","Block A / Ground Floor",2,"DW-001"],["00000000-0000-4000-8000-000000000814","first","Block A / First Floor",1,"DW-003"]] as const;
   for (const [id,key,name,count,asset] of locations) await insertFixture(`Dry Wet Riser location ${name}`, client.query(`INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ($1,$2,NULL,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`, [id,demoRiserEnabledSystemId,key,name,count,JSON.stringify({assetReference:asset}), count === 2 ? 1 : 2]));
   const snapshot = await buildJobConfigurationSnapshot(client,demoRiserCustomerId,demoRiserRevisionId);
-  await insertFixture("Dry Wet Riser job", client.query(`INSERT INTO inspection_jobs (id,template_id,master_template_version_id,job_reference,title,status,is_sample,customer_id,customer_configuration_revision_id,configuration_snapshot) VALUES ($1,NULL,$2,'DEMO-JOB-DRY-WET-RISER-001','Demo Dry Wet Riser Job','open',true,$3,$4,$5) ON CONFLICT (id) DO NOTHING`, [demoRiserJobId,masterServiceReportV2.id,demoRiserCustomerId,demoRiserRevisionId,JSON.stringify(snapshot)]));
+  await insertFixture("Dry Wet Riser job", client.query(`INSERT INTO inspection_jobs (id,template_id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot) VALUES ($1,NULL,$2,'DEMO-JOB-DRY-WET-RISER-001','Demo Dry Wet Riser Job','open',true,false,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET technician_visible=false`, [demoRiserJobId,masterServiceReportV2.id,demoRiserCustomerId,demoRiserRevisionId,JSON.stringify(snapshot)]));
   const check = await client.query<{ count:number }>(`SELECT count(*)::int AS count FROM customer_system_locations WHERE enabled_system_id=$1`,[demoRiserEnabledSystemId]);
   if (check.rows[0]?.count !== 2) throw new Error("Dry Wet Riser fixture has an incomplete location set");
   await assertDryWetRiserFixture(client, snapshot);
@@ -419,8 +431,8 @@ export async function assertDryWetRiserFixture(client: PoolClient, snapshot: unk
   locations.rows.forEach((row, index) => assertFixtureFields(`Dry Wet Riser location ${index + 1}`, row, expectedLocations[index]));
   const definition = await client.query<Record<string, unknown>>(`SELECT definition_status AS "definitionStatus",definition FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='dry_wet_riser'`, [masterServiceReportV2.id]);
   assertFixtureFields("Dry Wet Riser V2 definition", definition.rows[0], { definitionStatus: "confirmed", definition: masterServiceReportV2.systems[0] });
-  const job = await client.query<Record<string, unknown>>(`SELECT id,master_template_version_id AS "templateId",job_reference AS reference,title,status,is_sample AS "isSample",customer_id AS "customerId",customer_configuration_revision_id AS "revisionId",configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1`, [demoRiserJobId]);
-  assertFixtureFields("Dry Wet Riser job", job.rows[0], { id: demoRiserJobId, templateId: masterServiceReportV2.id, reference: "DEMO-JOB-DRY-WET-RISER-001", title: "Demo Dry Wet Riser Job", status: "open", isSample: true, customerId: demoRiserCustomerId, revisionId: demoRiserRevisionId, snapshot });
+  const job = await client.query<Record<string, unknown>>(`SELECT id,master_template_version_id AS "templateId",job_reference AS reference,title,status,is_sample AS "isSample",technician_visible AS "technicianVisible",customer_id AS "customerId",customer_configuration_revision_id AS "revisionId",configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1`, [demoRiserJobId]);
+  assertFixtureFields("Dry Wet Riser job", job.rows[0], { id: demoRiserJobId, templateId: masterServiceReportV2.id, reference: "DEMO-JOB-DRY-WET-RISER-001", title: "Demo Dry Wet Riser Job", status: "open", isSample: true, technicianVisible: false, customerId: demoRiserCustomerId, revisionId: demoRiserRevisionId, snapshot });
 }
 
 async function seedCustomer(
@@ -1413,11 +1425,11 @@ async function seedDemoJob(
     `
       INSERT INTO inspection_jobs (
         id, template_id, master_template_version_id, job_reference, title,
-        status, is_sample, customer_id, customer_configuration_revision_id,
+        status, is_sample, technician_visible, customer_id, customer_configuration_revision_id,
         configuration_snapshot
       )
-      VALUES ($1, NULL, $2, $3, $4, 'open', true, $5, $6, $7)
-      ON CONFLICT (id) DO NOTHING
+      VALUES ($1, NULL, $2, $3, $4, 'open', true, false, $5, $6, $7)
+      ON CONFLICT (id) DO UPDATE SET technician_visible = false
     `,
     [
       values.id,
@@ -1430,7 +1442,7 @@ async function seedDemoJob(
     ]
   ));
   const verified = await client.query<{ matches: boolean }>(
-    `SELECT job_reference = $2 AND title = $3 AND is_sample = true
+    `SELECT job_reference = $2 AND title = $3 AND is_sample = true AND technician_visible = false
        AND template_id IS NULL
        AND customer_id = $4 AND customer_configuration_revision_id = $5
        AND master_template_version_id = $6 AND configuration_snapshot = $7::jsonb AS matches
@@ -1511,6 +1523,13 @@ async function seedDemoJobs(client: PoolClient) {
   });
 }
 
+async function convergeDeterministicRegressionFixtureVisibility(client: PoolClient) {
+  await client.query(
+    "UPDATE inspection_jobs SET technician_visible = false WHERE id = ANY($1::uuid[])",
+    [deterministicRegressionFixtureJobIds]
+  );
+}
+
 export async function seedMasterServiceReport(pool: Pool) {
   const client = await pool.connect();
   try {
@@ -1522,6 +1541,7 @@ export async function seedMasterServiceReport(pool: Pool) {
     await assertExistingPhotoSprinklerFixtureBeforeSeed(client);
     await seedDemoConfigurations(client);
     await seedDemoJobs(client);
+    await convergeDeterministicRegressionFixtureVisibility(client);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);

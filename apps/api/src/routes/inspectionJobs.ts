@@ -24,6 +24,35 @@ const uuidPattern =
 
 export const inspectionJobsRouter = Router();
 
+export async function listTechnicianInspectionJobs(
+  database: Pick<typeof pool, "query"> = pool
+) {
+  const result = await database.query<InspectionJobRow>(`
+    SELECT
+      inspection_jobs.id,
+      inspection_jobs.job_reference AS reference,
+      inspection_jobs.title,
+      inspection_jobs.status,
+      inspection_jobs.created_at AS "createdAt",
+      inspection_jobs.configuration_snapshot AS "configurationSnapshot",
+      inspection_jobs.service_date::text AS "serviceDate",
+      CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
+        'id', site.id, 'displayName', site.display_name
+      ) END AS site
+    FROM inspection_jobs
+    LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
+    WHERE inspection_jobs.master_template_version_id IS NOT NULL
+      AND inspection_jobs.technician_visible = true
+    ORDER BY inspection_jobs.job_reference, inspection_jobs.id
+  `);
+
+  return Promise.all(result.rows.map(async (job) => {
+    const completion = await loadJobCompletion(job.id, database);
+    if (!completion) throw new Error("Listed inspection job disappeared");
+    return { ...job, completion };
+  }));
+}
+
 export async function loadCanonicalInspectionJob(
   jobId: string,
   database: Pick<typeof pool, "query"> = pool
@@ -53,31 +82,7 @@ inspectionJobsRouter.get(
   requireRole("admin", "inspector"),
   async (_request, response, next) => {
     try {
-      const result = await pool.query<InspectionJobRow>(`
-        SELECT
-          inspection_jobs.id,
-          inspection_jobs.job_reference AS reference,
-          inspection_jobs.title,
-          inspection_jobs.status,
-          inspection_jobs.created_at AS "createdAt",
-          inspection_jobs.configuration_snapshot AS "configurationSnapshot",
-          inspection_jobs.service_date::text AS "serviceDate",
-          CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
-            'id', site.id, 'displayName', site.display_name
-          ) END AS site
-        FROM inspection_jobs
-        LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
-        WHERE master_template_version_id IS NOT NULL
-        ORDER BY job_reference, id
-      `);
-
-      const jobs = await Promise.all(result.rows.map(async (job) => {
-        const completion = await loadJobCompletion(job.id);
-        if (!completion) throw new Error("Listed inspection job disappeared");
-        return { ...job, completion };
-      }));
-
-      response.json({ jobs });
+      response.json({ jobs: await listTechnicianInspectionJobs() });
     } catch (error) {
       next(error);
     }

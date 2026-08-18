@@ -34,6 +34,9 @@ const serviceVisitActorIdempotencyMigrationUrl = new URL(
 const serviceVisitLegacyIdempotencyMigrationUrl = new URL(
   "../../migrations/012_service_visit_legacy_idempotency.sql", import.meta.url
 );
+const technicianJobVisibilityMigrationUrl = new URL(
+  "../../migrations/013_technician_job_visibility.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12;
 
@@ -215,5 +218,6 @@ export async function runMigrations(
   if (target >= 12) {
     await database.query(await readFile(serviceVisitLegacyIdempotencyMigrationUrl, "utf8"));
   }
+  await database.query(await readFile(technicianJobVisibilityMigrationUrl, "utf8"));
   await seedMasterServiceReport(database);
 }
