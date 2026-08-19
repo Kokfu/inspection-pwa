@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { EvidencePolicySnapshot } from "../jobs/jobTypes";
+import { formatClientDateTime } from "../uiPresentation";
 import {
   removeDraftInspectionAttachment,
   saveDraftInspectionAttachment
@@ -114,7 +115,7 @@ export function PhotoEvidenceField({
       </button>
       <div className="photo-metadata">
         {attachment.captureSource === "gallery" ? <strong className="source-badge">Gallery attachment</strong> : null}
-        <span>{new Date(attachment.capturedAt).toLocaleString()}</span>
+        <span>{formatClientDateTime(attachment.capturedAt)}</span>
         <span>{Math.round(attachment.sizeBytes / 1024)} KB</span>
         {attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict"
           ? <span className="error-text">{attachment.lastSyncError ?? "Photo upload failed"}</span>

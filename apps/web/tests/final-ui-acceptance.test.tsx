@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ResultSelector } from "../src/inspectionControls/ResultSelector.js";
+import { TechnicianHome } from "../src/jobs/TechnicianHome.js";
+import type { InspectionJob } from "../src/jobs/jobTypes.js";
+
+const system = { enabledSystemId: "system-1", systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 1, definitionStatus: "confirmed" as const, zones: [], locations: [] };
+const baseJob: InspectionJob = {
+  id: "job-1", reference: "SV-20260819-1", title: "Primary Service Site", status: "open",
+  createdAt: "2026-08-19T00:00:00.000Z", serviceDate: "2026-08-19", site: { id: "site-1", displayName: "Primary Service Site" },
+  configurationSnapshot: { schemaVersion: 1, customer: { id: "customer-1", code: "C1", displayName: "Demo Customer" }, configuration: { revisionId: "revision-1", revisionNumber: 1 }, template: { id: "template-1", code: "MFE-FSSR", name: "Master", version: 1 }, enabledSystems: [system] },
+  completion: { jobId: "job-1", jobStatus: "open", eligible: false, checkedAt: "2026-08-19T01:00:00.000Z", requiredUnitCount: 1, acceptedUnitCount: 0, completedAt: null, completedBy: null, systems: [{ systemKey: system.systemKey, systemLabel: system.displayName, status: "incomplete", units: [{ authorityKey: "primary", label: "Primary inspection", status: "incomplete", reason: "ACCEPTED_INSPECTION_MISSING" }] }] }
+};
+
+const noop = async () => undefined;
+const props = {
+  authState: { status: "verified" as const, user: { id: 1, username: "mobiletest", role: "inspector" as const }, lastVerifiedAt: "2026-08-19T00:00:00.000Z" },
+  inspections: [], masterSystemInspections: [], masterSystemInspectionGroups: [], masterSystemFormInstances: [], inspectionAttachments: [], serverMasterSystemInspections: [], serverMasterSystemProgressState: "loaded" as const,
+  loading: false, onRefresh: noop, onSync: noop, onCloseJob: noop, onNewServiceVisit: () => undefined, onSelectJob: () => undefined, onSelectSystem: () => undefined, onBackToJobs: () => undefined, onBackToSystems: () => undefined, onOpenHoseReel: () => undefined, onOpenCo2: () => undefined, onOpenAutomaticSprinkler: () => undefined, onOpenDryWetRiser: () => undefined, onOpenFireAlarm: () => undefined, onOpenHydrant: () => undefined, onOpenPortableFireExtinguisher: () => undefined
+};
+
+test("normal job count appears once and routine refresh text is not rendered as a banner", () => {
+  const jobs = Array.from({ length: 6 }, (_, index) => ({ ...baseJob, id: `job-${index + 1}`, reference: `SV-${index + 1}` }));
+  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={jobs} message="6 jobs available on this device" />);
+  assert.equal(html.match(/6 jobs available on this device/g)?.length, 1);
+  assert.doesNotMatch(html, /operational-message[^>]*>6 jobs available on this device/);
+});
+
+test("incomplete completion requirements have separate semantic elements and no completion action", () => {
+  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob]} message="" selectedJobId={baseJob.id} />);
+  assert.match(html, /class="completion-requirement"/);
+  assert.match(html, /<strong>Automatic Sprinkler System<\/strong><span>Primary inspection<\/span><small>Inspection is not complete<\/small>/);
+  assert.doesNotMatch(html, />Complete Service<\/button>/);
+});
+
+test("completed metadata uses label/value markup and a time element", () => {
+  const closed: InspectionJob = { ...baseJob, status: "closed", completion: { ...baseJob.completion!, jobStatus: "closed", eligible: false, acceptedUnitCount: 1, completedAt: "2026-08-19T05:04:00.000Z", completedBy: { id: 1, username: "mobiletest" }, systems: [{ ...baseJob.completion!.systems[0], status: "accepted", units: [{ authorityKey: "primary", label: "Primary inspection", status: "accepted" }] }] } };
+  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[closed]} message="" selectedJobId={closed.id} />);
+  assert.match(html, /class="completion-metadata"/);
+  assert.match(html, /<dt>Completed on<\/dt><dd><time dateTime="2026-08-19T05:04:00.000Z">/);
+  assert.match(html, /<dt>Completed by<\/dt><dd>mobiletest<\/dd>/);
+});
+
+test("read-only selected results retain explicit selected markup and icon", () => {
+  const html = renderToStaticMarkup(<fieldset disabled><ResultSelector definition={{ type: "single_select", required: true, options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }] }} value="good" readOnly onChange={() => undefined} label="Result" /></fieldset>);
+  assert.match(html, /result-option result-option--selected/);
+  assert.match(html, /aria-pressed="true" disabled=""><span aria-hidden="true">✓<\/span>Good/);
+});

@@ -1,4 +1,5 @@
 import type { ServerHoseReelDetail } from "./serverHoseReelApi";
+import { formatClientDateTime } from "../uiPresentation";
 
 const resultLabel = (value: unknown) => value === "good" ? "Good" : "Poor";
 const rowFields = {
@@ -15,7 +16,7 @@ export function ServerHoseReelView({ inspection, onBack }: { inspection: ServerH
   return <section className="hose-reel-form server-inspection-detail">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
     <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2>{inspection.systemLabel}</h2><p>{inspection.customerName}</p></div><strong className="inspection-status status-synced">Inspection Complete</strong></header>
-    <p>Submitted {new Date(inspection.performedAt).toLocaleString()} - Synced by {inspection.syncedByUsername}</p>
+    <p className="success-message">Submitted {formatClientDateTime(inspection.performedAt)} · Synced by {inspection.syncedByUsername}</p>
     {([['Water Tank', controls.checklist.waterTank], ['Pump House', controls.checklist.pumpHouse]] as const).map(([title, items]) => <section key={title}><h3>{title}</h3>{items.map((item) => <p key={item.key}><strong>{item.label}:</strong> {resultLabel(responses.checklist[item.key]?.result)}{responses.checklist[item.key]?.remarks ? ` - ${responses.checklist[item.key]?.remarks}` : ''}</p>)}</section>)}
     <section><h3>Measurements</h3>{controls.measurements.map((item) => {
       const value = responses.measurements[item.key as keyof typeof responses.measurements];

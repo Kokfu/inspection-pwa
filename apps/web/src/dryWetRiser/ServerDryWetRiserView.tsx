@@ -1,5 +1,6 @@
 import type { RiserRow } from "./dryWetRiserTypes";
 import type { ServerDryWetRiserDetail } from "./serverDryWetRiserApi";
+import { formatClientDateTime } from "../uiPresentation";
 
 type Props = { inspection: ServerDryWetRiserDetail; onBack: () => void };
 const waterTank = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"];
@@ -11,8 +12,8 @@ export function ServerDryWetRiserView({ inspection, onBack }: Props) {
   const checklist = (keys: string[], source: Record<string, RiserRow>) => keys.map((key) => <section className="hose-check-row" key={key}><strong>{name(key)}</strong><span>{label(source[key].result)}</span><p>{source[key].remarks || "No remarks"}</p></section>);
   return <section className="hose-reel-form server-inspection-detail" aria-labelledby="server-riser-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2 id="server-riser-title">{inspection.jobTitle}</h2><p>{inspection.customer.displayName}</p></div><div><span className="status-caption">{inspection.systemLabel}</span><strong className="inspection-status status-synced">Inspection Complete</strong></div></header>
-    <p className="success-message">Submitted {new Date(inspection.performedAt).toLocaleString()} · Synced by {inspection.syncedByUsername}</p>
+    <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2 id="server-riser-title">{inspection.systemLabel}</h2><p><strong>{inspection.customer.displayName}</strong></p><p>{inspection.jobTitle}</p></div><strong className="inspection-status status-synced">Inspection Complete</strong></header>
+    <p className="success-message">Submitted {formatClientDateTime(inspection.performedAt)} · Synced by {inspection.syncedByUsername}</p>
     <section><h3>Frozen Riser Mode</h3><p>{inspection.systemConfiguration.riserMode === "dry" ? "Dry" : "Wet"}</p></section>
     <section><h3>Water Tank</h3>{checklist(waterTank, inspection.responses.waterTank)}</section>
     <section><h3>Pump House</h3>{checklist(pumpHouse, inspection.responses.pumpHouse)}</section>

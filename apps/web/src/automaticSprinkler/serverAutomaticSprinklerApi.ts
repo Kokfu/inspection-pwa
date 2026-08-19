@@ -7,7 +7,6 @@ const timestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
 const maxText = 250;
 const maxRemarks = 2000;
 const maxComments = 4000;
-const maxPsi = 10000;
 const maxAttachmentBytes = 2 * 1024 * 1024;
 const maxAttachmentEdge = 1600;
 const policyId = "00000000-0000-4000-8000-000000000710";
@@ -54,7 +53,10 @@ function parseResponses(value: unknown): AutomaticSprinklerResponses | undefined
     const item = value.measurements[key];
     if (!exactKeys(item, ["values", "unit", "result", "remarks"])) return undefined;
     const values = item.values;
-    if (!exactKeys(values, memberKeys) || item.unit !== "PSI" || (item.result !== "good" && item.result !== "poor") || typeof item.remarks !== "string" || item.remarks.length > maxRemarks || memberKeys.some((member) => typeof values[member] !== "number" || !Number.isFinite(values[member]) || values[member] < 0 || values[member] > maxPsi)) return undefined;
+    // The authoritative v1 control contract requires a finite PSI reading but
+    // defines no minimum or maximum. Keep accepted-detail reads aligned with
+    // the local submit and server acceptance validators.
+    if (!exactKeys(values, memberKeys) || item.unit !== "PSI" || (item.result !== "good" && item.result !== "poor") || typeof item.remarks !== "string" || item.remarks.length > maxRemarks || memberKeys.some((member) => typeof values[member] !== "number" || !Number.isFinite(values[member]))) return undefined;
     measurements[key] = { values: values as Record<string, number>, unit: "PSI", result: item.result, remarks: item.remarks };
   }
   return { schemaVersion: 1, waterTank: water as AutomaticSprinklerResponses["waterTank"], pumpHouse: pump as AutomaticSprinklerResponses["pumpHouse"], measurements: measurements as AutomaticSprinklerResponses["measurements"], mainAlarmValve: valve as AutomaticSprinklerResponses["mainAlarmValve"], comments: value.comments };

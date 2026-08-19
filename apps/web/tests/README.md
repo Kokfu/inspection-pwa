@@ -14,6 +14,7 @@ Run these browser harnesses through the Vite development server:
 - `hose-reel-regression.html`
 - `co2-concurrent-initialization.html`
 - `server-summary-refresh-authority.html`
+- `ui-presentation-polish.html`
 
 The photo harness covers local Blob processing, one-photo concurrency,
 replacement identity, atomic submit/outbox creation, interrupted upload
@@ -64,3 +65,7 @@ and response retention after sync. Run it manually through Vite.
 Production PWA, camera permission, physical camera, force-close, and real
 offline checks remain manual because development-server behavior is not proof
 of service-worker operation.
+
+The UI presentation harness verifies the shared human-facing date formatter and
+state-appropriate inspection action labels without changing stored values or
+workflow state.

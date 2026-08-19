@@ -68,14 +68,18 @@ export function NewServiceVisit({ onCreated, onCancel }: {
     } finally { setCreating(false); }
   }
 
-  return <section className="workspace technician-home" aria-labelledby="new-service-visit-title">
-    <button type="button" className="secondary-command back-command" onClick={onCancel} disabled={creating}>Cancel</button>
-    <div className="workspace-heading"><div><p className="eyebrow">Service visit</p><h2 id="new-service-visit-title">New Service Visit</h2></div></div>
-    <div className="form-field"><label htmlFor="service-date">Service Date</label><input id="service-date" type="date" value={serviceDate} onChange={(event) => setServiceDate(event.target.value)} disabled={creating} /></div>
-    <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => setCustomerId(event.target.value)} disabled={loading || creating}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></div>
-    <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
-    <fieldset disabled={!customerId || loading || creating}><legend>Applicable Fire Systems</legend>{systems.length === 0 ? <p>No confirmed systems are available for this customer.</p> : systems.map((system) => <label key={system.id} className="checkbox-field"><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /> {system.displayName}</label>)}</fieldset>
-    {message ? <p className="operational-message operational-message--warning">{message}</p> : null}
-    <button type="button" onClick={() => void submit()} disabled={!canCreate}>{creating ? "Creating…" : "Create Service Visit"}</button>
+  return <section className="new-service-visit" aria-labelledby="new-service-visit-title">
+    <button type="button" className="secondary-command back-command" onClick={onCancel} disabled={creating}>← Back to My Jobs</button>
+    <div className="setup-card">
+      <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
+      <div className="setup-fields">
+        <div className="form-field"><label htmlFor="service-date">Service Date</label><input id="service-date" type="date" value={serviceDate} onChange={(event) => setServiceDate(event.target.value)} disabled={creating} /></div>
+        <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => setCustomerId(event.target.value)} disabled={loading || creating}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select></div>
+        <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
+      </div>
+      <fieldset className="system-picker" disabled={!customerId || loading || creating}><legend>Applicable Fire Systems</legend><div className="system-picker-grid">{systems.length === 0 ? <p>No confirmed systems are available for this customer.</p> : systems.map((system) => <label key={system.id} className={`system-check-row ${systemKeys.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset>
+      {message ? <p className="operational-message operational-message--warning">{message}</p> : null}
+      <button className="setup-submit" type="button" onClick={() => void submit()} disabled={!canCreate}>{creating ? "Creating…" : "Create Service Visit"}</button>
+    </div>
   </section>;
 }

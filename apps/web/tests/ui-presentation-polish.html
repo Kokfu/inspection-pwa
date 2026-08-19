@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI presentation polish regression</title>
+<div id="result">Running…</div>
+<div id="fixtures" style="width: 375px; max-width: 100%">
+  <div class="job-context-title"><h3>A deliberately long customer name</h3><span class="status-badge status-badge--draft">In Progress</span></div>
+  <fieldset disabled><div class="result-options"><button class="result-option result-option--selected" disabled><span>✓</span>Good</button><button class="result-option" disabled><span></span>Poor</button></div></fieldset>
+  <div class="read-only-banner"><strong>Service Completed</strong><dl class="completion-metadata"><div><dt>Completed on</dt><dd><time>19 Aug 2026, 1:04 AM</time></dd></div></dl><p>Read-only.</p></div>
+</div>
+<script type="module">
+  import "/src/styles/app.css";
+  import {
+    formatClientDate,
+    formatClientDateTime,
+    inspectionActionLabel
+  } from "/src/uiPresentation.ts";
+
+  await new Promise(requestAnimationFrame);
+  const badge = document.querySelector(".job-context-title .status-badge");
+  const selected = document.querySelector(".result-option--selected");
+  const time = document.querySelector(".completion-metadata time");
+
+  const checks = [
+    ["date-only values use the client format", formatClientDate("2026-08-19") === "19 Aug 2026"],
+    ["timestamps use the client date format", /^19 Aug 2026, \d{1,2}:\d{2} (AM|PM)$/.test(formatClientDateTime("2026-08-19T05:04:00.000Z"))],
+    ["invalid dates fail closed", formatClientDate("not-a-date") === "Date unavailable"],
+    ["not-started systems offer Start", inspectionActionLabel("Not Started") === "Start inspection"],
+    ["draft systems offer Continue", inspectionActionLabel("Draft") === "Continue inspection"],
+    ["pending systems remain view-only", inspectionActionLabel("Pending Sync") === "View inspection"],
+    ["accepted systems remain view-only", inspectionActionLabel("Completed") === "View inspection"],
+    ["attention states offer Review", inspectionActionLabel("Conflict") === "Review inspection"],
+    ["mobile job badge remains a compact pill", badge.getBoundingClientRect().height < 40 && badge.getBoundingClientRect().width < 120],
+    ["disabled selected result remains fully legible", getComputedStyle(selected).opacity === "1" && getComputedStyle(selected).color === "rgb(255, 255, 255)"],
+    ["completion time keeps AM/PM together", getComputedStyle(time).whiteSpace === "nowrap"]
+  ];
+  const failures = checks.filter(([, passed]) => !passed).map(([name]) => name);
+  document.querySelector("#result").textContent = failures.length ? `FAIL: ${failures.join("; ")}` : `PASS: ${checks.length} presentation checks`;
+  document.body.dataset.status = failures.length ? "fail" : "pass";
+</script>

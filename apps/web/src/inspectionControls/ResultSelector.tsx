@@ -28,7 +28,7 @@ export function ResultSelector<T extends string>({
             key={option.value}
             onClick={() => onChange(selected ? null : option.value as T)}
           >
-            {option.label}
+            <span aria-hidden="true">{selected ? "✓" : ""}</span>{option.label}
           </button>
         );
       })}

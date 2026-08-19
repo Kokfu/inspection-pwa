@@ -116,8 +116,9 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
     <header className="inspection-context">
       <div>
         <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
-        <h2 id="co2-form-title">{record.inspectionSnapshot.instance.location.displayName}</h2>
-        <p>{record.inspectionSnapshot.customer.displayName} - {record.inspectionSnapshot.instance.zone?.displayName ?? "Unzoned"}</p>
+        <h2 id="co2-form-title">{systemLabel}</h2>
+        <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
+        <p>{record.inspectionSnapshot.instance.location.displayName} · {record.inspectionSnapshot.instance.zone?.displayName ?? "Unzoned"}</p>
       </div>
       <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>{record.syncStatus === "Synced" ? "Inspection Complete" : record.syncStatus === "Pending" ? "Waiting to Sync" : record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? "Needs Attention" : record.syncStatus === "Syncing" ? "Syncing…" : deriveCo2InstanceProgress(record)}</strong>
     </header>

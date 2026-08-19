@@ -262,11 +262,11 @@ export function AutomaticSprinklerInspectionForm({
     <header className="inspection-context">
       <div>
         <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
-        <h2 id="sprinkler-form-title">{record.inspectionSnapshot.job.title}</h2>
-        <p>{record.inspectionSnapshot.customer.displayName}</p>
+        <h2 id="sprinkler-form-title">Automatic Sprinkler System</h2>
+        <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
+        <p>{record.inspectionSnapshot.job.title}</p>
       </div>
       <div>
-        <span className="status-caption">Automatic Sprinkler System</span>
         <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>
           {evidenceStatus}
         </strong>

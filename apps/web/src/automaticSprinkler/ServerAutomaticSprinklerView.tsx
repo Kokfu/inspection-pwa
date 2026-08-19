@@ -4,6 +4,7 @@ import type {
   ServerInspectionAttachment
 } from "./serverAutomaticSprinklerApi";
 import { serverAttachmentContentUrl } from "./serverAutomaticSprinklerApi";
+import { formatClientDateTime } from "../uiPresentation";
 import type {
   SprinklerMeasurementResponse,
   SprinklerRowResponse
@@ -39,7 +40,7 @@ function ServerPhoto({
       <img src={contentUrl} alt={`${source} inspection evidence`} />
     </button>
     <p className="secondary-metadata">
-      {source} attachment Â· {new Date(attachment.capturedAt).toLocaleString()}
+      {source} attachment · {formatClientDateTime(attachment.capturedAt)}
     </p>
     {expanded ? <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Inspection photo">
       <section className="photo-dialog photo-full-view">
@@ -108,16 +109,14 @@ export function ServerAutomaticSprinklerView({ inspection, onBack }: Props) {
     <header className="inspection-context">
       <div>
         <p className="eyebrow">{inspection.jobReference}</p>
-        <h2 id="server-sprinkler-title">{inspection.jobTitle}</h2>
-        <p>{inspection.customerName}</p>
+        <h2 id="server-sprinkler-title">{inspection.systemLabel}</h2>
+        <p><strong>{inspection.customerName}</strong></p>
+        <p>{inspection.jobTitle}</p>
       </div>
-      <div>
-        <span className="status-caption">{inspection.systemLabel}</span>
-        <strong className="inspection-status status-synced">Inspection Complete</strong>
-      </div>
+      <strong className="inspection-status status-synced">Inspection Complete</strong>
     </header>
     <p className="success-message">
-      Submitted {new Date(inspection.performedAt).toLocaleString()} Â· Synced by {inspection.syncedByUsername}
+      Submitted {formatClientDateTime(inspection.performedAt)} · Synced by {inspection.syncedByUsername}
     </p>
     <section aria-labelledby="server-water-tank-title">
       <h3 id="server-water-tank-title">Water Tank</h3>
