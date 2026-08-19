@@ -152,6 +152,18 @@ function validateResponses(value: UnknownRecord, controls: ResolvedAutomaticSpri
     && validText(value.comments, controls.comments.maxLength);
 }
 
+/** Read-only report adapter: validates the response against its accepted, frozen definition. */
+export function validateAutomaticSprinklerHistoricalPayload(response: unknown, snapshot: unknown) {
+  if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system)
+    || snapshot.template.code !== "MFE-FSSR" || !Number.isSafeInteger(snapshot.template.version)
+    || snapshot.system.systemKey !== "automatic_sprinkler") return false;
+  try {
+    const controls = resolveAutomaticSprinklerControls(snapshot.system.definition, "MFE-FSSR", snapshot.template.version as number);
+    return isRecord(response) && validateResponses(response, controls)
+      && canonicalize(snapshot.system.resolvedControls) === canonicalize(controls);
+  } catch { return false; }
+}
+
 function enabledSystem(snapshot: UnknownRecord) {
   const systems = Array.isArray(snapshot.enabledSystems)
     ? snapshot.enabledSystems.filter(isRecord)
@@ -169,8 +181,8 @@ function evidencePolicy(system: UnknownRecord) {
       "id", "code", "version", "schemaVersion", "definition", "definitionSha256"
     ])
     || !isUuid(policy.id)
-    || policy.code !== "automatic-sprinkler-psi-evidence"
-    || policy.version !== 1
+    || typeof policy.code !== "string" || policy.code.trim().length === 0 || policy.code.length > 160
+    || !Number.isSafeInteger(policy.version) || Number(policy.version) < 1
     || policy.schemaVersion !== 1
     || !isRecord(policy.definition)
     || typeof policy.definitionSha256 !== "string"

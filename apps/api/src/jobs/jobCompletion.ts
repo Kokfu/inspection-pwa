@@ -44,6 +44,7 @@ export type CompletionJobRow = {
   completed_at: string | Date | null;
   completed_by_user_id: string | number | null;
   completed_by_username: string | null;
+  completed_by_display_name: string | null;
 };
 
 export type AcceptedAuthorityRow = {
@@ -148,15 +149,15 @@ function frozenSprinklerEvidencePolicy(system: UnknownRecord): FrozenSprinklerEv
   if (!record(policy)
     || Object.keys(policy).length !== 6
     || typeof policy.id !== "string" || !uuidPattern.test(policy.id)
-    || policy.code !== "automatic-sprinkler-psi-evidence"
-    || policy.version !== 1 || policy.schemaVersion !== 1
+    || typeof policy.code !== "string" || policy.code.trim().length === 0 || policy.code.length > 160
+    || !Number.isSafeInteger(policy.version) || Number(policy.version) < 1 || policy.schemaVersion !== 1
     || !record(policy.definition) || policy.definition.systemKey !== "automatic_sprinkler"
     || typeof policy.definitionSha256 !== "string" || !/^[0-9a-f]{64}$/.test(policy.definitionSha256)) {
     return undefined;
   }
   return {
     id: policy.id,
-    version: policy.version,
+    version: Number(policy.version),
     definition: policy.definition,
     definitionSha256: policy.definitionSha256
   };
@@ -311,8 +312,8 @@ export function buildJobCompletion(
     requiredUnitCount: units.length,
     acceptedUnitCount,
     completedAt: timestamp(job.completed_at),
-    completedBy: job.completed_by_user_id !== null && job.completed_by_username
-      ? { id: Number(job.completed_by_user_id), username: job.completed_by_username }
+    completedBy: job.completed_by_user_id !== null && job.completed_by_display_name
+      ? { id: Number(job.completed_by_user_id), username: job.completed_by_display_name }
       : null,
     systems
   };
@@ -320,10 +321,9 @@ export function buildJobCompletion(
 
 const jobSelect = `
   SELECT job.id, job.status, job.configuration_snapshot,
-    job.completed_at, job.completed_by_user_id,
-    completer.username AS completed_by_username
+    job.completed_at, job.completed_by_user_id, job.completed_by_display_name,
+    NULL::text AS completed_by_username
   FROM inspection_jobs job
-  LEFT JOIN users completer ON completer.id = job.completed_by_user_id
   WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL`;
 
 const acceptedAuthoritySelect = `
@@ -404,9 +404,10 @@ export async function closeInspectionJob(
       completed_at: string | Date;
       completed_by_user_id: string | number;
     }>(`UPDATE inspection_jobs
-         SET status = 'closed', completed_at = now(), completed_by_user_id = $2
+         SET status = 'closed', completed_at = now(), completed_by_user_id = $2,
+             completed_by_display_name = $3
          WHERE id = $1 AND status = 'open'
-         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id])).rows[0];
+         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actor.username])).rows[0];
     if (!completed) throw new Error("Open job could not be completed while locked");
     await client.query(
       `INSERT INTO audit_events(actor_user_id, action, entity_type, entity_id, result, reason)

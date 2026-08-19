@@ -11,6 +11,7 @@ WORKDIR /app
 COPY apps/api/package.json apps/api/package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/apps/api/dist ./dist
+COPY --from=build /app/apps/api/src/reports/assets ./dist/reports/assets
 COPY --from=build /app/apps/api/migrations ./migrations
 USER node
 EXPOSE 3000

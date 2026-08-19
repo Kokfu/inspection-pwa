@@ -48,6 +48,20 @@ function responses(v:unknown,expected:Expected[],controls:ResolvedFireAlarmContr
 }
 
 export type StoredFireAlarmDetail = { responses: FireAlarmResponses; template:{id:string;code:"MFE-FSSR";version:number}; configuration:{revisionId:string;revisionNumber:number} };
+/** Read-only report adapter for the same frozen Fire Alarm response contract used at acceptance. */
+export function validateFireAlarmHistoricalPayload(snapshotValue: unknown, responseValue: unknown) {
+  if (!rec(snapshotValue) || !exact(snapshotValue,["schemaVersion","acceptedAt","job","customer","configuration","template","system","instance"])
+    || snapshotValue.schemaVersion !== 1 || !rec(snapshotValue.template) || !rec(snapshotValue.system)
+    || !exact(snapshotValue.template,["id","code","version"]) || snapshotValue.template.code !== "MFE-FSSR"
+    || !Number.isSafeInteger(snapshotValue.template.version)) return false;
+  const system = snapshotValue.system;
+  if (!exact(system,["enabledSystemId","systemKey","displayName","sortOrder","definitionStatus","zones","locations","definition","resolvedControls","repetitionMode"])
+    || system.systemKey !== "fire_alarm_detector" || !parseFireAlarmSystemDefinition(system.definition)) return false;
+  try {
+    const controls=resolveFireAlarmControls(system.definition,"MFE-FSSR",snapshotValue.template.version as number);
+    return same(system.resolvedControls,controls) && !!expectedRows(system) && !!responses(responseValue,expectedRows(system)!,controls);
+  } catch { return false; }
+}
 export function validateStoredFireAlarmDetail(row:R):StoredFireAlarmDetail|undefined{
   const snap=row.inspectionSnapshot;if(!rec(snap)||!exact(snap,["schemaVersion","acceptedAt","job","customer","configuration","template","system","instance"])||snap.schemaVersion!==1||!rec(snap.job)||!rec(snap.customer)||!rec(snap.configuration)||!rec(snap.template)||!rec(snap.system)||!rec(snap.instance))return;
   if(!canonicalTime(row.performedAt,6)||!canonicalTime(row.receivedAt,6)||!canonicalTime(snap.acceptedAt,3))return;

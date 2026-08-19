@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { pool } from "../db/pool.js";
-import { syncHydrantInspections } from "./hydrantInspectionSync.js";
+import { syncHydrantInspections, validateHydrantHistoricalPayload } from "./hydrantInspectionSync.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 
 type R = Record<string, any>;
@@ -132,6 +132,16 @@ function payloadFor(job: JobFixture, rows = [configuredRow(job, 1, 1), configure
     performedAt: "2026-08-10T00:00:00.000Z"
   };
 }
+
+test("Hydrant historical reports require the authoritative frozen system contract", () => {
+  const job = makeJobFixture();
+  const payload = payloadFor(job);
+  const snapshot = inspectionSnapshotFor(job);
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, snapshot), true);
+  const corrupt = structuredClone(snapshot);
+  corrupt.system.definition.sections[0].title = "Corrupt historical contract";
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, corrupt), false);
+});
 
 class DisposableHydrantDatabase {
   readonly jobs = new Map<string, R>();

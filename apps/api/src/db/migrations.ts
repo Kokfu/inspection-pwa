@@ -37,12 +37,19 @@ const serviceVisitLegacyIdempotencyMigrationUrl = new URL(
 const technicianJobVisibilityMigrationUrl = new URL(
   "../../migrations/013_technician_job_visibility.sql", import.meta.url
 );
+const finalServiceReportHistoryMigrationUrl = new URL(
+  "../../migrations/014_final_service_report_history.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12;
+export type FinalServiceReportMigrationTarget = 13 | 14;
 
 export async function runMigrations(
   database: Pool = pool,
-  options: { serviceVisitMigrationTarget?: ServiceVisitMigrationTarget } = {}
+  options: {
+    serviceVisitMigrationTarget?: ServiceVisitMigrationTarget;
+    finalServiceReportMigrationTarget?: FinalServiceReportMigrationTarget;
+  } = {}
 ) {
   await database.query(`
     CREATE TABLE IF NOT EXISTS test_records (
@@ -219,5 +226,8 @@ export async function runMigrations(
     await database.query(await readFile(serviceVisitLegacyIdempotencyMigrationUrl, "utf8"));
   }
   await database.query(await readFile(technicianJobVisibilityMigrationUrl, "utf8"));
+  if ((options.finalServiceReportMigrationTarget ?? 14) >= 14) {
+    await database.query(await readFile(finalServiceReportHistoryMigrationUrl, "utf8"));
+  }
   await seedMasterServiceReport(database);
 }

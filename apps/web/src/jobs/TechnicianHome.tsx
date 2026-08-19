@@ -80,6 +80,7 @@ type TechnicianHomeProps = {
   onRefresh: () => Promise<void>;
   onSync: () => Promise<void>;
   onCloseJob: (job: InspectionJob) => Promise<void>;
+  onViewFinalReport: (job: InspectionJob) => void;
   onNewServiceVisit: () => void;
   onSelectJob: (job: InspectionJob) => void;
   onSelectSystem: (job: InspectionJob, system: JobSystemSnapshot) => void;
@@ -110,7 +111,7 @@ export function TechnicianHome({
   selectedSystemKey,
   onRefresh,
   onSync,
-  onCloseJob, onNewServiceVisit,
+  onCloseJob, onViewFinalReport, onNewServiceVisit,
   onSelectJob,
   onSelectSystem,
   onBackToJobs,
@@ -303,6 +304,7 @@ export function TechnicianHome({
                 <div><dt>Completed by</dt><dd>{selectedJob.completion?.completedBy?.username ?? "Unavailable"}</dd></div>
               </dl>
               <p>This service visit is complete and read-only.</p>
+              <div className="inline-actions"><button type="button" onClick={() => onViewFinalReport(selectedJob)}>View Final Report</button></div>
             </div>
           ) : null}
         </div>

@@ -13,6 +13,10 @@
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
     "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",
+    "test:final-report": "tsx --test src/reports/finalServiceReport.test.ts",
+    "test:final-report-integration": "tsx --test src/reports/finalServiceReport.integration.test.ts",
+    "test:final-report-migrations": "tsx --test src/db/finalServiceReportHistory.integration.test.ts",
+    "test:final-report-sprinkler": "tsx --test src/reports/finalServiceReport.sprinkler.integration.test.ts",
     "validate-fire-alarm": "tsx src/cli/validateFireAlarm.ts",
     "validate-fire-alarm-detail": "tsx src/cli/validateFireAlarmDetail.ts",
     "acceptance-fire-alarm": "node dist/cli/acceptanceFireAlarm.js",
@@ -28,9 +32,11 @@
     "validate-sync-http": "node dist/cli/validateSyncHttp.js"
   },
   "dependencies": {
+    "@fontsource/noto-sans": "^5.3.0",
     "argon2": "^0.44.0",
     "busboy": "^1.6.0",
     "express": "^4.21.2",
+    "pdfkit": "^0.17.2",
     "pg": "^8.13.1",
     "sharp": "^0.35.3"
   },
@@ -38,6 +44,7 @@
     "@types/busboy": "^1.5.4",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

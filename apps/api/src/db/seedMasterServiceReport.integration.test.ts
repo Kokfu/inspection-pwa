@@ -85,11 +85,11 @@ test("production seed preserves completed demo runtime state and rejects immutab
       INSERT INTO inspection_jobs (
         id, template_id, master_template_version_id, job_reference, title, status,
         is_sample, technician_visible, customer_id, customer_configuration_revision_id,
-        configuration_snapshot, completed_at, completed_by_user_id
+        configuration_snapshot, completed_at, completed_by_user_id, completed_by_display_name
       )
       SELECT $1, template_id, master_template_version_id, 'DEMO-JOB-CO2-V1-001',
         'Demo CO2 V1 Regression Job', 'closed', true, true, customer_id,
-        customer_configuration_revision_id, configuration_snapshot, $2::timestamptz, $3
+        customer_configuration_revision_id, configuration_snapshot, $2::timestamptz, $3, 'seed-integration-inspector'
       FROM inspection_jobs WHERE id = $4`,
       [co2V1JobId, completedAt, userId, co2JobId]
     );
@@ -121,8 +121,8 @@ test("production seed preserves completed demo runtime state and rejects immutab
       "normal technician listing retains a real Phase 6B service visit");
 
     await pool.query(
-      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3 WHERE id = $1",
-      [realServiceVisit.id, realCompletedAt, userId]
+      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",
+      [realServiceVisit.id, realCompletedAt, userId, "seed-integration-inspector"]
     );
     assert.ok((await listTechnicianInspectionJobs(pool)).some((job) => job.id === realServiceVisit.id && job.status === "closed"),
       "normal technician listing retains a completed real Phase 6B service visit");
@@ -151,8 +151,8 @@ test("production seed preserves completed demo runtime state and rejects immutab
       [historyId, portableJobId, "portable_fire_extinguisher", userId]
     );
     await pool.query(
-      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3 WHERE id = $1",
-      [portableJobId, completedAt, userId]
+      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",
+      [portableJobId, completedAt, userId, "seed-integration-inspector"]
     );
 
     await seedMasterServiceReport(pool);

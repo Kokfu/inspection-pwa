@@ -41,7 +41,10 @@ function canonicalize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
+    // PostgreSQL JSONB cannot retain JavaScript undefined properties. Normalize
+    // the in-memory catalog to that persisted representation before comparing
+    // an immutable definition restored from JSONB.
+    return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }

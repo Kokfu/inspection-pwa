@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
+import { masterServiceReportV1 } from "./masterServiceReportV1.js";
 import { resolveAutomaticSprinklerControls } from "./automaticSprinklerDefinitionControls.js";
 import { resolveHoseReelControls } from "./definitionControls.js";
 import { resolveCo2Controls } from "./co2DefinitionControls.js";
@@ -40,4 +41,13 @@ test("system contract compatibility fails closed for identity, status, field/con
   assert.equal(isCompatibleSystemContract("hose_reel", "confirmed", future), false);
   const unknown = clone(baseline) as any; unknown.key = "future_hose_reel";
   assert.equal(isCompatibleSystemContract("hose_reel", "confirmed", unknown), false);
+});
+
+test("persisted JSONB system definitions retain their authoritative runtime contract", () => {
+  const co2 = masterServiceReportV1.systems.find((candidate) => candidate.key === "co2_fire_extinguisher")!;
+  const persisted = JSON.parse(JSON.stringify(co2));
+  assert.equal(isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", persisted), true);
+  assert.equal(resolveCo2Controls(persisted, "MFE-FSSR", 1).source.systemKey, "co2_fire_extinguisher");
+  persisted.sections[0].title = "Changed after persistence";
+  assert.equal(isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", persisted), false);
 });

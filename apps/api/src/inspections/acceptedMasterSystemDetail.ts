@@ -62,6 +62,17 @@ export function validateAcceptedHoseReelDetail(row: R) {
   } catch { return undefined; }
 }
 
+/** Read-only report adapter for an already accepted historical Hose Reel payload. */
+export function validateHoseReelHistoricalPayload(snapshotValue: unknown, responseValue: unknown) {
+  const snapshot = snapshotBase(snapshotValue);
+  if (!snapshot || !rec(responseValue) || snapshot.system.systemKey !== "hose_reel") return false;
+  try {
+    const controls = resolveHoseReelControls(snapshot.system.definition, "MFE-FSSR", snapshot.template.version as number);
+    return canonical(snapshot.system.resolvedControls) === canonical(controls)
+      && validateHoseReelSubmission(responseValue, controls);
+  } catch { return false; }
+}
+
 export function validateAcceptedCo2Detail(row: R) {
   if (!identity(row) || row.systemKey !== "co2_fire_extinguisher" || typeof row.locationId !== "string" || !uuid.test(row.locationId)
     || !(row.zoneId === null || typeof row.zoneId === "string" && uuid.test(row.zoneId))

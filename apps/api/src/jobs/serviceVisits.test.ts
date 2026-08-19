@@ -175,10 +175,10 @@ test("canonical replay representation preserves a completed job's actual state a
           createdAt: "2026-08-18T00:00:00.000Z", configurationSnapshot: closedSnapshot,
           serviceDate: "2026-08-18", site: { id: ids.site, displayName: "Site A" } }] };
       }
-      if (normalized.includes("LEFT JOIN users completer")) {
+      if (normalized.includes("completed_by_display_name")) {
         return { rows: [{ id: ids.request, status: "closed", configuration_snapshot: closedSnapshot,
           completed_at: "2026-08-18T12:00:00.000Z", completed_by_user_id: 7,
-          completed_by_username: "creator" }] };
+          completed_by_username: null, completed_by_display_name: "creator" }] };
       }
       if (normalized.includes("FROM master_system_form_instances")) return { rows: [] };
       throw new Error(`Unexpected SQL: ${normalized}`);

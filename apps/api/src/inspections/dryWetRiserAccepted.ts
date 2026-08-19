@@ -1,4 +1,5 @@
 import { parseDryWetRiserSystemConfiguration } from "./dryWetRiserConfiguration.js";
+import { isCompatibleSystemContract } from "./templates/systemContractCompatibility.js";
 type R = Record<string, unknown>;
 export const dryWetRiserOutletMaximum = 250;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,4 +29,4 @@ export function canonicalDryWetRiserResponses(value:unknown, system:R, mode:"dry
  const out=[...configured,...technicians].map((row,index)=>({...row,sortOrder:index+1}));
  return {schemaVersion:1,mode,waterTank:value.waterTank,pumpHouse:value.pumpHouse,measurements:value.measurements,riserOutlets:out,comments:value.comments};
 }
-export function validStoredDryWetRiser(responses:unknown, system:unknown, configuration:unknown) { const parsed=parseDryWetRiserSystemConfiguration(configuration); const normalized=rec(system)&&parsed?canonicalDryWetRiserResponses(responses,system,parsed.riserMode):undefined; return !!normalized&&stableJson(normalized)===stableJson(responses); }
+export function validStoredDryWetRiser(responses:unknown, system:unknown, configuration:unknown) { const parsed=parseDryWetRiserSystemConfiguration(configuration); const normalized=rec(system)&&parsed&&system.systemKey==="dry_wet_riser"&&isCompatibleSystemContract("dry_wet_riser",system.definitionStatus,system.definition)?canonicalDryWetRiserResponses(responses,system,parsed.riserMode):undefined; return !!normalized&&stableJson(normalized)===stableJson(responses); }

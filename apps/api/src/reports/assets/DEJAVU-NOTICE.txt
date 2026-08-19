@@ -1,0 +1,8 @@
+DejaVu Sans TrueType font asset
+
+Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved.
+Copyright (c) 2006 by Tavmjong Bah. All Rights Reserved.
+DejaVu changes are in the public domain.
+
+This internal application asset is embedded only in generated service-report PDFs.
+Upstream project: https://dejavu-fonts.github.io/

@@ -89,6 +89,7 @@ import {
 import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
 import { NewServiceVisit } from "./jobs/NewServiceVisit";
+import { FinalReportView } from "./jobs/FinalReportView";
 import { acceptCanonicalNewServiceVisit } from "./jobs/newServiceVisitSuccess";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
@@ -140,6 +141,7 @@ type AppRoute =
   | { name: "jobs" }
   | { name: "new-service-visit" }
   | { name: "job"; jobId: string }
+  | { name: "final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
   | { name: "sprinkler-form"; clientUuid: string }
@@ -155,6 +157,7 @@ function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
+  if (parts[0] === "final-report" && parts[1]) return { name: "final-report", jobId: parts[1] };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
@@ -171,6 +174,7 @@ function routeFromHash(): AppRoute {
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "new-service-visit") return "#/new-service-visit";
+  if (route.name === "final-report") return `#/final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
@@ -1421,6 +1425,8 @@ export function App() {
                 }
               }}
             />
+          ) : route.name === "final-report" ? (
+            <FinalReportView jobId={route.jobId} onBack={() => navigate({ name: "job", jobId: route.jobId })} />
           ) : (
             <TechnicianHome
               authState={authState}
@@ -1443,6 +1449,7 @@ export function App() {
               }}
               onSync={handleSync}
               onCloseJob={handleCloseJob}
+              onViewFinalReport={(job) => navigate({ name: "final-report", jobId: job.id })}
               onNewServiceVisit={() => navigate({ name: "new-service-visit" })}
               onSelectJob={(job) => navigate({ name: "job", jobId: job.id })}
               onSelectSystem={(job, system) => navigate({

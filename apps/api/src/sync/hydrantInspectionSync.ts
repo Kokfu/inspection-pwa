@@ -114,6 +114,14 @@ function configuredHydrantRowsMatch(responses: unknown, expected: ExpectedConfig
   return seen.size === expectedByIdentity.size;
 }
 
+/** Read-only report adapter which reuses Hydrant's accepted response and frozen-row validators. */
+export function validateHydrantHistoricalPayload(response: unknown, snapshot: unknown) {
+  if (!validClientSnapshot(snapshot) || !rec(snapshot) || !rec(snapshot.system)) return false;
+  const expected = expectedConfiguredHydrantRows(snapshot.system);
+  return isCompatibleSystemContract("hydrant", snapshot.system.definitionStatus, snapshot.system.definition)
+    && valid(response) && !!expected && configuredHydrantRowsMatch(response, expected);
+}
+
 function validClientSnapshot(value: unknown) {
   if (!rec(value) || !exactKeys(value, ["schemaVersion", "capturedAt", "job", "customer", "configuration", "template", "system"])
     || value.schemaVersion !== 1 || !timestamp(value.capturedAt)

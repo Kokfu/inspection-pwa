@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { ResultSelector } from "../src/inspectionControls/ResultSelector.js";
 import { TechnicianHome } from "../src/jobs/TechnicianHome.js";
+import { downloadFinalReport } from "../src/jobs/finalReportApi.js";
 import type { InspectionJob } from "../src/jobs/jobTypes.js";
 
 const system = { enabledSystemId: "system-1", systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 1, definitionStatus: "confirmed" as const, zones: [], locations: [] };
@@ -18,7 +20,7 @@ const noop = async () => undefined;
 const props = {
   authState: { status: "verified" as const, user: { id: 1, username: "mobiletest", role: "inspector" as const }, lastVerifiedAt: "2026-08-19T00:00:00.000Z" },
   inspections: [], masterSystemInspections: [], masterSystemInspectionGroups: [], masterSystemFormInstances: [], inspectionAttachments: [], serverMasterSystemInspections: [], serverMasterSystemProgressState: "loaded" as const,
-  loading: false, onRefresh: noop, onSync: noop, onCloseJob: noop, onNewServiceVisit: () => undefined, onSelectJob: () => undefined, onSelectSystem: () => undefined, onBackToJobs: () => undefined, onBackToSystems: () => undefined, onOpenHoseReel: () => undefined, onOpenCo2: () => undefined, onOpenAutomaticSprinkler: () => undefined, onOpenDryWetRiser: () => undefined, onOpenFireAlarm: () => undefined, onOpenHydrant: () => undefined, onOpenPortableFireExtinguisher: () => undefined
+  loading: false, onRefresh: noop, onSync: noop, onCloseJob: noop, onViewFinalReport: () => undefined, onNewServiceVisit: () => undefined, onSelectJob: () => undefined, onSelectSystem: () => undefined, onBackToJobs: () => undefined, onBackToSystems: () => undefined, onOpenHoseReel: () => undefined, onOpenCo2: () => undefined, onOpenAutomaticSprinkler: () => undefined, onOpenDryWetRiser: () => undefined, onOpenFireAlarm: () => undefined, onOpenHydrant: () => undefined, onOpenPortableFireExtinguisher: () => undefined
 };
 
 test("normal job count appears once and routine refresh text is not rendered as a banner", () => {
@@ -41,10 +43,50 @@ test("completed metadata uses label/value markup and a time element", () => {
   assert.match(html, /class="completion-metadata"/);
   assert.match(html, /<dt>Completed on<\/dt><dd><time dateTime="2026-08-19T05:04:00.000Z">/);
   assert.match(html, /<dt>Completed by<\/dt><dd>mobiletest<\/dd>/);
+  assert.match(html, />View Final Report<\/button>/);
 });
 
 test("read-only selected results retain explicit selected markup and icon", () => {
   const html = renderToStaticMarkup(<fieldset disabled><ResultSelector definition={{ type: "single_select", required: true, options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }] }} value="good" readOnly onChange={() => undefined} label="Result" /></fieldset>);
   assert.match(html, /result-option result-option--selected/);
   assert.match(html, /aria-pressed="true" disabled=""><span aria-hidden="true">✓<\/span>Good/);
+});
+
+test("final report fields use a readable report stack rather than a collapsible desktop value column", () => {
+  const css = readFileSync(new URL("../src/styles/app.css", import.meta.url), "utf8");
+  assert.match(css, /\.report-field \{ display: block; min-width: 0;/);
+  assert.doesNotMatch(css, /\.report-field \{ display: grid; grid-template-columns:/);
+});
+
+test("final report PDF uses authenticated Blob download without navigating away", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDocument = globalThis.document;
+  const originalCreate = URL.createObjectURL;
+  const originalRevoke = URL.revokeObjectURL;
+  const clicked: string[] = [], revoked: string[] = [];
+  try {
+    globalThis.fetch = (async (_input, init) => {
+      assert.deepEqual(init, { credentials: "same-origin", cache: "no-store" });
+      return new Response(new Blob(["%PDF-test"]), { status: 200, headers: { "content-disposition": "attachment; filename=\"Service-Report_Test.pdf\"" } });
+    }) as typeof fetch;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:final-report" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: (url: string) => revoked.push(url) });
+    globalThis.document = { body: { append: () => undefined }, createElement: () => ({ href: "", download: "", style: {}, click() { clicked.push(this.download); }, remove() { return undefined; } }) } as unknown as Document;
+    await downloadFinalReport("job/one");
+    assert.deepEqual(clicked, ["Service-Report_Test.pdf"]);
+    assert.deepEqual(revoked, ["blob:final-report"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.document = originalDocument;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreate });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevoke });
+  }
+});
+
+test("failed final report download surfaces the API message without creating a browser download", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Final report is not ready." }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
+    await assert.rejects(() => downloadFinalReport("job-1"), /Final report is not ready\./);
+  } finally { globalThis.fetch = originalFetch; }
 });

@@ -7,6 +7,12 @@ import {
 } from "../jobs/jobCompletion.js";
 import { createServiceVisit, ServiceVisitError, type CreateServiceVisitInput } from "../jobs/serviceVisits.js";
 import { requireRole } from "../middleware/requireRole.js";
+import {
+  FinalReportError,
+  finalReportFilename,
+  loadFinalServiceReport,
+  renderFinalServiceReportPdf
+} from "../reports/finalServiceReport.js";
 
 type InspectionJobRow = {
   id: string;
@@ -112,6 +118,60 @@ type ServiceVisitRouteDependencies = {
   writeAudit?: typeof auditLog;
 };
 
+type FinalReportRouteDependencies = {
+  database?: Pick<typeof pool, "query">;
+};
+
+function finalReportFailure(error: unknown, response: Response) {
+  if (!(error instanceof FinalReportError)) return false;
+  response.status(error.status).json({ error: error.code, message: error.message });
+  return true;
+}
+
+export function createFinalReportHandler({ database = pool }: FinalReportRouteDependencies = {}) {
+  return async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
+        response.status(400).json({ error: "INVALID_JOB_ID" });
+        return;
+      }
+      const report = await loadFinalServiceReport(jobId, database);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ report: {
+        ...report,
+        sections: report.sections.map(({ evidence, ...section }) => ({
+          ...section,
+          evidence: evidence.map((item) => ({ field: item.field, available: true }))
+        }))
+      } });
+    } catch (error) {
+      if (!finalReportFailure(error, response)) next(error);
+    }
+  };
+}
+
+export function createFinalReportPdfHandler({ database = pool }: FinalReportRouteDependencies = {}) {
+  return async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
+        response.status(400).json({ error: "INVALID_JOB_ID" });
+        return;
+      }
+      const report = await loadFinalServiceReport(jobId, database);
+      const filename = finalReportFilename(report);
+      response.setHeader("Content-Type", "application/pdf");
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.setHeader("X-Content-Type-Options", "nosniff");
+      response.send(await renderFinalServiceReportPdf(report));
+    } catch (error) {
+      if (!finalReportFailure(error, response)) next(error);
+    }
+  };
+}
+
 export function createServiceVisitHandler({
   database = pool,
   writeAudit = auditLog
@@ -150,6 +210,18 @@ inspectionJobsRouter.post(
   "/inspection-jobs/service-visits",
   requireRole("admin", "inspector"),
   createServiceVisitHandler()
+);
+
+inspectionJobsRouter.get(
+  "/inspection-jobs/:jobId/final-report",
+  requireRole("admin", "inspector"),
+  createFinalReportHandler()
+);
+
+inspectionJobsRouter.get(
+  "/inspection-jobs/:jobId/final-report.pdf",
+  requireRole("admin", "inspector"),
+  createFinalReportPdfHandler()
 );
 
 inspectionJobsRouter.get(

@@ -39,7 +39,8 @@ function job(status: "open" | "closed" = "open"): CompletionJobRow {
     configuration_snapshot: snapshot,
     completed_at: status === "closed" ? "2026-08-13T01:00:00.000Z" : null,
     completed_by_user_id: status === "closed" ? 7 : null,
-    completed_by_username: status === "closed" ? "first-inspector" : null
+    completed_by_username: status === "closed" ? "first-inspector" : null,
+    completed_by_display_name: status === "closed" ? "first-inspector" : null
   };
 }
 
