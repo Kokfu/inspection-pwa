@@ -2,9 +2,10 @@ import { useState } from "react";
 
 type LoginFormProps = {
   onLogin: (username: string, password: string) => Promise<void>;
+  roleLabel?: "Technician" | "Manager";
 };
 
-export function LoginForm({ onLogin }: LoginFormProps) {
+export function LoginForm({ onLogin, roleLabel = "Technician" }: LoginFormProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -23,8 +24,8 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
   return (
     <section className="auth-panel" aria-label="Sign in">
-      <p className="eyebrow">Technician access</p>
-      <h2>Sign in to your service jobs</h2>
+      <p className="eyebrow">{roleLabel} access</p>
+      <h2>{roleLabel === "Manager" ? "Sign in to Operations" : "Sign in to your service jobs"}</h2>
       <label>
         <span>Username</span>
         <input

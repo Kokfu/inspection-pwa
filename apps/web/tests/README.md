@@ -69,3 +69,25 @@ of service-worker operation.
 The UI presentation harness verifies the shared human-facing date formatter and
 state-appropriate inspection action labels without changing stored values or
 workflow state.
+
+## Automated Manager App authorization transitions
+
+`manager-app-auth-transitions.html` mounts the production `App.tsx` and drives
+the actual role selection, authentication, Manager request, and logout paths.
+Its A–F cases cover Manager access, inspector denial, revocation after visible
+data, late responses after logout, offline Manager denial, and offline
+Technician restoration.
+
+Run it from `apps/web` with:
+
+```powershell
+npm run test:manager-app-auth
+```
+
+The Playwright command starts and stops Vite and Chromium itself, clicks the
+harness Run button, and returns non-zero if any scenario is not `PASS`. One
+time per machine, install the browser if Playwright reports it missing:
+
+```powershell
+npx playwright install chromium
+```

@@ -7,6 +7,9 @@ import { ResultSelector } from "../src/inspectionControls/ResultSelector.js";
 import { TechnicianHome } from "../src/jobs/TechnicianHome.js";
 import { downloadFinalReport } from "../src/jobs/finalReportApi.js";
 import type { InspectionJob } from "../src/jobs/jobTypes.js";
+import { ManagerHome } from "../src/manager/ManagerHome.js";
+import { RoleSelection } from "../src/manager/RoleSelection.js";
+import { productRoleMatches } from "../src/manager/roleAccess.js";
 
 const system = { enabledSystemId: "system-1", systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 1, definitionStatus: "confirmed" as const, zones: [], locations: [] };
 const baseJob: InspectionJob = {
@@ -89,4 +92,31 @@ test("failed final report download surfaces the API message without creating a b
     globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Final report is not ready." }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
     await assert.rejects(() => downloadFinalReport("job-1"), /Final report is not ready\./);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("role selection exposes Technician and Manager without using persisted backend role labels", () => {
+  const html = renderToStaticMarkup(<RoleSelection onSelect={() => undefined} />);
+  assert.match(html, /Choose how you are signing in/);
+  assert.match(html, />Technician</);
+  assert.match(html, />Manager</);
+  assert.doesNotMatch(html, /inspector|admin/);
+});
+
+test("role-selection mismatches fail safely against the authenticated server role", () => {
+  const inspector = { id: 1, username: "inspector", role: "inspector" as const };
+  const admin = { id: 2, username: "admin", role: "admin" as const };
+  assert.equal(productRoleMatches("technician", inspector), true);
+  assert.equal(productRoleMatches("manager", admin), true);
+  assert.equal(productRoleMatches("manager", inspector), false);
+  assert.equal(productRoleMatches("technician", admin), false);
+});
+
+test("Manager Operations presents server-backed open and completed service visits with report actions", () => {
+  const visit = (id: string, status: "open" | "closed") => ({ id, reference: `SV-${id}`, customer: "Operations Customer", site: "Operations Site", serviceDate: "2026-08-20", status, systems: ["Hose Reel"], inspectionProgress: { accepted: status === "closed" ? 1 : 0, required: 1 }, completion: { ...baseJob.completion!, jobId: id, jobStatus: status, acceptedUnitCount: status === "closed" ? 1 : 0, completedAt: status === "closed" ? "2026-08-20T10:00:00.000Z" : null, completedBy: status === "closed" ? { id: 2, username: "tech-one" } : null } });
+  const html = renderToStaticMarkup(<ManagerHome visits={[visit("open", "open"), visit("closed", "closed")]} loading={false} message="" onRefresh={noop} onSelect={() => undefined} onBack={() => undefined} onViewReport={() => undefined} onDownloadReport={noop} />);
+  assert.match(html, /Active Service Visits/);
+  assert.match(html, /Completed Service Visits/);
+  assert.match(html, /Service Completed/);
+  assert.match(html, /View Final Report/);
+  assert.match(html, /Download PDF/);
 });

@@ -120,7 +120,15 @@ type ServiceVisitRouteDependencies = {
 
 type FinalReportRouteDependencies = {
   database?: Pick<typeof pool, "query">;
+  loadReport?: typeof loadFinalServiceReport;
+  renderPdf?: typeof renderFinalServiceReportPdf;
 };
+
+function reportAccessFor(request: Request) {
+  // This route is already protected by requireRole. The product-facing Manager
+  // maps only to the server-owned admin role.
+  return request.currentUser?.role === "admin" ? "manager" as const : "technician" as const;
+}
 
 function finalReportFailure(error: unknown, response: Response) {
   if (!(error instanceof FinalReportError)) return false;
@@ -128,7 +136,7 @@ function finalReportFailure(error: unknown, response: Response) {
   return true;
 }
 
-export function createFinalReportHandler({ database = pool }: FinalReportRouteDependencies = {}) {
+export function createFinalReportHandler({ database = pool, loadReport = loadFinalServiceReport }: FinalReportRouteDependencies = {}) {
   return async (request: Request, response: Response, next: NextFunction) => {
     try {
       const jobId = request.params.jobId;
@@ -136,7 +144,7 @@ export function createFinalReportHandler({ database = pool }: FinalReportRouteDe
         response.status(400).json({ error: "INVALID_JOB_ID" });
         return;
       }
-      const report = await loadFinalServiceReport(jobId, database);
+      const report = await loadReport(jobId, database, reportAccessFor(request));
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ report: {
         ...report,
@@ -151,7 +159,7 @@ export function createFinalReportHandler({ database = pool }: FinalReportRouteDe
   };
 }
 
-export function createFinalReportPdfHandler({ database = pool }: FinalReportRouteDependencies = {}) {
+export function createFinalReportPdfHandler({ database = pool, loadReport = loadFinalServiceReport, renderPdf = renderFinalServiceReportPdf }: FinalReportRouteDependencies = {}) {
   return async (request: Request, response: Response, next: NextFunction) => {
     try {
       const jobId = request.params.jobId;
@@ -159,13 +167,13 @@ export function createFinalReportPdfHandler({ database = pool }: FinalReportRout
         response.status(400).json({ error: "INVALID_JOB_ID" });
         return;
       }
-      const report = await loadFinalServiceReport(jobId, database);
+      const report = await loadReport(jobId, database, reportAccessFor(request));
       const filename = finalReportFilename(report);
       response.setHeader("Content-Type", "application/pdf");
       response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       response.setHeader("Cache-Control", "private, no-store");
       response.setHeader("X-Content-Type-Options", "nosniff");
-      response.send(await renderFinalServiceReportPdf(report));
+      response.send(await renderPdf(report));
     } catch (error) {
       if (!finalReportFailure(error, response)) next(error);
     }

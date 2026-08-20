@@ -1,0 +1,193 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run mounted App Manager authorization transitions</button>
+  <pre id="result">Ready</pre>
+  <div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { App } from "/src/App.tsx";
+    import { localDatabase } from "/src/db/localDatabase.ts";
+    import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+
+    const admin = { id: 801, username: "manager-admin", role: "admin" };
+    const inspector = { id: 802, username: "field-inspector", role: "inspector" };
+    const visit = {
+      id: "c0000000-0000-4000-8000-000000000801", reference: "SV-MANAGER-801",
+      customer: "Visible Manager Customer", site: "Visible Manager Site", serviceDate: "2026-08-20",
+      status: "open", systems: ["Hose Reel"], inspectionProgress: { accepted: 0, required: 1 },
+      completion: { completedAt: null, completedBy: null }
+    };
+    const mount = document.querySelector("#mount");
+    const result = document.querySelector("#result");
+    const waitFor = async (predicate, label) => {
+      for (let attempt = 0; attempt < 160; attempt += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 15));
+      }
+      throw new Error(`Timed out waiting for ${label}; visible text: ${mount.textContent}`);
+    };
+    const deferred = () => {
+      let resolve;
+      let reject;
+      const promise = new Promise((nextResolve, nextReject) => { resolve = nextResolve; reject = nextReject; });
+      return { promise, resolve, reject };
+    };
+    const json = body => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    const click = label => {
+      const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === label || candidate.textContent.trim().startsWith(label));
+      if (!button) throw new Error(`Missing actual App button: ${label}; visible text: ${mount.textContent}`);
+      button.click();
+    };
+    async function clearDatabase() {
+      await localDatabase.open();
+      await localDatabase.transaction("rw", localDatabase.drafts, localDatabase.testRecords, localDatabase.inspectionRecords,
+        localDatabase.masterSystemInspections, localDatabase.masterSystemInspectionGroups, localDatabase.masterSystemFormInstances,
+        localDatabase.syncOutbox, localDatabase.referenceData, localDatabase.authState, localDatabase.inspectionAttachments, async () => {
+          await Promise.all([
+            localDatabase.drafts.clear(), localDatabase.testRecords.clear(), localDatabase.inspectionRecords.clear(),
+            localDatabase.masterSystemInspections.clear(), localDatabase.masterSystemInspectionGroups.clear(), localDatabase.masterSystemFormInstances.clear(),
+            localDatabase.syncOutbox.clear(), localDatabase.referenceData.clear(), localDatabase.authState.clear(), localDatabase.inspectionAttachments.clear()
+          ]);
+        });
+    }
+    async function mountedCase(name, setup, assertion) {
+      await clearDatabase();
+      window.location.hash = "#/";
+      const originalFetch = globalThis.fetch;
+      const transport = await setup();
+      globalThis.fetch = transport.fetch;
+      mount.replaceChildren();
+      const root = ReactDom.createRoot(mount);
+      try {
+        root.render(React.createElement(App));
+        await assertion(transport);
+        return { name, pass: true };
+      } catch (error) {
+        return { name, pass: false, error: String(error), calls: transport.calls, visibleText: mount.textContent };
+      } finally {
+        root.unmount();
+        globalThis.fetch = originalFetch;
+        await clearDatabase();
+      }
+    }
+    function authAndVisits(user, visits = [visit]) {
+      const calls = [];
+      return {
+        calls,
+        fetch: async input => {
+          const url = String(input); calls.push(url);
+          if (url === "/api/auth/me") return json({ user });
+          if (url === "/api/manager/service-visits") return json({ serviceVisits: visits });
+          if (url === "/api/inspection-jobs") return json({ jobs: [] });
+          if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
+          return new Response("", { status: 503 });
+        }
+      };
+    }
+    async function run() {
+      const cases = [];
+      cases.push(await mountedCase("A admin selects Manager", async () => {
+        const auth = deferred();
+        const transport = authAndVisits(admin);
+        const fetch = transport.fetch;
+        transport.auth = auth;
+        transport.fetch = async input => String(input) === "/api/auth/me" ? auth.promise : fetch(input);
+        return transport;
+      }, async transport => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
+        click("Manager");
+        transport.auth.resolve(json({ user: admin }));
+        await waitFor(() => mount.textContent.includes("Operations") && mount.textContent.includes(visit.customer), "Manager Operations");
+        if (mount.textContent.includes("My Service Jobs")) throw new Error("Technician Home rendered for Manager authority");
+      }));
+      cases.push(await mountedCase("B inspector denied Manager", async () => {
+        const auth = deferred();
+        const transport = authAndVisits(inspector, [visit]);
+        const fetch = transport.fetch;
+        transport.auth = auth;
+        transport.fetch = async input => String(input) === "/api/auth/me" ? auth.promise : fetch(input);
+        return transport;
+      }, async transport => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
+        click("Manager");
+        transport.auth.resolve(json({ user: inspector }));
+        await waitFor(() => mount.textContent.includes("field-inspector") && mount.textContent.includes("Choose how you are signing in"), "safe inspector role state");
+        if (mount.textContent.includes("Operations") || mount.textContent.includes(visit.customer) || transport.calls.includes("/api/manager/service-visits")) {
+          throw new Error("Inspector selection exposed Manager operations");
+        }
+      }));
+      cases.push(await mountedCase("C loaded data clears after 403", async () => {
+        const transport = authAndVisits(admin);
+        let managerCalls = 0;
+        transport.fetch = async input => {
+          const url = String(input); transport.calls.push(url);
+          if (url === "/api/auth/me") return managerCalls > 1 ? new Response("", { status: 403 }) : json({ user: admin });
+          if (url === "/api/manager/service-visits") return ++managerCalls === 1 ? json({ serviceVisits: [visit] }) : new Response("", { status: 403 });
+          if (url === "/api/inspection-jobs") return json({ jobs: [] });
+          if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
+          return new Response("", { status: 503 });
+        };
+        return transport;
+      }, async () => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
+        click("Manager");
+        await waitFor(() => mount.textContent.includes(visit.customer), "loaded Manager visit");
+        click("Refresh");
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(visit.customer), "authorization fail-closed state");
+      }));
+      cases.push(await mountedCase("D logout blocks late Manager response", async () => {
+        const calls = [];
+        const lateVisits = deferred();
+        return {
+          calls, lateVisits,
+          fetch: async input => {
+            const url = String(input); calls.push(url);
+            if (url === "/api/auth/me") return json({ user: admin });
+            if (url === "/api/manager/service-visits") return lateVisits.promise;
+            if (url === "/api/auth/logout") return new Response("", { status: 204 });
+            if (url === "/api/inspection-jobs") return json({ jobs: [] });
+            if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
+            return new Response("", { status: 503 });
+          }
+        };
+      }, async transport => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
+        click("Manager");
+        await waitFor(() => transport.calls.includes("/api/manager/service-visits"), "in-flight Manager request");
+        click("Sign out");
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "logged-out role state");
+        transport.lateVisits.resolve(json({ serviceVisits: [visit] }));
+        await new Promise(resolve => queueMicrotask(resolve));
+        await new Promise(resolve => queueMicrotask(resolve));
+        if (mount.textContent.includes("Operations") || mount.textContent.includes(visit.customer)) throw new Error("Late Manager response repopulated logged-out App");
+      }));
+      cases.push(await mountedCase("E cached Manager is offline-unverified", async () => {
+        await storeVerifiedIdentity(admin);
+        const calls = [];
+        return { calls, fetch: async input => { calls.push(String(input)); if (String(input) === "/api/auth/me") throw new TypeError("offline"); return new Response("", { status: 503 }); } };
+      }, async transport => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "offline Role Selection");
+        click("Manager");
+        await waitFor(() => mount.textContent.includes("Manager operations are not available offline"), "offline Manager denial");
+        if (mount.textContent.includes("Operations") || mount.textContent.includes(visit.customer) || transport.calls.includes("/api/manager/service-visits")) throw new Error("Offline Manager data was exposed");
+      }));
+      cases.push(await mountedCase("F cached Technician remains available offline", async () => {
+        await storeVerifiedIdentity(inspector);
+        const calls = [];
+        return { calls, fetch: async input => { calls.push(String(input)); if (String(input) === "/api/auth/me") throw new TypeError("offline"); return new Response("", { status: 503 }); } };
+      }, async () => {
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "offline Role Selection");
+        click("Technician");
+        await waitFor(() => mount.textContent.includes("My Service Jobs"), "offline Technician Home");
+      }));
+      return cases;
+    }
+    document.querySelector("#run").onclick = async () => {
+      try {
+        const cases = await run();
+        result.textContent = JSON.stringify({ status: cases.every(item => item.pass) ? "PASS" : "FAIL", cases }, null, 2);
+      } catch (error) { result.textContent = JSON.stringify({ status: "ERROR", error: String(error) }, null, 2); }
+    };
+  </script>
+</body></html>

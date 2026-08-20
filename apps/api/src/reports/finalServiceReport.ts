@@ -227,13 +227,26 @@ async function validatedEvidence(rows: ReportInstanceRow[], system: RecordValue)
   return evidence;
 }
 
-export async function loadFinalServiceReport(jobId: string, database: Queryable): Promise<FinalServiceReport> {
+export type FinalReportAccess = "technician" | "manager";
+
+/**
+ * Access selection is derived by the authenticated route caller, never from a
+ * browser parameter. Content validation below remains identical for both.
+ */
+export async function loadFinalServiceReport(
+  jobId: string,
+  database: Queryable,
+  access: FinalReportAccess = "technician"
+): Promise<FinalServiceReport> {
+  const accessClause = access === "manager"
+    ? "job.is_sample = false"
+    : "job.technician_visible = true AND job.is_sample = false";
   const jobResult = await database.query<ReportJobRow>(`SELECT job.id, job.status, job.configuration_snapshot, job.completed_at, job.completed_by_user_id,
       job.completed_by_display_name, NULL::text AS completed_by_username,
       job.job_reference AS reference, job.title, job.service_date::text AS service_date
     FROM inspection_jobs job
     WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL
-      AND job.technician_visible = true
+      AND ${accessClause}
     LIMIT 1`, [jobId]);
   const job = jobResult.rows[0];
   if (!job) throw new FinalReportError("JOB_NOT_FOUND", 404, "Service visit not found.");

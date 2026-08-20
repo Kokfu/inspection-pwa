@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
+    "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -19,8 +20,8 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2"
   }
 }
-

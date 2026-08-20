@@ -73,6 +73,12 @@ import {
 } from "./auth/authStateTypes";
 import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRestoration";
 import { LoginForm } from "./auth/LoginForm";
+import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
+import { ManagerHome } from "./manager/ManagerHome";
+import { ManagerApiError, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerServiceVisit } from "./manager/managerApi";
+import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
+import { productRoleMatches } from "./manager/roleAccess";
+import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
 import { initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
 import { InspectionList } from "./inspections/InspectionList";
@@ -90,6 +96,7 @@ import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
 import { NewServiceVisit } from "./jobs/NewServiceVisit";
 import { FinalReportView } from "./jobs/FinalReportView";
+import { downloadFinalReport } from "./jobs/finalReportApi";
 import { acceptCanonicalNewServiceVisit } from "./jobs/newServiceVisitSuccess";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
@@ -142,6 +149,9 @@ type AppRoute =
   | { name: "new-service-visit" }
   | { name: "job"; jobId: string }
   | { name: "final-report"; jobId: string }
+  | { name: "manager-home" }
+  | { name: "manager-service-visit"; jobId: string }
+  | { name: "manager-final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
   | { name: "sprinkler-form"; clientUuid: string }
@@ -156,6 +166,9 @@ type AppRoute =
 function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
+  if (parts[0] === "manager") return { name: "manager-home" };
+  if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
+  if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
   if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
   if (parts[0] === "final-report" && parts[1]) return { name: "final-report", jobId: parts[1] };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
@@ -173,6 +186,9 @@ function routeFromHash(): AppRoute {
 
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
+  if (route.name === "manager-home") return "#/manager";
+  if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
+  if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "new-service-visit") return "#/new-service-visit";
   if (route.name === "final-report") return `#/final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
@@ -201,7 +217,13 @@ export function App() {
   const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
   const [initialAuthRestored, setInitialAuthRestored] = useState(false);
   const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
+  const [selectedExperience, setSelectedExperience] = useState<ProductRole>();
+  const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
+  const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
+  const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
+  const [managerLoading, setManagerLoading] = useState(false);
+  const [managerMessage, setManagerMessage] = useState("");
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
   const [jobMessage, setJobMessage] = useState("");
   const [jobLoading, setJobLoading] = useState(false);
@@ -303,6 +325,7 @@ export function App() {
   const sprinklerRouteGeneration = useRef(0);
   const riserRouteGeneration = useRef(0);
   const fireAlarmRouteGeneration = useRef(0);
+  const managerRequestGuard = useRef(new ManagerRequestGuard());
 
   function navigate(nextRoute: AppRoute) {
     setRoute(nextRoute);
@@ -336,6 +359,13 @@ export function App() {
   }
 
   function invalidateServerDerivedAuthority(progressState: "idle" | "failed" = "failed") {
+    // Manager Operations is not an offline cache. Revocation and verification
+    // transitions immediately invalidate data and every in-flight request.
+    managerRequestGuard.current.invalidate();
+    setManagerVisits([]);
+    setManagerVisit(undefined);
+    setManagerLoading(false);
+    setManagerMessage("");
     clearServerSummaryAuthority(progressState);
     setJobLoading(false);
     setReferenceCacheLoading(false);
@@ -774,6 +804,100 @@ export function App() {
 
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
+  const technicianExperience = selectedExperience === "technician"
+    && (authState.status === "verified" || authState.status === "offline-unverified")
+    && currentUser?.role === "inspector";
+  // Manager operational data is server-backed. A cached identity alone never
+  // unlocks it, even after a previously verified login.
+  const managerExperience = selectedExperience === "manager"
+    && authState.status === "verified"
+    && currentUser?.role === "admin";
+
+  function selectExperience(role: ProductRole) {
+    setRoleMessage("");
+    if (currentUser && !productRoleMatches(role, currentUser)) {
+      setSelectedExperience(undefined);
+      setRoleMessage(role === "manager"
+        ? "This signed-in account does not have Manager access. Choose Technician to continue."
+        : "This signed-in account does not have Technician access. Choose Manager to continue.");
+      return;
+    }
+    setSelectedExperience(role);
+    if (role === "manager" && authState.status === "verified") navigate({ name: "manager-home" });
+    if (role === "technician" && currentUser?.role === "inspector") navigate({ name: "jobs" });
+  }
+
+  function beginManagerRequest() {
+    return managerRequestGuard.current.begin(authAuthorityGuard.current.currentGeneration);
+  }
+
+  function managerRequestIsCurrent(request: ManagerRequest) {
+    return managerRequestGuard.current.isCurrent(
+      request,
+      authAuthorityGuard.current.currentGeneration,
+      authAuthorityGuard.current.hasAuthority
+    );
+  }
+
+  function failClosedManagerOperations(message: string, revalidate = true) {
+    managerRequestGuard.current.invalidate();
+    setManagerVisits([]);
+    setManagerVisit(undefined);
+    setManagerLoading(false);
+    setManagerMessage(message);
+    if (revalidate) void revalidateAuthentication();
+  }
+
+  function handleManagerRequestFailure(error: unknown) {
+    const message = error instanceof ManagerApiError
+      ? error.message
+      : "Manager Operations cannot be verified or refreshed right now.";
+    if (error instanceof ManagerApiError && error.kind === "authorization") {
+      // A protected Manager endpoint rejected the session. Do not retain a
+      // selected Manager presentation while the authoritative session check runs.
+      setSelectedExperience(undefined);
+      setRoleMessage(message);
+    }
+    failClosedManagerOperations(message);
+  }
+
+  async function refreshManagerVisits() {
+    if (!managerExperience) return;
+    const request = beginManagerRequest();
+    setManagerLoading(true);
+    setManagerMessage("");
+    try {
+      const visits = await loadManagerServiceVisits(request.signal);
+      if (!managerRequestIsCurrent(request)) return;
+      setManagerVisits(visits);
+    } catch (error) {
+      if (!managerRequestIsCurrent(request)) return;
+      handleManagerRequestFailure(error);
+    } finally {
+      if (managerRequestIsCurrent(request)) setManagerLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!managerExperience) {
+      setManagerVisit(undefined);
+      return;
+    }
+    if (route.name !== "manager-service-visit" && route.name !== "manager-final-report") void refreshManagerVisits();
+    if (route.name === "manager-service-visit") {
+      const request = beginManagerRequest();
+      setManagerVisit(undefined);
+      setManagerLoading(true);
+      setManagerMessage("");
+      void loadManagerServiceVisit(route.jobId, request.signal).then(
+        (visit) => { if (managerRequestIsCurrent(request)) setManagerVisit(visit); },
+        (error: unknown) => {
+          if (!managerRequestIsCurrent(request)) return;
+          handleManagerRequestFailure(error);
+        }
+      ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
+    }
+  }, [managerExperience, route]);
   const jobIsCompleted = (jobId: string) => jobs.some((job) => job.id === jobId && job.status === "closed");
   const mayRenderLocalHydrant = canRenderLocalHydrant(
     activeHydrant,
@@ -907,6 +1031,20 @@ export function App() {
       if (!isCurrentAuthOperation(operation)) return;
       installVerifiedAuthority(user, authorityReplacement);
       setAuthState({ status: "verified", user, lastVerifiedAt });
+      if (!selectedExperience || !productRoleMatches(selectedExperience, user)) {
+        setSelectedExperience(undefined);
+        setRoleMessage(selectedExperience === "manager"
+          ? "This account is signed in, but it does not have Manager access. Choose Technician to continue."
+          : selectedExperience === "technician"
+            ? "This account is signed in, but it does not have Technician access. Choose Manager to continue."
+            : "Choose the appropriate role to continue.");
+        navigate({ name: "jobs" });
+        return;
+      }
+      if (selectedExperience === "manager") {
+        navigate({ name: "manager-home" });
+        return;
+      }
       await loadCachedJobs(user.id, operation);
       await refreshServerWorkspace(user, operation);
       navigate({ name: "jobs" });
@@ -920,6 +1058,8 @@ export function App() {
     try {
       revokeVerifiedAuthority();
       setAuthState({ status: "logged-out", message: "Signed out locally" });
+      setSelectedExperience(undefined);
+      setRoleMessage("");
       navigate({ name: "jobs" });
       await clearLocalIdentity(true);
       if (!isCurrentAuthOperation(operation)) return;
@@ -1205,7 +1345,7 @@ export function App() {
           <span className="brand-mark" aria-hidden="true">MFE</span>
           <div>
             <p className="eyebrow">MFE Services Sdn. Bhd.</p>
-            <h1 id="app-title">Field Service Inspections</h1>
+            <h1 id="app-title">{managerExperience || selectedExperience === "manager" ? "Field Service Management" : "Field Service Inspections"}</h1>
           </div>
         </div>
         {authenticated ? <div className="header-utilities">
@@ -1224,20 +1364,24 @@ export function App() {
         </div> : null}
       </header>
 
-      {authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
+      {!selectedExperience || (authenticated && !technicianExperience && !managerExperience) ? (
+        <section className="login-view workspace" aria-label="Choose sign-in role">
+          <RoleSelection message={roleMessage || (selectedExperience === "manager" && authState.status === "offline-unverified" ? "Reconnect to verify Manager access. Manager operations are not available offline." : "")} onSelect={selectExperience} />
+        </section>
+      ) : authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
         <section className="login-view workspace">
           <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
         </section>
       ) : shouldRenderLogin(authState) ? (
         <section className="login-view workspace" aria-label="Server sign-in">
           <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
-          <LoginForm onLogin={handleLogin} />
+          <LoginForm roleLabel={selectedExperience === "manager" ? "Manager" : "Technician"} onLogin={handleLogin} />
         </section>
       ) : null}
 
-      {authenticated ? (
+      {technicianExperience ? (
         <>
-          {route.name === "development" ? (
+          {route.name === "development" && currentUser?.role === "admin" ? (
             <section className="development-tools" aria-labelledby="development-tools-title">
               <header className="development-header">
                 <p className="eyebrow">For Development / Testing Only</p>
@@ -1469,6 +1613,28 @@ export function App() {
             />
           )}
         </>
+      ) : managerExperience ? (
+        route.name === "manager-final-report" ? (
+          <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-service-visit", jobId: route.jobId })} onServerUnavailable={(message) => failClosedManagerOperations(message)} />
+        ) : (
+          <ManagerHome
+            visits={managerVisits}
+            loading={managerLoading}
+            message={managerMessage}
+            selectedVisit={route.name === "manager-service-visit" ? managerVisit : undefined}
+            onRefresh={refreshManagerVisits}
+            onSelect={(visit) => navigate({ name: "manager-service-visit", jobId: visit.id })}
+            onBack={() => navigate({ name: "manager-home" })}
+            onViewReport={(visit) => navigate({ name: "manager-final-report", jobId: visit.id })}
+            onDownloadReport={async (visit) => {
+              try {
+                await downloadFinalReport(visit.id, "/api/manager/service-visits");
+              } catch (error) {
+                failClosedManagerOperations(error instanceof Error ? error.message : "Manager Operations cannot be verified or refreshed right now.");
+              }
+            }}
+          />
+        )
       ) : null}
     </main>
   );

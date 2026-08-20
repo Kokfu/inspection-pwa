@@ -10,6 +10,7 @@ import { inspectionReferenceRouter } from "./routes/inspectionReference.js";
 import { inspectionJobsRouter } from "./routes/inspectionJobs.js";
 import { inspectionAttachmentsRouter } from "./routes/inspectionAttachments.js";
 import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
+import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -27,6 +28,7 @@ app.use(testRecordsRouter);
 app.use(inspectionsRouter);
 app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
+app.use(managerServiceVisitsRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);
 

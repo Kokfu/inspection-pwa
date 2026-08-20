@@ -4,8 +4,8 @@ export type FinalReportPreview = {
   sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }> }>;
 };
 
-export async function loadFinalReport(jobId: string) {
-  const response = await fetch(`/api/inspection-jobs/${encodeURIComponent(jobId)}/final-report`, { credentials: "same-origin", cache: "no-store" });
+export async function loadFinalReport(jobId: string, endpointBase = "/api/inspection-jobs") {
+  const response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report`, { credentials: "same-origin", cache: "no-store" });
   const data = await response.json() as { report?: FinalReportPreview; message?: string };
   if (!response.ok || !data.report) throw new Error(data.message ?? "Final report is currently unavailable.");
   return data.report;
@@ -36,8 +36,8 @@ async function errorMessage(response: Response) {
 }
 
 /** Downloads without navigating the SPA away from the completed service report. */
-export async function downloadFinalReport(jobId: string) {
-  const response = await fetch(`/api/inspection-jobs/${encodeURIComponent(jobId)}/final-report.pdf`, { credentials: "same-origin", cache: "no-store" });
+export async function downloadFinalReport(jobId: string, endpointBase = "/api/inspection-jobs") {
+  const response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report.pdf`, { credentials: "same-origin", cache: "no-store" });
   if (!response.ok) throw new Error(await errorMessage(response));
   const pdf = await response.blob();
   if (pdf.size === 0) throw new Error("The final report PDF was empty and was not downloaded.");

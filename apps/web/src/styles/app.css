@@ -703,6 +703,19 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 .login-view { width: min(520px, 100%); box-sizing: border-box; margin-top: 5vh; padding: clamp(22px, 5vw, 38px); border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
 .login-view .auth-panel { gap: 14px; }
 .login-view .auth-panel > button { width: 100%; }
+.role-selection { display: grid; gap: 14px; }
+.role-selection h2 { margin: 0; font-size: clamp(1.55rem, 4vw, 2.1rem); letter-spacing: -.03em; }
+.role-selection > p { margin: 0; color: var(--muted); }
+.role-selection-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.role-card { display: grid; min-height: 176px; align-content: start; gap: 10px; padding: 20px; border: 1px solid var(--border); color: var(--ink); background: linear-gradient(145deg, #fff, var(--brand-soft)); box-shadow: 0 5px 16px rgb(25 57 61 / 6%); text-align: left; }
+.role-card:hover { border-color: var(--brand); background: #f5fbfb; }
+.role-card strong { font-size: 1.2rem; }
+.role-card span { color: var(--muted); font-size: .9rem; font-weight: 500; line-height: 1.5; }
+.manager-home { display: grid; width: min(1120px, 100%); gap: 22px; }
+.manager-home > section { display: grid; gap: 10px; }
+.manager-home h3 { margin: 0; }
+.manager-report-actions { padding: 8px 0 0; }
+.manager-report-actions button { min-height: 38px; padding-inline: 12px; font-size: .82rem; }
 
 .technician-home { gap: 14px; border: 0; padding: 2px 0 0; }
 .workspace-heading h2 { font-size: clamp(1.6rem, 4vw, 2.25rem); letter-spacing: -.03em; }
@@ -866,6 +879,8 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
   .app-account { flex-wrap: nowrap; }
   .app-account-name { max-width: 92px; }
   .job-card-list { grid-template-columns: 1fr; }
+  .role-selection-options { grid-template-columns: 1fr; }
+  .role-card { min-height: 136px; }
   .job-facts { grid-template-columns: 1fr 1fr; }
   .system-picker-grid { grid-template-columns: 1fr; }
   .accepted-location-heading, .accepted-results { grid-template-columns: 1fr; }
