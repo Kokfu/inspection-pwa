@@ -1,0 +1,131 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run Manager Final Report failure matrix</button>
+  <pre id="result">Ready</pre>
+  <div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { ManagerFinalReportView } from "/src/manager/ManagerFinalReportView.tsx";
+
+    const mount = document.querySelector("#mount");
+    const result = document.querySelector("#result");
+    const report = {
+      customer: "Manager Report Customer", site: "Manager Report Site", serviceDate: "2026-08-21", jobReference: "SV-MANAGER-REPORT", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
+      systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
+      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+    };
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const waitFor = async (predicate, label) => {
+      for (let attempt = 0; attempt < 160; attempt += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      throw new Error("Timed out waiting for " + label + "; visible text: " + mount.textContent);
+    };
+    const clickDownload = () => {
+      const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === "Download PDF");
+      if (!button) throw new Error("Download PDF button was not rendered");
+      button.click();
+    };
+    async function mountedCase(name, fetchHandler, assertion) {
+      const originalFetch = globalThis.fetch;
+      const authorizationFailures = [];
+      const unavailableFailures = [];
+      mount.replaceChildren();
+      globalThis.fetch = fetchHandler;
+      const root = ReactDom.createRoot(mount);
+      try {
+        root.render(React.createElement(ManagerFinalReportView, {
+          jobId: "job-1",
+          onBack: () => undefined,
+          onAuthorizationFailure: message => authorizationFailures.push(message),
+          onServerUnavailable: message => unavailableFailures.push(message)
+        }));
+        await assertion({ authorizationFailures, unavailableFailures });
+        return { name, pass: true };
+      } catch (error) {
+        return { name, pass: false, error: String(error), visibleText: mount.textContent, authorizationFailures, unavailableFailures };
+      } finally {
+        root.unmount();
+        globalThis.fetch = originalFetch;
+      }
+    }
+    async function run() {
+      const cases = [];
+      cases.push(await mountedCase("1 successful Manager report load renders authoritative content", async () => json({ report }), async () => {
+        await waitFor(() => mount.textContent.includes(report.customer) && mount.textContent.includes("Canvas Hose"), "successful Manager report");
+      }));
+      cases.push(await mountedCase("2 report load 409 stays local", async () => json({ message: "Required accepted inspection history is unavailable." }, 409), async callbacks => {
+        await waitFor(() => mount.textContent.includes("Required accepted inspection history is unavailable."), "409 domain message");
+        if (callbacks.authorizationFailures.length || callbacks.unavailableFailures.length) throw new Error("409 invoked a fail-closed callback");
+      }));
+      cases.push(await mountedCase("3 report load 401 invokes authorization fail-closed", async () => json({ message: "Manager session expired." }, 401), async callbacks => {
+        await waitFor(() => callbacks.authorizationFailures.length === 1, "401 authorization failure callback");
+        if (callbacks.unavailableFailures.length || mount.textContent.includes(report.customer)) throw new Error("401 did not fail closed as authorization");
+      }));
+      cases.push(await mountedCase("4 report load 403 invokes authorization fail-closed", async () => json({ message: "Manager session expired." }, 403), async callbacks => {
+        await waitFor(() => callbacks.authorizationFailures.length === 1, "403 authorization failure callback");
+        if (callbacks.unavailableFailures.length || mount.textContent.includes(report.customer)) throw new Error("403 did not fail closed as authorization");
+      }));
+      cases.push(await mountedCase("5 report load network failure invokes unavailable fail-closed", async () => Promise.reject(new TypeError("offline")), async callbacks => {
+        await waitFor(() => callbacks.unavailableFailures.length === 1, "network unavailable callback");
+        if (callbacks.authorizationFailures.length || mount.textContent.includes(report.customer)) throw new Error("network failure did not fail closed as unavailable");
+      }));
+      cases.push(await mountedCase("6 report load 503 invokes unavailable fail-closed", async () => new Response("server failure", { status: 503 }), async callbacks => {
+        await waitFor(() => callbacks.unavailableFailures.length === 1, "503 unavailable failure callback");
+        if (callbacks.authorizationFailures.length || mount.textContent.includes(report.customer)) throw new Error("503 did not fail closed as unavailable");
+      }));
+      cases.push(await mountedCase("7 loaded report plus PDF 409 preserves report", (() => {
+        let calls = 0;
+        return async () => ++calls === 1 ? json({ report }) : json({ message: "Final report PDF is incomplete." }, 409);
+      })(), async callbacks => {
+        await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 409");
+        clickDownload();
+        await waitFor(() => mount.textContent.includes("Final report PDF is incomplete."), "PDF 409 message");
+        if (!mount.textContent.includes(report.customer) || callbacks.authorizationFailures.length || callbacks.unavailableFailures.length) throw new Error("PDF 409 did not preserve report locally");
+      }));
+      cases.push(await mountedCase("8 loaded report plus PDF network failure clears report", (() => {
+        let calls = 0;
+        return async () => ++calls === 1 ? json({ report }) : Promise.reject(new TypeError("offline"));
+      })(), async callbacks => {
+        await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF network failure");
+        clickDownload();
+        await waitFor(() => callbacks.unavailableFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF network fail-closed state");
+        if (callbacks.authorizationFailures.length) throw new Error("PDF network failure was classified as authorization");
+      }));
+      cases.push(await mountedCase("9 loaded report plus PDF 503 clears report", (() => {
+        let calls = 0;
+        return async () => ++calls === 1 ? json({ report }) : new Response("server failure", { status: 503 });
+      })(), async callbacks => {
+        await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 503");
+        clickDownload();
+        await waitFor(() => callbacks.unavailableFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 503 fail-closed state");
+        if (callbacks.authorizationFailures.length) throw new Error("PDF 503 was classified as authorization");
+      }));
+      cases.push(await mountedCase("10 loaded report plus PDF 401 clears report", (() => {
+        let calls = 0;
+        return async () => ++calls === 1 ? json({ report }) : json({ message: "Manager session expired." }, 401);
+      })(), async callbacks => {
+        await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 401");
+        clickDownload();
+        await waitFor(() => callbacks.authorizationFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 401 authorization fail-closed state");
+        if (callbacks.unavailableFailures.length) throw new Error("PDF 401 was classified as unavailable");
+      }));
+      cases.push(await mountedCase("11 loaded report plus PDF 403 clears report", (() => {
+        let calls = 0;
+        return async () => ++calls === 1 ? json({ report }) : json({ message: "Manager session expired." }, 403);
+      })(), async callbacks => {
+        await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 403");
+        clickDownload();
+        await waitFor(() => callbacks.authorizationFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 403 authorization fail-closed state");
+        if (callbacks.unavailableFailures.length) throw new Error("PDF 403 was classified as unavailable");
+      }));
+      return cases;
+    }
+    document.querySelector("#run").onclick = async () => {
+      const cases = await run();
+      result.textContent = JSON.stringify({ status: cases.every(item => item.pass) ? "PASS" : "FAIL", cases }, null, 2);
+    };
+  </script>
+</body></html>

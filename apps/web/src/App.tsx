@@ -96,7 +96,7 @@ import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
 import { NewServiceVisit } from "./jobs/NewServiceVisit";
 import { FinalReportView } from "./jobs/FinalReportView";
-import { downloadFinalReport } from "./jobs/finalReportApi";
+import { FinalReportApiError, downloadFinalReport } from "./jobs/finalReportApi";
 import { acceptCanonicalNewServiceVisit } from "./jobs/newServiceVisitSuccess";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
 import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
@@ -328,7 +328,6 @@ export function App() {
   const managerRequestGuard = useRef(new ManagerRequestGuard());
 
   function navigate(nextRoute: AppRoute) {
-    setRoute(nextRoute);
     const nextHash = hashForRoute(nextRoute);
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }
@@ -859,6 +858,27 @@ export function App() {
       setRoleMessage(message);
     }
     failClosedManagerOperations(message);
+  }
+
+  function handleManagerReportAuthorizationFailure(message: string) {
+    setSelectedExperience(undefined);
+    setRoleMessage(message);
+    failClosedManagerOperations(message);
+  }
+
+  function handleManagerReportDownloadFailure(error: unknown) {
+    const message = error instanceof Error
+      ? error.message
+      : "The final report PDF could not be downloaded. Please try again.";
+    if (error instanceof FinalReportApiError && error.kind === "domain") {
+      setManagerMessage(message);
+      return;
+    }
+    if (error instanceof FinalReportApiError && error.kind === "authorization") {
+      handleManagerReportAuthorizationFailure(message);
+      return;
+    }
+    failClosedManagerOperations(message, false);
   }
 
   async function refreshManagerVisits() {
@@ -1615,7 +1635,7 @@ export function App() {
         </>
       ) : managerExperience ? (
         route.name === "manager-final-report" ? (
-          <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-service-visit", jobId: route.jobId })} onServerUnavailable={(message) => failClosedManagerOperations(message)} />
+          <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-home" })} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : (
           <ManagerHome
             visits={managerVisits}
@@ -1630,7 +1650,7 @@ export function App() {
               try {
                 await downloadFinalReport(visit.id, "/api/manager/service-visits");
               } catch (error) {
-                failClosedManagerOperations(error instanceof Error ? error.message : "Manager Operations cannot be verified or refreshed right now.");
+                handleManagerReportDownloadFailure(error);
               }
             }}
           />

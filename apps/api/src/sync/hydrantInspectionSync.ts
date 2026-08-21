@@ -116,10 +116,22 @@ function configuredHydrantRowsMatch(responses: unknown, expected: ExpectedConfig
 
 /** Read-only report adapter which reuses Hydrant's accepted response and frozen-row validators. */
 export function validateHydrantHistoricalPayload(response: unknown, snapshot: unknown) {
-  if (!validClientSnapshot(snapshot) || !rec(snapshot) || !rec(snapshot.system)) return false;
+  if (!validAcceptedHistorySnapshot(snapshot) || !rec(snapshot) || !rec(snapshot.system)) return false;
   const expected = expectedConfiguredHydrantRows(snapshot.system);
   return isCompatibleSystemContract("hydrant", snapshot.system.definitionStatus, snapshot.system.definition)
     && valid(response) && !!expected && configuredHydrantRowsMatch(response, expected);
+}
+
+/** Strict persisted server-accepted authority. This is intentionally distinct from sync input. */
+function validAcceptedHistorySnapshot(value: unknown) {
+  if (!rec(value) || !exactKeys(value, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system"])
+    || value.schemaVersion !== 1 || !timestamp(value.acceptedAt)
+    || !rec(value.job) || !exactKeys(value.job, ["id", "reference", "title"])
+    || typeof value.job.id !== "string" || !uuid.test(value.job.id)
+    || typeof value.job.reference !== "string" || value.job.reference.length === 0 || value.job.reference.length > 200
+    || typeof value.job.title !== "string" || value.job.title.length === 0 || value.job.title.length > 300
+    || !rec(value.customer) || !rec(value.configuration) || !rec(value.template) || !rec(value.system)) return false;
+  return validCustomer(value.customer) && validConfiguration(value.configuration) && validTemplate(value.template);
 }
 
 function validClientSnapshot(value: unknown) {

@@ -1,0 +1,106 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run Manager navigation request count</button>
+  <pre id="result">Ready</pre>
+  <div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { App } from "/src/App.tsx";
+    import { localDatabase } from "/src/db/localDatabase.ts";
+
+    const admin = { id: 804, username: "manager-request-count", role: "admin" };
+    const visit = {
+      id: "c0000000-0000-4000-8000-000000000804", reference: "SV-MANAGER-804",
+      customer: "Request Count Customer", site: "Request Count Site", serviceDate: "2026-08-22",
+      status: "open", systems: ["Hose Reel"], inspectionProgress: { accepted: 0, required: 1 },
+      completion: { completedAt: null, completedBy: null }
+    };
+    const mount = document.querySelector("#mount");
+    const result = document.querySelector("#result");
+    const json = body => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise(nextResolve => { resolve = nextResolve; });
+      return { promise, resolve };
+    };
+    const waitFor = async (predicate, label) => {
+      for (let attempt = 0; attempt < 160; attempt += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 15));
+      }
+      throw new Error("Timed out waiting for " + label + "; route: " + window.location.hash + "; visible text: " + mount.textContent);
+    };
+    const clickContaining = label => {
+      const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.includes(label));
+      if (!button) throw new Error("Missing button containing: " + label);
+      button.click();
+    };
+    async function clearDatabase() {
+      await localDatabase.open();
+      await localDatabase.transaction("rw", localDatabase.drafts, localDatabase.testRecords, localDatabase.inspectionRecords,
+        localDatabase.masterSystemInspections, localDatabase.masterSystemInspectionGroups, localDatabase.masterSystemFormInstances,
+        localDatabase.syncOutbox, localDatabase.referenceData, localDatabase.authState, localDatabase.inspectionAttachments, async () => {
+          await Promise.all([
+            localDatabase.drafts.clear(), localDatabase.testRecords.clear(), localDatabase.inspectionRecords.clear(),
+            localDatabase.masterSystemInspections.clear(), localDatabase.masterSystemInspectionGroups.clear(), localDatabase.masterSystemFormInstances.clear(),
+            localDatabase.syncOutbox.clear(), localDatabase.referenceData.clear(), localDatabase.authState.clear(), localDatabase.inspectionAttachments.clear()
+          ]);
+        });
+    }
+    async function run() {
+      await clearDatabase();
+      window.location.hash = "#/manager";
+      const auth = deferred();
+      let detailRequests = 0;
+      let abortedDetailRequests = 0;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = String(input);
+        if (url === "/api/auth/me") return auth.promise;
+        if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
+        if (url === "/api/manager/service-visits/" + visit.id) {
+          detailRequests += 1;
+          const signal = init?.signal;
+          if (signal?.aborted) abortedDetailRequests += 1;
+          else signal?.addEventListener("abort", () => { abortedDetailRequests += 1; }, { once: true });
+          return json({ serviceVisit: visit });
+        }
+        if (url === "/api/inspection-jobs") return json({ jobs: [] });
+        if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
+        return new Response("", { status: 503 });
+      };
+      const root = ReactDom.createRoot(mount);
+      try {
+        root.render(React.createElement(App));
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "role selection");
+        clickContaining("Manager");
+        auth.resolve(json({ user: admin }));
+        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title") && mount.textContent.includes(visit.customer), "Manager Operations");
+
+        clickContaining(visit.customer);
+        await waitFor(() => window.location.hash === "#/manager-service-visit/" + visit.id && mount.querySelector("#manager-detail-title"), "Operations detail navigation");
+        const clickDetailRequests = detailRequests;
+        const clickAbortedDetailRequests = abortedDetailRequests;
+        if (clickDetailRequests !== 1 || clickAbortedDetailRequests !== 0) throw new Error("Operations click created duplicate or aborted detail fetches");
+
+        window.location.hash = "#/manager";
+        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager", "hashchange back to Operations");
+        window.location.hash = "#/manager-service-visit/" + visit.id;
+        await waitFor(() => mount.querySelector("#manager-detail-title") && window.location.hash === "#/manager-service-visit/" + visit.id, "hashchange to Manager detail");
+        if (detailRequests !== 2) throw new Error("hashchange did not create the expected single Manager detail request");
+        window.location.hash = "#/manager";
+        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager", "final hashchange back to Operations");
+        return { status: "PASS", clickDetailRequests, clickAbortedDetailRequests, hashchangeDetailRequests: detailRequests };
+      } finally {
+        root.unmount();
+        globalThis.fetch = originalFetch;
+        await clearDatabase();
+      }
+    }
+    document.querySelector("#run").onclick = async () => {
+      try { result.textContent = JSON.stringify(await run(), null, 2); }
+      catch (error) { result.textContent = JSON.stringify({ status: "FAIL", error: String(error), route: window.location.hash, visibleText: mount.textContent }, null, 2); }
+    };
+  </script>
+</body></html>

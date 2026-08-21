@@ -4,11 +4,45 @@ export type FinalReportPreview = {
   sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }> }>;
 };
 
+export type FinalReportErrorKind = "authorization" | "domain" | "unavailable";
+
+export class FinalReportApiError extends Error {
+  constructor(message: string, public readonly kind: FinalReportErrorKind) {
+    super(message);
+  }
+}
+
+async function responseMessage(response: Response, fallback: string) {
+  try {
+    const data = await response.json() as { message?: unknown };
+    if (typeof data.message === "string" && data.message.trim()) return data.message;
+  } catch { /* A non-JSON error response must not become trusted report data. */ }
+  return fallback;
+}
+
+async function reportError(response: Response, unavailableFallback: string) {
+  const authorization = response.status === 401 || response.status === 403;
+  const kind: FinalReportErrorKind = authorization
+    ? "authorization"
+    : response.status >= 400 && response.status < 500
+      ? "domain"
+      : "unavailable";
+  const fallback = authorization
+    ? "Your session no longer permits this report. Please sign in again."
+    : unavailableFallback;
+  return new FinalReportApiError(await responseMessage(response, fallback), kind);
+}
+
 export async function loadFinalReport(jobId: string, endpointBase = "/api/inspection-jobs") {
-  const response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report`, { credentials: "same-origin", cache: "no-store" });
-  const data = await response.json() as { report?: FinalReportPreview; message?: string };
-  if (!response.ok || !data.report) throw new Error(data.message ?? "Final report is currently unavailable.");
-  return data.report;
+  let response: Response;
+  try { response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report`, { credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new FinalReportApiError("Final report is currently unavailable.", "unavailable"); }
+  if (!response.ok) throw await reportError(response, "Final report is currently unavailable.");
+  try {
+    const data = await response.json() as { report?: FinalReportPreview };
+    if (!data.report) throw new Error();
+    return data.report;
+  } catch { throw new FinalReportApiError("Final report is currently unavailable.", "unavailable"); }
 }
 
 const fallbackFilename = "Service-Report.pdf";
@@ -25,22 +59,14 @@ function safeFilename(contentDisposition: string | null) {
   return filename.toLowerCase().endsWith(".pdf") && filename.length > 4 ? filename : fallbackFilename;
 }
 
-async function errorMessage(response: Response) {
-  try {
-    const data = await response.json() as { message?: unknown };
-    if (typeof data.message === "string" && data.message.trim()) return data.message;
-  } catch { /* The endpoint may return a non-JSON error body. */ }
-  return response.status === 401 || response.status === 403
-    ? "Your session no longer permits this download. Please sign in again."
-    : "The final report PDF could not be downloaded. Please try again.";
-}
-
 /** Downloads without navigating the SPA away from the completed service report. */
 export async function downloadFinalReport(jobId: string, endpointBase = "/api/inspection-jobs") {
-  const response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report.pdf`, { credentials: "same-origin", cache: "no-store" });
-  if (!response.ok) throw new Error(await errorMessage(response));
+  let response: Response;
+  try { response = await fetch(`${endpointBase}/${encodeURIComponent(jobId)}/final-report.pdf`, { credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new FinalReportApiError("The final report PDF could not be downloaded. Please try again.", "unavailable"); }
+  if (!response.ok) throw await reportError(response, "The final report PDF could not be downloaded. Please try again.");
   const pdf = await response.blob();
-  if (pdf.size === 0) throw new Error("The final report PDF was empty and was not downloaded.");
+  if (pdf.size === 0) throw new FinalReportApiError("The final report PDF was empty and was not downloaded.", "unavailable");
   const url = URL.createObjectURL(pdf);
   try {
     const anchor = document.createElement("a");

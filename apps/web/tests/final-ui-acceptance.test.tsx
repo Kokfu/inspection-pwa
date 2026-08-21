@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { ResultSelector } from "../src/inspectionControls/ResultSelector.js";
 import { TechnicianHome } from "../src/jobs/TechnicianHome.js";
-import { downloadFinalReport } from "../src/jobs/finalReportApi.js";
+import { FinalReportApiError, downloadFinalReport, loadFinalReport, type FinalReportPreview } from "../src/jobs/finalReportApi.js";
+import { FinalReportPresentation } from "../src/jobs/FinalReportPresentation.js";
 import type { InspectionJob } from "../src/jobs/jobTypes.js";
 import { ManagerHome } from "../src/manager/ManagerHome.js";
 import { RoleSelection } from "../src/manager/RoleSelection.js";
@@ -119,4 +120,56 @@ test("Manager Operations presents server-backed open and completed service visit
   assert.match(html, /Service Completed/);
   assert.match(html, /View Final Report/);
   assert.match(html, /Download PDF/);
+});
+
+const detailedFinalReport: FinalReportPreview = {
+  customer: "Report Customer", site: "Report Site", serviceDate: "2026-08-21", jobReference: "SV-REPORT-1", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
+  systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
+  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+};
+
+test("shared final report presentation retains Phase 7 sections, location headings, fields, and evidence", () => {
+  const html = renderToStaticMarkup(<FinalReportPresentation report={detailedFinalReport} />);
+  assert.match(html, /Service Summary/);
+  assert.match(html, /Hydrant System - Zone North \/ Gate A/);
+  assert.match(html, /report-field--depth-2/);
+  assert.match(html, /Canvas Hose/);
+  assert.match(html, /Final evidence accepted: hose Photo/);
+
+  const managerView = readFileSync(new URL("../src/manager/ManagerFinalReportView.tsx", import.meta.url), "utf8");
+  assert.match(managerView, /FinalReportPresentation/);
+  assert.match(managerView, /<FinalReportPresentation report={report}/);
+});
+
+test("final report API classifies expected Manager report errors without discarding their safe messages", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Required accepted inspection history is unavailable for Hydrant System." }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
+    await assert.rejects(() => loadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "domain" && error.message.includes("Hydrant System"));
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Manager session expired." }), { status: 403, headers: { "content-type": "application/json" } })) as typeof fetch;
+    await assert.rejects(() => loadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "authorization" && error.message === "Manager session expired.");
+
+    globalThis.fetch = (async () => new Response("server failure", { status: 503 })) as typeof fetch;
+    await assert.rejects(() => loadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "unavailable");
+
+    globalThis.fetch = (async () => { throw new TypeError("offline"); }) as typeof fetch;
+    await assert.rejects(() => loadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "unavailable");
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Final report is incomplete." }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
+    await assert.rejects(() => downloadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "domain" && error.message === "Final report is incomplete.");
+
+    globalThis.fetch = (async () => new Response("", { status: 401 })) as typeof fetch;
+    await assert.rejects(() => downloadFinalReport("job-1", "/api/manager/service-visits"), (error: unknown) => error instanceof FinalReportApiError && error.kind === "authorization");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("Manager report failures preserve domain errors but reserve fail-closed callbacks for authorization and unavailable states", () => {
+  const managerView = readFileSync(new URL("../src/manager/ManagerFinalReportView.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(managerView, /if \(reportError\.kind === "domain"\) \{\s*setMessage\(reportError\.message\);\s*return;/);
+  assert.match(managerView, /reportError\.kind === "authorization"\) onAuthorizationFailure/);
+  assert.match(managerView, /else onServerUnavailable/);
+  assert.match(app, /onServerUnavailable=\{\(message\) => failClosedManagerOperations\(message, false\)\}/);
+  assert.match(app, /error\.kind === "domain"\) \{\s*setManagerMessage\(message\);\s*return;/);
 });

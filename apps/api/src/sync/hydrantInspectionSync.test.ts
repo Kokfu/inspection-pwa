@@ -133,14 +133,32 @@ function payloadFor(job: JobFixture, rows = [configuredRow(job, 1, 1), configure
   };
 }
 
-test("Hydrant historical reports require the authoritative frozen system contract", () => {
+test("Hydrant accepted report history uses the strict persisted accepted snapshot schema", () => {
   const job = makeJobFixture();
   const payload = payloadFor(job);
-  const snapshot = inspectionSnapshotFor(job);
-  assert.equal(validateHydrantHistoricalPayload(payload.responses, snapshot), true);
-  const corrupt = structuredClone(snapshot);
-  corrupt.system.definition.sections[0].title = "Corrupt historical contract";
-  assert.equal(validateHydrantHistoricalPayload(payload.responses, corrupt), false);
+  const clientSnapshot = inspectionSnapshotFor(job);
+
+  // The client input remains capturedAt-based and is accepted by the sync path.
+  assert.equal(typeof clientSnapshot.capturedAt, "string");
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, clientSnapshot), false);
+
+  const acceptedSnapshot = structuredClone(clientSnapshot);
+  delete acceptedSnapshot.capturedAt;
+  acceptedSnapshot.acceptedAt = "2026-08-10T00:01:00.000Z";
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, acceptedSnapshot), true);
+  assert.equal(Object.hasOwn(acceptedSnapshot, "capturedAt"), false);
+
+  const capturedAtMasquerade = structuredClone(acceptedSnapshot);
+  capturedAtMasquerade.capturedAt = "2026-08-10T00:00:00.000Z";
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, capturedAtMasquerade), false);
+
+  const corruptDefinition = structuredClone(acceptedSnapshot);
+  corruptDefinition.system.definition.sections[0].title = "Corrupt historical contract";
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, corruptDefinition), false);
+
+  const corruptProvenance = structuredClone(acceptedSnapshot);
+  payload.responses.rows[0].locationSnapshot.displayName = "Foreign location";
+  assert.equal(validateHydrantHistoricalPayload(payload.responses, corruptProvenance), false);
 });
 
 class DisposableHydrantDatabase {
@@ -402,6 +420,7 @@ test("Hydrant configured rows are validated against the authoritative job snapsh
       assert.equal(typeof acceptedAt, "string");
       assert.deepEqual(persistedAuthority, { schemaVersion: 1, ...submittedAuthority });
       assert.equal(Object.hasOwn(stored, "capturedAt"), false);
+      assert.equal(validateHydrantHistoricalPayload(payload.responses, stored), true);
     });
 
     await t.test("P1-2. contradictory or injected client snapshots are rejected without persistence", async () => {

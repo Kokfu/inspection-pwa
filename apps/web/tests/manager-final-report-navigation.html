@@ -1,0 +1,107 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run Manager Final Report navigation</button>
+  <pre id="result">Ready</pre>
+  <div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { App } from "/src/App.tsx";
+    import { localDatabase } from "/src/db/localDatabase.ts";
+
+    const admin = { id: 803, username: "manager-navigation", role: "admin" };
+    const visit = {
+      id: "c0000000-0000-4000-8000-000000000803", reference: "SV-MANAGER-803",
+      customer: "Navigation Manager Customer", site: "Navigation Manager Site", serviceDate: "2026-08-21",
+      status: "closed", systems: ["Hydrant System"], inspectionProgress: { accepted: 1, required: 1 },
+      completion: { completedAt: "2026-08-21T10:00:00.000Z", completedBy: { id: 21, username: "technician-one" } }
+    };
+    const report = {
+      customer: visit.customer, site: visit.site, serviceDate: visit.serviceDate, jobReference: visit.reference,
+      completedAt: visit.completion.completedAt, completedBy: "technician-one",
+      systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
+      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+    };
+    const mount = document.querySelector("#mount");
+    const result = document.querySelector("#result");
+    const json = body => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise(nextResolve => { resolve = nextResolve; });
+      return { promise, resolve };
+    };
+    const waitFor = async (predicate, label) => {
+      for (let attempt = 0; attempt < 160; attempt += 1) {
+        if (predicate()) return;
+        await new Promise(resolve => setTimeout(resolve, 15));
+      }
+      throw new Error("Timed out waiting for " + label + "; route: " + window.location.hash + "; visible text: " + mount.textContent);
+    };
+    const clickExact = label => {
+      const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === label || candidate.textContent.trim().startsWith(label));
+      if (!button) throw new Error("Missing button: " + label);
+      button.click();
+    };
+    const clickContaining = label => {
+      const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.includes(label));
+      if (!button) throw new Error("Missing button containing: " + label);
+      button.click();
+    };
+    async function clearDatabase() {
+      await localDatabase.open();
+      await localDatabase.transaction("rw", localDatabase.drafts, localDatabase.testRecords, localDatabase.inspectionRecords,
+        localDatabase.masterSystemInspections, localDatabase.masterSystemInspectionGroups, localDatabase.masterSystemFormInstances,
+        localDatabase.syncOutbox, localDatabase.referenceData, localDatabase.authState, localDatabase.inspectionAttachments, async () => {
+          await Promise.all([
+            localDatabase.drafts.clear(), localDatabase.testRecords.clear(), localDatabase.inspectionRecords.clear(),
+            localDatabase.masterSystemInspections.clear(), localDatabase.masterSystemInspectionGroups.clear(), localDatabase.masterSystemFormInstances.clear(),
+            localDatabase.syncOutbox.clear(), localDatabase.referenceData.clear(), localDatabase.authState.clear(), localDatabase.inspectionAttachments.clear()
+          ]);
+        });
+    }
+    async function run() {
+      await clearDatabase();
+      window.location.hash = "#/manager-final-report/" + visit.id;
+      const calls = [];
+      const auth = deferred();
+      let detailRequests = 0;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async input => {
+        const url = String(input); calls.push(url);
+        if (url === "/api/auth/me") return auth.promise;
+        if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
+        if (url === "/api/manager/service-visits/" + visit.id + "/final-report") return json({ report });
+        if (url === "/api/manager/service-visits/" + visit.id) { detailRequests += 1; return json({ serviceVisit: visit }); }
+        if (url === "/api/inspection-jobs") return json({ jobs: [] });
+        if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
+        return new Response("", { status: 503 });
+      };
+      const root = ReactDom.createRoot(mount);
+      try {
+        root.render(React.createElement(App));
+        await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "role selection");
+        clickExact("Manager");
+        auth.resolve(json({ user: admin }));
+        await waitFor(() => mount.textContent.includes("Canvas Hose") && mount.textContent.includes("Download PDF"), "authoritative Final Report presentation");
+        clickExact("Back to Operations");
+        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title") && mount.textContent.includes("Operations") && mount.textContent.includes(visit.customer), "direct Operations navigation");
+        if (detailRequests !== 0 || calls.includes("/api/manager/service-visits/" + visit.id)) throw new Error("Final Report back navigated through manager-service-visit");
+
+        clickContaining(visit.customer);
+        await waitFor(() => window.location.hash === "#/manager-service-visit/" + visit.id && mount.querySelector("#manager-detail-title"), "Manager service-visit detail");
+        if (detailRequests !== 1) throw new Error("Manager detail did not load exactly once");
+        clickExact("Back to Operations");
+        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title"), "Manager detail back to Operations");
+        return { status: "PASS", calls, detailRequests };
+      } finally {
+        root.unmount();
+        globalThis.fetch = originalFetch;
+        await clearDatabase();
+      }
+    }
+    document.querySelector("#run").onclick = async () => {
+      try { result.textContent = JSON.stringify(await run(), null, 2); }
+      catch (error) { result.textContent = JSON.stringify({ status: "FAIL", error: String(error), route: window.location.hash, visibleText: mount.textContent }, null, 2); }
+    };
+  </script>
+</body></html>
