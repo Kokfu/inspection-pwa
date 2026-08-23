@@ -854,6 +854,16 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
 .report-summary, .report-section { padding: clamp(16px, 3vw, 22px); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 5px 18px rgb(24 52 67 / 4%); }
 .report-summary h3, .report-section h3 { margin-top: 0; color: #123e49; }
 .report-summary ul { margin-bottom: 0; }
+.manager-service-picker { display: grid; gap: 9px; min-width: 0; margin: 0; border: 0; padding: 0; }
+.manager-service-picker legend { margin-bottom: 2px; padding: 0; color: var(--ink); font-weight: 800; }
+.manager-service-option { display: flex; width: 100%; box-sizing: border-box; align-items: flex-start; gap: 12px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: #fbfcfd; cursor: pointer; }
+.manager-service-option:hover { border-color: #75a2a8; background: #f4f9f9; }
+.manager-service-option:has(input:disabled) { color: var(--muted); background: #f6f8f8; cursor: not-allowed; }
+.manager-service-option:focus-within { outline: 3px solid rgb(31 135 146 / 28%); outline-offset: 2px; }
+.manager-service-option input { flex: 0 0 auto; width: 20px; height: 20px; margin: 1px 0 0; }
+.manager-service-option-copy { display: grid; min-width: 0; gap: 3px; }
+.manager-service-option-copy strong { overflow-wrap: anywhere; }
+.manager-service-option-reason { color: var(--muted); font-size: .86rem; line-height: 1.35; }
 .report-section dl { display: grid; gap: 0; margin: 0; }
 .report-field { display: block; min-width: 0; padding: 12px 0; border-top: 1px solid #e3eaed; }
 .report-field dt { margin-bottom: 4px; color: var(--muted); font-size: .82rem; font-weight: 800; }

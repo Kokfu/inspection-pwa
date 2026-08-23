@@ -38,6 +38,27 @@ test("production seed preserves completed demo runtime state and rejects immutab
 
     assert.deepEqual(await listTechnicianInspectionJobs(pool), [], "normal technician listing excludes deterministic seed fixtures");
 
+    const operationalCustomers = await pool.query<{ customer_code: string; display_name: string; is_active: boolean }>(
+      "SELECT customer_code, display_name, is_active FROM customers WHERE customer_code IN ('MAK-SITI-PRODUCTS','HOKUDEN-MALAYSIA','DEMO-SINGLE-ZONE','DEMO-MULTI-ZONE') ORDER BY customer_code"
+    );
+    assert.deepEqual(operationalCustomers.rows, [
+      { customer_code: "DEMO-MULTI-ZONE", display_name: "Demo Multi-Zone Client", is_active: false },
+      { customer_code: "DEMO-SINGLE-ZONE", display_name: "Demo Single-Zone Client", is_active: false },
+      { customer_code: "HOKUDEN-MALAYSIA", display_name: "Hokuden (Malaysia) Sdn Bhd", is_active: true },
+      { customer_code: "MAK-SITI-PRODUCTS", display_name: "Mak Siti Products (M) Sdn Bhd", is_active: true }
+    ], "operational master data is seeded while the two named general fixtures stay inactive");
+    const hokuden = await pool.query<{ system_key: string; zone_count: string }>(`
+      SELECT enabled.system_key, count(zone.id)::text AS zone_count
+      FROM customer_enabled_systems enabled
+      INNER JOIN customer_configuration_revisions revision ON revision.id = enabled.configuration_revision_id
+      LEFT JOIN customer_system_zones zone ON zone.enabled_system_id = enabled.id
+      WHERE revision.customer_id = '00000000-0000-4000-8000-000000000840'
+      GROUP BY enabled.system_key ORDER BY enabled.system_key`);
+    assert.deepEqual(hokuden.rows, [
+      { system_key: "automatic_sprinkler", zone_count: "0" }, { system_key: "fire_alarm_detector", zone_count: "0" },
+      { system_key: "hose_reel", zone_count: "0" }, { system_key: "hydrant", zone_count: "0" }
+    ], "Hokuden activates only usable services and does not assign supplied zones to an unsupported system owner");
+
     await seedMasterServiceReport(pool);
     const untouched = await pool.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM inspection_jobs WHERE id = $1",

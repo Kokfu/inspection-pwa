@@ -18,12 +18,18 @@
       status: "open", systems: ["Hose Reel"], inspectionProgress: { accepted: 0, required: 1 },
       completion: { completedAt: null, completedBy: null }
     };
+    const customer = {
+      customer: { id: "c0000000-0000-4000-8000-000000000811", code: "CUSTOMER-811", displayName: "Visible Customer Configuration" },
+      sites: [{ id: "c0000000-0000-4000-8000-000000000812", code: "PRIMARY", displayName: "Visible Customer Site" }],
+      configuration: { id: "c0000000-0000-4000-8000-000000000813", revision: 1, enabledSystems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, zones: [], locations: [] }] },
+      supportedSystems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, assignable: true }]
+    };
     const mount = document.querySelector("#mount");
     const result = document.querySelector("#result");
     const waitFor = async (predicate, label) => {
-      for (let attempt = 0; attempt < 160; attempt += 1) {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
         if (predicate()) return;
-        await new Promise(resolve => setTimeout(resolve, 15));
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
       throw new Error(`Timed out waiting for ${label}; visible text: ${mount.textContent}`);
     };
@@ -39,6 +45,28 @@
       if (!button) throw new Error(`Missing actual App button: ${label}; visible text: ${mount.textContent}`);
       button.click();
     };
+    const fill = (input, value) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    async function openCustomerDetail() {
+      await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
+      click("Manager");
+      await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer");
+      const manage = [...mount.querySelectorAll("button")].find(button => button.textContent.includes("Manage configuration"));
+      if (!manage) throw new Error("Missing Manage configuration control");
+      manage.click();
+      await waitFor(() => mount.textContent.includes("Active revision 1") && mount.textContent.includes("Sites"), "customer detail");
+    }
+    async function triggerOnlineRevalidation(calls) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        window.dispatchEvent(new Event("online"));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (calls.filter((url) => url === "/api/auth/me").length >= 2) return;
+      }
+      throw new Error("Connectivity revalidation did not call /api/auth/me");
+    }
     async function clearDatabase() {
       await localDatabase.open();
       await localDatabase.transaction("rw", localDatabase.drafts, localDatabase.testRecords, localDatabase.inspectionRecords,
@@ -79,6 +107,7 @@
           const url = String(input); calls.push(url);
           if (url === "/api/auth/me") return json({ user });
           if (url === "/api/manager/service-visits") return json({ serviceVisits: visits });
+          if (url === "/api/manager/customers") return json({ customers: [customer] });
           if (url === "/api/inspection-jobs") return json({ jobs: [] });
           if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
           return new Response("", { status: 503 });
@@ -124,6 +153,7 @@
           const url = String(input); transport.calls.push(url);
           if (url === "/api/auth/me") return managerCalls > 1 ? new Response("", { status: 403 }) : json({ user: admin });
           if (url === "/api/manager/service-visits") return ++managerCalls === 1 ? json({ serviceVisits: [visit] }) : new Response("", { status: 403 });
+          if (url === "/api/manager/customers") return json({ customers: [customer] });
           if (url === "/api/inspection-jobs") return json({ jobs: [] });
           if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
           return new Response("", { status: 503 });
@@ -181,6 +211,61 @@
         click("Technician");
         await waitFor(() => mount.textContent.includes("My Service Jobs"), "offline Technician Home");
       }));
+      for (const status of [401, 403]) cases.push(await mountedCase(`Customer refresh ${status} fails closed`, async () => {
+        const calls = []; let customerCalls = 0; let authCalls = 0;
+        return { calls, get authCalls() { return authCalls; }, fetch: async input => { const url = String(input); calls.push(url); if (url === "/api/auth/me") { authCalls += 1; return json({ user: admin }); } if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return ++customerCalls === 1 ? json({ customers: [customer] }) : new Response("", { status }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async () => { await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection"); click("Manager"); await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer"); click("Refresh"); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "customer authority fail closed"); }));
+      for (const status of [401, 403]) cases.push(await mountedCase(`Add Customer ${status} fails closed`, async () => {
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input) === "/api/manager/customers" && init?.method === "POST" ? new Response("", { status }) : fetch(input, init); return transport;
+      }, async () => { await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection"); click("Manager"); await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer"); click("Add Customer"); await waitFor(() => mount.querySelectorAll("input").length === 3, "customer form"); const inputs = mount.querySelectorAll("input"); fill(inputs[0], "New Customer"); fill(inputs[1], "Primary"); inputs[2].click(); click("Create Customer"); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "create authority fail closed"); }));
+      for (const status of [401, 403]) cases.push(await mountedCase(`Save Activate ${status} fails closed`, async () => {
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input).includes("/configuration-revisions") && init?.method === "POST" ? new Response("", { status }) : String(input) === `/api/manager/customers/${customer.customer.id}` ? json({ customer }) : fetch(input, init); return transport;
+      }, async () => { await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection"); click("Manager"); await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer"); const manage = [...mount.querySelectorAll("button")].find(button => button.textContent.includes("Manage configuration")); if (!manage) throw new Error("Missing Manage configuration control"); manage.click(); await waitFor(() => mount.textContent.includes("Active revision 1"), "customer detail"); await waitFor(() => [...mount.querySelectorAll("button")].some(button => button.textContent.trim() === "Save & Activate" && !button.disabled), "enabled Save & Activate control"); const activate = [...mount.querySelectorAll("button")].find(button => button.textContent.trim() === "Save & Activate" && !button.disabled); if (!activate) throw new Error("Missing enabled Save & Activate control"); activate.click(); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes("Active revision 1"), "activate authority fail closed"); }));
+      for (const error of ["CUSTOMER_NAME_CONFLICT", "LOCATION_CONFIGURATION_REQUIRED"]) cases.push(await mountedCase(`${error} remains a domain error`, async () => {
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input) === "/api/manager/customers" && init?.method === "POST" ? new Response(JSON.stringify({ error, message: error }), { status: 409, headers: { "Content-Type": "application/json" } }) : fetch(input, init); return transport;
+      }, async () => { await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection"); click("Manager"); await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer"); click("Add Customer"); await waitFor(() => mount.querySelectorAll("input").length === 3, "customer form"); const inputs = mount.querySelectorAll("input"); fill(inputs[0], "Domain Customer"); inputs[2].click(); click("Create Customer"); await waitFor(() => mount.textContent.includes(error) && mount.textContent.includes(customer.customer.displayName), "local domain error"); }));
+      cases.push(await mountedCase("Customer 500 fails closed without revalidation", async () => {
+        const calls = []; let customerCalls = 0; let authCalls = 0;
+        return { calls, get authCalls() { return authCalls; }, fetch: async input => { const url = String(input); calls.push(url); if (url === "/api/auth/me") { authCalls += 1; return json({ user: admin }); } if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return ++customerCalls === 1 ? json({ customers: [customer] }) : new Response("", { status: 500 }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection"); click("Manager"); await waitFor(() => mount.textContent.includes(customer.customer.displayName), "loaded customer"); click("Refresh"); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "unavailable fail closed"); if (transport.authCalls !== 1) throw new Error("Unavailable customer error falsely revalidated authentication"); }));
+      cases.push(await mountedCase("Add Site refreshes customer detail", async () => {
+        const updatedCustomer = { ...customer, sites: [...customer.sites, { id: "c0000000-0000-4000-8000-000000000814", code: "SITE-00000003", displayName: "Miri Branch" }] };
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input).endsWith(`/customers/${customer.customer.id}/sites`) && init?.method === "POST" ? json({ customer: updatedCustomer }) : String(input) === `/api/manager/customers/${customer.customer.id}` ? json({ customer }) : fetch(input, init); return transport;
+      }, async () => { await openCustomerDetail(); click("+ Add Site"); await waitFor(() => mount.querySelector("input[required]") !== null, "site form"); fill(mount.querySelector("input[required]"), "Miri Branch"); const submit = [...mount.querySelectorAll("button")].find(button => button.textContent.trim() === "Add Site"); if (!submit) throw new Error("Missing Add Site submit"); submit.click(); await waitFor(() => mount.textContent.includes("Miri Branch") && mount.textContent.includes("Active revision 1"), "refreshed site detail"); }));
+      for (const status of [401, 403]) cases.push(await mountedCase(`Add Site ${status} fails closed`, async () => {
+        const calls = []; let authCalls = 0;
+        return { calls, get authCalls() { return authCalls; }, fetch: async (input, init) => { const url = String(input); calls.push(url); if (url === "/api/auth/me") { authCalls += 1; return json({ user: admin }); } if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return json({ customers: [customer] }); if (url === `/api/manager/customers/${customer.customer.id}`) return json({ customer }); if (url.endsWith(`/customers/${customer.customer.id}/sites`) && init?.method === "POST") return new Response("", { status }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await openCustomerDetail(); click("+ Add Site"); await waitFor(() => mount.querySelector("input[required]") !== null, "site form"); fill(mount.querySelector("input[required]"), "Denied Site"); const submit = [...mount.querySelectorAll("button")].find(button => button.textContent.trim() === "Add Site"); if (!submit) throw new Error("Missing Add Site submit"); submit.click(); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "site authority fail closed"); await waitFor(() => transport.authCalls >= 2, "site authorization revalidation"); }));
+      cases.push(await mountedCase("Add Site domain error remains local", async () => {
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input).endsWith(`/customers/${customer.customer.id}/sites`) && init?.method === "POST" ? new Response(JSON.stringify({ error: "SITE_NAME_CONFLICT", message: "SITE_NAME_CONFLICT" }), { status: 409, headers: { "Content-Type": "application/json" } }) : String(input) === `/api/manager/customers/${customer.customer.id}` ? json({ customer }) : fetch(input, init); return transport;
+      }, async () => { await openCustomerDetail(); click("+ Add Site"); await waitFor(() => mount.querySelector("input[required]") !== null, "site form"); fill(mount.querySelector("input[required]"), "Duplicate Site"); const submit = [...mount.querySelectorAll("button")].find(button => button.textContent.trim() === "Add Site"); if (!submit) throw new Error("Missing Add Site submit"); submit.click(); await waitFor(() => mount.textContent.includes("SITE_NAME_CONFLICT") && mount.textContent.includes(customer.customer.displayName), "local site domain error"); }));
+      cases.push(await mountedCase("Add Site 500 fails closed without revalidation", async () => {
+        const calls = []; let authCalls = 0;
+        return { calls, get authCalls() { return authCalls; }, fetch: async (input, init) => { const url = String(input); calls.push(url); if (url === "/api/auth/me") { authCalls += 1; return json({ user: admin }); } if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return json({ customers: [customer] }); if (url === `/api/manager/customers/${customer.customer.id}`) return json({ customer }); if (url.endsWith(`/customers/${customer.customer.id}/sites`) && init?.method === "POST") return new Response("", { status: 500 }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await openCustomerDetail(); click("+ Add Site"); await waitFor(() => mount.querySelector("input[required]") !== null, "site form"); fill(mount.querySelector("input[required]"), "Unavailable Site"); const submit = [...mount.querySelectorAll("button")].find(button => button.textContent.trim() === "Add Site"); if (!submit) throw new Error("Missing Add Site submit"); submit.click(); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "site unavailable fail closed"); if (transport.authCalls !== 1) throw new Error("Site unavailable error falsely revalidated authentication"); }));
+      cases.push(await mountedCase("Customer detail clears on logout", async () => {
+        const transport = authAndVisits(admin); const fetch = transport.fetch;
+        transport.fetch = async (input, init) => String(input) === "/api/auth/logout" ? new Response("", { status: 204 }) : String(input) === `/api/manager/customers/${customer.customer.id}` ? json({ customer }) : fetch(input, init); return transport;
+      }, async () => { await openCustomerDetail(); click("Sign out"); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName) && !mount.textContent.includes("Active revision 1") && !mount.textContent.includes("+ Add Site"), "logout customer invalidation"); }));
+      cases.push(await mountedCase("Logout and Manager relogin never flash old customers", async () => {
+        const fresh = { ...customer, customer: { ...customer.customer, displayName: "Fresh Manager Customer" } }; const customers = deferred();
+        const calls = []; let customerCalls = 0;
+        return { calls, customers, fresh, fetch: async (input, init) => { const url = String(input); calls.push(url); if (url === "/api/auth/me") return json({ user: admin }); if (url === "/api/auth/logout") return new Response("", { status: 401 }); if (url === "/api/auth/login" && init?.method === "POST") return json({ user: admin }); if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return ++customerCalls === 1 ? json({ customers: [customer] }) : customers.promise; if (url === `/api/manager/customers/${customer.customer.id}`) return json({ customer }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await openCustomerDetail(); click("Sign out"); await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(customer.customer.displayName), "completed logout state"); click("Manager"); await waitFor(() => mount.textContent.includes("Sign in to Operations"), "Manager login"); const inputs = mount.querySelectorAll("input"); fill(inputs[0], "manager-admin"); fill(inputs[1], "not-used"); click("Sign in"); await waitFor(() => transport.calls.filter((url) => url === "/api/manager/customers").length === 2, "new customer refresh"); if (mount.textContent.includes(customer.customer.displayName)) throw new Error("Old customer flashed during Manager relogin"); transport.customers.resolve(json({ customers: [transport.fresh] })); await waitFor(() => mount.textContent.includes(transport.fresh.customer.displayName), "fresh customer refresh"); }));
+      cases.push(await mountedCase("Manager identity replacement clears old customer authority", async () => {
+        const replacement = { id: 803, username: "replacement-manager", role: "admin" }; const fresh = { ...customer, customer: { ...customer.customer, displayName: "Replacement Manager Customer" } }; const refresh = deferred();
+        const calls = []; let authCalls = 0; let detailCalls = 0;
+        return { calls, refresh, fetch: async input => { const url = String(input); calls.push(url); if (url === "/api/auth/me") return json({ user: ++authCalls === 1 ? admin : replacement }); if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return json({ customers: [customer] }); if (url === `/api/manager/customers/${customer.customer.id}`) return ++detailCalls === 1 ? json({ customer }) : refresh.promise; if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await openCustomerDetail(); await waitFor(() => transport.calls.filter((url) => url === "/api/inspection-jobs").length >= 2, "initial authentication reconciliation"); await triggerOnlineRevalidation(transport.calls); await waitFor(() => transport.calls.filter((url) => url === "/api/auth/me").length === 2 && transport.calls.filter((url) => url === `/api/manager/customers/${customer.customer.id}`).length === 2 && !mount.textContent.includes(customer.customer.displayName), "identity replacement invalidation"); transport.refresh.resolve(json({ customer: { ...customer, customer: { ...customer.customer, displayName: "Replacement Manager Customer" } } })); await waitFor(() => mount.textContent.includes("Replacement Manager Customer"), "replacement Manager refresh"); }));
+      cases.push(await mountedCase("Inspector identity replacement clears Manager customer authority", async () => {
+        const calls = []; let authCalls = 0;
+        return { calls, fetch: async input => { const url = String(input); calls.push(url); if (url === "/api/auth/me") return json({ user: ++authCalls === 1 ? admin : inspector }); if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] }); if (url === "/api/manager/customers") return json({ customers: [customer] }); if (url === `/api/manager/customers/${customer.customer.id}`) return json({ customer }); if (url === "/api/inspection-jobs") return json({ jobs: [] }); if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null }); return new Response("", { status: 503 }); } };
+      }, async transport => { await openCustomerDetail(); await waitFor(() => transport.calls.filter((url) => url === "/api/inspection-jobs").length >= 2, "initial authentication reconciliation"); await triggerOnlineRevalidation(transport.calls); await waitFor(() => transport.calls.filter((url) => url === "/api/auth/me").length === 2 && mount.textContent.includes("field-inspector") && !mount.textContent.includes(customer.customer.displayName) && !mount.textContent.includes("+ Add Site"), "inspector replacement invalidation"); }));
       return cases;
     }
     document.querySelector("#run").onclick = async () => {

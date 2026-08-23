@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Pool } from "pg";
 import { pool } from "../db/pool.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
@@ -99,8 +100,8 @@ function assertVersionedCatalogRows(templates: TemplateRow[]) {
   }
 }
 
-async function loadCatalogTemplate(template: TemplateRow) {
-  const systemsResult = await pool.query<SystemRow>(
+async function loadCatalogTemplate(template: TemplateRow, database: Pick<Pool, "query">) {
+  const systemsResult = await database.query<SystemRow>(
     `
       SELECT
         system_key AS "key",
@@ -155,14 +156,15 @@ async function loadCatalogTemplate(template: TemplateRow) {
   };
 }
 
-export const inspectionReferenceRouter = Router();
+export function createInspectionReferenceRouter(database: Pick<Pool, "query"> = pool) {
+const inspectionReferenceRouter = Router();
 
 inspectionReferenceRouter.get(
   "/inspection-catalog",
   requireRole("admin", "inspector"),
   async (_request, response, next) => {
     try {
-      const templateResult = await pool.query<TemplateRow>(`
+      const templateResult = await database.query<TemplateRow>(`
         SELECT
           id,
           code,
@@ -184,7 +186,7 @@ inspectionReferenceRouter.get(
         return;
       }
 
-      const templates = await Promise.all(templateResult.rows.map(loadCatalogTemplate));
+      const templates = await Promise.all(templateResult.rows.map((template) => loadCatalogTemplate(template, database)));
 
       response.json({
         template: templates.find((candidate) => candidate.version === 1),
@@ -201,7 +203,7 @@ inspectionReferenceRouter.get(
   requireRole("admin", "inspector"),
   async (_request, response, next) => {
     try {
-      const result = await pool.query<CustomerRow>(`
+      const result = await database.query<CustomerRow>(`
         SELECT
           id,
           customer_code AS "code",
@@ -228,7 +230,7 @@ inspectionReferenceRouter.get(
         response.status(400).json({ error: "INVALID_CUSTOMER_ID" });
         return;
       }
-      const result = await pool.query<SiteRow>(`
+      const result = await database.query<SiteRow>(`
         SELECT id, customer_id AS "customerId", site_code AS code, display_name AS "displayName"
         FROM customer_sites WHERE customer_id = $1 AND is_active = true
         ORDER BY display_name, id`, [customerId]);
@@ -248,7 +250,7 @@ inspectionReferenceRouter.get(
         return;
       }
 
-      const customerResult = await pool.query<CustomerRow>(
+      const customerResult = await database.query<CustomerRow>(
         `
           SELECT
             id,
@@ -267,7 +269,7 @@ inspectionReferenceRouter.get(
         return;
       }
 
-      const configurationResult = await pool.query<ConfigurationRow>(
+      const configurationResult = await database.query<ConfigurationRow>(
         `
           SELECT
             revision.id AS "configurationId",
@@ -292,7 +294,7 @@ inspectionReferenceRouter.get(
         return;
       }
 
-      const enabledResult = await pool.query<EnabledSystemRow>(
+      const enabledResult = await database.query<EnabledSystemRow>(
         `
           SELECT
             enabled.id,
@@ -324,7 +326,7 @@ inspectionReferenceRouter.get(
 
       const zonesResult = enabledIds.length === 0
         ? { rows: [] as ZoneRow[] }
-        : await pool.query<ZoneRow>(
+        : await database.query<ZoneRow>(
             `
               SELECT
                 id,
@@ -340,7 +342,7 @@ inspectionReferenceRouter.get(
           );
       const locationsResult = enabledIds.length === 0
         ? { rows: [] as LocationRow[] }
-        : await pool.query<LocationRow>(
+        : await database.query<LocationRow>(
             `
               SELECT
                 id,
@@ -358,11 +360,23 @@ inspectionReferenceRouter.get(
             [enabledIds]
           );
 
+      // Location-dependent forms are unusable without a complete retained
+      // zone/location authority. Do not advertise malformed legacy data to a
+      // technician merely because it was once present in a configuration.
+      const usableEnabledSystems = enabledResult.rows.filter((system) => {
+        if (system.key !== "co2_fire_extinguisher" && system.key !== "wet_chemical") return true;
+        const zoneIds = new Set(
+          zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id).map((zone) => zone.id)
+        );
+        const locations = locationsResult.rows.filter((location) => location.enabledSystemId === system.id);
+        return locations.length > 0 && locations.every((location) => location.zoneId !== null && zoneIds.has(location.zoneId));
+      });
+
       response.json({
         customer,
         configuration: {
           ...configuration,
-          enabledSystems: enabledResult.rows.map((system) => {
+          enabledSystems: usableEnabledSystems.map((system) => {
             const { evidencePolicy, systemConfiguration: storedSystemConfiguration, ...baseSystem } = system;
             const systemConfiguration = system.key === "dry_wet_riser"
               ? parseDryWetRiserSystemConfiguration(storedSystemConfiguration)
@@ -387,3 +401,7 @@ inspectionReferenceRouter.get(
     }
   }
 );
+return inspectionReferenceRouter;
+}
+
+export const inspectionReferenceRouter = createInspectionReferenceRouter();

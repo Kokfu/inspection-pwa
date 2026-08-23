@@ -11,6 +11,7 @@ import { inspectionJobsRouter } from "./routes/inspectionJobs.js";
 import { inspectionAttachmentsRouter } from "./routes/inspectionAttachments.js";
 import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
 import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
+import { managerCustomersRouter } from "./routes/managerCustomers.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -29,6 +30,7 @@ app.use(inspectionsRouter);
 app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
 app.use(managerServiceVisitsRouter);
+app.use(managerCustomersRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);
 
@@ -52,6 +54,10 @@ app.use(
       return;
     }
 
+    if (error instanceof Error && "status" in error && typeof error.status === "number" && "code" in error && typeof error.code === "string") {
+      response.status(error.status).json({ error: error.code, message: error.message });
+      return;
+    }
     console.error(error);
     response.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
   }

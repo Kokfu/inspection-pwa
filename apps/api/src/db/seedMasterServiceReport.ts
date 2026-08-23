@@ -51,6 +51,12 @@ const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
 const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
 const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
 const demoPortableJobId = "00000000-0000-4000-8000-000000000759";
+const makSitiCustomerId = "00000000-0000-4000-8000-000000000830";
+const makSitiRevisionId = "00000000-0000-4000-8000-000000000831";
+const makSitiSiteId = "00000000-0000-4000-8000-000000000832";
+const hokudenCustomerId = "00000000-0000-4000-8000-000000000840";
+const hokudenRevisionId = "00000000-0000-4000-8000-000000000841";
+const hokudenSiteId = "00000000-0000-4000-8000-000000000842";
 const deterministicRegressionFixtureJobIds = [
   "00000000-0000-4000-8000-000000000580",
   "00000000-0000-4000-8000-000000000590",
@@ -437,17 +443,21 @@ export async function assertDryWetRiserFixture(client: PoolClient, snapshot: unk
 
 async function seedCustomer(
   client: PoolClient,
-  customer: { id: string; code: string; name: string; revisionId: string },
+  customer: { id: string; code: string; name: string; revisionId: string; isActive?: boolean },
   templateVersionId: string = masterServiceReportV1.id
 ) {
+  const isActive = customer.isActive ?? true;
   await insertFixture(`Demo customer ${customer.code}`, client.query(
     `
-      INSERT INTO customers (id, customer_code, display_name, is_demo)
-      VALUES ($1, $2, $3, true)
+      INSERT INTO customers (id, customer_code, display_name, is_demo, is_active)
+      VALUES ($1, $2, $3, true, $4)
       ON CONFLICT (id) DO NOTHING
     `,
-    [customer.id, customer.code, customer.name]
+    [customer.id, customer.code, customer.name, isActive]
   ));
+  // The two original general fixtures must never return to ordinary customer
+  // selection after an API restart, even when upgrading an existing database.
+  if (!isActive) await client.query("UPDATE customers SET is_active = false WHERE id = $1", [customer.id]);
   const storedCustomer = await client.query<Record<string, unknown>>(
     `SELECT id, customer_code AS code, display_name AS name, is_demo AS "isDemo", is_active AS "isActive"
        FROM customers WHERE id = $1`,
@@ -458,7 +468,7 @@ async function seedCustomer(
     code: customer.code,
     name: customer.name,
     isDemo: true,
-    isActive: true
+    isActive
   });
   await insertFixture(`Demo configuration revision ${customer.revisionId}`, client.query(
     `
@@ -834,13 +844,15 @@ async function seedDemoConfigurations(client: PoolClient) {
     id: demoSingleCustomerId,
     code: "DEMO-SINGLE-ZONE",
     name: "Demo Single-Zone Client",
-    revisionId: demoSingleRevisionId
+    revisionId: demoSingleRevisionId,
+    isActive: false
   });
   await seedCustomer(client, {
     id: demoMultiCustomerId,
     code: "DEMO-MULTI-ZONE",
     name: "Demo Multi-Zone Client",
-    revisionId: demoMultiRevisionId
+    revisionId: demoMultiRevisionId,
+    isActive: false
   });
   await seedCustomer(client, demoCo2Customer);
   await seedCustomer(client, demoSprinklerCustomer);
@@ -977,6 +989,47 @@ async function seedDemoConfigurations(client: PoolClient) {
     sortOrder: 1
   });
   await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
+}
+
+async function seedOperationalCustomer(
+  client: PoolClient,
+  customer: { id: string; code: string; name: string; revisionId: string; siteId: string },
+  systems: readonly string[],
+  zones: readonly { enabledSystemIndex: number; id: string; key: string; name: string; sortOrder: number }[] = []
+) {
+  const existing = await client.query<{ id: string }>("SELECT id FROM customers WHERE id = $1", [customer.id]);
+  // Operational seed data bootstraps a new environment only. Once this
+  // customer exists, configuration ownership belongs to Manager revisions.
+  if (existing.rows[0]) return;
+  await insertFixture(`Operational customer ${customer.code}`, client.query(
+    `INSERT INTO customers (id, customer_code, display_name, is_demo, is_active)
+     VALUES ($1,$2,$3,false,true) ON CONFLICT (id) DO NOTHING`, [customer.id, customer.code, customer.name]
+  ));
+  const stored = await client.query<Record<string, unknown>>(`SELECT id, customer_code AS code, display_name AS name, is_demo AS "isDemo", is_active AS "isActive" FROM customers WHERE id=$1`, [customer.id]);
+  assertFixtureFields(`Operational customer ${customer.code}`, stored.rows[0], { id: customer.id, code: customer.code, name: customer.name, isDemo: false, isActive: true });
+  await insertFixture(`Operational configuration ${customer.code}`, client.query(
+    `INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status)
+     VALUES ($1,$2,$3,1,'active') ON CONFLICT (id) DO NOTHING`, [customer.revisionId, customer.id, masterServiceReportV5.id]
+  ));
+  await seedSite(client, { id: customer.siteId, customerId: customer.id, code: "PRIMARY", name: "Primary Service Site" });
+  const enabledIds: string[] = [];
+  for (const [index, key] of systems.entries()) {
+    const id = `00000000-0000-4000-8000-000000000${customer.id.endsWith("830") ? 833 + index : 843 + index}`;
+    enabledIds.push(id);
+    await seedEnabledSystem(client, id, customer.revisionId, key, index + 1, null, masterServiceReportV5.id);
+  }
+  for (const zone of zones) await seedZone(client, zone.id, enabledIds[zone.enabledSystemIndex]!, zone.key, zone.name, zone.sortOrder);
+}
+
+async function seedOperationalConfigurations(client: PoolClient) {
+  await seedOperationalCustomer(client, {
+    id: makSitiCustomerId, code: "MAK-SITI-PRODUCTS", name: "Mak Siti Products (M) Sdn Bhd",
+    revisionId: makSitiRevisionId, siteId: makSitiSiteId
+  }, ["hose_reel", "fire_alarm_detector", "portable_fire_extinguisher"]);
+  await seedOperationalCustomer(client, {
+    id: hokudenCustomerId, code: "HOKUDEN-MALAYSIA", name: "Hokuden (Malaysia) Sdn Bhd",
+    revisionId: hokudenRevisionId, siteId: hokudenSiteId
+  }, ["automatic_sprinkler", "hose_reel", "fire_alarm_detector", "hydrant"]);
 }
 
 async function seedSite(
@@ -1540,6 +1593,7 @@ export async function seedMasterServiceReport(pool: Pool) {
     await assertExistingSprinklerFixtureBeforeSeed(client);
     await assertExistingPhotoSprinklerFixtureBeforeSeed(client);
     await seedDemoConfigurations(client);
+    await seedOperationalConfigurations(client);
     await seedDemoJobs(client);
     await convergeDeterministicRegressionFixtureVisibility(client);
     await client.query("COMMIT");

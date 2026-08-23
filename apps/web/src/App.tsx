@@ -75,7 +75,8 @@ import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRe
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerHome } from "./manager/ManagerHome";
-import { ManagerApiError, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerServiceVisit } from "./manager/managerApi";
+import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
+import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { productRoleMatches } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
@@ -150,6 +151,7 @@ type AppRoute =
   | { name: "job"; jobId: string }
   | { name: "final-report"; jobId: string }
   | { name: "manager-home" }
+  | { name: "manager-customer"; customerId: string }
   | { name: "manager-service-visit"; jobId: string }
   | { name: "manager-final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
@@ -167,6 +169,7 @@ function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "manager") return { name: "manager-home" };
+  if (parts[0] === "manager-customer" && parts[1]) return { name: "manager-customer", customerId: parts[1] };
   if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
   if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
   if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
@@ -187,6 +190,7 @@ function routeFromHash(): AppRoute {
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "manager-home") return "#/manager";
+  if (route.name === "manager-customer") return `#/manager-customer/${encodeURIComponent(route.customerId)}`;
   if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
   if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "new-service-visit") return "#/new-service-visit";
@@ -222,6 +226,8 @@ export function App() {
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
+  const [managerCustomers, setManagerCustomers] = useState<ManagerCustomer[]>([]);
+  const [managerCustomer, setManagerCustomer] = useState<ManagerCustomer>();
   const [managerLoading, setManagerLoading] = useState(false);
   const [managerMessage, setManagerMessage] = useState("");
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
@@ -363,6 +369,8 @@ export function App() {
     managerRequestGuard.current.invalidate();
     setManagerVisits([]);
     setManagerVisit(undefined);
+    setManagerCustomers([]);
+    setManagerCustomer(undefined);
     setManagerLoading(false);
     setManagerMessage("");
     clearServerSummaryAuthority(progressState);
@@ -842,8 +850,14 @@ export function App() {
     managerRequestGuard.current.invalidate();
     setManagerVisits([]);
     setManagerVisit(undefined);
+    setManagerCustomers([]);
+    setManagerCustomer(undefined);
     setManagerLoading(false);
     setManagerMessage(message);
+    // Server-derived Manager views are unusable when their authority cannot
+    // be refreshed. This does not alter verified session state by itself.
+    setSelectedExperience(undefined);
+    setRoleMessage(message);
     if (revalidate) void revalidateAuthentication();
   }
 
@@ -851,13 +865,17 @@ export function App() {
     const message = error instanceof ManagerApiError
       ? error.message
       : "Manager Operations cannot be verified or refreshed right now.";
+    if (error instanceof ManagerApiError && error.kind === "domain") {
+      setManagerMessage(message);
+      return;
+    }
     if (error instanceof ManagerApiError && error.kind === "authorization") {
       // A protected Manager endpoint rejected the session. Do not retain a
       // selected Manager presentation while the authoritative session check runs.
       setSelectedExperience(undefined);
       setRoleMessage(message);
     }
-    failClosedManagerOperations(message);
+    failClosedManagerOperations(message, error instanceof ManagerApiError && error.kind === "authorization");
   }
 
   function handleManagerReportAuthorizationFailure(message: string) {
@@ -887,9 +905,10 @@ export function App() {
     setManagerLoading(true);
     setManagerMessage("");
     try {
-      const visits = await loadManagerServiceVisits(request.signal);
+      const [visits, customers] = await Promise.all([loadManagerServiceVisits(request.signal), loadManagerCustomers(request.signal)]);
       if (!managerRequestIsCurrent(request)) return;
       setManagerVisits(visits);
+      setManagerCustomers(customers);
     } catch (error) {
       if (!managerRequestIsCurrent(request)) return;
       handleManagerRequestFailure(error);
@@ -901,9 +920,10 @@ export function App() {
   useEffect(() => {
     if (!managerExperience) {
       setManagerVisit(undefined);
+      setManagerCustomer(undefined);
       return;
     }
-    if (route.name !== "manager-service-visit" && route.name !== "manager-final-report") void refreshManagerVisits();
+    if (route.name !== "manager-service-visit" && route.name !== "manager-final-report" && route.name !== "manager-customer") void refreshManagerVisits();
     if (route.name === "manager-service-visit") {
       const request = beginManagerRequest();
       setManagerVisit(undefined);
@@ -915,6 +935,13 @@ export function App() {
           if (!managerRequestIsCurrent(request)) return;
           handleManagerRequestFailure(error);
         }
+      ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
+    }
+    if (route.name === "manager-customer") {
+      const request = beginManagerRequest(); setManagerCustomer(undefined); setManagerLoading(true); setManagerMessage("");
+      void loadManagerCustomer(route.customerId, request.signal).then(
+        (customer) => { if (managerRequestIsCurrent(request)) setManagerCustomer(customer); },
+        (error: unknown) => { if (managerRequestIsCurrent(request)) handleManagerRequestFailure(error); }
       ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
     }
   }, [managerExperience, route]);
@@ -1636,8 +1663,10 @@ export function App() {
       ) : managerExperience ? (
         route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-home" })} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
+        ) : route.name === "manager-customer" && managerCustomer ? (
+          <ManagerCustomerConfigurationDetail customer={managerCustomer} onBack={() => navigate({ name: "manager-home" })} onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }} onAuthorityFailure={handleManagerRequestFailure} />
         ) : (
-          <ManagerHome
+          <><ManagerHome
             visits={managerVisits}
             loading={managerLoading}
             message={managerMessage}
@@ -1653,7 +1682,7 @@ export function App() {
                 handleManagerReportDownloadFailure(error);
               }
             }}
-          />
+          /><ManagerCustomerConfiguration customers={managerCustomers} loading={managerLoading} message={managerMessage} onRefresh={refreshManagerVisits} onManage={(customer) => navigate({ name: "manager-customer", customerId: customer.customer.id })} onAuthorityFailure={handleManagerRequestFailure} /></>
         )
       ) : null}
     </main>

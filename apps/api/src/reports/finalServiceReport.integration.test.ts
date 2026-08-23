@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import express from "express";
+import { once } from "node:events";
+import type { Server } from "node:http";
 import pg from "pg";
 import { runMigrations } from "../db/migrations.js";
 import { FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf } from "./finalServiceReport.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { createManagerCustomersRouter, ManagerCustomerError } from "../routes/managerCustomers.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const seedCo2JobId = "00000000-0000-4000-8000-000000000679";
 const reportJobId = "f2000000-0000-4000-8000-000000000001";
 const inspectionId = "f2000000-0000-4000-8000-000000000002";
+
+async function close(server: Server) {
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
 
 /** Exercises the production report SQL against PostgreSQL, never a runtime/customer database. */
 test("PostgreSQL final-report service accepts completed frozen CO2 history and fails closed", {
@@ -77,6 +85,33 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
     assert.ok(report.sections.every((section) => section.location?.zoneLabel && section.location.locationLabel));
     const pdf = await renderFinalServiceReportPdf(report);
     assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
+
+    const frozenRevision = job.customer_configuration_revision_id as string;
+    const frozenSnapshot = JSON.stringify(job.configuration_snapshot);
+    await pool.query("UPDATE customers SET is_demo=false WHERE id=$1", [job.customer_id]);
+    const managerApp = express(); managerApp.use(express.json());
+    managerApp.use((request, _response, next) => { request.currentUser = { id: userId, username: "report-manager", role: "admin" }; next(); });
+    managerApp.use(createManagerCustomersRouter(pool));
+    managerApp.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+      if (error instanceof ManagerCustomerError) response.status(error.status).json({ error: error.code });
+      else response.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
+    });
+    const managerServer = managerApp.listen(0, "127.0.0.1"); await once(managerServer, "listening");
+    try {
+      const address = managerServer.address() as { port: number };
+      const activation = await fetch(`http://127.0.0.1:${address.port}/manager/customers/${job.customer_id}/configuration-revisions`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemKeys: ["co2_fire_extinguisher", "automatic_sprinkler"] })
+      });
+      assert.equal(activation.status, 201, "actual Manager activation produces N+1");
+    } finally { await close(managerServer); }
+    const activeRevision = await pool.query<{ id: string }>("SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'", [job.customer_id]);
+    assert.notEqual(activeRevision.rows[0]?.id, frozenRevision, "Manager activation replaced the active configuration");
+    const frozenJobAfterActivation = await pool.query<{ revision: string; snapshot: unknown }>("SELECT customer_configuration_revision_id::text AS revision, configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1", [reportJobId]);
+    assert.equal(frozenJobAfterActivation.rows[0]?.revision, frozenRevision, "completed report job remains bound to N");
+    assert.equal(JSON.stringify(frozenJobAfterActivation.rows[0]?.snapshot), frozenSnapshot, "completed report job snapshot remains frozen at N");
+    const reportAfterActivation = await loadFinalServiceReport(reportJobId, pool);
+    assert.deepEqual(reportAfterActivation.systems, report.systems, "final report continues to render N after Manager activates N+1");
+    assert.deepEqual(reportAfterActivation.sections, report.sections, "final report section authority remains at N");
 
     for (const [jobId, groupId, identityBase, variation] of [
       ["f2000000-0000-4000-8000-000000000011", "f2000000-0000-4000-8000-000000000012", 300, "missing"],
