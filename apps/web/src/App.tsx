@@ -72,6 +72,7 @@ import {
   type ClientAuthState
 } from "./auth/authStateTypes";
 import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRestoration";
+import { ConnectivityRecovery } from "./auth/connectivityRecovery";
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerHome } from "./manager/ManagerHome";
@@ -225,6 +226,7 @@ export function App() {
   const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
   const [initialAuthRestored, setInitialAuthRestored] = useState(false);
   const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
+  const [connectivityRecoveryActive, setConnectivityRecoveryActive] = useState(false);
   const [selectedExperience, setSelectedExperience] = useState<ProductRole>();
   const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
@@ -330,6 +332,7 @@ export function App() {
   const authRestorationReady = useRef(false);
   const activeExplicitAuthOperation = useRef<number | undefined>(undefined);
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
+  const connectivityRecovery = useRef(new ConnectivityRecovery(setConnectivityRecoveryActive));
   const authAuthorityGuard = useRef(new AuthAuthorityGuard());
   const serverSummaryRefreshGuard = useRef(new ServerSummaryRefreshGuard());
   const serverSummaryJobContext = useRef("");
@@ -344,6 +347,7 @@ export function App() {
   }
 
   function beginExplicitAuthOperation() {
+    connectivityRecovery.current.cancel();
     authOperationGeneration.current += 1;
     authReconciliationGeneration.current += 1;
     const operation = authOperationGeneration.current;
@@ -574,14 +578,14 @@ export function App() {
     return isCurrentAuthOperation(operation) ? "resolved" as const : "stale" as const;
   }
 
-  async function reconcileAuthentication() {
-    if (activeExplicitAuthOperation.current !== undefined) return;
+  async function reconcileAuthentication(): Promise<"verified" | "offline-unverified" | "online-unavailable" | "logged-out" | undefined> {
+    if (activeExplicitAuthOperation.current !== undefined) return undefined;
     const operation = authOperationGeneration.current;
     const reconciliation = ++authReconciliationGeneration.current;
     const isCurrentReconciliation = () => isCurrentAuthOperation(operation)
       && authReconciliationGeneration.current === reconciliation;
     const deviceState = await getDeviceAuthState();
-    if (!isCurrentReconciliation()) return;
+    if (!isCurrentReconciliation()) return undefined;
 
     if (deviceState?.serverLogoutPending) {
       setJobs([]);
@@ -591,20 +595,20 @@ export function App() {
         message: "Signed out locally. Completing server logout when available."
       });
       const logoutResult = await resolvePendingServerLogout(operation);
-      if (!isCurrentReconciliation()) return;
+      if (!isCurrentReconciliation()) return undefined;
       setAuthState({
         status: "logged-out",
         message: logoutResult === "unavailable"
           ? "Signed out locally. Server logout will complete after reconnecting."
           : "Signed out. Sign in to prepare offline work."
       });
-      return;
+      return "logged-out";
     }
 
     const cachedIdentity = identityFromDeviceState(deviceState);
     if (cachedIdentity && !authAuthorityGuard.current.hasAuthority) {
       await loadCachedJobs(cachedIdentity.user.id, operation, undefined, isCurrentReconciliation);
-      if (!isCurrentReconciliation()) return;
+      if (!isCurrentReconciliation()) return undefined;
       setAuthState({
         status: "verifying",
         user: cachedIdentity.user,
@@ -614,24 +618,24 @@ export function App() {
     }
 
     const probe = await getCurrentUser();
-    if (!isCurrentReconciliation()) return;
+    if (!isCurrentReconciliation()) return undefined;
     const decision = decideAuthRestoration(cachedIdentity, probe);
     if (decision.kind === "verified") {
       const authorityReplacement = prepareVerifiedAuthority(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
-      if (!isCurrentReconciliation()) return;
+      if (!isCurrentReconciliation()) return undefined;
       installVerifiedAuthority(decision.user, authorityReplacement);
       setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
-      if (!isCurrentReconciliation()) return;
+      if (!isCurrentReconciliation()) return undefined;
       await refreshServerWorkspace(decision.user, operation);
-      return;
+      return decision.kind;
     }
 
     if (decision.kind === "logged-out") {
       revokeVerifiedAuthority();
       if (decision.clearIdentity) await clearLocalIdentity();
-      if (!isCurrentReconciliation()) return;
+      if (!isCurrentReconciliation()) return undefined;
       setJobs([]);
       setAuthState({
         status: "logged-out",
@@ -639,7 +643,7 @@ export function App() {
           ? "Sign in required before server actions"
           : "Server unavailable. Sign in online once to prepare offline technician access."
       });
-      return;
+      return decision.kind;
     }
 
     if (decision.kind === "online-unavailable") {
@@ -651,7 +655,7 @@ export function App() {
         message: "Server session verification is unavailable."
       });
       setJobMessage("Server session verification is unavailable; cached local inspection authority remains protected.");
-      return;
+      return decision.kind;
     }
 
     if (decision.kind === "offline-unverified") {
@@ -662,7 +666,7 @@ export function App() {
         lastVerifiedAt: decision.identity.lastVerifiedAt
       });
       setJobMessage("Using jobs saved on this device while the service is unavailable.");
-      return;
+      return decision.kind;
     }
   }
 
@@ -673,17 +677,31 @@ export function App() {
   }
 
   async function revalidateAuthentication() {
+    connectivityRecovery.current.cancel();
     beginServerVerification();
-    await reconcileAuthentication();
+    return reconcileAuthentication();
+  }
+
+  async function revalidateForConnectivityRecovery() {
+    beginServerVerification();
+    return (await reconcileAuthentication()) === "offline-unverified";
+  }
+
+  function beginOnlineConnectivityRecovery() {
+    connectivityRecovery.current.start(revalidateForConnectivityRecovery);
   }
 
   useEffect(() => {
-    const handleConnectivityHint = () => {
-      if (authRestorationReady.current) void revalidateAuthentication();
+    const handleOffline = () => {
+      connectivityRecovery.current.cancel();
+      if (authRestorationReady.current) void revalidateForConnectivityRecovery();
+    };
+    const handleOnline = () => {
+      if (authRestorationReady.current) beginOnlineConnectivityRecovery();
     };
     const handleHashChange = () => setRoute(routeFromHash());
-    window.addEventListener("offline", handleConnectivityHint);
-    window.addEventListener("online", handleConnectivityHint);
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
     window.addEventListener("hashchange", handleHashChange);
     void initializeLocalDatabase().then(async () => {
       const recovered = await recoverInterruptedSync();
@@ -706,8 +724,9 @@ export function App() {
 
     return () => {
       authRestorationReady.current = false;
-      window.removeEventListener("offline", handleConnectivityHint);
-      window.removeEventListener("online", handleConnectivityHint);
+      connectivityRecovery.current.cancel();
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
       window.removeEventListener("hashchange", handleHashChange);
     };
   }, []);
@@ -1372,6 +1391,16 @@ export function App() {
     : undefined;
   const selectedSystemKey = route.name === "system" ? route.systemKey : undefined;
   const authenticated = authState.status === "verified" || authState.status === "offline-unverified";
+  const headerUser = authState.status === "verified" || authState.status === "offline-unverified" || authState.status === "verifying" || authState.status === "online-unavailable"
+    ? authState.user
+    : undefined;
+  const connectionState = authState.status === "verified"
+    ? { className: "online", label: "Online" }
+    : authState.status === "online-unavailable"
+      ? { className: "unavailable", label: "Server unavailable" }
+      : authState.status === "verifying" || connectivityRecoveryActive
+        ? { className: "reconnecting", label: "Reconnecting" }
+        : { className: "offline", label: "Offline" };
   const inspectionStatuses = [
     ...inspections.map((record) => record.syncStatus),
     ...masterSystemInspections.map((record) => record.syncStatus),
@@ -1402,15 +1431,15 @@ export function App() {
             <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Build {APP_BUILD_ID}</span>
           </div>
         </div>
-        {authenticated ? <div className="header-utilities">
+        {headerUser ? <div className="header-utilities">
           <div className="connection-summary" aria-live="polite">
-            <span className={`connection-state connection-state--${authState.status === "verified" ? "online" : "offline"}`}>
-              <i aria-hidden="true" />{authState.status === "verified" ? "Online" : "Offline"}
+            <span className={`connection-state connection-state--${connectionState.className}`}>
+              <i aria-hidden="true" />{connectionState.label}
             </span>
             <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
           </div>
           <div className="app-account">
-            <span className="app-account-name">{authState.user.username}</span>
+            <span className="app-account-name">{headerUser.username}</span>
             {route.name === "development" ? <button type="button" onClick={() => navigate({ name: "jobs" })}>Service Jobs</button> : null}
             {authState.status === "offline-unverified" ? <button type="button" onClick={() => void revalidateAuthentication()}>Reconnect</button> : null}
             <button type="button" onClick={() => void handleLogout()}>Sign out</button>
@@ -1432,11 +1461,11 @@ export function App() {
         </section>
       ) : authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
         <section className="login-view workspace">
-          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
+          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={async () => { await revalidateAuthentication(); }} />
         </section>
       ) : shouldRenderLogin(authState) ? (
         <section className="login-view workspace" aria-label="Server sign-in">
-          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={revalidateAuthentication} />
+          <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={async () => { await revalidateAuthentication(); }} />
           <LoginForm roleLabel={selectedExperience === "manager" ? "Manager" : "Technician"} onLogin={handleLogin} />
         </section>
       ) : null}

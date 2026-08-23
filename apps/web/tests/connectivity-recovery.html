@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <button id="run" type="button">Run connectivity recovery scenario</button>
+    <pre id="result">Ready</pre>
+    <div id="mount"></div>
+    <script type="module">
+      import * as React from "react";
+      import * as ReactDom from "react-dom/client";
+      import { App } from "/src/App.tsx";
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+      import { submitLocal } from "/src/records/testRecordRepository.ts";
+
+      const scenario = new URLSearchParams(location.search).get("scenario") || "basic";
+      const user = { id: 860, username: "connectivity-inspector", role: "inspector" };
+      const mount = document.querySelector("#mount");
+      const result = document.querySelector("#result");
+      const waitFor = async (predicate, label, attempts = 240) => {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          if (predicate()) return;
+          await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        throw new Error(`Timed out waiting for ${label}; visible text: ${mount.textContent}`);
+      };
+      const response = (body, status = 200) => new Response(JSON.stringify(body), {
+        status, headers: { "Content-Type": "application/json" }
+      });
+      const connection = () => mount.querySelector(".connection-state")?.textContent?.trim();
+      const clickSignOut = () => {
+        const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === "Sign out");
+        if (!button) throw new Error("Missing Sign out control");
+        button.click();
+      };
+
+      async function run() {
+        await localDatabase.open();
+        await storeVerifiedIdentity(user);
+        let pendingFixture;
+        if (scenario === "outbox") {
+          pendingFixture = await submitLocal({ title: "Connectivity Pending", notes: "Must remain pending", createdAt: "2026-08-24" });
+        }
+
+        const plans = {
+          basic: ["success", "transport", "success"],
+          retry: ["success", "transport", "transport", "success"],
+          bounded: ["success", "transport", "transport", "transport", "transport", "transport"],
+          cancel: ["success", "transport", "transport", "transport"],
+          unmount: ["success", "transport", "transport"],
+          authorization: ["success", "transport", "unauthorized"],
+          unavailable: ["success", "unavailable"],
+          malformed: ["success", "malformed"],
+          outbox: ["success", "transport", "transport", "success"],
+          race: ["success", "transport", "transport", "deferred"]
+        }[scenario];
+        if (!plans) throw new Error(`Unknown scenario: ${scenario}`);
+
+        let authCalls = 0;
+        let syncCalls = 0;
+        let attachmentCalls = 0;
+        let releaseDeferred;
+        const deferredAuth = new Promise(resolve => { releaseDeferred = resolve; });
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (input, init) => {
+          const url = String(input);
+          if (url === "/api/auth/me") {
+            const next = plans[authCalls++];
+            if (next === "transport") throw new TypeError("transport unavailable");
+            if (next === "unauthorized") return new Response("", { status: 401 });
+            if (next === "unavailable") return new Response("", { status: 503 });
+            if (next === "malformed") return response({ unexpected: true });
+            if (next === "deferred") return deferredAuth;
+            return response({ user });
+          }
+          if (url === "/api/auth/logout") return new Response("", { status: 204 });
+          if (url === "/api/sync") { syncCalls += 1; return response({ acceptedIds: [], duplicateIds: [], failed: [] }); }
+          if (url.includes("attachments")) attachmentCalls += 1;
+          if (url === "/api/inspection-jobs") return response({ jobs: [] });
+          return new Response("", { status: 503 });
+        };
+
+        const root = ReactDom.createRoot(mount);
+        root.render(React.createElement(App));
+        try {
+          await waitFor(() => connection() === "Online", "initial verified header");
+          await new Promise(resolve => setTimeout(resolve, 75));
+
+          if (scenario === "unavailable" || scenario === "malformed") {
+            window.dispatchEvent(new Event("online"));
+            await waitFor(() => connection() === "Server unavailable", "server unavailable header");
+            await new Promise(resolve => setTimeout(resolve, 500));
+            return { authCalls, syncCalls, attachmentCalls, pass: authCalls === 2 && connection() === "Server unavailable" };
+          }
+
+          window.dispatchEvent(new Event("offline"));
+          await waitFor(() => connection() === "Offline", "offline header");
+
+          window.dispatchEvent(new Event("online"));
+          if (scenario === "basic") {
+            await waitFor(() => connection() === "Online", "online header");
+            return { authCalls, syncCalls, attachmentCalls, pass: authCalls === 3 && connection() === "Online" };
+          }
+          if (scenario === "retry" || scenario === "outbox") {
+            await waitFor(() => connection() === "Reconnecting", "reconnecting header");
+            await waitFor(() => connection() === "Online", "retried online header");
+            const record = pendingFixture && await localDatabase.testRecords.get(pendingFixture.clientUuid);
+            const outbox = pendingFixture && await localDatabase.syncOutbox.where("entityId").equals(pendingFixture.clientUuid).first();
+            return { authCalls, syncCalls, attachmentCalls, record, outbox, pass: authCalls === 4 && connection() === "Online"
+              && (scenario !== "outbox" || (syncCalls === 0 && attachmentCalls === 0 && record?.syncStatus === "Pending" && outbox?.status === "Pending")) };
+          }
+          if (scenario === "bounded") {
+            await new Promise(resolve => setTimeout(resolve, 4_300));
+            return { authCalls, syncCalls, attachmentCalls, pass: authCalls === 6 && connection() === "Offline" && syncCalls === 0 && attachmentCalls === 0 };
+          }
+          if (scenario === "cancel") {
+            await waitFor(() => connection() === "Reconnecting", "scheduled retry");
+            window.dispatchEvent(new Event("offline"));
+            await waitFor(() => connection() === "Offline", "offline cancellation");
+            const callsAfterOffline = authCalls;
+            await new Promise(resolve => setTimeout(resolve, 600));
+            return { authCalls, callsAfterOffline, syncCalls, attachmentCalls, pass: authCalls === callsAfterOffline && connection() === "Offline" };
+          }
+          if (scenario === "unmount") {
+            await waitFor(() => connection() === "Reconnecting", "scheduled retry");
+            const callsBeforeUnmount = authCalls;
+            root.unmount();
+            await new Promise(resolve => setTimeout(resolve, 600));
+            return { authCalls, callsBeforeUnmount, syncCalls, attachmentCalls, pass: authCalls === callsBeforeUnmount };
+          }
+          if (scenario === "authorization") {
+            await waitFor(() => connection() === undefined && mount.textContent.includes("Choose how you are signing in"), "signed-out state");
+            await new Promise(resolve => setTimeout(resolve, 600));
+            return { authCalls, syncCalls, attachmentCalls, pass: authCalls === 3 && !mount.textContent.includes("connectivity-inspector") };
+          }
+          if (scenario === "race") {
+            await waitFor(() => authCalls === 4, "in-flight retry");
+            clickSignOut();
+            await waitFor(() => connection() === undefined && mount.textContent.includes("Choose how you are signing in"), "signed-out state");
+            releaseDeferred(response({ user }));
+            await new Promise(resolve => setTimeout(resolve, 100));
+            return { authCalls, syncCalls, attachmentCalls, pass: !mount.textContent.includes("connectivity-inspector") && !mount.textContent.includes("Online") };
+          }
+          throw new Error(`Unhandled scenario: ${scenario}`);
+        } finally {
+          if (scenario !== "unmount") root.unmount();
+          globalThis.fetch = originalFetch;
+        }
+      }
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        try {
+          const details = await run();
+          result.textContent = JSON.stringify({ status: details.pass ? "PASS" : "FAIL", scenario, ...details }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({ status: "ERROR", scenario, message: String(error) }, null, 2);
+        }
+      });
+    </script>
+  </body>
+</html>

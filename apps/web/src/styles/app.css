@@ -694,6 +694,8 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 .connection-state { display: inline-flex; min-height: 24px; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid rgb(255 255 255 / 24%); border-radius: 999px; color: #fff; background: rgb(4 40 51 / 22%); font-size: .72rem; font-weight: 800; }
 .connection-state i { width: 9px; height: 9px; border-radius: 50%; background: #2d8a5a; box-shadow: 0 0 0 4px rgb(45 138 90 / 12%); }
 .connection-state--offline i { background: #c28528; box-shadow: 0 0 0 4px rgb(194 133 40 / 14%); }
+.connection-state--reconnecting i { background: #2e75a8; box-shadow: 0 0 0 4px rgb(46 117 168 / 14%); }
+.connection-state--unavailable i { background: #b14d4d; box-shadow: 0 0 0 4px rgb(177 77 77 / 14%); }
 .sync-summary--attention { padding: 2px 7px; border-radius: 6px; color: #ffe4e1; background: rgb(111 21 21 / 38%); font-weight: 800; }
 .app-account { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .app-account-name { max-width: 170px; color: rgb(255 255 255 / 84%); font-size: .75rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
