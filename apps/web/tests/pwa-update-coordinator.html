@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>PWA update coordinator checks</title></head>
+  <body>
+    <button id="run" type="button">Run PWA update coordinator checks</button>
+    <pre id="result" aria-live="polite">Waiting</pre>
+    <div id="notice-mount"></div>
+    <script type="module">
+      import * as React from "react";
+      import * as ReactDom from "react-dom/client";
+      import { PwaUpdateNotice } from "/src/pwa/PwaUpdateNotice.tsx";
+      import { PwaUpdateCoordinator, UPDATE_CHECK_INTERVAL_MS } from "/src/pwa/updateCoordinator.ts";
+      import { UPDATE_ROUTE_POLICY, isSafeForAppUpdate, updateInstructionForRoute } from "/src/pwa/updateRoutePolicy.ts";
+
+      const result = document.querySelector("#result");
+      const check = (name, pass) => ({ name, pass });
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const renderTick = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+      function serviceWorkerContainer(controller = {}) {
+        const container = new EventTarget();
+        Object.defineProperty(container, "controller", { value: controller || undefined, writable: true });
+        return container;
+      }
+
+      function registration({ waiting = true, active = true, update = async () => undefined } = {}) {
+        const value = new EventTarget();
+        Object.defineProperties(value, {
+          waiting: { value: waiting === true ? {} : waiting || undefined, writable: true },
+          active: { value: active === true ? {} : active || undefined, writable: true },
+          installing: { value: undefined, writable: true },
+          update: { value: update }
+        });
+        return value;
+      }
+
+      async function startCoordinator({ safe, activate, container, reload, activationTimeoutMs, registration: registered } = {}) {
+        const pwaWorker = new EventTarget();
+        Object.assign(pwaWorker, {
+          register: async () => registered ?? registration(),
+          messageSkipWaiting: activate ?? (() => undefined)
+        });
+        const coordinator = new PwaUpdateCoordinator(() => pwaWorker, {
+          isSafeToReload: safe ?? (() => true),
+          serviceWorkerContainer: container ?? serviceWorkerContainer(),
+          reloadPage: reload ?? (() => undefined),
+          activationTimeoutMs
+        });
+        coordinator.start();
+        await tick();
+        return { coordinator, pwaWorker };
+      }
+
+      async function run() {
+        const cases = [];
+
+        let initialReloads = 0;
+        const initialContainer = serviceWorkerContainer(false);
+        const initial = await startCoordinator({ container: initialContainer, reload: () => { initialReloads += 1; } });
+        initialContainer.dispatchEvent(new Event("controllerchange"));
+        cases.push(check("initial registration controller change never reloads", initialReloads === 0 && !initial.coordinator.snapshot().reloadPending));
+        initial.coordinator.stop();
+
+        const offlineReady = await startCoordinator({ registration: registration({ waiting: false }) });
+        offlineReady.pwaWorker.dispatchEvent(new Event("installed"));
+        cases.push(check("first worker installation exposes offline-ready state without a reload", offlineReady.coordinator.snapshot().offlineReady));
+        offlineReady.coordinator.stop();
+
+        const activeWorker = { state: "activated" };
+        const waitingWorker = { state: "installed" };
+        let existingActivations = 0;
+        let existingReloads = 0;
+        const existingWaiting = await startCoordinator({
+          container: serviceWorkerContainer(activeWorker),
+          registration: registration({ active: activeWorker, waiting: waitingWorker }),
+          activate: () => { existingActivations += 1; },
+          reload: () => { existingReloads += 1; }
+        });
+        const duplicateSnapshots = [];
+        const unsubscribeExisting = existingWaiting.coordinator.subscribe((state) => duplicateSnapshots.push(state));
+        existingWaiting.pwaWorker.dispatchEvent(new Event("waiting"));
+        cases.push(check("startup reconciles an already waiting update idempotently", existingWaiting.coordinator.snapshot().updateAvailable && existingActivations === 0 && existingReloads === 0 && duplicateSnapshots.length === 1));
+        unsubscribeExisting();
+        existingWaiting.coordinator.stop();
+
+        const firstInstall = await startCoordinator({
+          container: serviceWorkerContainer(false),
+          registration: registration({ active: false, waiting: { state: "installed" } })
+        });
+        cases.push(check("first installation waiting state does not create a fake update", !firstInstall.coordinator.snapshot().updateAvailable && !firstInstall.coordinator.snapshot().activationRequestedByThisClient));
+        firstInstall.coordinator.stop();
+
+        let reopenChecks = 0;
+        const reopenedClient = await startCoordinator({
+          container: serviceWorkerContainer(activeWorker),
+          registration: registration({ active: activeWorker, waiting: waitingWorker, update: async () => { reopenChecks += 1; } })
+        });
+        cases.push(check("reopened client surfaces another tab's waiting update without an update check", reopenedClient.coordinator.snapshot().updateAvailable && reopenChecks === 0));
+        reopenedClient.coordinator.stop();
+
+        let updateChecks = 0;
+        let releaseUpdateCheck;
+        const coalesced = await startCoordinator({ registration: registration({ waiting: false, update: () => {
+          updateChecks += 1;
+          return new Promise((resolve) => { releaseUpdateCheck = resolve; });
+        } }) });
+        document.dispatchEvent(new Event("visibilitychange"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        cases.push(check("startup update checks are coalesced", !coalesced.coordinator.snapshot().updateAvailable && updateChecks === 1 && UPDATE_CHECK_INTERVAL_MS === 45 * 60 * 1000));
+        releaseUpdateCheck();
+        coalesced.coordinator.stop();
+
+        let routeSafe = true;
+        let delayedReloads = 0;
+        let delayedActivations = 0;
+        const delayedContainer = serviceWorkerContainer();
+        const delayed = await startCoordinator({
+          safe: () => routeSafe,
+          container: delayedContainer,
+          reload: () => { delayedReloads += 1; },
+          activate: () => { delayedActivations += 1; }
+        });
+        const delayedFirstRequest = delayed.coordinator.requestUpdate();
+        const delayedSecondRequest = delayed.coordinator.requestUpdate();
+        routeSafe = false;
+        delayedContainer.dispatchEvent(new Event("controllerchange"));
+        const delayedState = delayed.coordinator.snapshot();
+        routeSafe = true;
+        const delayedFinish = delayed.coordinator.requestUpdate();
+        const delayedDoubleFinish = delayed.coordinator.requestUpdate();
+        cases.push(check("same client route change before takeover defers reload until explicit safe finish", delayedFirstRequest && !delayedSecondRequest && delayedActivations === 1 && delayedReloads === 1 && delayedState.controllerChanged && delayedState.reloadPending && delayedFinish && !delayedDoubleFinish));
+        delayed.coordinator.stop();
+
+        let clientBSafe = false;
+        let clientAReloads = 0;
+        let clientBReloads = 0;
+        let clientAActivations = 0;
+        const sharedA = serviceWorkerContainer();
+        const sharedB = serviceWorkerContainer();
+        const clientA = await startCoordinator({ safe: () => true, container: sharedA, reload: () => { clientAReloads += 1; }, activate: () => { clientAActivations += 1; } });
+        const clientB = await startCoordinator({ safe: () => clientBSafe, container: sharedB, reload: () => { clientBReloads += 1; } });
+        clientA.coordinator.requestUpdate();
+        sharedA.dispatchEvent(new Event("controllerchange"));
+        sharedB.dispatchEvent(new Event("controllerchange"));
+        const clientBPending = clientB.coordinator.snapshot();
+        clientBSafe = true;
+        const clientBFinish = clientB.coordinator.requestUpdate();
+        cases.push(check("cross-client controller change never reloads a noninitiating unsafe client", clientAActivations === 1 && clientAReloads === 1 && clientBReloads === 1 && clientBPending.reloadPending && !clientBPending.activationRequestedByThisClient && clientBFinish));
+        clientA.coordinator.stop();
+        clientB.coordinator.stop();
+
+        let failureAttempts = 0;
+        const failure = await startCoordinator({ activate: () => { failureAttempts += 1; if (failureAttempts === 1) throw new Error("activation failed"); } });
+        const failedRequest = failure.coordinator.requestUpdate();
+        await tick();
+        const failedState = failure.coordinator.snapshot();
+        const retryRequest = failure.coordinator.requestUpdate();
+        cases.push(check("activation failure clears updating and permits retry", failedRequest && !failedState.updating && retryRequest && failureAttempts === 2));
+        failure.coordinator.stop();
+
+        let noOpAttempts = 0;
+        const noOp = await startCoordinator({ activationTimeoutMs: 0, activate: () => { noOpAttempts += 1; } });
+        noOp.coordinator.requestUpdate();
+        await tick();
+        const noOpState = noOp.coordinator.snapshot();
+        const noOpRetry = noOp.coordinator.requestUpdate();
+        cases.push(check("activation watchdog clears updating after a no-op and permits retry", !noOpState.updating && noOpRetry && noOpAttempts === 2));
+        noOp.coordinator.stop();
+
+        let listenerReloads = 0;
+        const cleanupContainer = serviceWorkerContainer();
+        const cleanup = await startCoordinator({ container: cleanupContainer, reload: () => { listenerReloads += 1; } });
+        cleanup.coordinator.start();
+        cleanup.coordinator.stop();
+        cleanupContainer.dispatchEvent(new Event("controllerchange"));
+        cases.push(check("controller-change listener is registered once and cleaned up", listenerReloads === 0));
+
+        const noticeMount = document.querySelector("#notice-mount");
+        const noticeRoot = ReactDom.createRoot(noticeMount);
+        noticeRoot.render(React.createElement(PwaUpdateNotice, { updateAvailable: true, reloadPending: false, updating: false, safeToUpdate: true, onUpdate: () => undefined }));
+        await renderTick();
+        const safeHasUpdateButton = [...noticeMount.querySelectorAll("button")].some((button) => button.textContent.trim() === "Update now");
+        noticeRoot.render(React.createElement(PwaUpdateNotice, { updateAvailable: true, reloadPending: false, updating: false, safeToUpdate: false, onUpdate: () => undefined }));
+        await renderTick();
+        const unsafeStartupNotice = noticeMount.textContent;
+        const unsafeHasUpdateButton = [...noticeMount.querySelectorAll("button")].some((button) => button.textContent.trim() === "Update now");
+        cases.push(check("a pre-existing waiting update shows safe and unsafe route UI correctly", safeHasUpdateButton && unsafeStartupNotice.includes("Save your draft and return to My Service Jobs before updating") && !unsafeHasUpdateButton));
+        noticeRoot.render(React.createElement(PwaUpdateNotice, { updateAvailable: true, reloadPending: true, updating: false, safeToUpdate: false, onUpdate: () => undefined }));
+        await renderTick();
+        const unsafeNotice = noticeMount.textContent;
+        const unsafeHasReloadButton = [...noticeMount.querySelectorAll("button")].some((button) => button.textContent.trim() === "Reload to finish update");
+        noticeRoot.render(React.createElement(PwaUpdateNotice, { updateAvailable: true, reloadPending: true, updating: false, safeToUpdate: true, onUpdate: () => undefined }));
+        await renderTick();
+        const safeHasReloadButton = [...noticeMount.querySelectorAll("button")].some((button) => button.textContent.trim() === "Reload to finish update");
+        noticeRoot.unmount();
+        cases.push(check("pending unsafe notice protects the form and safe notice offers explicit reload", unsafeNotice.includes("Save your draft and return to My Service Jobs before reloading") && !unsafeHasReloadButton && safeHasReloadButton));
+
+        const policyEntries = Object.entries(UPDATE_ROUTE_POLICY);
+        cases.push(check("route policy explicitly classifies every application route and fails closed", policyEntries.length === 18 && policyEntries.filter(([, value]) => value === "unsafe").every(([name]) => !isSafeForAppUpdate({ name })) && policyEntries.filter(([, value]) => value === "safe").every(([name]) => isSafeForAppUpdate({ name })) && !isSafeForAppUpdate({ name: "future-unclassified-route" })));
+        cases.push(check("unsafe instruction tells the technician to save and return", updateInstructionForRoute({ name: "hydrant-form" }).includes("Save your draft and return to My Service Jobs")));
+        return cases;
+      }
+
+      document.querySelector("#run").onclick = async () => {
+        try {
+          const cases = await run();
+          result.textContent = JSON.stringify({ status: cases.every((item) => item.pass) ? "PASS" : "FAIL", cases }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({ status: "ERROR", error: String(error) }, null, 2);
+        }
+      };
+    </script>
+  </body>
+</html>

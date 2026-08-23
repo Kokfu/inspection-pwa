@@ -1,12 +1,20 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import packageJson from "./package.json";
 
-export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: "autoUpdate",
+export default defineConfig(({ mode }) => {
+  const buildIdentifier = loadEnv(mode, ".", "VITE_").VITE_APP_BUILD_ID || packageJson.version;
+
+  return {
+    define: {
+      __APP_BUILD_ID__: JSON.stringify(buildIdentifier)
+    },
+    plugins: [
+      react(),
+      VitePWA({
+      registerType: "prompt",
+      injectRegister: false,
       includeAssets: ["favicon.svg", "icons/icon.svg"],
       manifest: {
         name: "Inspection PWA",
@@ -31,7 +39,7 @@ export default defineConfig({
         navigateFallback: "/index.html",
         runtimeCaching: []
       }
-    })
-  ]
+      })
+    ]
+  };
 });
-

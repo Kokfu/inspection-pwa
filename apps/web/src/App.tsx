@@ -143,6 +143,10 @@ import {
   recoverInterruptedSync,
   syncPendingTestRecords
 } from "./sync/syncEngine";
+import { APP_BUILD_ID } from "./pwa/buildInfo";
+import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
+import { isSafeForAppUpdate } from "./pwa/updateRoutePolicy";
+import { usePwaUpdate } from "./pwa/usePwaUpdate";
 
 type ApiHealth = "Not checked" | "Reachable" | "Unavailable";
 type AppRoute =
@@ -224,6 +228,7 @@ export function App() {
   const [selectedExperience, setSelectedExperience] = useState<ProductRole>();
   const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
+  const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
   const [managerCustomers, setManagerCustomers] = useState<ManagerCustomer[]>([]);
@@ -1384,6 +1389,7 @@ export function App() {
       : waitingToSyncCount > 0
         ? `${waitingToSyncCount} ${waitingToSyncCount === 1 ? "inspection" : "inspections"} waiting to sync`
         : "All submitted changes synced";
+  const safeToUpdate = isSafeForAppUpdate(route);
 
   return (
     <main className="app-shell">
@@ -1393,6 +1399,7 @@ export function App() {
           <div>
             <p className="eyebrow">MFE Services Sdn. Bhd.</p>
             <h1 id="app-title">{managerExperience || selectedExperience === "manager" ? "Field Service Management" : "Field Service Inspections"}</h1>
+            <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Build {APP_BUILD_ID}</span>
           </div>
         </div>
         {authenticated ? <div className="header-utilities">
@@ -1410,6 +1417,14 @@ export function App() {
           </div>
         </div> : null}
       </header>
+
+      <PwaUpdateNotice
+        updateAvailable={pwaUpdate.updateAvailable}
+        reloadPending={pwaUpdate.reloadPending}
+        updating={pwaUpdate.updating}
+        safeToUpdate={safeToUpdate}
+        onUpdate={pwaUpdate.requestUpdate}
+      />
 
       {!selectedExperience || (authenticated && !technicianExperience && !managerExperience) ? (
         <section className="login-view workspace" aria-label="Choose sign-in role">

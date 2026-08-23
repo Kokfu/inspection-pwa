@@ -688,6 +688,7 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 .brand-mark { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border: 1px solid rgb(255 255 255 / 32%); border-radius: 11px; color: #fff; background: rgb(255 255 255 / 14%); font-size: .7rem; font-weight: 850; letter-spacing: .07em; box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%); }
 .app-header h1 { margin: 0; font-size: clamp(1.16rem, 2.5vw, 1.55rem); letter-spacing: -.025em; }
 .app-header .eyebrow { margin-bottom: 3px; color: rgb(255 255 255 / 78%); }
+.app-build { display: block; margin-top: 3px; color: rgb(255 255 255 / 72%); font-size: .68rem; font-weight: 700; letter-spacing: .04em; }
 .header-utilities { display: grid; justify-items: end; gap: 7px; }
 .connection-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 12px; color: rgb(255 255 255 / 80%); font-size: .76rem; text-align: right; }
 .connection-state { display: inline-flex; min-height: 24px; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid rgb(255 255 255 / 24%); border-radius: 999px; color: #fff; background: rgb(4 40 51 / 22%); font-size: .72rem; font-weight: 800; }
@@ -703,6 +704,10 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 .login-view { width: min(520px, 100%); box-sizing: border-box; margin-top: 5vh; padding: clamp(22px, 5vw, 38px); border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
 .login-view .auth-panel { gap: 14px; }
 .login-view .auth-panel > button { width: 100%; }
+.pwa-update-notice { display: grid; width: min(1120px, 100%); box-sizing: border-box; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: -6px 0 4px; padding: 13px 16px; border: 1px solid #d7b867; border-left: 4px solid #b57b13; border-radius: 12px; color: #5b4214; background: #fff8e5; box-shadow: 0 4px 14px rgb(73 55 15 / 8%); }
+.pwa-update-notice strong { display: block; color: #58400f; }
+.pwa-update-notice p { margin: 2px 0 0; color: #6e551c; font-size: .9rem; line-height: 1.45; }
+.pwa-update-notice button { min-width: 126px; color: #fff; background: #8a5a08; }
 .role-selection { display: grid; gap: 14px; }
 .role-selection h2 { margin: 0; font-size: clamp(1.55rem, 4vw, 2.1rem); letter-spacing: -.03em; }
 .role-selection > p { margin: 0; color: var(--muted); }
@@ -890,6 +895,8 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
   .app-account-name { max-width: 92px; }
   .job-card-list { grid-template-columns: 1fr; }
   .role-selection-options { grid-template-columns: 1fr; }
+  .pwa-update-notice { grid-template-columns: 1fr; align-items: start; }
+  .pwa-update-notice button { width: 100%; }
   .role-card { min-height: 136px; }
   .job-facts { grid-template-columns: 1fr 1fr; }
   .system-picker-grid { grid-template-columns: 1fr; }

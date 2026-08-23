@@ -3,7 +3,7 @@ WORKDIR /app/apps/web
 COPY apps/web/package.json ./
 RUN npm install
 COPY apps/web/ ./
-RUN npm run build
+RUN VITE_APP_BUILD_ID="build-$(date -u +%Y%m%dT%H%M%SZ)" npm run build
 
 FROM caddy:2-alpine
 COPY infra/reverse-proxy/Caddyfile /etc/caddy/Caddyfile
