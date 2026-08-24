@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { ResultSelector } from "../src/inspectionControls/ResultSelector.js";
 import { TechnicianHome } from "../src/jobs/TechnicianHome.js";
+import { serviceAvailabilityMessage } from "../src/jobs/NewServiceVisit.js";
 import { FinalReportApiError, downloadFinalReport, loadFinalReport, type FinalReportPreview } from "../src/jobs/finalReportApi.js";
 import { FinalReportPresentation } from "../src/jobs/FinalReportPresentation.js";
 import type { InspectionJob } from "../src/jobs/jobTypes.js";
@@ -34,6 +35,16 @@ test("normal job count appears once and routine refresh text is not rendered as 
   assert.doesNotMatch(html, /operational-message[^>]*>6 jobs available on this device/);
 });
 
+test("technician jobs retain every card while current work and completed history are grouped", () => {
+  const completed: InspectionJob = { ...baseJob, id: "job-completed", reference: "SV-HISTORY", status: "closed", completion: { ...baseJob.completion!, jobId: "job-completed", jobStatus: "closed", acceptedUnitCount: 1, completedAt: "2026-08-19T05:04:00.000Z", completedBy: { id: 1, username: "mobiletest" }, systems: [{ ...baseJob.completion!.systems[0], status: "accepted", units: [{ authorityKey: "primary", label: "Primary inspection", status: "accepted" }] }] } };
+  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
+  assert.match(html, /Current Service Jobs/);
+  assert.match(html, /Service History/);
+  assert.ok(html.indexOf(baseJob.reference) < html.indexOf(completed.reference));
+  assert.match(html, /SV-20260819-1/);
+  assert.match(html, /SV-HISTORY/);
+});
+
 test("incomplete completion requirements have separate semantic elements and no completion action", () => {
   const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob]} message="" selectedJobId={baseJob.id} />);
   assert.match(html, /class="completion-requirement"/);
@@ -54,6 +65,32 @@ test("read-only selected results retain explicit selected markup and icon", () =
   const html = renderToStaticMarkup(<fieldset disabled><ResultSelector definition={{ type: "single_select", required: true, options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }] }} value="good" readOnly onChange={() => undefined} label="Result" /></fieldset>);
   assert.match(html, /result-option result-option--selected/);
   assert.match(html, /aria-pressed="true" disabled=""><span aria-hidden="true">✓<\/span>Good/);
+});
+
+test("client-facing presentation removes the covered internal form and manager wording", () => {
+  const riser = readFileSync(new URL("../src/dryWetRiser/DryWetRiserInspectionForm.tsx", import.meta.url), "utf8");
+  const acceptedRiser = readFileSync(new URL("../src/dryWetRiser/ServerDryWetRiserView.tsx", import.meta.url), "utf8");
+  const hoseReel = readFileSync(new URL("../src/hoseReel/HoseReelInspectionForm.tsx", import.meta.url), "utf8");
+  const manager = readFileSync(new URL("../src/manager/ManagerCustomerConfiguration.tsx", import.meta.url), "utf8");
+  assert.match(riser, /Riser Type/);
+  assert.match(riser, /Jockey Pump Cut-In/);
+  assert.match(riser, /Canvas Hose ×2/);
+  assert.match(acceptedRiser, /Canvas Hose ×2/);
+  assert.doesNotMatch(riser, /Frozen Riser Mode|jockeyCutIn PSI/);
+  assert.doesNotMatch(riser, /Canvas Hose at Outlet 2/);
+  assert.doesNotMatch(acceptedRiser, /Canvas hose@2|Canvas Hose at Outlet 2/);
+  assert.doesNotMatch(hoseReel, /temporarily allowed while source cardinality is pending confirmation/);
+  assert.match(hoseReel, /Select all applicable drum types/);
+  assert.doesNotMatch(manager, /Online, server-authoritative customer service assignments|Active revision/);
+  assert.match(manager, /Manage customer service assignments online/);
+});
+
+test("new service visit availability states are distinct and do not infer an empty assignment", () => {
+  assert.equal(serviceAvailabilityMessage({ customerSelected: false, loading: false, configurationLoaded: false, systemCount: 0 }), "Select a customer to view available services.");
+  assert.equal(serviceAvailabilityMessage({ customerSelected: true, loading: true, configurationLoaded: false, systemCount: 0 }), "Loading available services…");
+  assert.equal(serviceAvailabilityMessage({ customerSelected: true, loading: false, configurationLoaded: false, systemCount: 0 }), "Customer service configuration is unavailable.");
+  assert.equal(serviceAvailabilityMessage({ customerSelected: true, loading: false, configurationLoaded: true, systemCount: 0 }), "No services are currently assigned to this customer.");
+  assert.equal(serviceAvailabilityMessage({ customerSelected: true, loading: false, configurationLoaded: true, systemCount: 1 }), undefined);
 });
 
 test("final report fields use a readable report stack rather than a collapsible desktop value column", () => {
@@ -101,6 +138,9 @@ test("role selection exposes Technician and Manager without using persisted back
   assert.match(html, />Technician</);
   assert.match(html, />Manager</);
   assert.doesNotMatch(html, /inspector|admin/);
+  assert.match(html, /Drafts stay saved on this device until you submit, and submitted changes sync when you reconnect/);
+  assert.doesNotMatch(html, /drafts stay on this device and sync when you reconnect/i);
+  assert.match(html, /manage customer service assignments/);
 });
 
 test("role-selection mismatches fail safely against the authenticated server role", () => {
@@ -112,9 +152,13 @@ test("role-selection mismatches fail safely against the authenticated server rol
   assert.equal(productRoleMatches("technician", admin), false);
 });
 
-test("Manager Operations presents server-backed open and completed service visits with report actions", () => {
+test("Manager Operations presents truthful Open, Completed, and Total summary counts", () => {
   const visit = (id: string, status: "open" | "closed") => ({ id, reference: `SV-${id}`, customer: "Operations Customer", site: "Operations Site", serviceDate: "2026-08-20", status, systems: ["Hose Reel"], inspectionProgress: { accepted: status === "closed" ? 1 : 0, required: 1 }, completion: { ...baseJob.completion!, jobId: id, jobStatus: status, acceptedUnitCount: status === "closed" ? 1 : 0, completedAt: status === "closed" ? "2026-08-20T10:00:00.000Z" : null, completedBy: status === "closed" ? { id: 2, username: "tech-one" } : null } });
-  const html = renderToStaticMarkup(<ManagerHome visits={[visit("open", "open"), visit("closed", "closed")]} loading={false} message="" onRefresh={noop} onSelect={() => undefined} onBack={() => undefined} onViewReport={() => undefined} onDownloadReport={noop} />);
+  const html = renderToStaticMarkup(<ManagerHome visits={[visit("open-one", "open"), visit("open-two", "open"), visit("closed", "closed")]} loading={false} message="" onRefresh={noop} onSelect={() => undefined} onBack={() => undefined} onViewReport={() => undefined} onDownloadReport={noop} />);
+  assert.match(html, /<dt>Open<\/dt><dd>2<\/dd>/);
+  assert.match(html, /<dt>Completed<\/dt><dd>1<\/dd>/);
+  assert.match(html, /<dt>Total<\/dt><dd>3<\/dd>/);
+  assert.doesNotMatch(html, /Awaiting Completion/);
   assert.match(html, /Active Service Visits/);
   assert.match(html, /Completed Service Visits/);
   assert.match(html, /Service Completed/);
@@ -134,7 +178,9 @@ test("shared final report presentation retains Phase 7 sections, location headin
   assert.match(html, /Hydrant System - Zone North \/ Gate A/);
   assert.match(html, /report-field--depth-2/);
   assert.match(html, /Canvas Hose/);
-  assert.match(html, /Final evidence accepted: hose Photo/);
+  assert.match(html, /Accepted inspection record/);
+  assert.match(html, /Photo evidence is included in the downloaded PDF: hose Photo/);
+  assert.doesNotMatch(html, /\bPASS\b|\bFAIL\b|\bPASSED\b|\bFAILED\b/);
 
   const managerView = readFileSync(new URL("../src/manager/ManagerFinalReportView.tsx", import.meta.url), "utf8");
   assert.match(managerView, /FinalReportPresentation/);

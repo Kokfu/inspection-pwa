@@ -15,16 +15,26 @@ export type PresentationStatus =
   | "Unknown / Not Cached";
 
 export function inspectionStatusLabel(status: PresentationStatus) {
-  if (status === "Pending" || status === "Pending Sync") return "Waiting to Sync";
-  if (status === "Synced" || status === "Completed") return "Inspection Complete";
+  if (status === "Pending" || status === "Pending Sync") return "Submitted on this device — waiting to sync.";
+  if (status === "Synced" || status === "Completed") return "Inspection complete and synced.";
   if (status === "Failed" || status === "Conflict" || status === "Needs Attention") {
-    return "Needs Attention";
+    return "Needs attention — your saved work is still on this device.";
   }
   if (status === "Syncing") return "Syncing\u2026";
   if (status === "Pending Evidence") return "Waiting for Evidence";
   if (status === "Uploading Evidence") return "Uploading Evidence\u2026";
   if (status === "Unknown / Not Cached") return "Status Unavailable";
   return status;
+}
+
+/** Presentation-only wording for the existing local inspection lifecycle. */
+export function inspectionSyncMessage(status: PresentationStatus) {
+  if (status === "Draft") return "Saved on this device.";
+  if (status === "Pending" || status === "Pending Sync") return "Submitted on this device — waiting to sync.";
+  if (status === "Syncing") return "Sending changes…";
+  if (status === "Synced" || status === "Completed") return "Inspection complete and synced.";
+  if (status === "Failed" || status === "Conflict" || status === "Needs Attention") return "Needs attention — your saved work is still on this device.";
+  return inspectionStatusLabel(status);
 }
 
 export function inspectionStatusTone(status: PresentationStatus) {

@@ -12,6 +12,7 @@ import {
   type HoseReelResponses,
   type MasterSystemInspectionRecord
 } from "./hoseReelTypes";
+import { inspectionSyncMessage } from "../uiPresentation";
 
 type Props = {
   record: MasterSystemInspectionRecord;
@@ -20,15 +21,6 @@ type Props = {
   onEditFailed: () => Promise<void>;
   onClose: () => void;
 };
-
-const statusLabels = {
-  Draft: "Draft",
-  Pending: "Waiting to Sync",
-  Syncing: "Syncing…",
-  Synced: "Inspection Complete",
-  Failed: "Needs Attention",
-  Conflict: "Needs Attention"
-} as const;
 
 const rowResultFields = {
   drum: "drumResult",
@@ -89,13 +81,7 @@ export function HoseReelInspectionForm({
   }, [record.clientUuid]);
 
   const readOnly = record.syncStatus !== "Draft";
-  const lifecycleMessage = record.syncStatus === "Pending"
-    ? "Inspection submitted locally and waiting for sync."
-    : record.syncStatus === "Syncing"
-      ? "Inspection is syncing."
-      : record.syncStatus === "Synced"
-        ? "Inspection synced and completed."
-        : "";
+  const lifecycleMessage = record.syncStatus === "Draft" ? "" : inspectionSyncMessage(record.syncStatus);
   const updateChecklist = (
     key: string,
     change: Partial<HoseReelResponses["checklist"][string]>
@@ -224,7 +210,7 @@ export function HoseReelInspectionForm({
         </div>
         <div>
           <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>
-            {statusLabels[record.syncStatus]}
+            {inspectionSyncMessage(record.syncStatus)}
           </strong>
         </div>
       </header>
@@ -397,7 +383,7 @@ export function HoseReelInspectionForm({
           Fixed Type
         </label>
         <p className="form-message">
-          Both selections are temporarily allowed while source cardinality is pending confirmation.
+          Select all applicable drum types.
         </p>
       </fieldset>
 

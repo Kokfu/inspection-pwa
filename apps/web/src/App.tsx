@@ -1428,7 +1428,7 @@ export function App() {
           <div>
             <p className="eyebrow">MFE Services Sdn. Bhd.</p>
             <h1 id="app-title">{managerExperience || selectedExperience === "manager" ? "Field Service Management" : "Field Service Inspections"}</h1>
-            <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Build {APP_BUILD_ID}</span>
+            <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Support build {APP_BUILD_ID}</span>
           </div>
         </div>
         {headerUser ? <div className="header-utilities">

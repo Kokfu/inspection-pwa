@@ -231,6 +231,20 @@ export function TechnicianHome({
   const operationalMessage = message && !isRoutineJobCountMessage(message, jobs.length)
     ? technicianOperationalMessage(message)
     : undefined;
+  const currentJobs = jobs.filter((job) => job.status !== "closed");
+  const serviceHistory = jobs.filter((job) => job.status === "closed");
+  const jobCard = (job: InspectionJob) => {
+    const progress = jobProgress(job);
+    return <li key={job.id}>
+      <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
+        <div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div><span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span></div>
+        <div className="job-service-line"><span className="job-card-label">Site / Service</span><strong>{job.site?.displayName ?? job.title}</strong></div>
+        <div className="job-card-meta"><span><small>Service Date</small><strong>{job.serviceDate ? formatClientDate(job.serviceDate) : "Not provided"}</strong></span><span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span></div>
+        <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}><span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} /></div>
+        <span className="job-reference">{job.reference}</span>
+      </button>
+    </li>;
+  };
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
     {!selectedJob ? <div className="home-toolbar">
@@ -370,33 +384,10 @@ export function TechnicianHome({
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
         <h3 className="visually-hidden" id="available-jobs-title">Available service jobs</h3>
-        {jobs.length === 0 ? <p className="empty-state">No service jobs are available on this device.</p> : (
-          <ul className="job-card-list">
-            {jobs.map((job) => {
-              const progress = jobProgress(job);
-              return <li key={job.id}>
-                <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
-                  <div className="job-card-heading">
-                    <div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div>
-                    <span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span>
-                  </div>
-                  <div className="job-service-line">
-                    <span className="job-card-label">Site / Service</span>
-                    <strong>{job.site?.displayName ?? job.title}</strong>
-                  </div>
-                  <div className="job-card-meta">
-                    <span><small>Service Date</small><strong>{job.serviceDate ? formatClientDate(job.serviceDate) : "Not provided"}</strong></span>
-                    <span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span>
-                  </div>
-                  <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}>
-                    <span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} />
-                  </div>
-                  <span className="job-reference">{job.reference}</span>
-                </button>
-              </li>;
-            })}
-          </ul>
-        )}
+        {jobs.length === 0 ? <p className="empty-state">No service jobs are available on this device.</p> : <div className="job-groups">
+          <section aria-labelledby="current-service-jobs-title"><div className="list-heading"><h3 id="current-service-jobs-title">Current Service Jobs</h3><span>{currentJobs.length}</span></div>{currentJobs.length ? <ul className="job-card-list">{currentJobs.map(jobCard)}</ul> : <p className="empty-state">No current service jobs are available.</p>}</section>
+          <section aria-labelledby="service-history-title"><div className="list-heading"><h3 id="service-history-title">Service History</h3><span>{serviceHistory.length}</span></div>{serviceHistory.length ? <ul className="job-card-list">{serviceHistory.map(jobCard)}</ul> : <p className="empty-state">No completed service visits are available.</p>}</section>
+        </div>}
       </section>
     ) : null}
   </section>;

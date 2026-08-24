@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { inspectionSyncMessage } from "../uiPresentation";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { addCo2DetectorRow, getCo2SubmitIssues } from "./co2Repository";
@@ -61,7 +62,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   async function save() {
     try {
       await onSaveDraft(responses);
-      setMessage("Draft saved on this device.");
+      setMessage(inspectionSyncMessage("Draft"));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Draft could not be saved");
     }
@@ -120,7 +121,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
         <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
         <p>{record.inspectionSnapshot.instance.location.displayName} · {record.inspectionSnapshot.instance.zone?.displayName ?? "Unzoned"}</p>
       </div>
-      <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`}>{record.syncStatus === "Synced" ? "Inspection Complete" : record.syncStatus === "Pending" ? "Waiting to Sync" : record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? "Needs Attention" : record.syncStatus === "Syncing" ? "Syncing…" : deriveCo2InstanceProgress(record)}</strong>
+      <strong className={`inspection-status status-${record.syncStatus.toLowerCase()}`} role="status">{record.syncStatus === "Draft" ? deriveCo2InstanceProgress(record) : inspectionSyncMessage(record.syncStatus)}</strong>
     </header>
     {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}
     {grouped.length ? <section className="validation-summary" aria-live="polite"><h3>Complete before submitting</h3>{grouped.map(([section, messages]) => <div key={section}><strong>{section}</strong><ul>{messages.map((item) => <li key={item}>{item}</li>)}</ul></div>)}</section> : null}

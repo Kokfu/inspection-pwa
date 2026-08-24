@@ -14,11 +14,11 @@ export function RoleSelection({
     <div className="role-selection-options">
       <button type="button" className="role-card" onClick={() => onSelect("technician")}>
         <strong>Technician</strong>
-        <span>Complete assigned field inspections, work offline, sync and submit service visits.</span>
+        <span>Complete assigned inspections. Drafts stay saved on this device until you submit, and submitted changes sync when you reconnect.</span>
       </button>
       <button type="button" className="role-card" onClick={() => onSelect("manager")}>
         <strong>Manager</strong>
-        <span>Monitor service visits, review completed service history and access final reports.</span>
+        <span>Monitor service visits, review completed reports, and manage customer service assignments.</span>
       </button>
     </div>
     {message ? <p className="form-message" role="alert">{message}</p> : null}

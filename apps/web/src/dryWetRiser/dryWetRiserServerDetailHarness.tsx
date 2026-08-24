@@ -32,7 +32,7 @@ export async function runDryWetRiserServerDetailHarness(mount: HTMLElement) {
     mountedRoots.set(mount, root);
     flushSync(() => root.render(<ServerDryWetRiserView inspection={parsed} onBack={() => undefined} />));
     const visible = mount.textContent || "";
-    const visibleDetails = ["Completed", parsed.clientUuid, "RISER-SERVER-1", "Server Riser", "Server Customer", "MFE-FSSR v2", "Dry", "Jockey Cut In", "Canvas hose@2", "Diffuser Nozzle", "Landing Valve", "Crandle", "Door", "Server comments"];
+    const visibleDetails = ["Inspection Complete", "RISER-SERVER-1", "Server Riser", "Server Customer", "Riser Type", "Dry Riser System", "Jockey Cut In", "Canvas Hose ×2", "Diffuser Nozzle", "Landing Valve", "Crandle", "Door", "Server comments"];
     const missingDetails = visibleDetails.filter((value) => !visible.includes(value));
     check("read-only view renders canonical details", missingDetails.length === 0, missingDetails.join(", "));
     check("read-only view contains no editing controls", mount.querySelectorAll("input, textarea, select").length === 0 && !/Save Draft|Submit Local|Add Row|Remove Row|Camera|Photo/.test(visible));

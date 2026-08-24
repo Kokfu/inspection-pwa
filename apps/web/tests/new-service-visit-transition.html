@@ -1,0 +1,86 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run New Service Visit customer transition checks</button>
+  <pre id="result">Ready</pre><div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { NewServiceVisit } from "/src/jobs/NewServiceVisit.tsx";
+
+    const customer = (id, name) => ({ id, code: id.toUpperCase(), displayName: name, isDemo: false });
+    const customers = [customer("customer-a", "Customer A"), customer("customer-b", "Customer B")];
+    const deferred = () => { let resolve, reject; const promise = new Promise((nextResolve, nextReject) => { resolve = nextResolve; reject = nextReject; }); return { promise, resolve, reject }; };
+    const json = body => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    const configuration = (value, systems) => ({ customer: customers.find(item => item.id === value), configuration: { configurationId: `${value}-configuration`, revision: 1, templateId: "template", templateCode: "MFE", templateName: "Master", templateVersion: 1, selectionPolicy: "preset_only", enabledSystems: systems.map((displayName, index) => ({ id: `${value}-${index}`, key: displayName.toLowerCase().replaceAll(" ", "-"), displayName, sortOrder: index + 1, definitionStatus: "confirmed", zones: [], locations: [] })) } });
+    const sites = value => ({ sites: [{ id: `${value}-site`, customerId: value, code: "PRIMARY", displayName: `${value} site` }] });
+    const waitFor = async (predicate, label) => { for (let attempt = 0; attempt < 160; attempt += 1) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 15)); } throw new Error(`Timed out waiting for ${label}: ${mount.textContent}`); };
+    const selectCustomer = value => { const element = mount.querySelector("#service-customer"); element.value = value; element.dispatchEvent(new Event("change", { bubbles: true })); };
+    const checks = [];
+    const check = (name, pass) => checks.push({ name, pass: Boolean(pass) });
+    const mount = document.querySelector("#mount");
+
+    async function withComponent(transport, scenario) {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = transport;
+      const root = ReactDom.createRoot(mount);
+      try { root.render(React.createElement(NewServiceVisit, { onCreated: async () => undefined, onCancel: () => undefined })); await scenario(); }
+      finally { root.unmount(); globalThis.fetch = originalFetch; mount.replaceChildren(); }
+    }
+
+    const transitionTransport = () => {
+      const work = { aConfig: deferred(), aSites: deferred(), bConfig: deferred(), bSites: deferred(), aConfigRequested: false, aSitesRequested: false };
+      const fetch = input => {
+        const url = String(input);
+        if (url === "/api/customers") return Promise.resolve(json({ customers }));
+        if (url.endsWith("customer-a/configuration")) { work.aConfigRequested = true; return work.aConfig.promise; }
+        if (url.endsWith("customer-a/sites")) { work.aSitesRequested = true; return work.aSites.promise; }
+        if (url.endsWith("customer-b/configuration")) return work.bConfig.promise;
+        if (url.endsWith("customer-b/sites")) return work.bSites.promise;
+        return Promise.resolve(new Response("", { status: 503 }));
+      };
+      return { work, fetch };
+    };
+
+    async function stableTransition() {
+      const { work, fetch } = transitionTransport();
+      await withComponent(fetch, async () => {
+        await waitFor(() => mount.textContent.includes("Select a customer to view available services."), "no-customer state");
+        selectCustomer("customer-a"); work.aSites.resolve(json(sites("customer-a"))); work.aConfig.resolve(json(configuration("customer-a", ["System A"])));
+        await waitFor(() => mount.textContent.includes("System A"), "Customer A configuration");
+        selectCustomer("customer-b");
+        check("switch immediately hides Customer A services", !mount.textContent.includes("System A"));
+        check("switch shows Customer B loading state", mount.textContent.includes("Loading available services…"));
+        check("switch does not infer empty Customer B assignment", !mount.textContent.includes("No services are currently assigned"));
+        work.bSites.resolve(json(sites("customer-b"))); work.bConfig.resolve(json(configuration("customer-b", ["System B"])));
+        await waitFor(() => mount.textContent.includes("System B"), "Customer B configuration");
+        check("Customer B services replace Customer A services", mount.textContent.includes("System B") && !mount.textContent.includes("System A"));
+      });
+    }
+
+    async function lateResponseRace() {
+      const { work, fetch } = transitionTransport();
+      await withComponent(fetch, async () => {
+        await waitFor(() => mount.querySelector("#service-customer"), "customer selector");
+        selectCustomer("customer-a"); await waitFor(() => work.aConfigRequested && work.aSitesRequested, "Customer A requests"); selectCustomer("customer-b");
+        work.bSites.resolve(json(sites("customer-b"))); work.bConfig.resolve(json(configuration("customer-b", ["System B"])));
+        await waitFor(() => mount.textContent.includes("System B"), "Customer B before late A");
+        work.aSites.resolve(json(sites("customer-a"))); work.aConfig.resolve(json(configuration("customer-a", ["System A"])));
+        await new Promise(resolve => setTimeout(resolve, 30));
+        check("late Customer A response cannot replace Customer B", mount.textContent.includes("System B") && !mount.textContent.includes("System A"));
+      });
+    }
+
+    async function availabilityStates() {
+      const oneCustomerTransport = (configurationReply, siteReply = json(sites("customer-b"))) => input => {
+        const url = String(input); if (url === "/api/customers") return Promise.resolve(json({ customers }));
+        if (url.endsWith("customer-b/sites")) return Promise.resolve(siteReply);
+        if (url.endsWith("customer-b/configuration")) return configurationReply;
+        return Promise.resolve(new Response("", { status: 503 }));
+      };
+      await withComponent(oneCustomerTransport(Promise.reject(new Error("unavailable"))), async () => { await waitFor(() => mount.querySelector("#service-customer"), "failure selector"); selectCustomer("customer-b"); await waitFor(() => mount.textContent.includes("Customer service configuration is unavailable."), "configuration failure"); check("failure does not show empty assignment", !mount.textContent.includes("No services are currently assigned")); });
+      await withComponent(oneCustomerTransport(Promise.resolve(json(configuration("customer-b", [])))), async () => { await waitFor(() => mount.querySelector("#service-customer"), "empty selector"); selectCustomer("customer-b"); await waitFor(() => mount.textContent.includes("No services are currently assigned to this customer."), "empty configuration"); check("authoritative empty configuration shows empty assignment", true); });
+    }
+
+    document.querySelector("#run").onclick = async () => { checks.length = 0; try { await stableTransition(); await lateResponseRace(); await availabilityStates(); result.textContent = JSON.stringify({ status: checks.every(item => item.pass) ? "PASS" : "FAIL", checks }, null, 2); } catch (error) { result.textContent = JSON.stringify({ status: "FAIL", error: String(error), visibleText: mount.textContent, checks }, null, 2); } };
+  </script>
+</body></html>

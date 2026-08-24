@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" /><title>Dry/Wet Riser form behavior harness</title></head><body>
+  <button id="run" type="button">Run Dry/Wet Riser form behavior checks</button><pre id="result">Ready</pre><div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import { createRoot } from "react-dom/client";
+    import { flushSync } from "react-dom";
+    import { DryWetRiserInspectionForm } from "/src/dryWetRiser/DryWetRiserInspectionForm.tsx";
+    import { ServerDryWetRiserView } from "/src/dryWetRiser/ServerDryWetRiserView.tsx";
+    import { dryWetRiserServerDetailFixture } from "/src/dryWetRiser/dryWetRiserServerDetailHarness.tsx";
+    import { parseServerDryWetRiserDetail } from "/src/dryWetRiser/serverDryWetRiserApi.ts";
+
+    const ids = { job: "42000000-0000-4000-8000-000000000001", customer: "42000000-0000-4000-8000-000000000002", system: "42000000-0000-4000-8000-000000000003", location: "42000000-0000-4000-8000-000000000004", row: "42000000-0000-4000-8000-000000000005" };
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const outcomes = [];
+    const check = (name, passed, detail = "") => outcomes.push({ name, passed: Boolean(passed), detail });
+    const resultButton = (mount, label, value) => [...mount.querySelectorAll(`[role="group"][aria-label="${label}"] button`)].find((button) => button.textContent.trim() === value);
+    const outletRows = (mount) => [...mount.querySelectorAll(".riser-outlet-table__row")];
+
+    function record(frozenMode, staleMode) {
+      const now = "2026-08-24T00:00:00.000Z";
+      return {
+        schemaVersion: 1, clientUuid: "42000000-0000-4000-8000-000000000006", jobSystemKey: `${ids.job}:dry_wet_riser`, jobId: ids.job, systemKey: "dry_wet_riser", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot: null,
+        masterTemplate: { id: "42000000-0000-4000-8000-000000000007", code: "MFE-FSSR", version: 2 }, configuration: { revisionId: "42000000-0000-4000-8000-000000000008", revisionNumber: 1 },
+        inspectionSnapshot: { schemaVersion: 1, capturedAt: now, job: { id: ids.job, reference: "RISER-FORM-1", title: "Riser Form" }, customer: { id: ids.customer, code: "TEST", displayName: "Test Customer" }, configuration: { revisionId: "42000000-0000-4000-8000-000000000008", revisionNumber: 1 }, template: { id: "42000000-0000-4000-8000-000000000007", code: "MFE-FSSR", name: "Test", version: 2 }, system: { enabledSystemId: ids.system, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser", sortOrder: 1, definitionStatus: "confirmed", systemConfiguration: { riserMode: frozenMode }, zones: [], locations: [{ id: ids.location, zoneId: null, displayName: "Pump Room", presetRowCount: 1, rowPreset: { assetReference: "R-1" }, sortOrder: 1 }], definition: {}, repetitionMode: "single_with_repeatable_rows" } },
+        responses: { schemaVersion: 1, mode: staleMode, waterTank: {}, pumpHouse: {}, measurements: { jockeyCutIn: null, jockeyCutOut: null, dutyCutIn: null, standbyCutIn: null, unit: "PSI" }, riserOutlets: [{ rowUuid: ids.row, source: "configured", configuredLocationId: ids.location, configuredRowOrdinal: 1, zoneSnapshot: null, locationSnapshot: { id: ids.location, displayName: "Pump Room" }, assetReference: "R-1", locationText: "Pump Room", canvasHoseAt2Result: null, diffuserNozzleResult: null, landingValveResult: null, crandleResult: null, doorResult: null, remarks: "", sortOrder: 1 }], comments: "" },
+        performedAt: now, localCreatedAt: now, localUpdatedAt: now, syncStatus: "Draft"
+      };
+    }
+
+    document.querySelector("#run").addEventListener("click", async () => {
+      const mount = document.querySelector("#mount"); const output = document.querySelector("#result"); outcomes.length = 0;
+      let saved;
+      const renderEditable = (frozenMode, staleMode) => flushSync(() => root.render(React.createElement(DryWetRiserInspectionForm, { record: record(frozenMode, staleMode), onBack: () => undefined, onSaveDraft: async (responses) => { saved = structuredClone(responses); }, onSubmitLocal: async () => undefined, onEditFailed: async () => undefined })));
+      const root = createRoot(mount);
+      try {
+        renderEditable("dry", "wet"); await tick();
+        const dryTitle = mount.querySelector("#dry-wet-riser-title")?.textContent?.trim(); const dryRadios = [...mount.querySelectorAll('input[name="riser-mode"]')];
+        check("dry frozen mode wins over wet stale response", dryTitle === "Dry Riser System" && dryRadios[0]?.checked && !dryRadios[1]?.checked, dryTitle || "no title");
+        check("technician cannot change frozen dry mode", dryRadios.every((radio) => radio.matches(":disabled")) && (dryRadios[1].click(), mount.querySelector("#dry-wet-riser-title")?.textContent?.trim() === "Dry Riser System" && dryRadios[0].checked));
+
+        renderEditable("wet", "dry"); await tick();
+        const wetTitle = mount.querySelector("#dry-wet-riser-title")?.textContent?.trim(); const wetRadios = [...mount.querySelectorAll('input[name="riser-mode"]')];
+        check("wet frozen mode wins over dry stale response", wetTitle === "Wet Riser System" && !wetRadios[0]?.checked && wetRadios[1]?.checked, wetTitle || "no title");
+        check("technician cannot change frozen wet mode", wetRadios.every((radio) => radio.matches(":disabled")) && (wetRadios[0].click(), mount.querySelector("#dry-wet-riser-title")?.textContent?.trim() === "Wet Riser System" && wetRadios[1].checked));
+
+        renderEditable("dry", "wet"); await tick();
+        const initialRow = outletRows(mount)[0]; const initialText = initialRow?.textContent || ""; const resultLabels = [...initialRow.querySelectorAll('[role="group"]')].map((group) => group.getAttribute("aria-label")); const inputValues = [...initialRow.querySelectorAll("input")].map((input) => input.value);
+        check("configured outlet renders required fields", /Configured/.test(initialText) && /Reference Number/.test(initialText) && inputValues.includes("R-1") && /Location/.test(initialText) && inputValues.includes("Pump Room") && ["Canvas Hose ×2 condition", "Diffuser Nozzle condition", "Landing Valve condition", "Crandle condition", "Door condition"].every((label) => resultLabels.includes(label)) && /Remarks/.test(initialText));
+        check("configured outlet has no remove action", ![...mount.querySelectorAll("button")].some((button) => button.textContent.trim() === "Remove outlet"));
+        const poor = resultButton(mount, "Canvas Hose ×2 condition", "Poor"); poor?.click();
+        const remarks = initialRow.querySelector("textarea"); const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set; setter.call(remarks, "Changed during behavior test"); remarks.dispatchEvent(new Event("input", { bubbles: true })); await tick();
+        [...mount.querySelectorAll("button")].find((button) => button.textContent.trim() === "Save Draft")?.click(); await tick();
+        check("editable outlet result and remarks update draft state", saved?.riserOutlets?.[0]?.canvasHoseAt2Result === "poor" && saved?.riserOutlets?.[0]?.remarks === "Changed during behavior test");
+        [...mount.querySelectorAll("button")].find((button) => button.textContent.trim() === "Add Riser Outlet")?.click(); await tick();
+        check("technician outlet is appended after configured outlet", outletRows(mount).length === 2 && outletRows(mount).map((row) => row.querySelector("strong")?.textContent?.trim()).join(",") === "Outlet 1,Outlet 2" && [...mount.querySelectorAll("button")].filter((button) => button.textContent.trim() === "Remove outlet").length === 1);
+        [...mount.querySelectorAll("button")].find((button) => button.textContent.trim() === "Remove outlet")?.click(); await tick();
+        [...mount.querySelectorAll("button")].find((button) => button.textContent.trim() === "Save Draft")?.click(); await tick();
+        check("removing technician outlet preserves configured outlet and ordering", outletRows(mount).length === 1 && saved?.riserOutlets?.length === 1 && saved?.riserOutlets?.[0]?.source === "configured" && saved?.riserOutlets?.[0]?.sortOrder === 1);
+        check("editable outlet uses responsive table/card semantic structure", mount.querySelector('[role="table"].riser-outlet-table') && outletRows(mount).every((row) => row.getAttribute("role") === "row"));
+
+        const accepted = parseServerDryWetRiserDetail(dryWetRiserServerDetailFixture());
+        flushSync(() => root.render(accepted ? React.createElement(ServerDryWetRiserView, { inspection: accepted, onBack: () => undefined }) : null)); await tick();
+        const acceptedText = mount.textContent || "";
+        check("accepted detail is frozen and read-only", !!accepted && /Dry Riser System/.test(acceptedText) && /Riser Outlet/.test(acceptedText) && /Canvas Hose ×2/.test(acceptedText) && /Diffuser Nozzle/.test(acceptedText) && /Landing Valve/.test(acceptedText) && /Crandle/.test(acceptedText) && /Door/.test(acceptedText) && /Server comments/.test(acceptedText) && mount.querySelectorAll("input, textarea, select").length === 0 && !/Save Draft|Submit Inspection/.test(acceptedText));
+        check("accepted detail uses responsive table/card semantic structure", mount.querySelector('[role="table"].riser-outlet-table--readonly') && outletRows(mount).every((row) => row.getAttribute("role") === "row"));
+        output.textContent = JSON.stringify({ status: outcomes.every((outcome) => outcome.passed) ? "PASS" : "FAIL", outcomes }, null, 2);
+      } catch (error) { output.textContent = JSON.stringify({ status: "ERROR", message: error instanceof Error ? error.message : String(error), outcomes }, null, 2); }
+      finally { root.unmount(); }
+    });
+  </script>
+</body></html>
