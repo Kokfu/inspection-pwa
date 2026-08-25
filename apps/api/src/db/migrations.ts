@@ -40,8 +40,14 @@ const technicianJobVisibilityMigrationUrl = new URL(
 const finalServiceReportHistoryMigrationUrl = new URL(
   "../../migrations/014_final_service_report_history.sql", import.meta.url
 );
+const serviceVisitScheduleTimeMigrationUrl = new URL(
+  "../../migrations/015_service_visit_schedule_time.sql", import.meta.url
+);
+const customerCreationIdempotencyMigrationUrl = new URL(
+  "../../migrations/016_customer_creation_idempotency.sql", import.meta.url
+);
 
-export type ServiceVisitMigrationTarget = 10 | 11 | 12;
+export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
 
 export async function runMigrations(
@@ -218,7 +224,7 @@ export async function runMigrations(
   }
   await database.query(await readFile(jobCompletionMigrationUrl, "utf8"));
   await database.query(await readFile(serviceVisitsMigrationUrl, "utf8"));
-  const target = options.serviceVisitMigrationTarget ?? 12;
+  const target = options.serviceVisitMigrationTarget ?? 15;
   if (target >= 11) {
     await database.query(await readFile(serviceVisitActorIdempotencyMigrationUrl, "utf8"));
   }
@@ -229,5 +235,9 @@ export async function runMigrations(
   if ((options.finalServiceReportMigrationTarget ?? 14) >= 14) {
     await database.query(await readFile(finalServiceReportHistoryMigrationUrl, "utf8"));
   }
+  if (target >= 15) {
+    await database.query(await readFile(serviceVisitScheduleTimeMigrationUrl, "utf8"));
+  }
+  await database.query(await readFile(customerCreationIdempotencyMigrationUrl, "utf8"));
   await seedMasterServiceReport(database);
 }

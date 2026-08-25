@@ -36,7 +36,7 @@ class FakeServiceVisitDatabase {
     if (normalized.includes("nextval('service_visit_reference_sequence')")) return { rows: [{ next: "42" }], rowCount: 1 };
     if (normalized.startsWith("INSERT INTO inspection_jobs")) {
       this.inserts += 1;
-      return { rows: [{ id: "20000000-0000-4000-8000-000000000001", reference: "SV-20260818-42", title: "Site A", createdAt: "2026-08-18T00:00:00.000Z", serviceDate: "2026-08-18", siteId: ids.site, configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] } }], rowCount: 1 };
+      return { rows: [{ id: "20000000-0000-4000-8000-000000000001", reference: "SV-20260818-42", title: "Site A", createdAt: "2026-08-18T00:00:00.000Z", serviceDate: "2026-08-18", serviceTime: "09:30", siteId: ids.site, configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] } }], rowCount: 1 };
     }
     throw new Error(`Unexpected SQL: ${normalized}`);
   }
@@ -47,7 +47,7 @@ class ReplayServiceVisitDatabase extends FakeServiceVisitDatabase {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.includes("WHERE job.creation_request_id") && values[1] === 7) {
       return { rows: [{ id: "30000000-0000-4000-8000-000000000001", customerId: ids.customer,
-        siteId: ids.site, serviceDate: "2026-08-18",
+        siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30",
         configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] } }], rowCount: 1 };
     }
     return super.query(sql, values);
@@ -86,18 +86,20 @@ class ConfiguredAuthorityDatabase extends FakeServiceVisitDatabase {
   }
 }
 
-test("create service visit validates a strict browser command", () => {
-  assert.deepEqual(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: ["hose_reel"] })?.systemKeys, ["hose_reel"]);
-  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-02-30", systemKeys: ["hose_reel"] }), undefined);
-  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: ["hose_reel"], configuration: {} }), undefined);
-  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: [] }), undefined);
+test("create service visit validates strict date and Malaysian wall-clock time", () => {
+  assert.deepEqual(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["hose_reel"] })?.systemKeys, ["hose_reel"]);
+  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-02-30", serviceTime: "09:30", systemKeys: ["hose_reel"] }), undefined);
+  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: ["hose_reel"] }), undefined, "time is required");
+  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "24:00", systemKeys: ["hose_reel"] }), undefined);
+  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["hose_reel"], configuration: {} }), undefined);
+  assert.equal(parseCreateServiceVisit({ requestId: ids.request, customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: [] }), undefined);
 });
 
-test("new service visit is server-identified, date-only, blank, and leaves completed history untouched", async () => {
+test("new service visit is server-identified, scheduled, blank, and leaves completed history untouched", async () => {
   const database = new FakeServiceVisitDatabase();
   const result = await createServiceVisit(database as never, {
     requestId: ids.request, customerId: ids.customer, siteId: ids.site,
-    serviceDate: "2026-08-18", systemKeys: ["hose_reel"]
+    serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["hose_reel"]
   }, 7);
   assert.equal(database.inserts, 1);
   assert.equal(result.id, "20000000-0000-4000-8000-000000000001");
@@ -109,7 +111,7 @@ test("unsupported selections fail before a job insert and roll back", async () =
   const database = new FakeServiceVisitDatabase();
   await assert.rejects(
     () => createServiceVisit(database as never, { requestId: ids.request, customerId: ids.customer,
-      siteId: ids.site, serviceDate: "2026-08-18", systemKeys: ["fm200"] }, 7),
+      siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["fm200"] }, 7),
     (error: unknown) => error instanceof ServiceVisitError && error.code === "SYSTEM_NOT_AVAILABLE"
   );
   assert.equal(database.inserts, 0);
@@ -119,11 +121,11 @@ test("unsupported selections fail before a job insert and roll back", async () =
 test("idempotency is actor-scoped and rejects altered replay payloads", async () => {
   const database = new ReplayServiceVisitDatabase();
   const input = { requestId: ids.request, customerId: ids.customer, siteId: ids.site,
-    serviceDate: "2026-08-18", systemKeys: ["hose_reel"] };
+    serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["hose_reel"] };
   const replay = await createServiceVisit(database as never, input, 7);
   assert.deepEqual(replay, { id: "30000000-0000-4000-8000-000000000001", idempotent: true });
   await assert.rejects(
-    () => createServiceVisit(database as never, { ...input, serviceDate: "2026-08-19" }, 7),
+    () => createServiceVisit(database as never, { ...input, serviceTime: "10:30" }, 7),
     (error: unknown) => error instanceof ServiceVisitError && error.code === "IDEMPOTENCY_MISMATCH"
   );
   const independentActor = await createServiceVisit(database as never, input, 8);
@@ -134,7 +136,7 @@ test("an unresolved legacy request id fails closed without creating or exposing 
   const database = new UnresolvedLegacyServiceVisitDatabase();
   await assert.rejects(
     () => createServiceVisit(database as never, { requestId: ids.request, customerId: ids.customer,
-      siteId: ids.site, serviceDate: "2026-08-18", systemKeys: ["hose_reel"] }, 7),
+      siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["hose_reel"] }, 7),
     (error: unknown) => error instanceof ServiceVisitError
       && error.code === "IDEMPOTENCY_LEGACY_UNRESOLVED"
       && error.message.includes("Refresh My Service Jobs")
@@ -147,7 +149,7 @@ for (const systemKey of ["co2_fire_extinguisher", "wet_chemical"] as const) {
   test(`${systemKey} preserves valid configured location authority`, async () => {
     const database = new ConfiguredAuthorityDatabase(systemKey);
     const result = await createServiceVisit(database as never, { requestId: ids.request,
-      customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: [systemKey] }, 7);
+      customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: [systemKey] }, 7);
     assert.equal(result.idempotent, false);
     assert.equal(database.inserts, 1);
   });
@@ -156,7 +158,7 @@ for (const systemKey of ["co2_fire_extinguisher", "wet_chemical"] as const) {
     const database = new ConfiguredAuthorityDatabase(systemKey, true);
     await assert.rejects(
       () => createServiceVisit(database as never, { requestId: ids.request,
-        customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", systemKeys: [systemKey] }, 7),
+        customerId: ids.customer, siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: [systemKey] }, 7),
       (error: unknown) => error instanceof ServiceVisitError && error.code === "CONFIGURATION_INVALID"
     );
     assert.equal(database.inserts, 0);
@@ -173,7 +175,7 @@ test("canonical replay representation preserves a completed job's actual state a
       if (normalized.includes("LEFT JOIN customer_sites")) {
         return { rows: [{ id: ids.request, reference: "SV-20260818-42", title: "Site A", status: "closed",
           createdAt: "2026-08-18T00:00:00.000Z", configurationSnapshot: closedSnapshot,
-          serviceDate: "2026-08-18", site: { id: ids.site, displayName: "Site A" } }] };
+          serviceDate: "2026-08-18", serviceTime: "09:30", site: { id: ids.site, displayName: "Site A" } }] };
       }
       if (normalized.includes("completed_by_display_name")) {
         return { rows: [{ id: ids.request, status: "closed", configuration_snapshot: closedSnapshot,
@@ -186,6 +188,7 @@ test("canonical replay representation preserves a completed job's actual state a
   };
   const canonical = await loadCanonicalInspectionJob(ids.request, database as never);
   assert.equal(canonical?.status, "closed");
+  assert.equal(canonical?.serviceTime, "09:30");
   assert.equal(canonical?.completion.completedAt, "2026-08-18T12:00:00.000Z");
   assert.deepEqual(canonical?.completion.completedBy, { id: 7, username: "creator" });
 });

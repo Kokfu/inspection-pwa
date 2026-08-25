@@ -10,6 +10,9 @@ export type CreateServiceVisitInput = {
   customerId: string;
   siteId: string;
   serviceDate: string;
+  // Malaysian site-local wall-clock time in 24-hour HH:MM form. It is not an
+  // audit instant and therefore intentionally has no browser timezone.
+  serviceTime: string;
   systemKeys: string[];
 };
 
@@ -178,6 +181,7 @@ export async function createServiceVisit(
     const existing = await client.query(`
       SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",
         job.service_date::text AS "serviceDate", job.site_id AS "siteId",
+        to_char(job.service_time, 'HH24:MI') AS "serviceTime",
         site.display_name AS "siteDisplayName", job.customer_id AS "customerId",
         job.configuration_snapshot AS "configurationSnapshot"
       FROM inspection_jobs job INNER JOIN customer_sites site ON site.id = job.site_id
@@ -185,7 +189,8 @@ export async function createServiceVisit(
     if (existing.rows[0]) {
       const row = existing.rows[0];
       if (row.customerId !== input.customerId || row.siteId !== input.siteId
-        || row.serviceDate !== input.serviceDate || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
+        || row.serviceDate !== input.serviceDate || row.serviceTime !== input.serviceTime
+        || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
       await client.query("COMMIT");
@@ -212,23 +217,25 @@ export async function createServiceVisit(
       INSERT INTO inspection_jobs (
         id, template_id, master_template_version_id, job_reference, title, status, is_sample,
         customer_id, customer_configuration_revision_id, configuration_snapshot,
-        site_id, service_date, creation_request_id, created_by_user_id
-      ) VALUES ($1, NULL, $2, $3, $4, 'open', false, $5, $6, $7, $8, $9::date, $10, $11)
+        site_id, service_date, service_time, creation_request_id, created_by_user_id
+      ) VALUES ($1, NULL, $2, $3, $4, 'open', false, $5, $6, $7, $8, $9::date, $10::time, $11, $12)
       ON CONFLICT (created_by_user_id, creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
       RETURNING id`,
       [id, configuration.templateId, reference, site.displayName, customer.id, configuration.revisionId,
-        JSON.stringify(snapshot), site.id, input.serviceDate, input.requestId, actorUserId]);
+        JSON.stringify(snapshot), site.id, input.serviceDate, input.serviceTime, input.requestId, actorUserId]);
     if (inserted.rowCount === 0) {
       const concurrent = await client.query(`
         SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",
           job.service_date::text AS "serviceDate", job.site_id AS "siteId",
+          to_char(job.service_time, 'HH24:MI') AS "serviceTime",
           site.display_name AS "siteDisplayName", job.customer_id AS "customerId",
           job.configuration_snapshot AS "configurationSnapshot"
         FROM inspection_jobs job INNER JOIN customer_sites site ON site.id = job.site_id
         WHERE job.creation_request_id = $1 AND job.created_by_user_id = $2`, [input.requestId, actorUserId]);
       const row = concurrent.rows[0];
       if (!row || row.customerId !== input.customerId || row.siteId !== input.siteId
-        || row.serviceDate !== input.serviceDate || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
+        || row.serviceDate !== input.serviceDate || row.serviceTime !== input.serviceTime
+        || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
       await client.query("COMMIT");

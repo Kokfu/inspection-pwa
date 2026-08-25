@@ -5,7 +5,7 @@ import type { InspectionJob } from "../src/jobs/jobTypes";
 
 const job = {
   id: "50000000-0000-4000-8000-000000000001", reference: "SV-20260818-1", title: "Site A",
-  status: "open", createdAt: "2026-08-18T00:00:00.000Z", serviceDate: "2026-08-18",
+  status: "open", createdAt: "2026-08-18T00:00:00.000Z", serviceDate: "2026-08-18", serviceTime: "09:30",
   site: { id: "50000000-0000-4000-8000-000000000002", displayName: "Site A" },
   configurationSnapshot: { schemaVersion: 1 as const,
     customer: { id: "50000000-0000-4000-8000-000000000003", code: "C", displayName: "Customer" },

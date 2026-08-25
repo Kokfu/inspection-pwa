@@ -31,6 +31,33 @@ export async function loadReferenceCustomers() {
   return Array.isArray(data.customers) ? data.customers : [];
 }
 
+export type ServiceFormatOption = { key: string; displayName: string; sortOrder: number };
+
+export async function loadServiceFormatOptions(): Promise<ServiceFormatOption[]> {
+  const data = await getJson<{ systems: ServiceFormatOption[] }>("/api/customers/service-format-options");
+  return Array.isArray(data.systems) ? data.systems : [];
+}
+
+export async function createTechnicianCustomer(input: {
+  requestId: string;
+  displayName: string;
+  siteDisplayName: string;
+  systemKeys: string[];
+}): Promise<ReferenceCustomer> {
+  const response = await fetch("/api/customers", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+  const data = await response.json() as { customer?: { customer?: ReferenceCustomer }; message?: string };
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Connect to the server to add a new customer.");
+  }
+  if (!response.ok || !data.customer?.customer) {
+    throw new Error(data.message ?? "Customer could not be created.");
+  }
+  return data.customer.customer;
+}
+
 export function loadCustomerConfiguration(customerId: string) {
   return getJson<CustomerConfigurationResponse>(
     `/api/customers/${encodeURIComponent(customerId)}/configuration`

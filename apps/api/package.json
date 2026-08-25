@@ -13,6 +13,7 @@
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
     "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",
+    "test:customer-creation-integration": "tsx --test src/routes/customerCreation.integration.test.ts",
     "test:final-report": "tsx --test src/reports/finalServiceReport.test.ts",
     "test:final-report-integration": "tsx --test src/reports/finalServiceReport.integration.test.ts",
     "test:final-report-migrations": "tsx --test src/db/finalServiceReportHistory.integration.test.ts",

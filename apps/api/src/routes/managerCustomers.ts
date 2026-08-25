@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { Pool, PoolClient } from "pg";
 import { pool } from "../db/pool.js";
@@ -8,6 +8,10 @@ import { requireRole } from "../middleware/requireRole.js";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = 5;
 const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical"]);
+// These contracts need structural information that the small shared-customer
+// creation command intentionally does not collect. The API, not the browser,
+// is the capability authority for this initial-format choice.
+const initialStructureRequiredSystemKeys = new Set([...locationDependentSystemKeys, "dry_wet_riser"]);
 
 type Database = Pick<Pool, "connect" | "query">;
 type CatalogSystem = { key: string; displayName: string; sortOrder: number; definitionStatus: unknown; definition: unknown };
@@ -15,6 +19,7 @@ type EnabledSystem = { id: string; key: string; displayName: string; sortOrder: 
 type Zone = { id: string; enabledSystemId: string; key: string; displayName: string; sortOrder: number };
 type Location = { id: string; enabledSystemId: string; zoneId: string | null; key: string; displayName: string; presetRowCount: number; rowPreset: unknown; sortOrder: number };
 type SupportedSystem = Pick<CatalogSystem, "key" | "displayName" | "sortOrder"> & { assignable: boolean; unavailableReason?: string };
+type CustomerCreationInput = { requestId: string; displayName: string; siteDisplayName: string; systemKeys: string[]; fingerprint: string };
 
 export class ManagerCustomerError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
@@ -47,6 +52,22 @@ function systemKeys(value: unknown) {
     throw new ManagerCustomerError("INVALID_SYSTEM_KEYS", "Selected services must be unique valid system keys.");
   }
   return keys;
+}
+
+function parseCustomerCreation(value: unknown): CustomerCreationInput {
+  const body = exactBody(value, ["requestId", "displayName", "siteDisplayName", "systemKeys"]);
+  if (typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)) {
+    throw new ManagerCustomerError("INVALID_REQUEST", "requestId must be a valid UUID.");
+  }
+  const displayName = requiredText(body.displayName, "displayName");
+  const siteDisplayName = requiredText(body.siteDisplayName, "siteDisplayName");
+  const keys = systemKeys(body.systemKeys);
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    displayName: displayName.toLocaleLowerCase("en-US"),
+    siteDisplayName: siteDisplayName.toLocaleLowerCase("en-US"),
+    systemKeys: [...keys].sort()
+  })).digest("hex");
+  return { requestId: body.requestId, displayName, siteDisplayName, systemKeys: keys, fingerprint };
 }
 
 async function loadSupportedCatalog(database: Pick<PoolClient, "query">): Promise<CatalogSystem[]> {
@@ -180,8 +201,88 @@ async function audit(client: PoolClient, actorUserId: number, action: string, en
   await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result) VALUES ($1,$2,$3,$4,'success')`, [actorUserId, action, entityType, entityId]);
 }
 
-export function createManagerCustomersRouter(database: Database = pool) {
+async function reserveCustomerCreationRequest(
+  client: PoolClient, input: CustomerCreationInput, actorUserId: number
+) {
+  const reserved = await client.query<{ requestId: string }>(`
+    INSERT INTO customer_creation_requests (request_id, request_fingerprint, created_by_user_id)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (request_id) DO NOTHING
+    RETURNING request_id AS "requestId"`, [input.requestId, input.fingerprint, actorUserId]);
+  if (reserved.rows[0]) return undefined;
+  const existing = await client.query<{ fingerprint: string; customerId: string | null }>(`
+    SELECT request_fingerprint AS fingerprint, customer_id AS "customerId"
+    FROM customer_creation_requests WHERE request_id = $1 FOR SHARE`, [input.requestId]);
+  const row = existing.rows[0];
+  if (!row || row.fingerprint !== input.fingerprint) {
+    throw new ManagerCustomerError("IDEMPOTENCY_CONFLICT", "This customer creation request ID was already used for different details.", 409);
+  }
+  if (!row.customerId) {
+    throw new ManagerCustomerError("CUSTOMER_CREATION_INCOMPLETE", "Customer creation is still being finalized. Retry shortly with the same request ID.", 409);
+  }
+  return row.customerId;
+}
+
+async function createCustomer(
+  client: PoolClient,
+  actorUserId: number,
+  input: CustomerCreationInput,
+  auditAction: "manager_customer_created" | "technician_customer_created",
+  afterCustomerInserted?: () => Promise<void> | void
+) {
+  const replayCustomerId = await reserveCustomerCreationRequest(client, input, actorUserId);
+  if (replayCustomerId) return { customerId: replayCustomerId, idempotent: true };
+  await requireSupportedKeys(client, input.systemKeys);
+  assertLocationDependentAssignments(input.systemKeys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
+  const customerId = randomUUID();
+  const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+  const inserted = await client.query<{ id: string }>(`
+    INSERT INTO customers (id, customer_code, display_name, is_demo, is_active)
+    VALUES ($1,$2,$3,false,true)
+    ON CONFLICT ((lower(btrim(display_name)))) WHERE is_active DO NOTHING
+    RETURNING id`, [customerId, code, input.displayName]);
+  if (!inserted.rows[0]) {
+    throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
+  }
+  await afterCustomerInserted?.();
+  await client.query(`INSERT INTO customer_sites (id, customer_id, site_code, display_name, is_active) VALUES ($1,$2,'PRIMARY',$3,true)`, [randomUUID(), customerId, input.siteDisplayName]);
+  const revisionId = randomUUID();
+  await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1,$2,(SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$3 AND publication_status='published'),1,'active')`, [revisionId, customerId, customerCatalogVersion]);
+  const catalog = await requireSupportedKeys(client, input.systemKeys);
+  for (const [index, system] of catalog.entries()) {
+    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order) VALUES ($1,$2,(SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$3),$4,$5)`, [randomUUID(), revisionId, customerCatalogVersion, system.key, index + 1]);
+  }
+  await audit(client, actorUserId, auditAction, "customer", customerId);
+  const completed = await client.query(`UPDATE customer_creation_requests SET customer_id = $2 WHERE request_id = $1 AND customer_id IS NULL`, [input.requestId, customerId]);
+  if (completed.rowCount !== 1) throw new Error("Customer creation request completion was lost");
+  return { customerId, idempotent: false };
+}
+
+export function createManagerCustomersRouter(
+  database: Database = pool,
+  options: { afterCustomerInserted?: () => Promise<void> | void } = {}
+) {
   const router = Router();
+  router.get("/customers/service-format-options", requireRole("admin", "inspector"), async (_request, response, next) => {
+    try {
+      const systems = await loadSupportedCatalog(database);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ systems: systems
+        .filter((system) => !initialStructureRequiredSystemKeys.has(system.key))
+        .map(({ key, displayName, sortOrder }) => ({ key, displayName, sortOrder })) });
+    } catch (error) { next(error); }
+  });
+  router.post("/customers", requireRole("admin", "inspector"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      client = await database.connect();
+      await client.query("BEGIN");
+      const input = parseCustomerCreation(request.body);
+      const created = await createCustomer(client, request.currentUser!.id, input, "technician_customer_created", options.afterCustomerInserted);
+      await client.query("COMMIT");
+      response.status(created.idempotent ? 200 : 201).json({ customer: await loadManagerCustomer(created.customerId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
   router.get("/manager/customers", requireRole("admin"), async (_request, response, next) => {
     try { response.setHeader("Cache-Control", "private, no-store"); response.json({ customers: await listManagerCustomers(database) }); } catch (error) { next(error); }
   });

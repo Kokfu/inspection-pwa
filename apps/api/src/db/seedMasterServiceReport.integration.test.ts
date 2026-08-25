@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import pg from "pg";
 import { runMigrations } from "./migrations.js";
-import { seedMasterServiceReport } from "./seedMasterServiceReport.js";
+import { assertDryWetRiserFixture, seedMasterServiceReport } from "./seedMasterServiceReport.js";
 import { listTechnicianInspectionJobs } from "../routes/inspectionJobs.js";
 import { createServiceVisit } from "../jobs/serviceVisits.js";
 
@@ -14,6 +14,11 @@ const historyId = "90000000-0000-4000-8000-000000000001";
 const completedAt = "2026-08-13T01:02:03.456Z";
 const realCompletedAt = "2026-08-18T01:02:03.456Z";
 const portableSiteId = "00000000-0000-4000-8000-000000000755";
+const demoRiserRevisionId = "00000000-0000-4000-8000-000000000811";
+const demoRiserEnabledSystemId = "00000000-0000-4000-8000-000000000812";
+const demoRiserJobId = "00000000-0000-4000-8000-000000000819";
+const demoRiserSiteId = "00000000-0000-4000-8000-000000000820";
+const demoRiserGroundLocationId = "00000000-0000-4000-8000-000000000813";
 
 test("production seed preserves completed demo runtime state and rejects immutable drift", {
   skip: !databaseUrl
@@ -131,7 +136,7 @@ test("production seed preserves completed demo runtime state and rejects immutab
         requestId: "91000000-0000-4000-8000-000000000001",
         customerId: "00000000-0000-4000-8000-000000000750",
         siteId: portableSiteId,
-        serviceDate: "2026-08-18",
+        serviceDate: "2026-08-18", serviceTime: "09:30",
         systemKeys: ["portable_fire_extinguisher"]
       }, userId);
     } finally {
@@ -140,6 +145,87 @@ test("production seed preserves completed demo runtime state and rejects immutab
     assert.equal(realServiceVisit.idempotent, false);
     assert.ok((await listTechnicianInspectionJobs(pool)).some((job) => job.id === realServiceVisit.id),
       "normal technician listing retains a real Phase 6B service visit");
+
+    const demoRiserBefore = await pool.query<{ id: string; snapshot: unknown }>(
+      "SELECT id, configuration_snapshot AS snapshot FROM inspection_jobs WHERE id = $1",
+      [demoRiserJobId]
+    );
+    const riserLocationsBefore = await pool.query(
+      `SELECT id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order
+       FROM customer_system_locations WHERE enabled_system_id = $1 ORDER BY sort_order`,
+      [demoRiserEnabledSystemId]
+    );
+    const riserServiceVisitClient = await pool.connect();
+    let riserServiceVisit;
+    try {
+      riserServiceVisit = await createServiceVisit(riserServiceVisitClient, {
+        requestId: "91000000-0000-4000-8000-000000000002",
+        customerId: "00000000-0000-4000-8000-000000000810",
+        siteId: demoRiserSiteId,
+        serviceDate: "2026-08-24", serviceTime: "14:15",
+        systemKeys: ["dry_wet_riser"]
+      }, userId);
+    } finally {
+      riserServiceVisitClient.release();
+    }
+    assert.equal(riserServiceVisit.idempotent, false);
+    assert.notEqual(riserServiceVisit.id, demoRiserJobId, "a repeated Service Visit receives a new Job ID");
+    const createdRiserJob = await pool.query<{ id: string; revisionId: string; snapshot: any }>(
+      `SELECT id, customer_configuration_revision_id AS "revisionId", configuration_snapshot AS snapshot
+       FROM inspection_jobs WHERE id = $1`, [riserServiceVisit.id]
+    );
+    assert.equal(createdRiserJob.rows[0]?.revisionId, demoRiserRevisionId);
+    assert.deepEqual(createdRiserJob.rows[0]?.snapshot.configuration, { revisionId: demoRiserRevisionId, revisionNumber: 1 });
+    assert.deepEqual(createdRiserJob.rows[0]?.snapshot.enabledSystems[0]?.systemConfiguration, { riserMode: "dry" });
+
+    // Startup must preserve a normal visit that shares the deterministic
+    // configuration revision, without rewriting either Job or the locations.
+    await seedMasterServiceReport(pool);
+    assert.deepEqual((await pool.query<{ id: string; snapshot: unknown }>(
+      "SELECT id, configuration_snapshot AS snapshot FROM inspection_jobs WHERE id = $1", [demoRiserJobId]
+    )).rows, demoRiserBefore.rows, "the deterministic demo Job remains exact");
+    assert.deepEqual((await pool.query<{ id: string; revisionId: string; snapshot: unknown }>(
+      `SELECT id, customer_configuration_revision_id AS "revisionId", configuration_snapshot AS snapshot
+       FROM inspection_jobs WHERE id = $1`, [riserServiceVisit.id]
+    )).rows, createdRiserJob.rows, "the repeated Service Visit remains unchanged");
+    assert.deepEqual((await pool.query(
+      `SELECT id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order
+       FROM customer_system_locations WHERE enabled_system_id = $1 ORDER BY sort_order`, [demoRiserEnabledSystemId]
+    )).rows, riserLocationsBefore.rows, "the deterministic Dry/Wet Riser locations remain exact");
+
+    const fixtureSnapshot = demoRiserBefore.rows[0]?.snapshot;
+    assert.ok(fixtureSnapshot);
+    const assertRiserFixture = async () => {
+      const fixtureClient = await pool.connect();
+      try {
+        await assertDryWetRiserFixture(fixtureClient, fixtureSnapshot);
+      } finally {
+        fixtureClient.release();
+      }
+    };
+    await pool.query("DELETE FROM customer_system_locations WHERE id = $1", [demoRiserGroundLocationId]);
+    await assert.rejects(assertRiserFixture, /Dry Wet Riser fixture has unexpected members/);
+    await seedMasterServiceReport(pool);
+
+    await pool.query(
+      `INSERT INTO customer_system_locations (id, enabled_system_id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order)
+       VALUES ('00000000-0000-4000-8000-000000000815', $1, NULL, 'unexpected', 'Unexpected location', 1, '{}'::jsonb, 3)`,
+      [demoRiserEnabledSystemId]
+    );
+    await assert.rejects(assertRiserFixture, /Dry Wet Riser fixture has unexpected members/);
+    await pool.query("DELETE FROM customer_system_locations WHERE id = '00000000-0000-4000-8000-000000000815'");
+
+    await pool.query("UPDATE customer_enabled_systems SET system_configuration = $2::jsonb WHERE id = $1", [demoRiserEnabledSystemId, JSON.stringify({ riserMode: "wet" })]);
+    await assert.rejects(assertRiserFixture, /Dry Wet Riser enabled system differs from the deterministic seed/);
+    await pool.query("UPDATE customer_enabled_systems SET system_configuration = $2::jsonb WHERE id = $1", [demoRiserEnabledSystemId, JSON.stringify({ riserMode: "dry" })]);
+
+    await pool.query("DELETE FROM inspection_jobs WHERE id = $1", [demoRiserJobId]);
+    await assert.rejects(assertRiserFixture, /Dry Wet Riser job/);
+    await seedMasterServiceReport(pool);
+    assert.deepEqual((await pool.query<{ id: string; revisionId: string; snapshot: unknown }>(
+      `SELECT id, customer_configuration_revision_id AS "revisionId", configuration_snapshot AS snapshot
+       FROM inspection_jobs WHERE id = $1`, [riserServiceVisit.id]
+    )).rows, createdRiserJob.rows, "fixture corruption checks never alter the legitimate Service Visit");
 
     await pool.query(
       "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",

@@ -22,6 +22,7 @@ type InspectionJobRow = {
   createdAt: string;
   configurationSnapshot: unknown;
   serviceDate: string | null;
+  serviceTime: string | null;
   site: { id: string; displayName: string } | null;
 };
 
@@ -42,6 +43,7 @@ export async function listTechnicianInspectionJobs(
       inspection_jobs.created_at AS "createdAt",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
       inspection_jobs.service_date::text AS "serviceDate",
+      to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
       ) END AS site
@@ -69,6 +71,7 @@ export async function loadCanonicalInspectionJob(
       inspection_jobs.created_at AS "createdAt",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
       inspection_jobs.service_date::text AS "serviceDate",
+      to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
       ) END AS site
@@ -98,12 +101,13 @@ inspectionJobsRouter.get(
 export function parseCreateServiceVisit(value: unknown): CreateServiceVisitInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const body = value as Record<string, unknown>;
-  const expected = ["requestId", "customerId", "siteId", "serviceDate", "systemKeys"];
+  const expected = ["requestId", "customerId", "siteId", "serviceDate", "serviceTime", "systemKeys"];
   if (Object.keys(body).length !== expected.length || !expected.every((key) => key in body)
     || typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)
     || typeof body.customerId !== "string" || !uuidPattern.test(body.customerId)
     || typeof body.siteId !== "string" || !uuidPattern.test(body.siteId)
     || typeof body.serviceDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.serviceDate)
+    || typeof body.serviceTime !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.serviceTime)
     || !Array.isArray(body.systemKeys) || body.systemKeys.length === 0
     || body.systemKeys.some((key) => typeof key !== "string" || !/^[a-z][a-z0-9_]{1,63}$/.test(key))
     || new Set(body.systemKeys).size !== body.systemKeys.length) return undefined;

@@ -84,6 +84,7 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
 
     await database.query(await readFile(new URL("../../migrations/011_service_visit_idempotency_actor_scope.sql", import.meta.url), "utf8"));
     await database.query(await readFile(new URL("../../migrations/012_service_visit_legacy_idempotency.sql", import.meta.url), "utf8"));
+    await database.query(await readFile(new URL("../../migrations/015_service_visit_schedule_time.sql", import.meta.url), "utf8"));
     assert.equal((await database.query<{ count: string }>(
       "SELECT count(*)::text AS count FROM inspection_jobs WHERE creation_request_id = $1 AND created_by_user_id IS NULL",
       [requestId]
@@ -102,7 +103,7 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
       FROM inspection_jobs WHERE id = $2`, [siteId, portableSeedJobId]), /authenticated creator/);
 
     const legacyRetry = await retryThroughRoute(database, actorA!, {
-      requestId, customerId, siteId, serviceDate: "2026-08-18", systemKeys: ["portable_fire_extinguisher"]
+      requestId, customerId, siteId, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["portable_fire_extinguisher"]
     });
     const legacyResponse = legacyRetry.response;
     assert.equal(legacyResponse.status, 409);
@@ -115,12 +116,15 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
     )).rows[0]?.count, "1");
     assert.deepEqual(legacyRetry.audits, [{ action: "service_visit_create", result: "failure", reason: "IDEMPOTENCY_LEGACY_UNRESOLVED" }]);
 
-    const input = { requestId, customerId, siteId, serviceDate: "2026-08-18", systemKeys: ["portable_fire_extinguisher"] };
+    const input = { requestId, customerId, siteId, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["portable_fire_extinguisher"] };
     const modernInput = { ...input, requestId: "51000000-0000-4000-8000-000000000002" };
     const client = await database.connect();
     const created = await createServiceVisit(client, modernInput, actorA!);
     client.release();
     assert.equal(created.idempotent, false);
+    assert.deepEqual((await database.query(`SELECT service_date::text AS "serviceDate", to_char(service_time, 'HH24:MI') AS "serviceTime" FROM inspection_jobs WHERE id=$1`, [created.id])).rows[0], { serviceDate: "2026-08-18", serviceTime: "09:30" });
+    await assert.rejects(() => database.query("UPDATE inspection_jobs SET service_time='10:30'::time WHERE id=$1", [created.id]), /schedule is immutable/);
+    await assert.rejects(() => database.query("UPDATE inspection_jobs SET service_date='2026-08-19'::date WHERE id=$1", [created.id]), /schedule is immutable/);
     const replayClient = await database.connect();
     assert.deepEqual(await createServiceVisit(replayClient, modernInput, actorA!), { id: created.id, idempotent: true });
     replayClient.release();

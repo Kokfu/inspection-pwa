@@ -66,6 +66,7 @@ export type InspectionJob = {
   status: "open" | "closed";
   createdAt: string;
   serviceDate: string | null;
+  serviceTime: string | null;
   site: { id: string; displayName: string } | null;
   configurationSnapshot: JobConfigurationSnapshot;
   completion?: JobCompletion;

@@ -239,7 +239,7 @@ export function TechnicianHome({
       <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
         <div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div><span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span></div>
         <div className="job-service-line"><span className="job-card-label">Site / Service</span><strong>{job.site?.displayName ?? job.title}</strong></div>
-        <div className="job-card-meta"><span><small>Service Date</small><strong>{job.serviceDate ? formatClientDate(job.serviceDate) : "Not provided"}</strong></span><span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span></div>
+        <div className="job-card-meta"><span><small>Service Date & Time</small><strong>{job.serviceDate ? `${formatClientDate(job.serviceDate)}${job.serviceTime ? `, ${job.serviceTime}` : ""}` : "Not provided"}</strong></span><span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span></div>
         <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}><span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} /></div>
         <span className="job-reference">{job.reference}</span>
       </button>
@@ -296,7 +296,7 @@ export function TechnicianHome({
           </div>
           <dl className="job-facts">
             <div><dt>Site / Service</dt><dd>{selectedJob.site?.displayName ?? selectedJob.title}</dd></div>
-            <div><dt>Service Date</dt><dd>{selectedJob.serviceDate ? formatClientDate(selectedJob.serviceDate) : "Not provided"}</dd></div>
+            <div><dt>Service Date & Time</dt><dd>{selectedJob.serviceDate ? `${formatClientDate(selectedJob.serviceDate)}${selectedJob.serviceTime ? `, ${selectedJob.serviceTime}` : ""}` : "Not provided"}</dd></div>
             <div><dt>Job Reference</dt><dd>{selectedJob.reference}</dd></div>
           </dl>
           <div className="job-detail-progress">

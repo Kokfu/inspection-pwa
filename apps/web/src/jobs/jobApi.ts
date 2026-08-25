@@ -21,6 +21,7 @@ export async function createServiceVisit(input: {
   customerId: string;
   siteId: string;
   serviceDate: string;
+  serviceTime: string;
   systemKeys: string[];
 }) {
   const response = await fetch("/api/inspection-jobs/service-visits", {

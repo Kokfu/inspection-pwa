@@ -15,6 +15,7 @@ export type ManagerServiceVisit = {
   customer: string;
   site: string;
   serviceDate: string | null;
+  serviceTime: string | null;
   status: "open" | "closed";
   systems: string[];
   inspectionProgress: { accepted: number; required: number };

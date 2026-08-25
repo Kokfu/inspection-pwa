@@ -11,6 +11,7 @@ type OperationalJobRow = {
   title: string;
   status: "open" | "closed";
   serviceDate: string | null;
+  serviceTime: string | null;
   site: { id: string; displayName: string } | null;
   configurationSnapshot: unknown;
 };
@@ -21,6 +22,7 @@ export type ManagerServiceVisit = {
   customer: string;
   site: string;
   serviceDate: string | null;
+  serviceTime: string | null;
   status: "open" | "closed";
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
@@ -40,6 +42,7 @@ function operationalJobQuery(byId = false) {
       inspection_jobs.title,
       inspection_jobs.status,
       inspection_jobs.service_date::text AS "serviceDate",
+      to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
@@ -84,6 +87,7 @@ async function presentOperationalJob(
     customer: presentation.customer,
     site: job.site?.displayName ?? job.title,
     serviceDate: job.serviceDate,
+    serviceTime: job.serviceTime,
     status: job.status,
     systems: presentation.systems,
     inspectionProgress: {
