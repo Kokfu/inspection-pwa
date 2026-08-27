@@ -94,6 +94,21 @@ export function formatClientDateTime(value: string) {
   }).format(date).replace(/\b(am|pm)\b/i, (period) => period.toUpperCase());
 }
 
+/** Server-created instants are always presented in the customer's Malaysia timezone. */
+export function formatMalaysiaDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kuala_Lumpur",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(date);
+}
+
 export function technicianOperationalMessage(message: string) {
   if (message === "Cached template version is unavailable. Refresh jobs online first.") {
     return {

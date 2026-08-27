@@ -9,10 +9,6 @@ export type CreateServiceVisitInput = {
   requestId: string;
   customerId: string;
   siteId: string;
-  serviceDate: string;
-  // Malaysian site-local wall-clock time in 24-hour HH:MM form. It is not an
-  // audit instant and therefore intentionally has no browser timezone.
-  serviceTime: string;
   systemKeys: string[];
 };
 
@@ -189,7 +185,6 @@ export async function createServiceVisit(
     if (existing.rows[0]) {
       const row = existing.rows[0];
       if (row.customerId !== input.customerId || row.siteId !== input.siteId
-        || row.serviceDate !== input.serviceDate || row.serviceTime !== input.serviceTime
         || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
@@ -210,8 +205,16 @@ export async function createServiceVisit(
     if (!configuration) throw new ServiceVisitError("CONFIGURATION_NOT_FOUND", "Customer configuration is unavailable.", 409);
     const systems = await selectedSystems(client, configuration.revisionId, input.systemKeys);
     const snapshot = await buildSnapshot(client, customer, site, configuration, systems);
+    // created_at keeps PostgreSQL's immutable, unambiguous creation instant.
+    // The retained date/time compatibility columns are derived from that same
+    // server transaction in Malaysia wall-clock form, never from the client.
+    const creationClock = await client.query<{ serviceDate: string; serviceTime: string }>(`
+      SELECT to_char(now() AT TIME ZONE 'Asia/Kuala_Lumpur', 'YYYY-MM-DD') AS "serviceDate",
+        to_char(now() AT TIME ZONE 'Asia/Kuala_Lumpur', 'HH24:MI') AS "serviceTime"`);
+    const createdSchedule = creationClock.rows[0];
+    if (!createdSchedule) throw new Error("Database creation clock is unavailable");
     const referenceSequence = await client.query<{ next: string }>("SELECT nextval('service_visit_reference_sequence')::text AS next");
-    const reference = `SV-${input.serviceDate.replace(/-/g, "")}-${referenceSequence.rows[0]!.next}`;
+    const reference = `SV-${createdSchedule.serviceDate.replace(/-/g, "")}-${referenceSequence.rows[0]!.next}`;
     const id = randomUUID();
     const inserted = await client.query(`
       INSERT INTO inspection_jobs (
@@ -222,7 +225,7 @@ export async function createServiceVisit(
       ON CONFLICT (created_by_user_id, creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
       RETURNING id`,
       [id, configuration.templateId, reference, site.displayName, customer.id, configuration.revisionId,
-        JSON.stringify(snapshot), site.id, input.serviceDate, input.serviceTime, input.requestId, actorUserId]);
+        JSON.stringify(snapshot), site.id, createdSchedule.serviceDate, createdSchedule.serviceTime, input.requestId, actorUserId]);
     if (inserted.rowCount === 0) {
       const concurrent = await client.query(`
         SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",
@@ -234,7 +237,6 @@ export async function createServiceVisit(
         WHERE job.creation_request_id = $1 AND job.created_by_user_id = $2`, [input.requestId, actorUserId]);
       const row = concurrent.rows[0];
       if (!row || row.customerId !== input.customerId || row.siteId !== input.siteId
-        || row.serviceDate !== input.serviceDate || row.serviceTime !== input.serviceTime
         || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }

@@ -136,7 +136,6 @@ test("production seed preserves completed demo runtime state and rejects immutab
         requestId: "91000000-0000-4000-8000-000000000001",
         customerId: "00000000-0000-4000-8000-000000000750",
         siteId: portableSiteId,
-        serviceDate: "2026-08-18", serviceTime: "09:30",
         systemKeys: ["portable_fire_extinguisher"]
       }, userId);
     } finally {
@@ -162,7 +161,6 @@ test("production seed preserves completed demo runtime state and rejects immutab
         requestId: "91000000-0000-4000-8000-000000000002",
         customerId: "00000000-0000-4000-8000-000000000810",
         siteId: demoRiserSiteId,
-        serviceDate: "2026-08-24", serviceTime: "14:15",
         systemKeys: ["dry_wet_riser"]
       }, userId);
     } finally {

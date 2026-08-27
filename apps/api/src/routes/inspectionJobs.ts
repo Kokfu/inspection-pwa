@@ -101,19 +101,14 @@ inspectionJobsRouter.get(
 export function parseCreateServiceVisit(value: unknown): CreateServiceVisitInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const body = value as Record<string, unknown>;
-  const expected = ["requestId", "customerId", "siteId", "serviceDate", "serviceTime", "systemKeys"];
+  const expected = ["requestId", "customerId", "siteId", "systemKeys"];
   if (Object.keys(body).length !== expected.length || !expected.every((key) => key in body)
     || typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)
     || typeof body.customerId !== "string" || !uuidPattern.test(body.customerId)
     || typeof body.siteId !== "string" || !uuidPattern.test(body.siteId)
-    || typeof body.serviceDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.serviceDate)
-    || typeof body.serviceTime !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.serviceTime)
     || !Array.isArray(body.systemKeys) || body.systemKeys.length === 0
     || body.systemKeys.some((key) => typeof key !== "string" || !/^[a-z][a-z0-9_]{1,63}$/.test(key))
     || new Set(body.systemKeys).size !== body.systemKeys.length) return undefined;
-  const [year, month, day] = body.serviceDate.split("-").map(Number);
-  const date = new Date(Date.UTC(year!, month! - 1, day!));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month! - 1 || date.getUTCDate() !== day) return undefined;
   return body as CreateServiceVisitInput;
 }
 
@@ -191,7 +186,7 @@ export function createServiceVisitHandler({
   return async (request: Request, response: Response, next: NextFunction) => {
     const input = parseCreateServiceVisit(request.body);
     if (!input) {
-      response.status(400).json({ error: "INVALID_SERVICE_VISIT_REQUEST", message: "A valid service date, customer, site, and one or more supported systems are required." });
+      response.status(400).json({ error: "INVALID_SERVICE_VISIT_REQUEST", message: "A request ID, customer, site, and one or more supported systems are required. Service visit creation time is recorded by the server." });
       return;
     }
     const client = await database.connect();

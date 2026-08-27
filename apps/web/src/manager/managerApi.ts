@@ -14,6 +14,7 @@ export type ManagerServiceVisit = {
   reference: string;
   customer: string;
   site: string;
+  createdAt: string;
   serviceDate: string | null;
   serviceTime: string | null;
   status: "open" | "closed";

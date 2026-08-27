@@ -24,11 +24,11 @@ class RouteDatabase {
     const id = values?.[0];
     if (sql.includes("LEFT JOIN customer_sites")) {
       if (id === sampleId) return { rows: [] };
-      if (id === closedId) return { rows: [{ id: closedId, reference: "SV-CLOSED", title: "Hidden technician site", status: "closed", serviceDate: "2026-08-19", site: { id: "site-closed", displayName: "Hidden technician site" }, configurationSnapshot: snapshot("Closed Customer") }] };
-      if (id === openId) return { rows: [{ id: openId, reference: "SV-OPEN", title: "Open site", status: "open", serviceDate: "2026-08-20", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") }] };
+      if (id === closedId) return { rows: [{ id: closedId, reference: "SV-CLOSED", title: "Hidden technician site", status: "closed", createdAt: "2026-08-19T06:15:00.000Z", serviceDate: "2026-08-19", site: { id: "site-closed", displayName: "Hidden technician site" }, configurationSnapshot: snapshot("Closed Customer") }] };
+      if (id === openId) return { rows: [{ id: openId, reference: "SV-OPEN", title: "Open site", status: "open", createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") }] };
       return { rows: [
-        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", serviceDate: "2026-08-20", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") },
-        { id: closedId, reference: "SV-CLOSED", title: "Hidden technician site", status: "closed", serviceDate: "2026-08-19", site: { id: "site-closed", displayName: "Hidden technician site" }, configurationSnapshot: snapshot("Closed Customer") }
+        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") },
+        { id: closedId, reference: "SV-CLOSED", title: "Hidden technician site", status: "closed", createdAt: "2026-08-19T06:15:00.000Z", serviceDate: "2026-08-19", site: { id: "site-closed", displayName: "Hidden technician site" }, configurationSnapshot: snapshot("Closed Customer") }
       ] };
     }
     if (sql.includes("FROM inspection_jobs job")) {
@@ -122,8 +122,8 @@ class OperationalDatabase {
     this.queries.push(sql);
     if (sql.includes("LEFT JOIN customer_sites")) {
       return { rows: [
-        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", serviceDate: "2026-08-20", serviceTime: "09:30", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") },
-        { id: closedId, reference: "SV-CLOSED", title: "Closed site", status: "closed", serviceDate: "2026-08-19", serviceTime: "14:15", site: { id: "site-closed", displayName: "Closed site" }, configurationSnapshot: snapshot("Closed Customer") }
+        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", serviceTime: "09:30", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") },
+        { id: closedId, reference: "SV-CLOSED", title: "Closed site", status: "closed", createdAt: "2026-08-19T06:15:00.000Z", serviceDate: "2026-08-19", serviceTime: "14:15", site: { id: "site-closed", displayName: "Closed site" }, configurationSnapshot: snapshot("Closed Customer") }
       ] };
     }
     if (sql.includes("FROM inspection_jobs job")) {
@@ -140,6 +140,7 @@ test("manager operational list is server-classified, includes open and closed vi
   const visits = await listManagerServiceVisits(database as never);
   assert.deepEqual(visits.map((visit) => [visit.reference, visit.status]), [["SV-OPEN", "open"], ["SV-CLOSED", "closed"]]);
   assert.deepEqual(visits.map((visit) => visit.serviceTime), ["09:30", "14:15"]);
+  assert.deepEqual(visits.map((visit) => visit.createdAt), ["2026-08-20T01:30:00.000Z", "2026-08-19T06:15:00.000Z"]);
   assert.equal(visits[1]?.completion.completedBy?.username, "tech-one");
   const collectionQuery = database.queries.find((query) => query.includes("LEFT JOIN customer_sites")) ?? "";
   assert.match(collectionQuery, /inspection_jobs\.is_sample = false/);

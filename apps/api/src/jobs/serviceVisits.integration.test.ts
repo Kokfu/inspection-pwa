@@ -103,7 +103,7 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
       FROM inspection_jobs WHERE id = $2`, [siteId, portableSeedJobId]), /authenticated creator/);
 
     const legacyRetry = await retryThroughRoute(database, actorA!, {
-      requestId, customerId, siteId, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["portable_fire_extinguisher"]
+      requestId, customerId, siteId, systemKeys: ["portable_fire_extinguisher"]
     });
     const legacyResponse = legacyRetry.response;
     assert.equal(legacyResponse.status, 409);
@@ -116,21 +116,51 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
     )).rows[0]?.count, "1");
     assert.deepEqual(legacyRetry.audits, [{ action: "service_visit_create", result: "failure", reason: "IDEMPOTENCY_LEGACY_UNRESOLVED" }]);
 
-    const input = { requestId, customerId, siteId, serviceDate: "2026-08-18", serviceTime: "09:30", systemKeys: ["portable_fire_extinguisher"] };
+    const input = { requestId, customerId, siteId, systemKeys: ["portable_fire_extinguisher"] };
     const modernInput = { ...input, requestId: "51000000-0000-4000-8000-000000000002" };
+    const routeInput = { ...input, requestId: "51000000-0000-4000-8000-000000000004" };
+    const rejectedBackdate = await retryThroughRoute(database, actorA!, {
+      ...routeInput, serviceDate: "2020-01-01", serviceTime: "00:01"
+    });
+    assert.equal(rejectedBackdate.response.status, 400, "the production route rejects browser-controlled creation time");
+    assert.equal((await database.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM inspection_jobs WHERE creation_request_id = $1", [routeInput.requestId]
+    )).rows[0]?.count, "0");
+    const routeCreated = await retryThroughRoute(database, actorA!, routeInput);
+    assert.equal(routeCreated.response.status, 201);
+    const routeCreatedJob = (await routeCreated.response.json() as { job: { id: string; createdAt: string } }).job;
+    await database.query("SELECT pg_sleep(0.02)");
+    const routeReplay = await retryThroughRoute(database, actorA!, routeInput);
+    assert.equal(routeReplay.response.status, 200);
+    const routeReplayJob = (await routeReplay.response.json() as { job: { id: string; createdAt: string } }).job;
+    assert.equal(routeReplayJob.id, routeCreatedJob.id, "an HTTP retry keeps the original Job");
+    assert.equal(routeReplayJob.createdAt, routeCreatedJob.createdAt, "an HTTP retry keeps the original database creation timestamp");
+    assert.equal((await database.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM inspection_jobs WHERE created_by_user_id=$1 AND creation_request_id=$2",
+      [actorA, routeInput.requestId]
+    )).rows[0]?.count, "1");
     const client = await database.connect();
     const created = await createServiceVisit(client, modernInput, actorA!);
     client.release();
     assert.equal(created.idempotent, false);
-    assert.deepEqual((await database.query(`SELECT service_date::text AS "serviceDate", to_char(service_time, 'HH24:MI') AS "serviceTime" FROM inspection_jobs WHERE id=$1`, [created.id])).rows[0], { serviceDate: "2026-08-18", serviceTime: "09:30" });
+    const stored = await database.query<{ createdAt: string; serviceDate: string; serviceTime: string; expectedDate: string; expectedTime: string }>(`
+      SELECT created_at::text AS "createdAt", service_date::text AS "serviceDate",
+        to_char(service_time, 'HH24:MI') AS "serviceTime",
+        to_char(created_at AT TIME ZONE 'Asia/Kuala_Lumpur', 'YYYY-MM-DD') AS "expectedDate",
+        to_char(created_at AT TIME ZONE 'Asia/Kuala_Lumpur', 'HH24:MI') AS "expectedTime"
+      FROM inspection_jobs WHERE id=$1`, [created.id]);
+    assert.equal(stored.rows[0]?.serviceDate, stored.rows[0]?.expectedDate);
+    assert.equal(stored.rows[0]?.serviceTime, stored.rows[0]?.expectedTime);
     await assert.rejects(() => database.query("UPDATE inspection_jobs SET service_time='10:30'::time WHERE id=$1", [created.id]), /schedule is immutable/);
     await assert.rejects(() => database.query("UPDATE inspection_jobs SET service_date='2026-08-19'::date WHERE id=$1", [created.id]), /schedule is immutable/);
+    await database.query("SELECT pg_sleep(0.02)");
     const replayClient = await database.connect();
     assert.deepEqual(await createServiceVisit(replayClient, modernInput, actorA!), { id: created.id, idempotent: true });
     replayClient.release();
+    assert.equal((await database.query<{ createdAt: string }>("SELECT created_at::text AS \"createdAt\" FROM inspection_jobs WHERE id=$1", [created.id])).rows[0]?.createdAt, stored.rows[0]?.createdAt, "retry keeps the original database creation instant");
     await assert.rejects(async () => {
       const alteredClient = await database.connect();
-      try { await createServiceVisit(alteredClient, { ...modernInput, serviceDate: "2026-08-19" }, actorA!); }
+      try { await createServiceVisit(alteredClient, { ...modernInput, systemKeys: ["hose_reel"] }, actorA!); }
       finally { alteredClient.release(); }
     }, (error: unknown) => error instanceof ServiceVisitError && error.code === "IDEMPOTENCY_MISMATCH");
     const actorBClient = await database.connect();

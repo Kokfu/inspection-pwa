@@ -11,12 +11,6 @@ import type { CustomerConfigurationResponse, ReferenceCustomer, ReferenceSite } 
 import { createServiceVisit } from "./jobApi";
 import type { InspectionJob } from "./jobTypes";
 
-function todayLocal() {
-  const date = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 export function serviceAvailabilityMessage({
   customerSelected,
   loading,
@@ -45,8 +39,6 @@ export function NewServiceVisit({ onCreated, onCancel }: {
   const [configurationCustomerId, setConfigurationCustomerId] = useState<string>();
   const [customerId, setCustomerId] = useState("");
   const [siteId, setSiteId] = useState("");
-  const [serviceDate, setServiceDate] = useState(todayLocal);
-  const [serviceTime, setServiceTime] = useState("");
   const [systemKeys, setSystemKeys] = useState<string[]>([]);
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -94,7 +86,7 @@ export function NewServiceVisit({ onCreated, onCancel }: {
   });
   const toggle = (key: string) => setSystemKeys((current) => current.includes(key)
     ? current.filter((candidate) => candidate !== key) : [...current, key]);
-  const canCreate = !loading && !creating && configurationMatchesCustomer && Boolean(customerId && siteId && serviceDate && serviceTime && systemKeys.length);
+  const canCreate = !loading && !creating && configurationMatchesCustomer && Boolean(customerId && siteId && systemKeys.length);
 
   function selectCustomer(nextCustomerId: string) {
     setCustomerId(nextCustomerId);
@@ -138,7 +130,7 @@ export function NewServiceVisit({ onCreated, onCancel }: {
     if (!canCreate) return;
     setCreating(true); setMessage("");
     try {
-      const job = await createServiceVisit({ requestId, customerId, siteId, serviceDate, serviceTime, systemKeys });
+      const job = await createServiceVisit({ requestId, customerId, siteId, systemKeys });
       await onCreated(job);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Service visit could not be created.");
@@ -150,8 +142,7 @@ export function NewServiceVisit({ onCreated, onCancel }: {
     <div className="setup-card">
       <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
       <div className="setup-fields">
-        <div className="form-field"><label htmlFor="service-date">Service Date</label><input id="service-date" type="date" value={serviceDate} onChange={(event) => setServiceDate(event.target.value)} disabled={creating} /></div>
-        <div className="form-field"><label htmlFor="service-time">Service Time (Malaysia)</label><input id="service-time" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} disabled={creating} required /></div>
+        <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created.</p>
         <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
       </div>

@@ -10,6 +10,7 @@ type OperationalJobRow = {
   reference: string;
   title: string;
   status: "open" | "closed";
+  createdAt: string;
   serviceDate: string | null;
   serviceTime: string | null;
   site: { id: string; displayName: string } | null;
@@ -21,6 +22,7 @@ export type ManagerServiceVisit = {
   reference: string;
   customer: string;
   site: string;
+  createdAt: string;
   serviceDate: string | null;
   serviceTime: string | null;
   status: "open" | "closed";
@@ -41,6 +43,7 @@ function operationalJobQuery(byId = false) {
       inspection_jobs.job_reference AS reference,
       inspection_jobs.title,
       inspection_jobs.status,
+      inspection_jobs.created_at AS "createdAt",
       inspection_jobs.service_date::text AS "serviceDate",
       to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
@@ -86,6 +89,7 @@ async function presentOperationalJob(
     reference: job.reference,
     customer: presentation.customer,
     site: job.site?.displayName ?? job.title,
+    createdAt: job.createdAt,
     serviceDate: job.serviceDate,
     serviceTime: job.serviceTime,
     status: job.status,

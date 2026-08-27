@@ -1,0 +1,38 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run New Service Visit creation-time checks</button>
+  <pre id="result">Ready</pre><div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { NewServiceVisit } from "/src/jobs/NewServiceVisit.tsx";
+    const customer = { id: "customer-a", code: "A", displayName: "Customer A", isDemo: false };
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const mount = document.querySelector("#mount"), checks = [];
+    const check = (name, pass) => checks.push({ name, pass: Boolean(pass) });
+    const waitFor = async (predicate, label) => { for (let i = 0; i < 160; i += 1) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 15)); } throw new Error(`Timed out: ${label}`); };
+    const setValue = (selector, value) => { const element = mount.querySelector(selector); const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, "value").set.call(element, value); element.dispatchEvent(new Event("input", { bubbles: true })); element.dispatchEvent(new Event("change", { bubbles: true })); };
+    let requestBody, receivedJob;
+    const transport = async (input, init = {}) => {
+      const url = String(input);
+      if (url === "/api/customers") return json({ customers: [customer] });
+      if (url.endsWith("/sites")) return json({ sites: [{ id: "site-a", customerId: customer.id, code: "PRIMARY", displayName: "Site A" }] });
+      if (url.endsWith("/configuration")) return json({ customer, configuration: { configurationId: "config", revision: 1, templateId: "template", templateCode: "MFE", templateName: "Master", templateVersion: 1, selectionPolicy: "preset_only", enabledSystems: [{ id: "system-a", key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", zones: [], locations: [] }] } });
+      if (url === "/api/inspection-jobs/service-visits") { requestBody = JSON.parse(init.body); return json({ job: { id: "job-a", reference: "SV-20260826-1", title: "Site A", status: "open", createdAt: "2026-08-26T08:56:00.000Z", serviceDate: "2026-08-26", serviceTime: "16:56", site: { id: "site-a", displayName: "Site A" }, configurationSnapshot: { schemaVersion: 1, customer, configuration: { revisionId: "revision", revisionNumber: 1 }, template: { id: "template", code: "MFE", name: "Master", version: 1 }, enabledSystems: [] } } }, 201); }
+      return json({ message: "Unexpected" }, 503);
+    };
+    document.querySelector("#run").onclick = async () => { const originalFetch = globalThis.fetch; globalThis.fetch = transport; const root = ReactDom.createRoot(mount); try {
+      root.render(React.createElement(NewServiceVisit, { onCreated: async job => { receivedJob = job; }, onCancel: () => undefined }));
+      await waitFor(() => mount.querySelector("#service-customer")?.options.length === 2, "customers");
+      check("no editable date/time controls", !mount.querySelector("input[type=date], input[type=time]"));
+      check("automatic authority copy is visible", mount.textContent.includes("recorded automatically by the server"));
+      setValue("#service-customer", customer.id); await waitFor(() => mount.textContent.includes("Hose Reel"), "configuration");
+      setValue("#service-site", "site-a"); mount.querySelector("fieldset.system-picker input[type=checkbox]").click();
+      Array.from(mount.querySelectorAll("button")).find(button => button.textContent === "Create Service Visit")?.click();
+      await waitFor(() => Boolean(receivedJob), "created job");
+      check("request excludes browser date/time", Object.keys(requestBody).sort().join(",") === "customerId,requestId,siteId,systemKeys");
+      check("server-created timestamp is accepted unchanged", receivedJob.createdAt === "2026-08-26T08:56:00.000Z");
+      result.textContent = JSON.stringify({ status: checks.every(item => item.pass) ? "PASS" : "FAIL", checks }, null, 2);
+    } catch (error) { result.textContent = JSON.stringify({ status: "FAIL", error: String(error), checks }, null, 2); } finally { root.unmount(); globalThis.fetch = originalFetch; mount.replaceChildren(); } };
+  </script>
+</body></html>

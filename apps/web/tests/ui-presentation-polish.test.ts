@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatClientDate,
   formatClientDateTime,
+  formatMalaysiaDateTime,
   inspectionActionLabel,
   inspectionSyncMessage,
   isRoutineJobCountMessage
@@ -11,6 +12,7 @@ import {
 test("client dates use one human-facing format without changing source values", () => {
   assert.equal(formatClientDate("2026-08-19"), "19 Aug 2026");
   assert.match(formatClientDateTime("2026-08-19T05:04:00.000Z"), /^19 Aug 2026, \d{1,2}:\d{2} (AM|PM)$/);
+  assert.equal(formatMalaysiaDateTime("2026-08-26T08:56:00.000Z"), "26 Aug 2026, 16:56");
   assert.equal(formatClientDate("not-a-date"), "Date unavailable");
 });
 
