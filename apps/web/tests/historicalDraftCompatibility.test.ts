@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { canonicalizeFireAlarmResponses } from "../src/fireAlarm/fireAlarmValidation";
+
+const uuid = () => randomUUID();
+const response = (result: "good" | "poor" = "poor") => ({ result, remarks: result === "poor" ? "Historical poor remark" : "" });
+const historicalSnapshot = { schemaVersion: 1, capturedAt: "2026-08-28T00:00:00.000Z", job: { id: uuid(), reference: "HIST-WEB", title: "Historical Fire Alarm" }, customer: { id: uuid(), code: "HIST", displayName: "Historical Customer" }, configuration: { revisionId: uuid(), revisionNumber: 1 }, template: { id: "00000000-0000-4000-8000-000000000803", code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 3 }, system: { enabledSystemId: uuid(), systemKey: "fire_alarm_detector", displayName: "Fire Alarm / Detector System", sortOrder: 5, definitionStatus: "confirmed", zones: [], locations: [], definition: {}, resolvedControls: {}, repetitionMode: "single_with_two_repeatable_tables" } } as any;
+function historicalDraft() { return { schemaVersion: 1, controlPanelLocation: "Historical panel", primaryDeviceRows: [{ rowUuid: uuid(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: 1, assetReference: "", alarmZone: "Zone A", location: "Lobby", manualCallPoint: "normal", flowSwitch: "test", heatDetector: "isolation", smokeDetector: "normal", remarks: "Historical row remark" }], chargerAndBatteries: { main_supply: response("good"), battery: response(), charger: response("good") }, mainFunctionKeys: { main_alarm_reset: response("good"), lamp_test: response("good"), evacuate: response("good"), ac_supply: response("good"), dc_supply: response("good"), spka_system: response("good"), alarm_lift_trip: response("good"), signal_gas_discharge: response("good") }, secondaryAlarmDeviceRows: [{ rowUuid: uuid(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: 1, assetReference: "", location: "Pump Room", alarmBell: "poor", manualCallPoint: "good", remarks: "Historical secondary-row remark" }], comments: "Historical draft" }; }
+
+test("historical Fire Alarm Draft stays schema V1, Good/Poor only, and has no V6 fieldRemarks or manifest", () => {
+  const draft = historicalDraft(); const parsed = canonicalizeFireAlarmResponses(draft, historicalSnapshot);
+  assert.equal(parsed.schemaVersion, 1); assert.equal(parsed.chargerAndBatteries.battery.result, "poor"); assert.equal(parsed.secondaryAlarmDeviceRows[0]?.fieldRemarks, undefined); assert.equal(Object.hasOwn(parsed, "evidenceManifest"), false, "legacy Draft parsing never injects a V6 manifest");
+  const notRelevant = structuredClone(draft) as any; notRelevant.chargerAndBatteries.battery.result = "not_relevant"; assert.throws(() => canonicalizeFireAlarmResponses(notRelevant, historicalSnapshot), /malformed/);
+  const v6Field = structuredClone(draft) as any; v6Field.secondaryAlarmDeviceRows[0].fieldRemarks = { alarmBell: "would rewrite history" }; assert.throws(() => canonicalizeFireAlarmResponses(v6Field, historicalSnapshot), /malformed/);
+});

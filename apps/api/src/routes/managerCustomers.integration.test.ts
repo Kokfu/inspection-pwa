@@ -14,6 +14,7 @@ const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const makSitiId = "00000000-0000-4000-8000-000000000830";
 const makSitiSiteId = "00000000-0000-4000-8000-000000000832";
 const v5 = "00000000-0000-4000-8000-000000000805";
+const v6 = "00000000-0000-4000-8000-000000000806";
 
 async function close(server: Server) {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -50,6 +51,24 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
         assert.equal((await request(path, method, "inspector", body)).status, 403, `${method} ${path} inspector`);
       }
       assert.equal((await request("/manager/customers", "GET", "admin")).status, 200);
+      const catalogResponse = await request("/inspection-catalog", "GET", "inspector");
+      assert.equal(catalogResponse.status, 200);
+      const catalog = await catalogResponse.json() as {
+        templates: Array<{
+          id: string;
+          version: number;
+          systems: Array<{
+            key: string;
+            definitionStatus: string;
+            resolvedRuntimeControls?: { source?: { templateVersion?: number } };
+          }>;
+        }>;
+      };
+      assert.deepEqual(catalog.templates.map((template) => template.version), [1, 2, 3, 4, 5, 6]);
+      const publishedV6FireAlarm = catalog.templates.find((template) => template.id === v6)?.systems
+        .find((system) => system.key === "fire_alarm_detector");
+      assert.equal(publishedV6FireAlarm?.definitionStatus, "confirmed");
+      assert.equal(publishedV6FireAlarm?.resolvedRuntimeControls?.source?.templateVersion, 6);
       const hokuden = await request("/customers/00000000-0000-4000-8000-000000000840/configuration", "GET", "admin");
       assert.deepEqual((await hokuden.json() as { configuration: { enabledSystems: Array<{ key: string }> } }).configuration.enabledSystems.map((system) => system.key), ["automatic_sprinkler", "hose_reel", "fire_alarm_detector", "hydrant"], "technician configuration omits unassignable Hokuden services");
       await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ('a3000000-0000-4000-8000-000000000001',(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'),$2,'co2_fire_extinguisher',4)`, [makSitiId, v5]);
@@ -64,6 +83,7 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       const createdPrimarySite = (await database.query<{ id: string }>("SELECT id FROM customer_sites WHERE customer_id=$1 AND site_code='PRIMARY'", [createdId])).rows[0]!.id;
       const createdVisitClient = await database.connect(); let createdVisitId: string;
       try { createdVisitId = (await createServiceVisit(createdVisitClient, { requestId: "a1000000-0000-4000-8000-000000000099", customerId: createdId, siteId: createdPrimarySite, systemKeys: ["hose_reel"] }, userId)).id; } finally { createdVisitClient.release(); }
+      assert.deepEqual((await database.query(`SELECT revision.template_version_id AS "revisionTemplateId", job.master_template_version_id AS "jobTemplateId", job.configuration_snapshot->'template' AS "frozenTemplate" FROM inspection_jobs job INNER JOIN customer_configuration_revisions revision ON revision.id=job.customer_configuration_revision_id WHERE job.id=$1`, [createdVisitId])).rows[0], { revisionTemplateId: v6, jobTemplateId: v6, frozenTemplate: { id: v6, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 6 } }, "new normal customer configuration and service visit freeze the current V6 authority");
       const addSite = await request(`/manager/customers/${createdId}/sites`, "POST", "admin", { displayName: " Miri Branch " });
       assert.equal(addSite.status, 201); const addedSite = await addSite.json() as { site: { id: string; code: string; displayName: string }; customer: { sites: Array<{ displayName: string }>; configuration: { id: string } } };
       assert.equal(addedSite.site.displayName, "Miri Branch"); assert.match(addedSite.site.code, /^SITE-[A-F0-9]{8}$/);
@@ -77,7 +97,7 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       assert.equal((await request("/manager/customers", "POST", "admin", { displayName: "integration customer", siteDisplayName: "Another", systemKeys: ["hose_reel"] })).status, 409, "normalized duplicate name rejected");
       const rejected = await request("/manager/customers", "POST", "admin", { displayName: "Invalid CO2 Customer", siteDisplayName: "Primary", systemKeys: ["co2_fire_extinguisher"] });
       assert.equal(rejected.status, 409); assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name='Invalid CO2 Customer'")).rows[0]?.count, 0, "invalid create rolls back all rows");
-      await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ('a2000000-0000-4000-8000-000000000001',(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'),$2,'co2_fire_extinguisher',2)`, [createdId, v5]);
+      await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ('a2000000-0000-4000-8000-000000000001',(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'),$2,'co2_fire_extinguisher',2)`, [createdId, v6]);
       await database.query("INSERT INTO customer_system_zones (id,enabled_system_id,zone_key,display_name,sort_order) VALUES ('a2000000-0000-4000-8000-000000000002','a2000000-0000-4000-8000-000000000001','retained-zone','Retained Zone',1)");
       await database.query("INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ('a2000000-0000-4000-8000-000000000003','a2000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000002','retained-location','Retained Location',1,'{}',1)");
       assert.equal((await request(`/manager/customers/${createdId}/configuration-revisions`, "POST", "admin", { systemKeys: ["hose_reel", "co2_fire_extinguisher"] })).status, 201, "existing valid CO2 authority may be retained");
@@ -85,7 +105,7 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       const wetOldEnabled = "a2000000-0000-4000-8000-000000000011";
       const wetOldZone = "a2000000-0000-4000-8000-000000000012";
       const wetOldLocation = "a2000000-0000-4000-8000-000000000013";
-      await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ($1,(SELECT id FROM customer_configuration_revisions WHERE customer_id=$2 AND status='active'),$3,'wet_chemical',3)`, [wetOldEnabled, createdId, v5]);
+      await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ($1,(SELECT id FROM customer_configuration_revisions WHERE customer_id=$2 AND status='active'),$3,'wet_chemical',3)`, [wetOldEnabled, createdId, v6]);
       await database.query("INSERT INTO customer_system_zones (id,enabled_system_id,zone_key,display_name,sort_order) VALUES ($1,$2,'wet-zone','Wet Zone',1)", [wetOldZone, wetOldEnabled]);
       await database.query("INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ($1,$2,$3,'wet-location','Wet Location',1,'{}',1)", [wetOldLocation, wetOldEnabled, wetOldZone]);
       assert.equal((await request(`/manager/customers/${createdId}/configuration-revisions`, "POST", "admin", { systemKeys: ["hose_reel", "co2_fire_extinguisher", "wet_chemical"] })).status, 201, "existing valid Wet Chemical authority may be retained");
@@ -94,14 +114,15 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
 
       const visitClient = await database.connect(); let visitId: string;
       try { visitId = (await createServiceVisit(visitClient, { requestId: "a1000000-0000-4000-8000-000000000001", customerId: makSitiId, siteId: makSitiSiteId, systemKeys: ["hose_reel"] }, userId)).id; } finally { visitClient.release(); }
-      const before = await database.query<{ revision: string; snapshot: unknown }>("SELECT customer_configuration_revision_id::text AS revision, configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1", [visitId]);
+      const before = await database.query<{ revision: string; snapshot: unknown; templateId: string }>("SELECT customer_configuration_revision_id::text AS revision, configuration_snapshot AS snapshot, master_template_version_id AS \"templateId\" FROM inspection_jobs WHERE id=$1", [visitId]);
+      assert.equal(before.rows[0]?.templateId, v5, "existing historical configuration continues to create its V5-frozen visit before an explicit new revision is activated");
       const revision = await request(`/manager/customers/${makSitiId}/configuration-revisions`, "POST", "admin", { systemKeys: ["hose_reel", "automatic_sprinkler"] });
       assert.equal(revision.status, 201);
       const technicianConfiguration = await request(`/customers/${makSitiId}/configuration`, "GET", "admin");
       assert.equal((await technicianConfiguration.json() as { configuration: { revision: number } }).configuration.revision, 2, "normal technician endpoint returns N+1");
       const revisions = await database.query<{ revision: number; status: string; systems: string[] }>(`SELECT revision.revision, revision.status, array_agg(enabled.system_key ORDER BY enabled.sort_order) AS systems FROM customer_configuration_revisions revision LEFT JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id=revision.id WHERE revision.customer_id=$1 GROUP BY revision.id ORDER BY revision.revision`, [makSitiId]);
       assert.deepEqual(revisions.rows, [{ revision: 1, status: "superseded", systems: ["hose_reel", "fire_alarm_detector", "portable_fire_extinguisher", "co2_fire_extinguisher"] }, { revision: 2, status: "active", systems: ["automatic_sprinkler", "hose_reel"] }]);
-      assert.deepEqual((await database.query("SELECT customer_configuration_revision_id::text AS revision, configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1", [visitId])).rows[0], before.rows[0], "existing visit snapshot remains frozen at N");
+      assert.deepEqual((await database.query("SELECT customer_configuration_revision_id::text AS revision, configuration_snapshot AS snapshot, master_template_version_id AS \"templateId\" FROM inspection_jobs WHERE id=$1", [visitId])).rows[0], before.rows[0], "existing V5 visit snapshot remains frozen at N after V6 current selection creates N+1");
       const nextVisitClient = await database.connect();
       try { await createServiceVisit(nextVisitClient, { requestId: "a1000000-0000-4000-8000-000000000002", customerId: makSitiId, siteId: makSitiSiteId, systemKeys: ["automatic_sprinkler"] }, userId); } finally { nextVisitClient.release(); }
       assert.equal((await database.query("SELECT count(*)::int AS count FROM inspection_jobs WHERE customer_id=$1 AND customer_configuration_revision_id=(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active')", [makSitiId])).rows[0]?.count, 1, "new technician visit uses N+1");

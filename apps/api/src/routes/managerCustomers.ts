@@ -6,7 +6,7 @@ import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspectio
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const customerCatalogVersion = 5;
+const customerCatalogVersion = 6;
 const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical"]);
 // These contracts need structural information that the small shared-customer
 // creation command intentionally does not collect. The API, not the browser,

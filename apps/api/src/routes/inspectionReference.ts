@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { pool } from "../db/pool.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
-import { resolveFireAlarmControls } from "../inspections/templates/fireAlarmDefinitionControls.js";
+import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -89,12 +89,13 @@ function assertVersionedCatalogRows(templates: TemplateRow[]) {
     identities.add(identity);
   }
   if (
-    templates.length !== 5
+    templates.length !== 6
     || !templates.some((template) => template.version === 1)
     || !templates.some((template) => template.version === 2)
     || !templates.some((template) => template.version === 3)
     || !templates.some((template) => template.version === 4)
     || !templates.some((template) => template.version === 5)
+    || !templates.some((template) => template.version === 6)
   ) {
     throw new Error("Inspection catalog is missing a required published MFE-FSSR version");
   }
@@ -141,13 +142,15 @@ async function loadCatalogTemplate(template: TemplateRow, database: Pick<Pool, "
         : system.key === "fire_alarm_detector"
           && isCompatibleSystemContract("fire_alarm_detector", system.definitionStatus, system.definition)
           ? {
-              ...system,
-              resolvedRuntimeControls: resolveFireAlarmControls(
+            ...system,
+            resolvedRuntimeControls: template.version === 6
+              ? resolveFireAlarmV6Controls(system.definition)
+              : resolveFireAlarmControls(
                 system.definition,
                 template.code,
                 template.version
               )
-            }
+          }
           : (isImplementedSystemKey(system.key)
             && system.definitionStatus === "confirmed"
             && !isCompatibleSystemContract(system.key, system.definitionStatus, system.definition))
@@ -175,7 +178,7 @@ inspectionReferenceRouter.get(
           report_boilerplate AS "reportBoilerplate"
         FROM master_service_report_templates
         WHERE code = 'MFE-FSSR'
-          AND version IN (1, 2, 3, 4, 5)
+          AND version IN (1, 2, 3, 4, 5, 6)
           AND publication_status = 'published'
         ORDER BY version
       `);

@@ -6,6 +6,7 @@ import {
 } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import type { ResolvedFireAlarmControls } from "../inspections/templates/fireAlarmTypes.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { acceptFireAlarmV6Inspection, isFireAlarmV6Payload } from "./fireAlarmV6Acceptance.js";
 
 type UnknownRecord = Record<string, unknown>;
 type SyncItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
@@ -96,7 +97,7 @@ function enabledSystem(snapshot: UnknownRecord) {
   return systems.find((system) => system.systemKey === "fire_alarm_detector" && system.definitionStatus === "confirmed");
 }
 
-function expectedConfiguredRows(system: UnknownRecord): ExpectedConfigured[] | undefined {
+export function expectedConfiguredRows(system: UnknownRecord): ExpectedConfigured[] | undefined {
   const zones = Array.isArray(system.zones) ? system.zones.filter(isRecord) : undefined;
   const locations = Array.isArray(system.locations) ? system.locations.filter(isRecord) : undefined;
   if (!zones || !locations) return undefined;
@@ -205,6 +206,11 @@ export async function classifyFireAlarmUniqueViolationForTest(error: unknown, cl
 export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: number): Promise<SyncResult> {
   const result: SyncResult = { acceptedIds: [], duplicateIds: [], failed: [] };
   for (const item of items) {
+    if (isFireAlarmV6Payload(item)) {
+      const v6 = await acceptFireAlarmV6Inspection(item, actorUserId);
+      result.acceptedIds.push(...v6.acceptedIds); result.duplicateIds.push(...v6.duplicateIds); result.failed.push(...v6.failed);
+      continue;
+    }
     const checked = validateEnvelope(item);
     if (!checked.payload) { result.failed.push(checked.failure ?? failure("unknown", "VALIDATION_ERROR", "Invalid Fire Alarm inspection")); continue; }
     const payload = checked.payload; const client = await pool.connect(); let fingerprint = "";

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
 import { masterServiceReportV1 } from "./masterServiceReportV1.js";
+import { masterServiceReportV6 } from "./masterServiceReportV6.js";
 import { resolveAutomaticSprinklerControls } from "./automaticSprinklerDefinitionControls.js";
 import { resolveHoseReelControls } from "./definitionControls.js";
 import { resolveCo2Controls } from "./co2DefinitionControls.js";
-import { resolveFireAlarmControls } from "./fireAlarmDefinitionControls.js";
+import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "./fireAlarmDefinitionControls.js";
 import { implementedSystemKeys, isCompatibleSystemContract } from "./systemContractCompatibility.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
@@ -50,4 +51,16 @@ test("persisted JSONB system definitions retain their authoritative runtime cont
   assert.equal(resolveCo2Controls(persisted, "MFE-FSSR", 1).source.systemKey, "co2_fire_extinguisher");
   persisted.sections[0].title = "Changed after persistence";
   assert.equal(isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", persisted), false);
+});
+
+test("V6 selects only the frozen Fire Alarm variant and leaves V1-V5 exact", () => {
+  const v5 = masterServiceReportV5.systems.find((candidate) => candidate.key === "fire_alarm_detector")!;
+  const v6 = masterServiceReportV6.systems.find((candidate) => candidate.key === "fire_alarm_detector")!;
+  assert.equal(isCompatibleSystemContract("fire_alarm_detector", "confirmed", v5, { id: masterServiceReportV5.id, version: 5 }), false);
+  assert.equal(isCompatibleSystemContract("fire_alarm_detector", "confirmed", v6, { id: masterServiceReportV6.id, version: 6 }), true);
+  assert.deepEqual(resolveFireAlarmControls(v5, "MFE-FSSR", 3).chargerAndBatteries[0].result.options.map((option) => option.value), ["good", "poor"]);
+  assert.deepEqual(resolveFireAlarmV6Controls(v6).chargerAndBatteries[0].result.options.map((option) => option.value), ["good", "poor", "not_relevant"]);
+  assert.deepEqual(resolveFireAlarmV6Controls(v6).primaryDeviceRows.manualCallPoint.options.map((option) => option.value), ["normal", "test", "isolation"]);
+  const malformed = clone(v6) as any; malformed.sections[1].blocks[0].items[0].allowedValues = ["good", "poor"];
+  assert.throws(() => resolveFireAlarmV6Controls(malformed));
 });

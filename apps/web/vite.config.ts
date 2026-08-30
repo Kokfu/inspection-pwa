@@ -37,6 +37,10 @@ export default defineConfig(({ mode }) => {
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,webmanifest}"],
         navigateFallback: "/index.html",
+        // Accepted evidence is an authenticated binary API navigation, not a
+        // PWA route. Without this exclusion Workbox returns index.html when a
+        // user opens a "View accepted photo" link in a new tab.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: []
       }
       })

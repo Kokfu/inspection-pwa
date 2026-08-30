@@ -270,3 +270,35 @@ export function resolveFireAlarmControls(
     comments: { policy: "optional", maxLength: 4000 }
   };
 }
+
+/** V6 is deliberately separate from the historical parser.  A malformed V6
+ * definition never falls back to the V3 Good/Poor contract. */
+export function resolveFireAlarmV6Controls(definition: unknown) {
+  if (!isCompatibleSystemContract("fire_alarm_detector", "confirmed", definition, {
+    id: "00000000-0000-4000-8000-000000000806", version: 6
+  })) throw new Error("Unsupported or malformed Fire Alarm MFE-FSSR V6 definition");
+  const legacyShape = structuredClone(definition) as UnknownRecord;
+  const sections = legacyShape.sections;
+  if (!Array.isArray(sections)) throw new Error("Malformed Fire Alarm MFE-FSSR V6 definition");
+  for (const section of sections) {
+    if (!isRecord(section) || !Array.isArray(section.blocks)) throw new Error("Malformed Fire Alarm MFE-FSSR V6 definition");
+    for (const block of section.blocks) {
+      if (!isRecord(block)) throw new Error("Malformed Fire Alarm MFE-FSSR V6 definition");
+      const fields = Array.isArray(block.items) ? block.items : Array.isArray(block.columns) ? block.columns : [];
+      for (const field of fields) {
+        if (isRecord(field) && field.control === "good_poor") field.allowedValues = ["good", "poor"];
+      }
+    }
+  }
+  // Retain the proven structural parser after asserting the frozen V6 identity.
+  const v3 = resolveFireAlarmControls(legacyShape, "MFE-FSSR", 3);
+  const withV6Result = () => ({ type: "single_select" as const, required: true as const,
+    options: [{ value: "good" as const, label: "Good" }, { value: "poor" as const, label: "Poor" }, { value: "not_relevant" as const, label: "Not Relevant" }] });
+  return {
+    ...v3,
+    source: { templateCode: "MFE-FSSR" as const, templateVersion: 6 as const, systemKey: "fire_alarm_detector" as const },
+    chargerAndBatteries: v3.chargerAndBatteries.map((item) => ({ ...item, result: withV6Result() })),
+    mainFunctionKeys: v3.mainFunctionKeys.map((item) => ({ ...item, result: withV6Result() })),
+    secondaryAlarmDeviceRows: { ...v3.secondaryAlarmDeviceRows, alarmBell: withV6Result(), manualCallPoint: withV6Result() }
+  };
+}

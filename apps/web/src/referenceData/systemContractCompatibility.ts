@@ -11,6 +11,36 @@ const contractVersions: Readonly<Record<ImplementedSystemKey, number>> = {
   hydrant: 1, co2_fire_extinguisher: 1, wet_chemical: 4, portable_fire_extinguisher: 5
 };
 
+export type FireAlarmClientDispatch = "historical" | "v6";
+type FrozenTemplateIdentity = { id: string; code: string; version: number };
+export type FireAlarmAcceptedDetailTuple = FrozenTemplateIdentity & {
+  responseSchemaVersion: number;
+  snapshotSchemaVersion: number;
+  systemContractSha256: string | null;
+};
+
+// These are the immutable published MFE-FSSR identities.  Versions 4 and 5
+// retain V3's Fire Alarm definition; only V6 owns the evidence-first protocol.
+const fireAlarmClientDispatches: readonly (FireAlarmAcceptedDetailTuple & { dispatch: FireAlarmClientDispatch })[] = [
+  { id: "00000000-0000-4000-8000-000000000803", code: "MFE-FSSR", version: 3, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
+  { id: "00000000-0000-4000-8000-000000000804", code: "MFE-FSSR", version: 4, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
+  { id: "00000000-0000-4000-8000-000000000805", code: "MFE-FSSR", version: 5, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
+  { id: "00000000-0000-4000-8000-000000000806", code: "MFE-FSSR", version: 6, dispatch: "v6", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "deec720d8b9bebd4cca552748bfda24a5e4d99f5c13f22c0eee7e50f5cc8755d" }
+];
+
+export function fireAlarmClientDispatch(templateIdentity: FrozenTemplateIdentity): FireAlarmClientDispatch | undefined {
+  return fireAlarmClientDispatches.find((candidate) => candidate.id === templateIdentity.id
+    && candidate.code === templateIdentity.code && candidate.version === templateIdentity.version)?.dispatch;
+}
+
+export function fireAlarmAcceptedDetailDispatch(tuple: FireAlarmAcceptedDetailTuple): FireAlarmClientDispatch | undefined {
+  return fireAlarmClientDispatches.find((candidate) => candidate.id === tuple.id
+    && candidate.code === tuple.code && candidate.version === tuple.version
+    && candidate.responseSchemaVersion === tuple.responseSchemaVersion
+    && candidate.snapshotSchemaVersion === tuple.snapshotSchemaVersion
+    && candidate.systemContractSha256 === tuple.systemContractSha256)?.dispatch;
+}
+
 function canonicalize(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
   if (value !== null && typeof value === "object") {
@@ -34,14 +64,17 @@ export function compatibleCatalogSystem(
   catalog: InspectionCatalog,
   templateIdentity: { id: string; code: string; version: number },
   systemKey: ImplementedSystemKey
-): { template: CatalogTemplate; system: CatalogSystem } | undefined {
+): { template: CatalogTemplate; system: CatalogSystem; fireAlarmDispatch?: FireAlarmClientDispatch } | undefined {
   const template = templateForJob(catalog, templateIdentity);
+  const fireAlarmDispatch = systemKey === "fire_alarm_detector" ? fireAlarmClientDispatch(templateIdentity) : undefined;
   const contractTemplate = catalog.templates.find((candidate) => candidate.code === "MFE-FSSR"
-    && candidate.version === contractVersions[systemKey]);
+    && (systemKey === "fire_alarm_detector"
+      ? candidate.id === templateIdentity.id && candidate.version === templateIdentity.version && fireAlarmDispatch !== undefined
+      : candidate.version === contractVersions[systemKey]));
   const system = template?.systems.find((candidate) => candidate.key === systemKey);
   const contract = contractTemplate?.systems.find((candidate) => candidate.key === systemKey);
   if (!template || template.code !== "MFE-FSSR" || !system || !contract
     || system.definitionStatus !== "confirmed" || contract.definitionStatus !== "confirmed"
     || canonicalize(runtimeContract(system.definition)) !== canonicalize(runtimeContract(contract.definition))) return undefined;
-  return { template, system };
+  return { template, system, ...(fireAlarmDispatch ? { fireAlarmDispatch } : {}) };
 }

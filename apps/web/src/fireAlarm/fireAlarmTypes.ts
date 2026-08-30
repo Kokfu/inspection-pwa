@@ -2,7 +2,7 @@ import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 
 export type DeviceState = "normal" | "test" | "isolation";
-export type GoodPoor = "good" | "poor";
+export type GoodPoor = "good" | "poor" | "not_relevant";
 export type FireAlarmSyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type FireAlarmRowPreset = { fireAlarmTable: "primary" | "secondary"; assetReference?: string };
 
@@ -42,6 +42,7 @@ export type FireAlarmSecondaryAlarmDeviceRow = FireAlarmRowProvenance & {
   alarmBell: GoodPoor | null;
   manualCallPoint: GoodPoor | null;
   remarks: string;
+  fieldRemarks?: Partial<Record<"alarmBell" | "manualCallPoint", string>>;
 };
 
 export type GoodPoorResponse = { result: GoodPoor | null; remarks: string };
@@ -61,7 +62,7 @@ export type FireAlarmMainFunctionResponse = {
   signal_gas_discharge: GoodPoorResponse;
 };
 export type FireAlarmResponses = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   controlPanelLocation: string;
   primaryDeviceRows: FireAlarmPrimaryDeviceRow[];
   chargerAndBatteries: FireAlarmChargerAndBatteriesResponse;
@@ -113,8 +114,8 @@ export type ResolvedFireAlarmChecklistItem<K extends string> = {
   remarks: { policy: "optional"; maxLength: 2000 };
 };
 export type ResolvedFireAlarmControls = {
-  schemaVersion: 1;
-  source: { templateCode: "MFE-FSSR"; templateVersion: 3; systemKey: "fire_alarm_detector" };
+  schemaVersion: 1 | 2;
+  source: { templateCode: "MFE-FSSR"; templateVersion: 3 | 6; systemKey: "fire_alarm_detector" };
   repetitionMode: "single_with_two_repeatable_tables";
   instance: { key: "primary"; displaySequence: 1; zoneId: null; locationId: null };
   controlPanelLocation: ResolvedFireAlarmText & { key: "control_panel_location"; required: true; maxLength: 300 };
@@ -148,8 +149,9 @@ export type ResolvedFireAlarmControls = {
 };
 
 export type FireAlarmInspectionSnapshot = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   capturedAt: string;
+  contractSha256: string | null;
   job: { id: string; reference: string; title: string };
   customer: InspectionJob["configurationSnapshot"]["customer"];
   configuration: InspectionJob["configurationSnapshot"]["configuration"];
@@ -172,16 +174,20 @@ export type FireAlarmInspectionRecord = {
   responses: FireAlarmResponses; performedAt: string; localCreatedAt: string; localUpdatedAt: string;
   lastSyncedAt?: string; syncStatus: FireAlarmSyncStatus; lastSyncError?: string;
 };
+/** Frozen before upload; source hash is the client-known immutable hash.  The
+ * server-owned stored hash is bound authoritatively during staging. */
+export type FireAlarmEvidenceManifestEntry = { photoUuid: string; fieldPath: string; sourceSha256: string };
 export type FireAlarmSyncPayload = Pick<FireAlarmInspectionRecord,
   "clientUuid" | "jobId" | "systemKey" | "instanceKey" | "configuredZoneId" | "configuredLocationId"
   | "displaySequence" | "originalCreatorSnapshot" | "masterTemplate" | "configuration"
-  | "inspectionSnapshot" | "responses" | "performedAt">;
+  | "inspectionSnapshot" | "responses" | "performedAt"> & { evidenceManifest?: FireAlarmEvidenceManifestEntry[] };
 export type ServerFireAlarmDetail = {
   clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string;
   customer: { id: string; code: string; displayName: string };
   systemKey: "fire_alarm_detector"; systemLabel: "Fire Alarm / Detector System"; instanceKey: "primary";
   status: "submitted"; performedAt: string; receivedAt: string;
   template: { id: string; code: "MFE-FSSR"; version: number };
+  contract: { masterTemplateId: string; masterTemplateVersion: number; responseSchemaVersion: 1 | 2; snapshotSchemaVersion: 1 | 2; systemContractSha256: string | null };
   configuration: { revisionId: string; revisionNumber: number }; responses: FireAlarmResponses;
   deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string;
 };

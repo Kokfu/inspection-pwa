@@ -3,7 +3,7 @@ import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { localDatabase } from "../db/localDatabase";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
-import { fireAlarmJobSystemKey, getFireAlarmInspection, getOrCreateFireAlarmInspection } from "./fireAlarmRepository";
+import { fireAlarmJobSystemKey, getFireAlarmInspection, getOrCreateFireAlarmInspection, loadFireAlarmInspection } from "./fireAlarmRepository";
 import type { FireAlarmInspectionRecord } from "./fireAlarmTypes";
 import { FireAlarmAuthenticationError, FireAlarmDetailNotFoundError, InvalidFireAlarmDetailError, loadServerFireAlarmDetail } from "./serverFireAlarmApi";
 import type { ServerFireAlarmDetail } from "./fireAlarmTypes";
@@ -32,8 +32,7 @@ export async function resolveFireAlarmRoute(clientUuid:string,expectedJobId:stri
 }
 
 async function getFireAlarmInspectionByUuid(clientUuid:string){
-  const record=await localDatabase.masterSystemInspections.get(clientUuid);
-  return record?.systemKey==="fire_alarm_detector"?record as FireAlarmInspectionRecord:undefined;
+  return loadFireAlarmInspection(clientUuid);
 }
 
 export type FireAlarmOpenTarget = { kind: "local"; record: FireAlarmInspectionRecord } | { kind: "server"; clientUuid: string } | { kind: "not-cached" } | { kind: "server-unavailable"; message: string };

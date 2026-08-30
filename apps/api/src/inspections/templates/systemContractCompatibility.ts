@@ -3,6 +3,7 @@ import { masterServiceReportV2 } from "./masterServiceReportV2.js";
 import { masterServiceReportV3 } from "./masterServiceReportV3.js";
 import { masterServiceReportV4 } from "./masterServiceReportV4.js";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
+import { masterServiceReportV6 } from "./masterServiceReportV6.js";
 import type { MasterServiceReportDefinition } from "./templateTypes.js";
 
 export const implementedSystemKeys = [
@@ -18,7 +19,7 @@ export const implementedSystemKeys = [
 
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
 
-const contractTemplateVersion: Readonly<Record<ImplementedSystemKey, number>> = {
+const legacyContractTemplateVersion: Readonly<Record<ImplementedSystemKey, number>> = {
   automatic_sprinkler: 1,
   dry_wet_riser: 2,
   hose_reel: 1,
@@ -34,7 +35,8 @@ const templates = new Map<number, MasterServiceReportDefinition>([
   [2, masterServiceReportV2],
   [3, masterServiceReportV3],
   [4, masterServiceReportV4],
-  [5, masterServiceReportV5]
+  [5, masterServiceReportV5],
+  [6, masterServiceReportV6]
 ]);
 
 function canonicalize(value: unknown): string {
@@ -58,14 +60,30 @@ function runtimeContract(value: unknown) {
   return contract;
 }
 
-const authoritativeContracts = Object.fromEntries(implementedSystemKeys.map((systemKey) => {
-  const version = contractTemplateVersion[systemKey];
-  const system = templates.get(version)?.systems.find((candidate) => candidate.key === systemKey);
-  if (!system || system.definitionStatus !== "confirmed") {
-    throw new Error(`Missing authoritative ${systemKey} runtime contract`);
+export type SystemContractVariant = {
+  masterTemplateId: string;
+  masterTemplateVersion: number;
+  systemKey: ImplementedSystemKey;
+  contract: string;
+};
+
+/** Immutable registry indexed by frozen master identity.  The same system key
+ * can intentionally resolve to a different parser in a later template. */
+export const systemContractVariants: readonly SystemContractVariant[] = [
+  ...implementedSystemKeys.map((systemKey) => {
+    const version = legacyContractTemplateVersion[systemKey];
+    const template = templates.get(version)!;
+    const system = template.systems.find((candidate) => candidate.key === systemKey);
+    if (!system || system.definitionStatus !== "confirmed") throw new Error(`Missing authoritative ${systemKey} runtime contract`);
+    return { masterTemplateId: template.id, masterTemplateVersion: version, systemKey, contract: canonicalize(runtimeContract(system)) };
+  }),
+  {
+    masterTemplateId: masterServiceReportV6.id,
+    masterTemplateVersion: 6,
+    systemKey: "fire_alarm_detector",
+    contract: canonicalize(runtimeContract(masterServiceReportV6.systems.find((system) => system.key === "fire_alarm_detector")!))
   }
-  return [systemKey, canonicalize(runtimeContract(system))];
-})) as Record<ImplementedSystemKey, string>;
+];
 
 export function isImplementedSystemKey(value: string): value is ImplementedSystemKey {
   return (implementedSystemKeys as readonly string[]).includes(value);
@@ -79,13 +97,16 @@ export function isImplementedSystemKey(value: string): value is ImplementedSyste
 export function isCompatibleSystemContract(
   systemKey: ImplementedSystemKey,
   definitionStatus: unknown,
-  definition: unknown
+  definition: unknown,
+  frozenMasterTemplate?: { id: string; version: number }
 ): boolean {
   if (definitionStatus !== "confirmed" || !definition || typeof definition !== "object") return false;
-  return canonicalize(runtimeContract({ ...(definition as Record<string, unknown>), definitionStatus }))
-    === authoritativeContracts[systemKey];
+  const variants = systemContractVariants.filter((variant) => variant.systemKey === systemKey
+    && (!frozenMasterTemplate || (variant.masterTemplateId === frozenMasterTemplate.id && variant.masterTemplateVersion === frozenMasterTemplate.version)));
+  const candidate = canonicalize(runtimeContract({ ...(definition as Record<string, unknown>), definitionStatus }));
+  return variants.some((variant) => variant.contract === candidate);
 }
 
-export function systemContractVersion(systemKey: ImplementedSystemKey) {
-  return contractTemplateVersion[systemKey];
+export function systemContractVersion(systemKey: ImplementedSystemKey, frozenMasterTemplateVersion?: number) {
+  return frozenMasterTemplateVersion ?? legacyContractTemplateVersion[systemKey];
 }

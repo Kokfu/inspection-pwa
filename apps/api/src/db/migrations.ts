@@ -46,6 +46,9 @@ const serviceVisitScheduleTimeMigrationUrl = new URL(
 const customerCreationIdempotencyMigrationUrl = new URL(
   "../../migrations/016_customer_creation_idempotency.sql", import.meta.url
 );
+const v6StagedEvidenceMigrationUrl = new URL(
+  "../../migrations/017_v6_staged_evidence.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -239,5 +242,6 @@ export async function runMigrations(
     await database.query(await readFile(serviceVisitScheduleTimeMigrationUrl, "utf8"));
   }
   await database.query(await readFile(customerCreationIdempotencyMigrationUrl, "utf8"));
+  await database.query(await readFile(v6StagedEvidenceMigrationUrl, "utf8"));
   await seedMasterServiceReport(database);
 }

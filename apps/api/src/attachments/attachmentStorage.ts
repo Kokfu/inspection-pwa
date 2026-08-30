@@ -18,6 +18,61 @@ export const attachmentMaxBytes = 2 * 1024 * 1024;
 export const attachmentMaxLongEdge = 1600;
 export const attachmentInputPixelLimit = 40_000_000;
 
+type SyncableHandle = { sync: () => Promise<void>; close: () => Promise<void> };
+export type MoveAttachmentIo = {
+  mkdir: (directory: string, options: { recursive: true }) => Promise<unknown>;
+  open: (filePath: string, flags: string) => Promise<SyncableHandle>;
+  rename: (sourcePath: string, destinationPath: string) => Promise<void>;
+};
+const productionMoveAttachmentIo: MoveAttachmentIo = {
+  mkdir: (directory, options) => mkdir(directory, options),
+  open: (filePath, flags) => open(filePath, flags),
+  rename: (sourcePath, destinationPath) => rename(sourcePath, destinationPath)
+};
+
+/** Node on this Windows runtime rejects an opened directory handle's fsync with EPERM. */
+export function isUnsupportedWindowsDirectoryFsyncError(error: unknown, platform = process.platform) {
+  return platform === "win32" && typeof error === "object" && error !== null
+    && "code" in error && "syscall" in error
+    && error.code === "EPERM" && error.syscall === "fsync";
+}
+
+async function syncAndClose(handle: SyncableHandle) {
+  let syncError: unknown;
+  try {
+    await handle.sync();
+  } catch (error) {
+    syncError = error;
+    throw error;
+  } finally {
+    try {
+      await handle.close();
+    } catch (closeError) {
+      if (!syncError) throw closeError;
+    }
+  }
+}
+
+async function syncDirectoryAndClose(handle: SyncableHandle) {
+  let syncError: unknown;
+  try {
+    try {
+      await handle.sync();
+    } catch (error) {
+      if (!isUnsupportedWindowsDirectoryFsyncError(error)) {
+        syncError = error;
+        throw error;
+      }
+    }
+  } finally {
+    try {
+      await handle.close();
+    } catch (closeError) {
+      if (!syncError) throw closeError;
+    }
+  }
+}
+
 export type NormalizedImage = {
   sourceSha256: string;
   sourceSizeBytes: number;
@@ -118,27 +173,18 @@ export async function normalizeAttachmentImage(
 
 export async function moveNormalizedAttachment(
   normalizedTempPath: string,
-  finalPath: string
+  finalPath: string,
+  io: MoveAttachmentIo = productionMoveAttachmentIo
 ) {
   const directory = path.dirname(finalPath);
-  await mkdir(directory, { recursive: true });
-  const fileHandle = await open(normalizedTempPath, "r");
-  try {
-    await fileHandle.sync();
-  } finally {
-    await fileHandle.close();
-  }
-  await rename(normalizedTempPath, finalPath);
-  const directoryHandle = await open(directory, "r").catch(() => undefined);
-  if (directoryHandle) {
-    try {
-      await directoryHandle.sync().catch((error: NodeJS.ErrnoException) => {
-        if (!["EINVAL", "ENOTSUP", "EPERM"].includes(error.code ?? "")) throw error;
-      });
-    } finally {
-      await directoryHandle.close();
-    }
-  }
+  await io.mkdir(directory, { recursive: true });
+  // Windows requires a write-capable handle for fsync on some local volumes.
+  // This is still the retained temporary file; no error is suppressed here.
+  const fileHandle = await io.open(normalizedTempPath, "r+");
+  await syncAndClose(fileHandle);
+  await io.rename(normalizedTempPath, finalPath);
+  const directoryHandle = await io.open(directory, "r");
+  await syncDirectoryAndClose(directoryHandle);
 }
 
 async function streamingSha256(filePath: string) {

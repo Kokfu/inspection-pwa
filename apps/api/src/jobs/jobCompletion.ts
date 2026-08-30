@@ -80,6 +80,10 @@ type Connectable = {
   connect(): Promise<PoolClient>;
 };
 
+let testRaceBarrier: (() => Promise<void>) | undefined;
+/** Test-only in-process synchronization; production leaves this undefined. */
+export function setJobCompletionTestBarrier(barrier: (() => Promise<void>) | undefined) { testRaceBarrier = barrier; }
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const singleAuthoritySystems = new Set([
   "automatic_sprinkler",
@@ -390,6 +394,7 @@ export async function closeInspectionJob(
       await client.query("ROLLBACK");
       return { kind: "not-found" };
     }
+    await testRaceBarrier?.();
     const current = await evaluateJobCompletion(client, jobId, job);
     if (!current) throw new Error("Locked job disappeared during completion evaluation");
     if (job.status === "closed") {

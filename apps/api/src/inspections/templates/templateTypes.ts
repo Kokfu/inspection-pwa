@@ -23,6 +23,9 @@ export type FieldDefinition = {
   readonly required: boolean;
   readonly sortOrder: number;
   readonly unit?: string;
+  // Contract versions own their value set.  V1-V5 keep their frozen
+  // Good/Poor definitions while V6 can add Not Relevant without changing a
+  // historical serialized definition.
   readonly allowedValues?: readonly string[];
   readonly remarksPolicy?: RemarksPolicy;
   readonly confirmationNote?: string;

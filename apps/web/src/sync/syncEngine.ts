@@ -3,7 +3,8 @@ import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import {
   AttachmentUploadError,
-  uploadInspectionAttachment
+  uploadInspectionAttachment,
+  stageFireAlarmV6Evidence
 } from "../attachments/attachmentApi";
 
 type SyncFailedItem = {
@@ -32,6 +33,10 @@ function isPortableOutboxItem(item: SyncOutboxItem) {
 
 function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, item: SyncOutboxItem) {
   if (record?.systemKey !== "fire_alarm_detector") return false;
+  if (record.masterTemplate.version === 6) return item.entityType === "masterSystemInspection"
+    && typeof item.payload === "object" && item.payload !== null
+    && (item.payload as { clientUuid?: unknown }).clientUuid === record.clientUuid
+    && Array.isArray((item.payload as { evidenceManifest?: unknown }).evidenceManifest);
   const expected = {
     clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey,
     instanceKey: record.instanceKey, configuredZoneId: record.configuredZoneId,
@@ -41,6 +46,29 @@ function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, 
     responses: record.responses, performedAt: record.performedAt
   };
   return JSON.stringify(item.payload) === JSON.stringify(expected);
+}
+
+async function syncPendingV6Evidence() {
+  const work = (await localDatabase.syncOutbox.where("status").anyOf("Pending", "Failed").toArray()).filter((item) => item.entityType === "v6StagedEvidence");
+  let accepted = 0; let failed = 0;
+  for (const item of work) {
+    const attachment = await localDatabase.inspectionAttachments.get(item.entityId); const record = attachment ? await localDatabase.masterSystemInspections.get(attachment.inspectionClientUuid) : undefined;
+    if (!attachment || attachment.systemKey !== "fire_alarm_detector" || attachment.protocolVersion !== 6 || !record || record.systemKey !== "fire_alarm_detector") { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local V6 evidence or inspection is unavailable" }); failed += 1; continue; }
+    const at = new Date().toISOString();
+    await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
+    try {
+      const staged = await stageFireAlarmV6Evidence(attachment, record); const done = new Date().toISOString();
+      await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Synced", storedSha256: staged.storedSha256, lastSyncedAt: done, localUpdatedAt: done, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: done, lastError: undefined }); }); accepted += 1;
+    } catch (error) { const message = failureMessage(error); const conflict = error instanceof AttachmentUploadError && ["IDEMPOTENCY_CONFLICT", "RESERVATION_CONFLICT", "JOB_ACCESS_DENIED", "CONTRACT_MISMATCH"].includes(error.code); await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: conflict ? "Conflict" : "Failed", localUpdatedAt: new Date().toISOString(), lastSyncError: message }); await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: message }); }); failed += 1; }
+  }
+  return { accepted, failed, pending: work.length - accepted - failed };
+}
+
+async function v6FormReady(item: SyncOutboxItem) {
+  if (!isFireAlarmOutboxItem(item) || !Array.isArray((item.payload as { evidenceManifest?: unknown }).evidenceManifest)) return true;
+  const manifest = (item.payload as { evidenceManifest: Array<{ photoUuid?: unknown; fieldPath?: unknown; sourceSha256?: unknown }> }).evidenceManifest;
+  for (const entry of manifest) { if (typeof entry.photoUuid !== "string") return false; const attachment = await localDatabase.inspectionAttachments.get(entry.photoUuid); if (!attachment || attachment.syncStatus !== "Synced" || attachment.fieldPath !== entry.fieldPath || attachment.sha256 !== entry.sourceSha256) return false; }
+  return true;
 }
 
 function portablePayloadMatches(record: PortableRecord | undefined, item: SyncOutboxItem) {
@@ -389,16 +417,19 @@ export async function syncPendingRecords() {
   try {
     await recoverInterruptedSync();
 
+    const v6Evidence = await syncPendingV6Evidence();
+
     const candidateItems = (await localDatabase.syncOutbox
       .where("status")
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        item.entityType !== "inspectionAttachment" && shouldSync(item)
+        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && shouldSync(item)
       );
-    let items = await filterTerminalConflictWork(
+    let items = (await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
-    );
+    )).filter((item) => true);
+    items = (await Promise.all(items.map(async (item) => await v6FormReady(item) ? item : undefined))).filter((item): item is SyncOutboxItem => !!item);
 
     await testBoundaryHook?.("afterCandidatesCaptured");
 
@@ -406,7 +437,7 @@ export async function syncPendingRecords() {
       const evidence = await syncPendingAttachments();
       return {
         started: true,
-        message: evidence.accepted || evidence.failed || evidence.pending
+        message: v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
           ? `Evidence sync finished: ${evidence.accepted} confirmed, ${evidence.failed} failed, ${evidence.pending} waiting for parent`
           : "No pending records"
       };

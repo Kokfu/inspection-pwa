@@ -1,0 +1,17 @@
+import { useRef, useState } from "react";
+import { CameraCaptureDialog } from "../attachments/CameraCaptureDialog";
+import { processInspectionPhoto, requestPersistentAttachmentStorage } from "../attachments/imageProcessing";
+import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
+import type { FireAlarmInspectionRecord } from "./fireAlarmTypes";
+import { saveFireAlarmV6Photo, type FireAlarmV6FieldPath } from "./fireAlarmV6Evidence";
+
+export function FireAlarmV6EvidenceField({ record, fieldPath, attachment, onChanged }: { record: FireAlarmInspectionRecord; fieldPath: FireAlarmV6FieldPath; attachment?: InspectionAttachmentRecord; onChanged: () => Promise<void> }) {
+  const input = useRef<HTMLInputElement>(null); const [cameraOpen, setCameraOpen] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState("");
+  async function save(blob: Blob, captureSource: "camera" | "gallery", capturedAt?: string) { setBusy(true); setMessage("Processing photo..."); try { void requestPersistentAttachmentStorage(); const photo = await processInspectionPhoto(blob); await saveFireAlarmV6Photo({ record, fieldPath, captureSource, ...photo, capturedAt }); await onChanged(); setMessage("Photo saved on this device."); } catch (error) { setMessage(error instanceof Error ? error.message : "Photo could not be saved"); } finally { setBusy(false); } }
+  return <section className="photo-evidence-field" aria-label={`Evidence photo for ${fieldPath}`}>
+    {attachment ? <p className="secondary-metadata">Photo attached on this device ({Math.round(attachment.sizeBytes / 1024)} KB)</p> : <p className="secondary-metadata">No photo attached</p>}
+    <div className="photo-actions"><button type="button" disabled={busy} onClick={() => setCameraOpen(true)}>{attachment ? "Replace with Camera" : "Take Photo"}</button><button type="button" className="secondary-command" disabled={busy} onClick={() => input.current?.click()}>{attachment ? "Replace from Gallery" : "Choose Existing Photo"}</button><input ref={input} className="visually-hidden" type="file" accept="image/*" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void save(file, "gallery"); }} /></div>
+    {message ? <p className="form-message" role="status">{message}</p> : null}
+    {cameraOpen ? <CameraCaptureDialog onCapture={async (blob, capturedAt) => { setCameraOpen(false); await save(blob, "camera", capturedAt); }} onClose={() => setCameraOpen(false)} /> : null}
+  </section>;
+}

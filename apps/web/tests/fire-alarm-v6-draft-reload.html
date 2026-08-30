@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><title>Fire Alarm V6 Draft reload</title></head>
+<body><button id="run">Run V6 Draft reload</button><pre id="result">Ready</pre>
+<script type="module">
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { getPublishedFireAlarmDefinition } from "/src/fireAlarm/fireAlarmDefinition.ts";
+import { fireAlarmJobSystemKey, getFireAlarmInspection, getOrCreateFireAlarmInspection, saveFireAlarmDraft } from "/src/fireAlarm/fireAlarmRepository.ts";
+import { listFireAlarmV6Photos, saveFireAlarmV6Photo, v6ContractSha256 } from "/src/fireAlarm/fireAlarmV6Evidence.ts";
+import { resolveFireAlarmRoute } from "/src/fireAlarm/fireAlarmResolution.ts";
+
+const id = n => `77000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const output = document.querySelector("#result");
+const checks = [];
+const check = (name, passed) => checks.push({ name, passed: Boolean(passed) });
+const v6Definition = () => { const definition = getPublishedFireAlarmDefinition(); for (const section of definition.sections) for (const block of section.blocks) for (const field of [...(block.items ?? []), ...(block.columns ?? [])]) if (field.control === "good_poor") field.allowedValues = ["good", "poor", "not_relevant"]; return definition; };
+const fixture = () => { const ids = { job: id(1), customer: id(2), revision: id(3), template: "00000000-0000-4000-8000-000000000806", system: id(5), primary: id(6), secondary: id(7) }; const system = { enabledSystemId: ids.system, systemKey: "fire_alarm_detector", displayName: "Fire Alarm / Detector System", sortOrder: 5, definitionStatus: "confirmed", zones: [], locations: [{ id: ids.primary, enabledSystemId: ids.system, zoneId: null, key: "primary", displayName: "Panel Room", presetRowCount: 1, rowPreset: { fireAlarmTable: "primary", assetReference: "P-1" }, sortOrder: 1 }, { id: ids.secondary, enabledSystemId: ids.system, zoneId: null, key: "secondary", displayName: "Lobby", presetRowCount: 1, rowPreset: { fireAlarmTable: "secondary", assetReference: "S-1" }, sortOrder: 2 }] }; const template = { id: ids.template, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 6, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: system.systemKey, displayName: system.displayName, sortOrder: 5, definitionStatus: "confirmed", definition: v6Definition() }] }; const job = { id: ids.job, reference: "V6-DRAFT-RELOAD", title: "V6 Draft Browser Harness", status: "open", createdAt: new Date().toISOString(), configurationSnapshot: { schemaVersion: 1, customer: { id: ids.customer, code: "V6", displayName: "V6 Customer" }, configuration: { revisionId: ids.revision, revisionNumber: 1 }, template: { id: ids.template, code: "MFE-FSSR", name: template.name, version: 6 }, enabledSystems: [system] } }; return { ids, job, system, catalog: { template: { ...template, id: id(20), version: 1, systems: [] }, templates: [template] } }; };
+
+document.querySelector("#run").onclick = async () => { try {
+  checks.length = 0; const f = fixture(); await localDatabase.open(); await localDatabase.masterSystemInspections.where("jobId").equals(f.ids.job).delete();
+  const draft = await getOrCreateFireAlarmInspection(f.job, f.system, f.catalog, { id: 1, username: "browser-tech", role: "inspector" });
+  const responses = structuredClone(draft.responses);
+  responses.controlPanelLocation = "Panel Room";
+  Object.assign(responses.primaryDeviceRows[0], { manualCallPoint: "normal", flowSwitch: "test", heatDetector: "isolation", smokeDetector: "normal", remarks: "Persisted repeatable primary row" });
+  Object.assign(responses.secondaryAlarmDeviceRows[0], { alarmBell: "not_relevant", manualCallPoint: "good", remarks: "Persisted repeatable secondary row", fieldRemarks: {} });
+  responses.chargerAndBatteries.main_supply = { result: "poor", remarks: "Persisted V6 Poor remark" };
+  responses.chargerAndBatteries.battery = { result: "not_relevant", remarks: "Persisted V6 Not Relevant remark" };
+  responses.chargerAndBatteries.charger = { result: "good", remarks: "Persisted V6 Good remark" };
+  const photo = await saveFireAlarmV6Photo({ record: draft, fieldPath: "charger_batteries.charger_battery_checks.main_supply", captureSource: "gallery", blob: new Blob(["persisted-v6-photo"], { type: "image/jpeg" }), mimeType: "image/jpeg", sizeBytes: 18, width: 1, height: 1, sha256: "a".repeat(64) });
+  const saved = await saveFireAlarmDraft(draft, responses);
+  const contractSha256 = await v6ContractSha256(saved.inspectionSnapshot.system.definition);
+  check("production V6 Draft save preserves selected results before reload", saved.responses.chargerAndBatteries.main_supply.result === "poor" && saved.responses.chargerAndBatteries.battery.result === "not_relevant" && saved.responses.chargerAndBatteries.charger.result === "good");
+  check("V6 Draft freezes the V6 tuple rather than V3 metadata", saved.masterTemplate.id === f.ids.template && saved.masterTemplate.version === 6 && saved.responses.schemaVersion === 2 && saved.inspectionSnapshot.schemaVersion === 2 && saved.inspectionSnapshot.contractSha256 === contractSha256 && saved.inspectionSnapshot.system.resolvedControls.source.templateVersion === 6 && saved.inspectionSnapshot.system.resolvedControls.schemaVersion === 2);
+  localStorage.setItem("v6-draft-reload-client", saved.clientUuid); output.textContent = JSON.stringify({ status: checks.every(item => item.passed) ? "READY_RELOAD" : "FAIL", checks });
+} catch (error) { output.textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), checks }); } };
+
+window.runAfterReload = async () => { try {
+  checks.length = 0; const f = fixture(); const clientUuid = localStorage.getItem("v6-draft-reload-client"); const record = await getFireAlarmInspection(fireAlarmJobSystemKey(f.ids.job)); const route = await resolveFireAlarmRoute(clientUuid, f.ids.job, "offline-unverified"); const photos = await listFireAlarmV6Photos(clientUuid);
+  check("Poor survives IndexedDB save and real browser reload", record?.responses.chargerAndBatteries.main_supply.result === "poor" && record.responses.chargerAndBatteries.main_supply.remarks === "Persisted V6 Poor remark");
+  check("Not Relevant survives IndexedDB save and real browser reload", record?.responses.chargerAndBatteries.battery.result === "not_relevant" && record.responses.chargerAndBatteries.battery.remarks === "Persisted V6 Not Relevant remark");
+  check("Good and repeatable-row values survive reload without legacy coercion", record?.responses.chargerAndBatteries.charger.result === "good" && record.responses.primaryDeviceRows[0]?.flowSwitch === "test" && record.responses.primaryDeviceRows[0]?.heatDetector === "isolation" && record.responses.secondaryAlarmDeviceRows[0]?.alarmBell === "not_relevant" && record.responses.secondaryAlarmDeviceRows[0]?.remarks === "Persisted repeatable secondary row");
+  check("V6 photo Blob and immutable metadata survive reload", photos.length === 1 && photos[0]?.photoUuid && photos[0]?.fieldPath === "charger_batteries.charger_battery_checks.main_supply" && photos[0]?.sha256 === "a".repeat(64) && photos[0]?.blob.size === 18 && photos[0]?.blob.type === "image/jpeg");
+  check("route hydration returns the exact persisted V6 Draft", route.kind === "local" && route.record.clientUuid === clientUuid && route.record.responses.chargerAndBatteries.main_supply.result === "poor" && route.record.inspectionSnapshot.system.resolvedControls.source.templateVersion === 6);
+  output.textContent = JSON.stringify({ status: checks.every(item => item.passed) ? "PASS" : "FAIL", checks });
+} catch (error) { output.textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), checks }); } };
+</script></body></html>

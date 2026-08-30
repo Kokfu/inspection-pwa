@@ -14,6 +14,7 @@ import { validateAutomaticSprinklerHistoricalPayload } from "../sync/automaticSp
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateHoseReelHistoricalPayload } from "../inspections/acceptedMasterSystemDetail.js";
 import { validateFireAlarmHistoricalPayload } from "../inspections/fireAlarmAccepted.js";
+import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { validateHydrantHistoricalPayload } from "../sync/hydrantInspectionSync.js";
 import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguisherSync.js";
 
@@ -26,7 +27,7 @@ export class FinalReportError extends Error {
 }
 
 export type FinalReportField = { label: string; value: string; depth: number };
-export type FinalReportEvidence = { field: string; content: Buffer; width: number; height: number };
+export type FinalReportEvidence = { field: string; caption?: string; content: Buffer; width: number; height: number };
 export type FinalReportLocation = { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string };
 export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[] };
 export type FinalServiceReport = {
@@ -36,7 +37,7 @@ export type FinalServiceReport = {
 };
 
 type ReportJobRow = CompletionJobRow & { reference: string; title: string; service_date: string | null };
-type ReportInstanceRow = AcceptedAuthorityRow & { master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
+type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
 const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher"]);
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,6 +49,11 @@ const text = (value: unknown, maximum = 4000): value is string => typeof value =
 function requiredText(value: unknown, maximum: number, message: string): string {
   if (!text(value, maximum)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, message);
   return value;
+}
+function optionalAssetReference(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > 250) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+  return value.trim().length > 0 ? value : undefined;
 }
 
 function labelFor(key: string) {
@@ -131,7 +137,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
-    || snapshot.schemaVersion !== 1 || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
+    || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2)) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
     || !frozenTemplate || !frozenConfiguration
     || snapshot.job.id !== job.id || snapshot.job.reference !== job.reference
@@ -144,6 +150,11 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
     || snapshot.template.id !== frozenTemplate.id || snapshot.template.version !== frozenTemplate.version
     || snapshot.template.code !== "MFE-FSSR" || !Number.isSafeInteger(snapshot.template.version)
     || (snapshot.system.systemKey !== row.system_key && snapshot.system.key !== row.system_key)) return false;
+  if (row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) {
+    return frozenTemplate.version === 6 && row.master_template_version_id === frozenTemplate.id
+      && snapshot.template.id === frozenTemplate.id && snapshot.template.version === 6
+      && validateFireAlarmHistoricalPayload(snapshot, response);
+  }
   // CO2 and Wet Chemical accepted snapshots predate the common systemKey field
   // and their responses intentionally have no schemaVersion property. Reuse the
   // same frozen-definition validator that accepted their production payload.
@@ -161,6 +172,107 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
     case "portable_fire_extinguisher": return validatePortableHistoricalPayload(response, snapshot);
     default: return false;
   }
+}
+
+function fireAlarmV6PoorFields(response: unknown) {
+  if (!isRecord(response) || response.schemaVersion !== 2) return undefined;
+  const fields: string[] = [];
+  const checklist = [["chargerAndBatteries", "charger_batteries.charger_battery_checks", ["main_supply", "battery", "charger"]], ["mainFunctionKeys", "main_function_key.function_checks", ["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "spka_system", "alarm_lift_trip", "signal_gas_discharge"]]] as const;
+  for (const [group, prefix, keys] of checklist) { const values = response[group]; if (!isRecord(values)) return undefined; for (const key of keys) { const item = values[key]; if (!isRecord(item) || !["good", "poor", "not_relevant"].includes(String(item.result))) return undefined; if (item.result === "poor") fields.push(`${prefix}.${key}`); } }
+  if (!Array.isArray(response.secondaryAlarmDeviceRows)) return undefined;
+  const rowIds = new Set<string>();
+  for (const row of response.secondaryAlarmDeviceRows) { if (!isRecord(row) || !uuid.test(String(row.rowUuid)) || rowIds.has(String(row.rowUuid)) || !isRecord(row.fieldRemarks)) return undefined; rowIds.add(String(row.rowUuid)); for (const [key, pathKey] of [["alarmBell", "alarm_bell"], ["manualCallPoint", "manual_call_point"]] as const) { if (!["good", "poor", "not_relevant"].includes(String(row[key])) || (row[key] === "poor" && (!text(row.fieldRemarks[key], 2000)))) return undefined; if (row[key] === "poor") fields.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${pathKey}`); } }
+  return fields.sort();
+}
+
+function v6Result(value: unknown) {
+  if (value === "good") return "Good";
+  if (value === "poor") return "Poor";
+  if (value === "not_relevant") return "Not Relevant";
+  return undefined;
+}
+
+type FireAlarmV6ReportResponse = RecordValue & {
+  primaryDeviceRows: unknown[];
+  secondaryAlarmDeviceRows: unknown[];
+  chargerAndBatteries: RecordValue;
+  mainFunctionKeys: RecordValue;
+};
+
+function fireAlarmV6ReportContext(snapshot: unknown, response: unknown) {
+  if (!isRecord(snapshot) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition) || !isRecord(response)) return undefined;
+  try {
+    const controls = resolveFireAlarmV6Controls(snapshot.system.definition);
+    if (!Array.isArray(response.primaryDeviceRows) || !Array.isArray(response.secondaryAlarmDeviceRows) || !isRecord(response.chargerAndBatteries) || !isRecord(response.mainFunctionKeys)) return undefined;
+    return { controls, response: response as FireAlarmV6ReportResponse };
+  } catch { return undefined; }
+}
+
+function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
+  const context = fireAlarmV6ReportContext(snapshot, response);
+  if (!context) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+  const fields: FinalReportField[] = [];
+  const add = (label: string, value: unknown, depth = 0) => { const rendered = typeof value === "string" ? value : undefined; if (!rendered) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid."); fields.push({ label, value: rendered, depth }); };
+  add(context.controls.controlPanelLocation.label, context.response.controlPanelLocation);
+  for (const [index, row] of context.response.primaryDeviceRows.entries()) {
+    if (!isRecord(row)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+    const prefix = `Control Panel Row ${index + 1}`;
+    const assetReference = optionalAssetReference(row.assetReference);
+    if (assetReference) add(`${prefix} - ${context.controls.primaryDeviceRows.assetReference.label}`, assetReference);
+    add(`${prefix} - ${context.controls.primaryDeviceRows.alarmZone.label}`, row.alarmZone);
+    add(`${prefix} - ${context.controls.primaryDeviceRows.location.label}`, row.location);
+    add(`${prefix} - Manual Call Point`, row.manualCallPoint);
+    add(`${prefix} - Flow Switch`, row.flowSwitch);
+    add(`${prefix} - Heat Detector`, row.heatDetector);
+    add(`${prefix} - Smoke Detector`, row.smokeDetector);
+    if (typeof row.remarks === "string" && row.remarks) add(`${prefix} - Remarks`, row.remarks);
+  }
+  const checklist = (title: string, values: RecordValue, items: readonly { key: string; label: string }[]) => {
+    for (const item of items) {
+      const value = values[item.key]; if (!isRecord(value)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+      const result = v6Result(value.result); if (!result || typeof value.remarks !== "string") throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+      add(`${title} - ${item.label}`, result); if (result === "Poor") add(`${title} - ${item.label} Remark`, value.remarks, 1);
+    }
+  };
+  checklist("Charger & Batteries", context.response.chargerAndBatteries, context.controls.chargerAndBatteries);
+  checklist("Main Function Key", context.response.mainFunctionKeys, context.controls.mainFunctionKeys);
+  for (const [index, row] of context.response.secondaryAlarmDeviceRows.entries()) {
+    if (!isRecord(row) || !isRecord(row.fieldRemarks) || typeof row.location !== "string") throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+    const prefix = `Alarm Device Row ${index + 1} (${row.location})`;
+    const assetReference = optionalAssetReference(row.assetReference);
+    if (assetReference) add(`${prefix} - ${context.controls.secondaryAlarmDeviceRows.assetReference.label}`, assetReference);
+    for (const [key, item] of [["alarmBell", context.controls.secondaryAlarmDeviceRows.alarmBell], ["manualCallPoint", context.controls.secondaryAlarmDeviceRows.manualCallPoint]] as const) {
+      const result = v6Result(row[key]); if (!result) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+      add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"}`, result);
+      if (result === "Poor") add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`, row.fieldRemarks[key], 1);
+    }
+    if (typeof row.remarks === "string" && row.remarks) add(`${prefix} - Remarks`, row.remarks);
+  }
+  if (typeof context.response.comments === "string" && context.response.comments) add("Comments", context.response.comments);
+  return fields;
+}
+
+function fireAlarmV6EvidenceCaption(snapshot: unknown, response: unknown, fieldPath: string) {
+  const context = fireAlarmV6ReportContext(snapshot, response);
+  if (!context) return undefined;
+  for (const [title, prefix, items] of [["Charger & Batteries", "charger_batteries.charger_battery_checks", context.controls.chargerAndBatteries], ["Main Function Key", "main_function_key.function_checks", context.controls.mainFunctionKeys]] as const) {
+    for (const item of items) if (fieldPath === `${prefix}.${item.key}`) return `${title} - ${item.label}`;
+  }
+  const match = /^alarm_devices\.alarm_device_rows\.rows\.([0-9a-f-]{36})\.(alarm_bell|manual_call_point)$/.exec(fieldPath);
+  if (!match) return undefined;
+  const rowIndex = context.response.secondaryAlarmDeviceRows.findIndex((row) => isRecord(row) && row.rowUuid === match[1]); const row = context.response.secondaryAlarmDeviceRows[rowIndex];
+  if (!isRecord(row) || typeof row.location !== "string" || rowIndex < 0) return undefined;
+  return `Alarm Device Row ${rowIndex + 1} (${row.location}) - ${match[2] === "alarm_bell" ? "Alarm Bell" : "Manual Call Point"}`;
+}
+
+async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInstanceRow) {
+  const required = fireAlarmV6PoorFields(row.response_payload);
+  if (!required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence requirements are invalid.");
+  const rows = (await database.query<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }>(`SELECT field_path,stored_sha256,storage_relative_path,width,height FROM staged_inspection_evidence WHERE form_instance_id=$1 AND status='accepted' ORDER BY field_path,photo_uuid`, [row.form_instance_id])).rows;
+  if (rows.length !== required.length || rows.some((item, index) => item.field_path !== required[index])) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence is incomplete or mismatched.");
+  const uploadsRoot = path.resolve(loadConfig().uploadsPath); const evidence: FinalReportEvidence[] = [];
+  for (const item of rows) { const caption = fireAlarmV6EvidenceCaption(row.inspection_snapshot, row.response_payload, item.field_path); if (!caption || !text(item.storage_relative_path, 500) || !/^[0-9a-f]{64}$/.test(item.stored_sha256) || !Number.isInteger(item.width) || !Number.isInteger(item.height)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence is invalid."); const relative=item.storage_relative_path; if (relative.includes("\\") || relative.split("/").some((part)=>part===""||part==="."||part==="..")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is invalid."); const file=path.resolve(uploadsRoot,...relative.split("/")); if(!file.startsWith(`${uploadsRoot}${path.sep}`))throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is invalid."); let content:Buffer;try{content=await readFile(file);}catch{throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is unavailable.");} if(createHash("sha256").update(content).digest("hex")!==item.stored_sha256)throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt."); let metadata:{format?:string;width?:number;height?:number};try{metadata=await sharp(content,{failOn:"error"}).metadata();}catch{throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt.");}if(metadata.format!=="jpeg"||metadata.width!==item.width||metadata.height!==item.height)throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt.");evidence.push({field:item.field_path,caption,content,width:item.width,height:item.height}); }
+  return evidence;
 }
 
 function historicalLocation(system: RecordValue, unit: { authorityKey: string; label: string }, instanceKey: string): FinalReportLocation | undefined {
@@ -260,7 +372,7 @@ export async function loadFinalServiceReport(
   const site = requiredText(frozenSite, 300, "Completed service visit details are incomplete and cannot be reported.");
   const reference = requiredText(job.reference, 250, "Completed service visit details are incomplete and cannot be reported.");
   const serviceDate = requiredText(job.service_date, 10, "Completed service visit details are incomplete and cannot be reported.");
-  const rows = (await database.query<ReportInstanceRow>(`SELECT inspection.system_key, instance.instance_key, instance.zone_id, instance.location_id, instance.display_sequence, instance.client_uuid,
+  const rows = (await database.query<ReportInstanceRow>(`SELECT instance.id AS form_instance_id, inspection.system_key, instance.instance_key, instance.zone_id, instance.location_id, instance.display_sequence, instance.client_uuid,
       instance.master_template_version_id, instance.customer_configuration_revision_id,
       instance.evidence_policy_id, instance.evidence_policy_version, instance.evidence_policy_snapshot, instance.evidence_policy_sha256,
       true AS evidence_policy_matches, attachment.field_path AS attachment_field_path, attachment.evidence_policy_id AS attachment_evidence_policy_id,
@@ -288,7 +400,7 @@ export async function loadFinalServiceReport(
       const location = historicalLocation(system, unit, matching[0]!.instance_key);
       if (unit.authorityKey.startsWith("location:") && !location) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Frozen report location identity is unavailable.");
       sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location,
-        fields: flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : [] });
+        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedFireAlarmV6Evidence(database, matching[0]!) : [] });
     }
   }
   return { customer, site, serviceDate, jobReference: reference,
@@ -320,7 +432,7 @@ export async function renderFinalServiceReportPdf(report: FinalServiceReport): P
   for (const section of report.sections) {
     document.moveDown(0.7); paragraph(`${section.label}${section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}`, { underline: true });
     for (const field of section.fields) paragraph(`${field.label}: ${field.value}`, { indent: Math.min(field.depth, 3) * 14 });
-    for (const evidence of section.evidence) { paragraph(`Final evidence included: ${labelFor(evidence.field)}`); pageBreakFor(330); document.image(evidence.content, { fit: [500, 300], align: "center" }); document.moveDown(0.5); }
+    for (const evidence of section.evidence) { paragraph(`Final evidence included: ${evidence.caption ?? labelFor(evidence.field)}`); pageBreakFor(330); document.image(evidence.content, { fit: [500, 300], align: "center" }); document.moveDown(0.5); }
   }
   document.end(); return done;
 }

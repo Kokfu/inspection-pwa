@@ -9,6 +9,7 @@ import { inspectionsRouter } from "./routes/inspections.js";
 import { inspectionReferenceRouter } from "./routes/inspectionReference.js";
 import { inspectionJobsRouter } from "./routes/inspectionJobs.js";
 import { inspectionAttachmentsRouter } from "./routes/inspectionAttachments.js";
+import { stagedEvidenceRouter } from "./routes/stagedEvidence.js";
 import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
 import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { managerCustomersRouter } from "./routes/managerCustomers.js";
@@ -33,6 +34,7 @@ app.use(managerServiceVisitsRouter);
 app.use(managerCustomersRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);
+app.use(stagedEvidenceRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: "NOT_FOUND" });
