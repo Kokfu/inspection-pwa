@@ -254,6 +254,26 @@ Use database constraints for:
 
 Migrations must be reviewed before running against production data.
 
+### Scoped uniqueness
+
+Some uniqueness rules are not global. When the business rule is "unique within
+this group" (for example: an accepted Poor photo must be unique within one
+`jobId + systemKey`, but the same image bytes are allowed in a different Job):
+
+1. Use a composite key or a partial unique index, not a table-wide unique
+   constraint.
+2. Scope the index to the exact lifecycle state that matters (for example
+   `WHERE status = 'accepted' AND master_template_version = 7`), so records in
+   other states are not falsely blocked.
+3. Never widen a scoped rule into a global or historical one. Historical
+   immutability and cross-Job independence must be preserved.
+4. A partial unique index is necessary but not sufficient for a concurrent
+   race. The write transaction must catch the unique-violation (`23505`) and
+   return a safe, retryable failure code, never a 500 and never a duplicate
+   row. At most one writer wins; the rest retry idempotently.
+5. Keep earlier migrations frozen. Add scoped indexes and constraint changes
+   in a new forward migration; never edit an applied migration.
+
 ## Public Deployment Gate
 
 Before enabling public domain/router forwarding:

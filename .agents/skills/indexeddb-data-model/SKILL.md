@@ -190,6 +190,35 @@ Capture/select file
 → upload after parent record is accepted
 → mark attachment synced only after server confirmation
 
+### Evidence tied to a field state
+
+When an attachment only exists because a field has a particular value (for
+example a Poor result requires that field's own photo), the attachment's
+authority is the CURRENT field value, not the presence of the Blob:
+
+1. Build the frozen evidence manifest / outbox from the current set of fields
+   that require evidence, not by enumerating every attachment Blob in
+   IndexedDB.
+2. If the field changes so it no longer requires evidence (Poor → Good, or
+   Poor → Not Relevant), the old Blob is stale: exclude it from the frozen
+   manifest, do not create an outbox upload item for it, and do not let it
+   block submission or sync. The Blob may stay in IndexedDB (cheap to keep,
+   useful if the user reverts) but it is not authoritative.
+3. Two fields require evidence, then one is cleared → the manifest contains
+   only the remaining field's attachment.
+4. Once the parent record is frozen to Pending, later Draft edits must not
+   change the frozen manifest or the frozen response.
+5. Each required attachment belongs to exactly one field. One Blob must never
+   satisfy two fields.
+
+### Additional acceptance tests
+
+* Attach a photo to a Poor field, change the field to Good, save Draft,
+  reload, submit → the photo is not in the frozen manifest and no upload
+  outbox item was created for it.
+* Two Poor fields with photos, clear one, submit → only the remaining photo
+  syncs.
+
 ## Prohibited Patterns
 
 Do not use:

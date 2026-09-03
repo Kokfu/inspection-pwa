@@ -45,6 +45,21 @@ Read only the skills applicable to the task before modifying related code.
   - Pending / Syncing / Synced / Failed / Conflict
   - Retry
   - Idempotency
+  - Evidence / attachment sync ordering
+
+- `.agents/skills/v7-evidence-acceptance/SKILL.md`
+  - Historical template immutability (V1–V7, forward-only)
+  - V7 evidence contract adapters (adding a system)
+  - Good / Poor / Not Relevant; per-field Poor remark + photo
+  - Frozen manifest, evidence-first sync, atomic acceptance
+  - Evidence uniqueness scoped to jobId + systemKey
+  - Accepted / Final Report / PDF authority chain
+  - Disposable integration Postgres discipline
+
+- `.agents/skills/codex-task-brief/SKILL.md`
+  - Standing scaffold for every implementation/review task
+  - Standing rules, file map, DO-NOT-MODIFY list, standard gates
+  - Definition-of-Done format, Sol review brief, per-task skeleton
 
 - `.agents/skills/backend-api-security/SKILL.md`
   - API routes
