@@ -13,7 +13,7 @@ const groups: Array<[keyof Pick<Co2Responses, "chargerAndBatteries" | "physicalO
   ["mainFunctionKeys", "main_function_key.function_checks"]
 ];
 const now = () => new Date().toISOString();
-const isEvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
+export const isEvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
 export async function v7ContractSha256(definition: unknown) {
   const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : value && typeof value === "object" ? `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}` : JSON.stringify(value);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(definition)));

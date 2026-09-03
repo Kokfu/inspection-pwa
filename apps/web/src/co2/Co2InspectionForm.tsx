@@ -11,7 +11,7 @@ import type {
   DetectorStatus,
   MasterSystemFormInstanceRecord
 } from "./co2Types";
-import { listV7SuppressionPhotos, v7SubmissionIssues, type V7SuppressionFieldPath } from "./v7Evidence";
+import { isEvidenceFinding, listV7SuppressionPhotos, v7SubmissionIssues, type V7SuppressionFieldPath } from "./v7Evidence";
 import { V7EvidenceField } from "./V7EvidenceField";
 import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
@@ -114,7 +114,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
             readOnly={readOnly}
             onChange={(remarks) => updateChecklist(group, definition.key, { remarks })}
           />
-          {record.masterTemplate.version === 7 && responses[group][definition.key]?.result === "poor" ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => setPhotos(await listV7SuppressionPhotos(record.clientUuid))} /> : null}
+          {record.masterTemplate.version === 7 && isEvidenceFinding(responses[group][definition.key]?.result) ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => setPhotos(await listV7SuppressionPhotos(record.clientUuid))} /> : null}
         </section>
       ))}
     </fieldset>;
