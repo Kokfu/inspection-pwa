@@ -163,12 +163,28 @@ manager picks them (`customer_enabled_systems` rows).
       Not yet re-run since the web fixes: the full API gate set. Re-run before committing.
 
 ### CROSS-CUTTING — decide before building more services
-- [ ] C1 **Result model:** Hokuden's real reports use 4 states (Good / Not Good / Complete Repair
-      / N.A.). Decide 3-state vs 4-state now — it changes every adapter. (Phase 8F.2C)
+- [x] **C1 DECIDED 2026-09-03 — 4-state everywhere.** Owner chose the Hokuden cover legend as the
+      house standard: `good` (√ Good/Baik) · `not_good` (X Not Good/Tidak Memuaskan) ·
+      `complete_repair` (◯ Complete Repair/Siap Baik Pulih) · `na` (/ No Need Checking/N.A.).
+      Note: the MFE **system pages** are only 2-state (`( / )` Good / `( X )` Poor); the 4th and
+      3rd states come from the Hokuden cover sheet, which conflicts with the page footers on
+      `( / )`. Recommend the client confirm "Complete Repair / N.A." is the standard for *all*
+      customers before the rework starts. This supersedes the shipped 3-state
+      (Good / Poor / Not Relevant) — CO2 / Fire Alarm / Wet Chemical V7 must be reworked.
+      → new cross-cutting task **C1-REWORK** below.
+- [ ] **C1-REWORK (Phase 8F.2C):** V7 result model 3-state → 4-state. `masterServiceReportV7.ts`
+      `upgradeV7EvidenceSystem` emits the 4 values; every V7 validator
+      (`fireAlarmV7Acceptance.ts`, `co2FormInstanceSync.ts`, …) honors **per-field
+      `allowedValues`** instead of hardcoding the set (so a 2-state page like Roller Shutter can
+      declare `["good","not_good"]`); accepted detail + PDF render 4 states; migration rewrites
+      stored V7 definitions (FK-safe: `INSERT … ON CONFLICT DO UPDATE`, restart-proof — see the
+      reverted 020 FK failure); V7 Fire Alarm contract SHA recomputed + web constant updated;
+      the 3 accepted V7 demo records on `SV-20260903-36` re-seeded. Prove the upgrade path from
+      `0e04a64`. V1–V6 untouched.
 - [ ] C2 **Remarks pick-list:** client to supply the hardcoded choice list. Do not invent one.
-- [ ] C3 **Repeated-equipment / reusable structural config** pattern (Phase 8F.3) — Hydrant, Hose
-      Reel, Sprinkler, Roller Shutter all have long "No. / Location / per-column result" tables.
-      Design the shared row model once.
+- [ ] C3 **Repeatable row model** — skill written (`.agents/skills/repeatable-row-model/SKILL.md`,
+      committed `7635cb3`). Extraction task **T1** in flight (web helpers + 4-invariant tests,
+      result-model agnostic). Roller Shutter is its first consumer (after C1-REWORK).
 
 ### STEP 1 — Upgrade existing base templates to V7 evidence  (est. ~4–5 weeks total)
 Each: add a V7 evidence-contract adapter (mirror `co2Adapter`), wire the web form to the V7
