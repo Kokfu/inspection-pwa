@@ -29,7 +29,8 @@ export type ResolvedCo2Controls = {
 };
 
 const labels: Readonly<Record<string, string>> = {
-  good: "Good", poor: "Poor", not_relevant: "Not Relevant", normal: "Normal", test: "Test", isolation: "Isolation"
+  good: "Good", not_good: "Not Good", complete_repair: "Complete Repair", na: "No Need Checking / N.A.",
+  poor: "Poor", not_relevant: "Not Relevant", normal: "Normal", test: "Test", isolation: "Isolation"
 };
 const isRecord = (value: unknown): value is UnknownRecord => typeof value === "object" && value !== null && !Array.isArray(value);
 function text(value: unknown, name: string) { if (typeof value !== "string" || !value) throw new Error(`CO2 definition has invalid ${name}`); return value; }

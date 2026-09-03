@@ -3,7 +3,7 @@ import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 
 export type DeviceState = "normal" | "test" | "isolation";
 export type DeviceStateValue = DeviceState | DeviceState[];
-export type GoodPoor = "good" | "poor" | "not_relevant";
+export type GoodPoor = "good" | "poor" | "not_relevant" | "not_good" | "complete_repair" | "na";
 export type FireAlarmSyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type FireAlarmRowPreset = { fireAlarmTable: "primary" | "secondary"; assetReference?: string };
 

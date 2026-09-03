@@ -2,7 +2,7 @@ import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResolvedCo2Controls } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot, JobZoneSnapshot } from "../jobs/jobTypes";
 
-export type Co2Result = "good" | "poor" | "not_relevant";
+export type Co2Result = "good" | "poor" | "not_relevant" | "not_good" | "complete_repair" | "na";
 export type SuppressionSystemKey = "co2_fire_extinguisher" | "wet_chemical";
 export type DetectorStatus = "normal" | "test" | "isolation";
 export type DetectorStatusValue = DetectorStatus | DetectorStatus[];

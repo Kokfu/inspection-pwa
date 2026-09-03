@@ -62,7 +62,14 @@ function labelFor(key: string) {
 }
 
 function scalar(value: unknown) {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    const labels: Readonly<Record<string, string>> = {
+      good: "Good", poor: "Poor", not_relevant: "Not Relevant",
+      not_good: "Not Good", complete_repair: "Complete Repair", na: "No Need Checking / N.A.",
+      normal: "Normal", test: "Test", isolation: "Isolation"
+    };
+    return labels[value] ?? value;
+  }
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (value === null) return "Not recorded";
   return undefined;
@@ -176,14 +183,17 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   }
 }
 
-function fireAlarmV6PoorFields(response: unknown) {
-  if (!isRecord(response) || response.schemaVersion !== 2) return undefined;
+function fireAlarmV6PoorFields(snapshot: unknown, response: unknown) {
+  const context = fireAlarmV6ReportContext(snapshot, response);
+  if (!context || context.response.schemaVersion !== 2) return undefined;
+  const version = context.controls.source.templateVersion;
+  const finding = (value: unknown) => version === 7 ? value === "not_good" || value === "complete_repair" : value === "poor";
   const fields: string[] = [];
-  const checklist = [["chargerAndBatteries", "charger_batteries.charger_battery_checks", ["main_supply", "battery", "charger"]], ["mainFunctionKeys", "main_function_key.function_checks", ["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "spka_system", "alarm_lift_trip", "signal_gas_discharge"]]] as const;
-  for (const [group, prefix, keys] of checklist) { const values = response[group]; if (!isRecord(values)) return undefined; for (const key of keys) { const item = values[key]; if (!isRecord(item) || !["good", "poor", "not_relevant"].includes(String(item.result))) return undefined; if (item.result === "poor") fields.push(`${prefix}.${key}`); } }
-  if (!Array.isArray(response.secondaryAlarmDeviceRows)) return undefined;
+  const checklist = [["chargerAndBatteries", "charger_batteries.charger_battery_checks", context.controls.chargerAndBatteries], ["mainFunctionKeys", "main_function_key.function_checks", context.controls.mainFunctionKeys]] as const;
+  for (const [group, prefix, definitions] of checklist) { const values = context.response[group]; if (!isRecord(values) || !exactKeys(values, definitions.map((item) => item.key))) return undefined; for (const definition of definitions) { const item = values[definition.key]; if (!isRecord(item) || !definition.result.options.some((option) => option.value === item.result)) return undefined; if (finding(item.result)) fields.push(`${prefix}.${definition.key}`); } }
+  if (!Array.isArray(context.response.secondaryAlarmDeviceRows)) return undefined;
   const rowIds = new Set<string>();
-  for (const row of response.secondaryAlarmDeviceRows) { if (!isRecord(row) || !uuid.test(String(row.rowUuid)) || rowIds.has(String(row.rowUuid)) || !isRecord(row.fieldRemarks)) return undefined; rowIds.add(String(row.rowUuid)); for (const [key, pathKey] of [["alarmBell", "alarm_bell"], ["manualCallPoint", "manual_call_point"]] as const) { if (!["good", "poor", "not_relevant"].includes(String(row[key])) || (row[key] === "poor" && (!text(row.fieldRemarks[key], 2000)))) return undefined; if (row[key] === "poor") fields.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${pathKey}`); } }
+  for (const row of context.response.secondaryAlarmDeviceRows) { if (!isRecord(row) || !uuid.test(String(row.rowUuid)) || rowIds.has(String(row.rowUuid)) || !isRecord(row.fieldRemarks)) return undefined; rowIds.add(String(row.rowUuid)); for (const [key, pathKey, definition] of [["alarmBell", "alarm_bell", context.controls.secondaryAlarmDeviceRows.alarmBell], ["manualCallPoint", "manual_call_point", context.controls.secondaryAlarmDeviceRows.manualCallPoint]] as const) { if (!definition.options.some((option) => option.value === row[key]) || (finding(row[key]) && (!text(row.fieldRemarks[key], 2000)))) return undefined; if (finding(row[key])) fields.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${pathKey}`); } }
   return fields.sort();
 }
 
@@ -191,6 +201,9 @@ function v6Result(value: unknown) {
   if (value === "good") return "Good";
   if (value === "poor") return "Poor";
   if (value === "not_relevant") return "Not Relevant";
+  if (value === "not_good") return "Not Good";
+  if (value === "complete_repair") return "Complete Repair";
+  if (value === "na") return "No Need Checking / N.A.";
   return undefined;
 }
 
@@ -244,7 +257,7 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
     for (const item of items) {
       const value = values[item.key]; if (!isRecord(value)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
       const result = v6Result(value.result); if (!result || typeof value.remarks !== "string") throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
-      add(`${title} - ${item.label}`, result); if (result === "Poor") add(`${title} - ${item.label} Remark`, value.remarks, 1);
+      add(`${title} - ${item.label}`, result); if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${title} - ${item.label} Remark`, value.remarks, 1);
     }
   };
   checklist("Charger & Batteries", context.response.chargerAndBatteries, context.controls.chargerAndBatteries);
@@ -257,7 +270,7 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
     for (const [key, item] of [["alarmBell", context.controls.secondaryAlarmDeviceRows.alarmBell], ["manualCallPoint", context.controls.secondaryAlarmDeviceRows.manualCallPoint]] as const) {
       const result = v6Result(row[key]); if (!result) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
       add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"}`, result);
-      if (result === "Poor") add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`, row.fieldRemarks[key], 1);
+      if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`, row.fieldRemarks[key], 1);
     }
     if (typeof row.remarks === "string" && row.remarks) add(`${prefix} - Remarks`, row.remarks);
   }
@@ -279,7 +292,7 @@ function fireAlarmV6EvidenceCaption(snapshot: unknown, response: unknown, fieldP
 }
 
 async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInstanceRow) {
-  const required = fireAlarmV6PoorFields(row.response_payload);
+  const required = fireAlarmV6PoorFields(row.inspection_snapshot, row.response_payload);
   if (!required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence requirements are invalid.");
   const rows = (await database.query<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }>(`SELECT field_path,stored_sha256,storage_relative_path,width,height FROM staged_inspection_evidence WHERE form_instance_id=$1 AND status='accepted' ORDER BY field_path,photo_uuid`, [row.form_instance_id])).rows;
   if (rows.length !== required.length || rows.some((item, index) => item.field_path !== required[index])) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence is incomplete or mismatched.");

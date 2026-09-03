@@ -1,12 +1,14 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
-import type { FireAlarmInspectionRecord, FireAlarmResponses } from "./fireAlarmTypes";
+import type { FireAlarmInspectionRecord, FireAlarmResponses, ResolvedFireAlarmControls } from "./fireAlarmTypes";
 import { v6ContractSha256 } from "./fireAlarmV6Evidence";
 
 export type FireAlarmV7FieldPath = `charger_batteries.charger_battery_checks.${"main_supply" | "battery" | "charger"}` | `main_function_key.function_checks.${"main_alarm_reset" | "lamp_test" | "evacuate" | "ac_supply" | "dc_supply" | "spka_system" | "alarm_lift_trip" | "signal_gas_discharge"}` | `alarm_devices.alarm_device_rows.rows.${string}.${"alarm_bell" | "manual_call_point"}`;
 const now = () => new Date().toISOString();
 const checklistGroups: Array<[keyof Pick<FireAlarmResponses, "chargerAndBatteries" | "mainFunctionKeys">, string]> = [["chargerAndBatteries", "charger_batteries.charger_battery_checks"], ["mainFunctionKeys", "main_function_key.function_checks"]];
 const deviceStates = ["normal", "test", "isolation"] as const;
+const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
+const isEvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
 export function isCanonicalV7DeviceStates(value: unknown): value is typeof deviceStates[number][] {
   return Array.isArray(value) && value.length > 0 && value.length <= deviceStates.length
     && value.every((item, index) => typeof item === "string" && deviceStates.includes(item as typeof deviceStates[number])
@@ -15,8 +17,8 @@ export function isCanonicalV7DeviceStates(value: unknown): value is typeof devic
 
 export function v7RequiredFireAlarmFieldPaths(responses: FireAlarmResponses): FireAlarmV7FieldPath[] {
   const paths: FireAlarmV7FieldPath[] = [];
-  for (const [group, prefix] of checklistGroups) for (const [key, value] of Object.entries(responses[group])) if (value.result === "poor") paths.push(`${prefix}.${key}` as FireAlarmV7FieldPath);
-  for (const row of responses.secondaryAlarmDeviceRows) { if (row.alarmBell === "poor") paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.alarm_bell`); if (row.manualCallPoint === "poor") paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.manual_call_point`); }
+  for (const [group, prefix] of checklistGroups) for (const [key, value] of Object.entries(responses[group])) if (isEvidenceFinding(value.result)) paths.push(`${prefix}.${key}` as FireAlarmV7FieldPath);
+  for (const row of responses.secondaryAlarmDeviceRows) { if (isEvidenceFinding(row.alarmBell)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.alarm_bell`); if (isEvidenceFinding(row.manualCallPoint)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.manual_call_point`); }
   return paths.sort();
 }
 export async function listFireAlarmV7Photos(inspectionClientUuid: string) { return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray()).filter((item) => item.systemKey === "fire_alarm_detector" && item.protocolVersion === 7); }
@@ -26,7 +28,7 @@ export function v7FireAlarmEvidenceOutbox(attachment: InspectionAttachmentRecord
 // (apps/api/src/sync/fireAlarmV7Acceptance.ts `validResponses`).  Without them the
 // form queues a submission the server rejects with a non-retryable VALIDATION_ERROR,
 // which offline means the technician's work is stranded in the outbox.
-export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attachments: InspectionAttachmentRecord[]) {
+export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attachments: InspectionAttachmentRecord[], controls?: ResolvedFireAlarmControls) {
   const issues: string[] = [];
   if (!responses.controlPanelLocation.trim()) issues.push("Control Panel Location is required");
   if (responses.primaryDeviceRows.length < 1) issues.push("At least one primary detector/device row is required");
@@ -36,16 +38,21 @@ export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attac
       issues.push(`Primary row ${index + 1} requires Alarm Zone, Location and at least one Normal/Test/Isolation tick for all four controls`);
     }
   });
+  const allowedChecklist = (group: "chargerAndBatteries" | "mainFunctionKeys", key: string) => controls
+    ? controls[group].find((item) => item.key === key)?.result.options.map((option) => option.value) ?? []
+    : v7ResultValues;
   for (const [group, prefix] of checklistGroups) for (const [key, field] of Object.entries(responses[group])) {
-    if (field.result !== "good" && field.result !== "poor" && field.result !== "not_relevant") issues.push(`${prefix}.${key} result is required`);
-    if (field.result === "poor" && !field.remarks.trim()) issues.push(`${prefix}.${key} requires its own Remark`);
+    if (!allowedChecklist(group, key).includes(field.result as never)) issues.push(`${prefix}.${key} result is required`);
+    if (isEvidenceFinding(field.result) && !field.remarks.trim()) issues.push(`${prefix}.${key} requires its own Remark`);
   }
   responses.secondaryAlarmDeviceRows.forEach((row, index) => {
-    if (!row.location.trim() || ![row.alarmBell, row.manualCallPoint].every((result) => result === "good" || result === "poor" || result === "not_relevant")) {
+    const allowedBell = controls?.secondaryAlarmDeviceRows.alarmBell.options.map((option) => option.value) ?? v7ResultValues;
+    const allowedManual = controls?.secondaryAlarmDeviceRows.manualCallPoint.options.map((option) => option.value) ?? v7ResultValues;
+    if (!row.location.trim() || !allowedBell.includes(row.alarmBell as never) || !allowedManual.includes(row.manualCallPoint as never)) {
       issues.push(`Alarm-device row ${index + 1} requires Location and both results`);
     }
   });
-  for (const row of responses.secondaryAlarmDeviceRows) for (const key of ["alarmBell", "manualCallPoint"] as const) if (row[key] === "poor" && !row.fieldRemarks?.[key]?.trim()) issues.push(`Alarm-device row ${row.displaySequence} requires its own ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`);
+  for (const row of responses.secondaryAlarmDeviceRows) for (const key of ["alarmBell", "manualCallPoint"] as const) if (isEvidenceFinding(row[key]) && !row.fieldRemarks?.[key]?.trim()) issues.push(`Alarm-device row ${row.displaySequence} requires its own ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`);
   const fields = new Set(attachments.filter((attachment) => attachment.protocolVersion === 7).map((attachment) => attachment.fieldPath));
   for (const fieldPath of v7RequiredFireAlarmFieldPaths(responses)) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
   return issues;

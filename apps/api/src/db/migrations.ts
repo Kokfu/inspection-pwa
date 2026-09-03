@@ -55,6 +55,9 @@ const v7SharedStagedEvidenceMigrationUrl = new URL(
 const v7DetectorStateMultiselectMigrationUrl = new URL(
   "../../migrations/019_v7_detector_state_multiselect.sql", import.meta.url
 );
+const v7FourStateResultModelMigrationUrl = new URL(
+  "../../migrations/020_v7_four_state_result_model.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -266,6 +269,7 @@ export async function runMigrations(
   }
   await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
   await database.query(await readFile(v7DetectorStateMultiselectMigrationUrl, "utf8"));
+  await database.query(await readFile(v7FourStateResultModelMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

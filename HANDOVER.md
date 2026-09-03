@@ -3,7 +3,7 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-03 — V7 detector Normal/Test/Isolation multi-select working tree
+**Last updated:** 2026-09-04 — C1-REWORK V7 four-state result model working tree
 **Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `5bc968d`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
@@ -172,15 +172,15 @@ manager picks them (`customer_enabled_systems` rows).
       customers before the rework starts. This supersedes the shipped 3-state
       (Good / Poor / Not Relevant) — CO2 / Fire Alarm / Wet Chemical V7 must be reworked.
       → new cross-cutting task **C1-REWORK** below.
-- [ ] **C1-REWORK (Phase 8F.2C):** V7 result model 3-state → 4-state. `masterServiceReportV7.ts`
+- [x] **C1-REWORK (Phase 8F.2C):** V7 result model 3-state → 4-state. `masterServiceReportV7.ts`
       `upgradeV7EvidenceSystem` emits the 4 values; every V7 validator
       (`fireAlarmV7Acceptance.ts`, `co2FormInstanceSync.ts`, …) honors **per-field
       `allowedValues`** instead of hardcoding the set (so a 2-state page like Roller Shutter can
       declare `["good","not_good"]`); accepted detail + PDF render 4 states; migration rewrites
       stored V7 definitions (FK-safe: `INSERT … ON CONFLICT DO UPDATE`, restart-proof — see the
       reverted 020 FK failure); V7 Fire Alarm contract SHA recomputed + web constant updated;
-      the 3 accepted V7 demo records on `SV-20260903-36` re-seeded. Prove the upgrade path from
-      `0e04a64`. V1–V6 untouched.
+      the 3 accepted V7 demo records on `SV-20260903-36` must be owner-cleaned/re-seeded. The
+      FK-safe 020 upsert and disposable T1-definition restart proof are green; V1–V6 untouched.
 - [ ] C2 **Remarks pick-list:** client to supply the hardcoded choice list. Do not invent one.
 - [ ] C3 **Repeatable row model** — skill written (`.agents/skills/repeatable-row-model/SKILL.md`,
       committed `7635cb3`). Extraction task **T1** in flight (web helpers + 4-invariant tests,

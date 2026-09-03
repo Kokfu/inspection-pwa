@@ -64,6 +64,22 @@ function exactArray(value: unknown, expected: readonly string[]) {
     && value.every((item, index) => item === expected[index]);
 }
 
+const resultLabels: Readonly<Record<string, string>> = {
+  good: "Good", poor: "Poor", not_relevant: "Not Relevant",
+  not_good: "Not Good", complete_repair: "Complete Repair", na: "No Need Checking / N.A."
+};
+function frozenAllowedValues(definition: unknown, sectionKey: string, blockKey: string, fieldKey: string) {
+  if (!isRecord(definition) || !Array.isArray(definition.sections)) throw new Error("Malformed Fire Alarm evidence definition");
+  const section = definition.sections.find((value) => isRecord(value) && value.key === sectionKey);
+  const block = isRecord(section) && Array.isArray(section.blocks) ? section.blocks.find((value) => isRecord(value) && value.key === blockKey) : undefined;
+  const fields: unknown[] | undefined = isRecord(block) ? (Array.isArray(block.items) ? block.items : Array.isArray(block.columns) ? block.columns : undefined) : undefined;
+  const field = fields?.find((value) => isRecord(value) && value.key === fieldKey);
+  if (!isRecord(field) || field.control !== "good_poor" || !Array.isArray(field.allowedValues)
+    || field.allowedValues.length === 0 || !field.allowedValues.every((value) => typeof value === "string" && resultLabels[value] !== undefined)
+    || new Set(field.allowedValues).size !== field.allowedValues.length) throw new Error("Malformed Fire Alarm evidence definition");
+  return field.allowedValues as string[];
+}
+
 function field(value: unknown, expected: ExpectedField) {
   if (!isRecord(value)) return false;
   const resultField = expected.allowedValues !== undefined;
@@ -277,6 +293,7 @@ export function resolveFireAlarmV6Controls(definition: unknown, templateVersion:
   if (!isCompatibleSystemContract("fire_alarm_detector", "confirmed", definition, {
     id: templateVersion === 7 ? "00000000-0000-4000-8000-000000000807" : "00000000-0000-4000-8000-000000000806", version: templateVersion
   })) throw new Error("Unsupported or malformed Fire Alarm evidence definition");
+  const checklistValues = (sectionKey: string, blockKey: string, fieldKey: string) => frozenAllowedValues(definition, sectionKey, blockKey, fieldKey);
   const legacyShape = structuredClone(definition) as UnknownRecord;
   const sections = legacyShape.sections;
   if (!Array.isArray(sections)) throw new Error("Malformed Fire Alarm MFE-FSSR V6 definition");
@@ -296,8 +313,8 @@ export function resolveFireAlarmV6Controls(definition: unknown, templateVersion:
   }
   // Retain the proven structural parser after asserting the frozen V6 identity.
   const v3 = resolveFireAlarmControls(legacyShape, "MFE-FSSR", 3);
-  const withV6Result = () => ({ type: "single_select" as const, required: true as const,
-    options: [{ value: "good" as const, label: "Good" }, { value: "poor" as const, label: "Poor" }, { value: "not_relevant" as const, label: "Not Relevant" }] });
+  const withV6Result = (values: readonly string[]) => ({ type: "single_select" as const, required: true as const,
+    options: values.map((value) => ({ value, label: resultLabels[value]! })) });
   return {
     ...v3,
     source: { templateCode: "MFE-FSSR" as const, templateVersion, systemKey: "fire_alarm_detector" as const },
@@ -308,8 +325,12 @@ export function resolveFireAlarmV6Controls(definition: unknown, templateVersion:
       heatDetector: deviceStateResult(templateVersion === 7),
       smokeDetector: deviceStateResult(templateVersion === 7)
     },
-    chargerAndBatteries: v3.chargerAndBatteries.map((item) => ({ ...item, result: withV6Result() })),
-    mainFunctionKeys: v3.mainFunctionKeys.map((item) => ({ ...item, result: withV6Result() })),
-    secondaryAlarmDeviceRows: { ...v3.secondaryAlarmDeviceRows, alarmBell: withV6Result(), manualCallPoint: withV6Result() }
+    chargerAndBatteries: v3.chargerAndBatteries.map((item) => ({ ...item, result: withV6Result(checklistValues("charger_batteries", "charger_battery_checks", item.key)) })),
+    mainFunctionKeys: v3.mainFunctionKeys.map((item) => ({ ...item, result: withV6Result(checklistValues("main_function_key", "function_checks", item.key)) })),
+    secondaryAlarmDeviceRows: {
+      ...v3.secondaryAlarmDeviceRows,
+      alarmBell: withV6Result(checklistValues("alarm_devices", "alarm_device_rows", "alarm_bell")),
+      manualCallPoint: withV6Result(checklistValues("alarm_devices", "alarm_device_rows", "manual_call_point"))
+    }
   };
 }

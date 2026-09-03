@@ -9,6 +9,9 @@ import type {
 type UnknownRecord = Record<string, unknown>;
 const optionLabels: Readonly<Record<string, string>> = {
   good: "Good",
+  not_good: "Not Good",
+  complete_repair: "Complete Repair",
+  na: "No Need Checking / N.A.",
   poor: "Poor",
   not_relevant: "Not Relevant",
   normal: "Normal",
@@ -102,7 +105,7 @@ export function parseFrozenCo2Controls(value: unknown): ResolvedCo2Controls | un
   const physical = [["co2_cylinder", "CO2 Cylinder"], ["electric_actuator", "Electric Actuator"], ["manual_release_key", "Manual Release Key"], ["alarm_bell", "Alarm Bell"], ["twin_flashing_light", "Twin Flashing Light"], ["24v_dc_tripping_device", "24V DC Tripping Device"], ["manual_pull_station", "Manual Pull Station"], ["high_pressure_hose", "High Pressure Hose"], ["discharge_nozzles", "Discharge Nozzles"], ["pilot_cylinder", "Pilot Cylinder"]] as const;
   const functions = [["main_alarm_reset", "Main Alarm Reset"], ["lamp_test", "Lamp Test"], ["evacuate", "Evacuate"], ["ac_supply", "A/C Supply"], ["dc_supply", "D/C Supply"], ["signal_alarm_to_mfap", "Signal Alarm to MFAP"]] as const;
   const isV7 = isRecord(value) && isRecord(value.source) && value.source.templateVersion === 7;
-  const checklistValues = isV7 ? ["good", "poor", "not_relevant"] : ["good", "poor"];
+  const checklistValues = isV7 ? ["good", "not_good", "complete_repair", "na"] : ["good", "poor"];
   if (!isRecord(value) || !exact(value, ["schemaVersion", "source", "repetitionMode", "controlPanelLocation", "detectorRows", "chargerAndBatteries", "physicalOutlook", "mainFunctionKeys", "comments"])
     || value.schemaVersion !== 1 || !isRecord(value.source) || !exact(value.source, ["templateCode", "templateVersion", "systemKey"])
     || value.source.templateCode !== "MFE-FSSR" || !(value.source.templateVersion === 1 || value.source.templateVersion === 7) || value.source.systemKey !== "co2_fire_extinguisher"

@@ -1,7 +1,7 @@
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
 import type { MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
 
-const v7ResultValues = ["good", "poor", "not_relevant"] as const;
+const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
 
 /** V7 is forward-only.  Earlier template objects are never mutated. */
 function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
@@ -20,7 +20,7 @@ function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
           ...block,
           columns: block.columns.map((field) => field.control === "normal_test_isolation"
             ? { ...field, control: "normal_test_isolation_multi" as const }
-            : field)
+            : field.control === "good_poor" ? { ...field, allowedValues: v7ResultValues } : field)
         };
         return block;
       })
@@ -30,7 +30,8 @@ function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
 
 /**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
- * identical to V6; CO2 and Wet Chemical gain only the third Good/Poor value.
+ * retains its independent detector-state control; Good/Poor fields use the
+ * four-state Hokuden checklist legend.
  */
 export const masterServiceReportV7 = {
   ...masterServiceReportV6,

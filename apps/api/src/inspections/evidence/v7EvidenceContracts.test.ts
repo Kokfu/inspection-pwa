@@ -4,7 +4,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
 
 const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
-const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "poor" | "not_relevant", remarks = "") => {
+const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
   const definition = system(key); const value = () => ({ result, remarks });
   const section = (sectionKey: string, blockKey: string) => definition.sections.find((candidate) => candidate.key === sectionKey)!.blocks.find((candidate) => candidate.key === blockKey)!;
   const checklist = (sectionKey: string, blockKey: string) => Object.fromEntries((section(sectionKey, blockKey) as { items: Array<{ key: string }> }).items.map((item) => [item.key, value()]));
@@ -15,8 +15,8 @@ test("V7 adapters resolve only exact CO2/Wet tuples and derive field-specific Po
   const definition = system("co2_fire_extinguisher");
   const adapter = resolveV7EvidenceContract({ systemKey: "co2_fire_extinguisher", templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
   assert.ok(adapter);
-  assert.deepEqual(adapter.derivePoorFieldPaths(response("co2_fire_extinguisher", "not_relevant")), []);
-  const poor = response("co2_fire_extinguisher", "poor", "Own field remark");
+  assert.deepEqual(adapter.derivePoorFieldPaths(response("co2_fire_extinguisher", "na")), []);
+  const poor = response("co2_fire_extinguisher", "not_good", "Own field remark");
   const paths = adapter.derivePoorFieldPaths(poor)!;
   assert.equal(paths.length, 19);
   assert.equal(adapter.ownPoorRemark(poor, paths[0]!), "Own field remark");
@@ -41,9 +41,9 @@ test("V7 Fire Alarm adapter derives only current Poor fields and keeps row evide
   const rowUuid = "00000000-0000-4000-8000-000000000901";
   const good = { result: "good", remarks: "" } as const;
   const response = {
-    chargerAndBatteries: { main_supply: { result: "poor", remarks: "Own charger remark" }, battery: good, charger: good },
+    chargerAndBatteries: { main_supply: { result: "not_good", remarks: "Own charger remark" }, battery: good, charger: good },
     mainFunctionKeys: { main_alarm_reset: good, lamp_test: good, evacuate: good, ac_supply: good, dc_supply: good, spka_system: good, alarm_lift_trip: good, signal_gas_discharge: good },
-    secondaryAlarmDeviceRows: [{ rowUuid, alarmBell: "poor", manualCallPoint: "not_relevant", fieldRemarks: { alarmBell: "Own bell remark" } }]
+    secondaryAlarmDeviceRows: [{ rowUuid, alarmBell: "complete_repair", manualCallPoint: "na", fieldRemarks: { alarmBell: "Own bell remark" } }]
   };
   const paths = adapter.derivePoorFieldPaths(response);
   assert.deepEqual(paths, ["alarm_devices.alarm_device_rows.rows.00000000-0000-4000-8000-000000000901.alarm_bell", "charger_batteries.charger_battery_checks.main_supply"]);

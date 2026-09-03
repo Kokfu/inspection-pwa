@@ -5,6 +5,7 @@ import { runMigrations } from "./migrations.js";
 import { assertDryWetRiserFixture, seedMasterServiceReport } from "./seedMasterServiceReport.js";
 import { listTechnicianInspectionJobs } from "../routes/inspectionJobs.js";
 import { createServiceVisit } from "../jobs/serviceVisits.js";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const portableJobId = "00000000-0000-4000-8000-000000000759";
@@ -32,6 +33,22 @@ test("production seed preserves completed demo runtime state and rejects immutab
   try {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
     await runMigrations(pool);
+
+    // Simulate the T1 V7 catalog already persisted on a customer database,
+    // then replay current startup migrations and seed on that same database.
+    // The FK-safe 020 upsert must repair definitions without deleting their
+    // referenced master_service_report_systems rows.
+    const legacy = structuredClone(masterServiceReportV7.systems) as any[];
+    const downgrade = (value: any): any => Array.isArray(value) ? value.map(downgrade)
+      : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === "allowedValues" && value.control === "good_poor" ? ["good", "poor", "not_relevant"] : downgrade(child)])) : value;
+    for (const system of legacy.filter((value) => ["fire_alarm_detector", "co2_fire_extinguisher", "wet_chemical"].includes(value.key))) await pool.query(
+      "UPDATE master_service_report_systems SET definition=$3::jsonb WHERE template_version_id=$1 AND system_key=$2",
+      [masterServiceReportV7.id, system.key, JSON.stringify(downgrade(system))]
+    );
+    await runMigrations(pool);
+    const upgradedV7 = await pool.query<{ definition: any }>("SELECT definition FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='fire_alarm_detector'", [masterServiceReportV7.id]);
+    const values = upgradedV7.rows[0]?.definition.sections[3].blocks[0].columns.find((field: any) => field.key === "alarm_bell").allowedValues;
+    assert.deepEqual(values, ["good", "not_good", "complete_repair", "na"], "T1 V7 definition upgrades and seed restart cleanly");
 
     const fresh = await pool.query<{ status: string; technician_visible: boolean }>(
       "SELECT status, technician_visible FROM inspection_jobs WHERE id = $1",

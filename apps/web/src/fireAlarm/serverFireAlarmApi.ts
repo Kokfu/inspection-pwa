@@ -33,9 +33,12 @@ function parseResponses(v:unknown,version:number):FireAlarmResponses|undefined{
   if(version===7){
     if(!rec(v)||!Array.isArray(v.primaryDeviceRows)||!v.primaryDeviceRows.every((row)=>rec(row)&&[row.manualCallPoint,row.flowSwitch,row.heatDetector,row.smokeDetector].every(canonicalDeviceStates)))return;
     const legacy=structuredClone(v) as R;
+    const legacyResult=(value:unknown)=>value==="not_good"||value==="complete_repair"?"poor":value==="na"?"not_relevant":value;
+    for(const group of ["chargerAndBatteries","mainFunctionKeys"]){const values=legacy[group];if(rec(values))for(const field of Object.values(values))if(rec(field))field.result=legacyResult(field.result);}
+    if(Array.isArray(legacy.secondaryAlarmDeviceRows))for(const row of legacy.secondaryAlarmDeviceRows)if(rec(row)){row.alarmBell=legacyResult(row.alarmBell);row.manualCallPoint=legacyResult(row.manualCallPoint);}
     legacy.primaryDeviceRows=(v.primaryDeviceRows as R[]).map((row)=>({...row,manualCallPoint:(row.manualCallPoint as string[])[0],flowSwitch:(row.flowSwitch as string[])[0],heatDetector:(row.heatDetector as string[])[0],smokeDetector:(row.smokeDetector as string[])[0]}));
     const parsed=parseResponses(legacy,6);if(!parsed)return;
-    return {...parsed,primaryDeviceRows:v.primaryDeviceRows as FireAlarmPrimaryDeviceRow[]};
+    return {...parsed,primaryDeviceRows:v.primaryDeviceRows as FireAlarmPrimaryDeviceRow[],chargerAndBatteries:v.chargerAndBatteries as FireAlarmResponses["chargerAndBatteries"],mainFunctionKeys:v.mainFunctionKeys as FireAlarmResponses["mainFunctionKeys"],secondaryAlarmDeviceRows:v.secondaryAlarmDeviceRows as FireAlarmSecondaryAlarmDeviceRow[]};
   }
   if(!rec(v)||!exact(v,responseKeys)||!text(v.controlPanelLocation,300)||!text(v.comments,4000,false))return;const v6=version===6;if((v6&&v.schemaVersion!==2)||(!v6&&v.schemaVersion!==1))return;const seen=new Set<string>(),primary=parseRows(v.primaryDeviceRows,"primary",seen,v6),secondary=parseRows(v.secondaryAlarmDeviceRows,"secondary",seen,v6),charger=checklist(v.chargerAndBatteries,chargerKeys,v6),functions=checklist(v.mainFunctionKeys,functionKeys,v6);if(!primary||!secondary||!charger||!functions)return;return{schemaVersion:v.schemaVersion as 1|2,controlPanelLocation:v.controlPanelLocation,primaryDeviceRows:primary as FireAlarmPrimaryDeviceRow[],chargerAndBatteries:charger as FireAlarmResponses["chargerAndBatteries"],mainFunctionKeys:functions as FireAlarmResponses["mainFunctionKeys"],secondaryAlarmDeviceRows:secondary as FireAlarmSecondaryAlarmDeviceRow[],comments:v.comments};}
 

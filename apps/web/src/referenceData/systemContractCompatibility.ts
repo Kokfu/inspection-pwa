@@ -26,7 +26,7 @@ const fireAlarmClientDispatches: readonly (FireAlarmAcceptedDetailTuple & { disp
   { id: "00000000-0000-4000-8000-000000000804", code: "MFE-FSSR", version: 4, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
   { id: "00000000-0000-4000-8000-000000000805", code: "MFE-FSSR", version: 5, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
   { id: "00000000-0000-4000-8000-000000000806", code: "MFE-FSSR", version: 6, dispatch: "v6", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "deec720d8b9bebd4cca552748bfda24a5e4d99f5c13f22c0eee7e50f5cc8755d" }
-  ,{ id: "00000000-0000-4000-8000-000000000807", code: "MFE-FSSR", version: 7, dispatch: "v7", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "0fb524f92033b523128743b6b6dfe3646880a34846b3b1c4a79498573f8c0f59" }
+  ,{ id: "00000000-0000-4000-8000-000000000807", code: "MFE-FSSR", version: 7, dispatch: "v7", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "3dafe01f42efd7d9ca8adfdfd288356d212406c38e82ad33c21bcd327a29e3b0" }
 ];
 
 export function fireAlarmClientDispatch(templateIdentity: FrozenTemplateIdentity): FireAlarmClientDispatch | undefined {

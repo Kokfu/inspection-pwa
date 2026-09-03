@@ -54,22 +54,19 @@ function validCreator(value: unknown) {
     && value.source === "device_reported" && Number.isInteger(value.userId) && typeof value.username === "string"
     && (value.role === "admin" || value.role === "inspector") && isTimestamp(value.capturedAt));
 }
-function v7Manifest(value: unknown, systemKey: Payload["systemKey"], responses: UnknownRecord) {
+/** Structural-only preflight lets an exact idempotent retry be recognized before
+ * Job-open checks. The frozen definition adapter below is the sole authority
+ * for field paths, allowed values, and required evidence. */
+function v7Manifest(value: unknown) {
   if (!Array.isArray(value)) return undefined;
-  const required = new Set<string>();
-  const groups: Array<[string, string]> = [["chargerAndBatteries", "charger_batteries.charger_battery_checks"], ["physicalOutlook", "physical_outlook.physical_outlook_checks"], ["mainFunctionKeys", "main_function_key.function_checks"]];
-  for (const [group, prefix] of groups) { const values = responses[group]; if (!isRecord(values)) return undefined; for (const [key, item] of Object.entries(values)) { if (!isRecord(item) || typeof item.result !== "string" || typeof item.remarks !== "string") return undefined; if (item.result === "poor") { if (!item.remarks.trim()) return undefined; required.add(`${prefix}.${key}`); } } }
   const fields = new Set<string>(), photos = new Set<string>(), sources = new Set<string>();
   const result: Array<{ photoUuid: string; fieldPath: string; sourceSha256: string }> = [];
   for (const entry of value) {
     if (!isRecord(entry) || !exactKeys(entry, manifestKeys)) return undefined;
     const photoUuid = entry.photoUuid, fieldPath = entry.fieldPath, sourceSha256 = entry.sourceSha256;
     if (!isUuid(photoUuid) || typeof fieldPath !== "string" || typeof sourceSha256 !== "string" || !/^[0-9a-f]{64}$/.test(sourceSha256) || fields.has(fieldPath) || photos.has(photoUuid) || sources.has(sourceSha256)) return undefined;
-    const prefix = fieldPath.split(".").slice(0, 2).join(".");
-    if (!["charger_batteries.charger_battery_checks", "physical_outlook.physical_outlook_checks", "main_function_key.function_checks"].includes(prefix)) return undefined;
     fields.add(fieldPath); photos.add(photoUuid); sources.add(sourceSha256); result.push({ photoUuid, fieldPath, sourceSha256 });
   }
-  if (fields.size !== required.size || [...required].some((field) => !fields.has(field))) return undefined;
   return result.sort((a, b) => a.fieldPath.localeCompare(b.fieldPath));
 }
 function canonicalWetChemicalCreator(value: unknown): UnknownRecord | null | undefined {
@@ -110,7 +107,7 @@ function validateWetChemicalEnvelope(item: SyncItem): { payload?: Payload; failu
     || !isRecord(payload.configuration) || !exactKeys(payload.configuration, configurationKeys)
     || !isUuid(payload.configuration.revisionId) || typeof payload.configuration.revisionNumber !== "number" || !Number.isSafeInteger(payload.configuration.revisionNumber) || payload.configuration.revisionNumber < 1
     || !validWetChemicalSnapshot(payload.inspectionSnapshot, payload) || !isRecord(payload.responses) || !isCanonicalTimestamp(payload.performedAt)
-    || (payload.masterTemplate.version === 7 && !v7Manifest(payload.evidenceManifest, "wet_chemical", payload.responses))) {
+    || (payload.masterTemplate.version === 7 && !v7Manifest(payload.evidenceManifest))) {
     return { failure: fail(id, "VALIDATION_ERROR", "Wet Chemical form instance payload is invalid") };
   }
   const responses = payload.masterTemplate.version === 7 ? canonicalV7SuppressionResponses(payload.responses) : payload.responses;
@@ -131,7 +128,7 @@ function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFa
     || !Number.isSafeInteger(p.masterTemplate.version) || Number(p.masterTemplate.version) < 1
     || !isRecord(p.configuration) || !isUuid(p.configuration.revisionId) || !Number.isInteger(p.configuration.revisionNumber)
     || !isRecord(p.inspectionSnapshot) || !isRecord(p.responses) || !isTimestamp(p.performedAt)
-    || (p.masterTemplate.version === 7 && !v7Manifest(p.evidenceManifest, "co2_fire_extinguisher", p.responses))) {
+    || (p.masterTemplate.version === 7 && !v7Manifest(p.evidenceManifest))) {
     return { failure: fail(id, "VALIDATION_ERROR", "CO2 form instance payload is invalid") };
   }
   const responses = p.masterTemplate.version === 7 ? canonicalV7SuppressionResponses(p.responses) : p.responses;
@@ -244,7 +241,7 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
     let requestFingerprint = "";
     try {
       await client.query("BEGIN");
-      const preManifest = payload.masterTemplate.version === 7 ? v7Manifest(payload.evidenceManifest, payload.systemKey, payload.responses) : [];
+      const preManifest = payload.masterTemplate.version === 7 ? v7Manifest(payload.evidenceManifest) : [];
       if (payload.masterTemplate.version === 7 && !preManifest) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "V7 evidence manifest is invalid")); continue; }
       if (payload.masterTemplate.version === 7) {
         requestFingerprint = createHash("sha256").update(canonicalize({ clientUuid: payload.clientUuid, jobId: payload.jobId, systemKey: payload.systemKey, instanceKey: payload.instanceKey, configuredZoneId: payload.configuredZoneId, configuredLocationId: payload.configuredLocationId, displaySequence: payload.displaySequence, masterTemplate: payload.masterTemplate, configuration: payload.configuration, responses: payload.responses, performedAt: payload.performedAt, originalCreatorSnapshot: payload.originalCreatorSnapshot, evidenceManifest: preManifest })).digest("hex");

@@ -98,10 +98,10 @@ test("every client-accepted detector-state combination is accepted by the server
   }
 });
 
-test("a Poor checklist field still requires its own remark and photo", () => {
+test("each V7 finding state requires its own remark and photo", () => {
   const poor = v7FireAlarmSubmissionIssues(
     responses({ chargerAndBatteries: {
-      main_supply: { result: "poor", remarks: "" },
+      main_supply: { result: "not_good", remarks: "" },
       battery: { result: "good", remarks: "" },
       charger: { result: "good", remarks: "" }
     } }), []

@@ -12,6 +12,7 @@ import type {
 type UnknownRecord = Record<string, unknown>;
 const goodPoor = ["good", "poor"] as const;
 const goodPoorV6 = ["good", "poor", "not_relevant"] as const;
+const goodPoorV7 = ["good", "not_good", "complete_repair", "na"] as const;
 const deviceStates = ["normal", "test", "isolation"] as const;
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -30,7 +31,7 @@ const result = (
   control,
   required: true,
   sortOrder,
-  allowedValues: control === "good_poor" ? (version === 6 || version === 7 ? goodPoorV6 : goodPoor) : deviceStates,
+  allowedValues: control === "good_poor" ? (version === 7 ? goodPoorV7 : version === 6 ? goodPoorV6 : goodPoor) : deviceStates,
   remarksPolicy: "optional"
 });
 const checklist = (entries: readonly (readonly [string, string])[], version: 3 | 6 | 7) =>
@@ -145,8 +146,10 @@ const deviceResult = (multi = false): ResolvedFireAlarmResult<DeviceState> => ({
 });
 const goodPoorResult = (version: 3 | 6 | 7): ResolvedFireAlarmResult<GoodPoor> => ({
   type: "single_select", required: true,
-  options: version === 6 || version === 7
-    ? [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }, { value: "not_relevant", label: "Not Relevant" }]
+  options: version === 7
+    ? [{ value: "good", label: "Good" }, { value: "not_good", label: "Not Good" }, { value: "complete_repair", label: "Complete Repair" }, { value: "na", label: "No Need Checking / N.A." }]
+    : version === 6
+      ? [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }, { value: "not_relevant", label: "Not Relevant" }]
     : [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }]
 });
 function resolvedChecklist<K extends string>(key: K, label: string, sortOrder: number, version: 3 | 6 | 7): ResolvedFireAlarmChecklistItem<K> {

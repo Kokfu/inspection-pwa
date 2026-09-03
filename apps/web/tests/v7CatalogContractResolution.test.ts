@@ -32,7 +32,7 @@ const v7Suppression = (key: string): CatalogSystem => ({
   displayName: key,
   sortOrder: 1,
   definitionStatus: "confirmed",
-  definition: { key, results: ["good", "poor", "not_relevant"] }
+  definition: { key, results: ["good", "not_good", "complete_repair", "na"] }
 });
 
 function template(version: number, id: string): CatalogTemplate {
@@ -65,7 +65,7 @@ test("V7 CO2 and Wet Chemical resolve against V7's own contract, not the histori
     assert.ok(resolved, `${key} must resolve on a V7 job`);
     assert.equal(resolved.template.version, 7);
     assert.equal(resolved.system.key, key);
-    assert.deepEqual(resolved.system.definition.results, ["good", "poor", "not_relevant"]);
+    assert.deepEqual(resolved.system.definition.results, ["good", "not_good", "complete_repair", "na"]);
   }
 });
 

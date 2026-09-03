@@ -3,7 +3,7 @@ import { formatClientDateTime } from "../uiPresentation";
 import { useEffect, useState } from "react";
 import { loadV7AcceptedEvidence, v7AcceptedEvidenceContentUrl, type V7AcceptedEvidence } from "./v7AcceptedEvidence";
 
-const label = (value: unknown): string => Array.isArray(value) ? value.map(label).join(", ") : value === "good" ? "Good" : value === "poor" ? "Poor" : value === "not_relevant" ? "Not Relevant"
+const label = (value: unknown): string => Array.isArray(value) ? value.map(label).join(", ") : value === "good" ? "Good" : value === "not_good" ? "Not Good" : value === "complete_repair" ? "Complete Repair" : value === "na" ? "No Need Checking / N.A." : value === "poor" ? "Poor" : value === "not_relevant" ? "Not Relevant"
   : value === "normal" ? "Normal" : value === "test" ? "Test" : value === "isolation" ? "Isolation" : "Not recorded";
 
 export function ServerCo2View({ inspection, onBack }: { inspection: ServerCo2Detail; onBack: () => void }) {
@@ -17,7 +17,7 @@ export function ServerCo2View({ inspection, onBack }: { inspection: ServerCo2Det
     void loadV7AcceptedEvidence(inspection.clientUuid, "co2_fire_extinguisher").then((items) => { if (current) { setEvidence(items); setEvidenceError(""); } }, () => { if (current) setEvidenceError("Accepted evidence is unavailable."); });
     return () => { current = false; };
   }, [inspection.clientUuid, inspection.template.version]);
-  const groups: Array<[string, typeof controls.chargerAndBatteries, Record<string, { result: "good" | "poor" | "not_relevant" | null; remarks: string }>]> = [
+  const groups: Array<[string, typeof controls.chargerAndBatteries, Record<string, { result: string | null; remarks: string }>]> = [
     ["Charger & Batteries", controls.chargerAndBatteries, responses.chargerAndBatteries],
     ["Physical Outlook Checking", controls.physicalOutlook, responses.physicalOutlook],
     ["Main Function Key", controls.mainFunctionKeys, responses.mainFunctionKeys]

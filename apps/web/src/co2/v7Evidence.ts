@@ -13,6 +13,7 @@ const groups: Array<[keyof Pick<Co2Responses, "chargerAndBatteries" | "physicalO
   ["mainFunctionKeys", "main_function_key.function_checks"]
 ];
 const now = () => new Date().toISOString();
+const isEvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
 export async function v7ContractSha256(definition: unknown) {
   const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : value && typeof value === "object" ? `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}` : JSON.stringify(value);
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical(definition)));
@@ -20,14 +21,14 @@ export async function v7ContractSha256(definition: unknown) {
 }
 export function v7RequiredFieldPaths(responses: Co2Responses) {
   const paths: V7SuppressionFieldPath[] = [];
-  for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) if (value.result === "poor") paths.push(`${prefix}.${key}` as V7SuppressionFieldPath);
+  for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) if (isEvidenceFinding(value.result)) paths.push(`${prefix}.${key}` as V7SuppressionFieldPath);
   return paths.sort();
 }
 export function v7SubmissionIssues(record: MasterSystemFormInstanceRecord, responses: Co2Responses, attachments: InspectionAttachmentRecord[]) {
   if (record.masterTemplate.version !== 7) return [];
   const issues: string[] = [];
   for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) {
-    if (value.result === "poor" && !value.remarks.trim()) issues.push(`${prefix}.${key} requires its own Remark`);
+    if (isEvidenceFinding(value.result) && !value.remarks.trim()) issues.push(`${prefix}.${key} requires its own Remark`);
   }
   const fields = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
   for (const fieldPath of v7RequiredFieldPaths(responses)) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
