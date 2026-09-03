@@ -178,15 +178,13 @@ manager picks them (`customer_enabled_systems` rows).
       Not yet re-run since the web fixes: the full API gate set. Re-run before committing.
 
 ### CROSS-CUTTING — decide before building more services
-- [x] **C1 DECIDED 2026-09-03 — 4-state everywhere.** Owner chose the Hokuden cover legend as the
-      house standard: `good` (√ Good/Baik) · `not_good` (X Not Good/Tidak Memuaskan) ·
+- [x] **C1 DECIDED 2026-09-03, owner-CONFIRMED 2026-09-04 — 4-state everywhere, all customers.**
+      Hokuden cover legend is the house grading standard for every customer:
+      `good` (√ Good/Baik) · `not_good` (X Not Good/Tidak Memuaskan) ·
       `complete_repair` (◯ Complete Repair/Siap Baik Pulih) · `na` (/ No Need Checking/N.A.).
-      Note: the MFE **system pages** are only 2-state (`( / )` Good / `( X )` Poor); the 4th and
-      3rd states come from the Hokuden cover sheet, which conflicts with the page footers on
-      `( / )`. Recommend the client confirm "Complete Repair / N.A." is the standard for *all*
-      customers before the rework starts. This supersedes the shipped 3-state
-      (Good / Poor / Not Relevant) — CO2 / Fire Alarm / Wet Chemical V7 must be reworked.
-      → new cross-cutting task **C1-REWORK** below.
+      (The MFE system pages are only 2-state; the 3rd/4th states come from the Hokuden cover
+      sheet — owner has confirmed this is intentional and universal.) Supersedes the shipped
+      3-state. Done via **C1-REWORK** below (`d7ecc0d`).
 - [x] **C1-REWORK (Phase 8F.2C):** V7 result model 3-state → 4-state. `masterServiceReportV7.ts`
       `upgradeV7EvidenceSystem` emits the 4 values; every V7 validator
       (`fireAlarmV7Acceptance.ts`, `co2FormInstanceSync.ts`, …) honors **per-field
@@ -196,10 +194,16 @@ manager picks them (`customer_enabled_systems` rows).
       reverted 020 FK failure); V7 Fire Alarm contract SHA recomputed + web constant updated;
       the 3 accepted V7 demo records on `SV-20260903-36` must be owner-cleaned/re-seeded. The
       FK-safe 020 upsert and disposable T1-definition restart proof are green; V1–V6 untouched.
-- [ ] C2 **Remarks pick-list:** client to supply the hardcoded choice list. Do not invent one.
-- [ ] C3 **Repeatable row model** — skill written (`.agents/skills/repeatable-row-model/SKILL.md`,
-      committed `7635cb3`). Extraction task **T1** in flight (web helpers + 4-invariant tests,
-      result-model agnostic). Roller Shutter is its first consumer (after C1-REWORK).
+- [ ] C2 **Remarks pick-list — DEFERRED to the very last step (owner, 2026-09-04).** Client has
+      not supplied the list. Build every service with free-text remarks for now; retrofit the
+      pick-list once received. Do not invent one.
+- [x] C3 **Repeatable row model** — skill `.agents/skills/repeatable-row-model/SKILL.md` (`7635cb3`);
+      helpers `apps/web/src/inspectionControls/repeatableRows.ts` + 4-invariant tests (`2e07ab1`,
+      T1). Unconsumed until STEP 1.1 (Hydrant) / STEP 2.4 (Roller Shutter).
+- **Fire Intercom (STEP 2.3) — UNBLOCKED (owner, 2026-09-04).** Do not wait on the client for the
+      `Condition Yes / No` `1`/`2` column meaning. Model each floor row as one standard 4-state
+      result (good / not_good / complete_repair / na), same as every other service. The paper
+      form's Yes/No `1`/`2` grid collapses to a single per-row result + remark.
 
 ### STEP 1 — Upgrade existing base templates to V7 evidence  (est. ~4–5 weeks total)
 Each: add a V7 evidence-contract adapter (mirror `co2Adapter`), wire the web form to the V7
