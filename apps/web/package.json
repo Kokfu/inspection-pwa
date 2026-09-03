@@ -11,6 +11,7 @@
     "test:fire-alarm-dispatch": "playwright test tests/fire-alarm-client-dispatch.spec.ts",
     "test:v6-draft-browser": "playwright test tests/fire-alarm-v6-draft-reload.spec.ts",
     "test:v7-stale-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7EvidenceStaleManifest.test.ts",
+    "test:repeatable-rows": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/repeatableRows.test.ts",
     "test:historical-draft": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/historicalDraftCompatibility.test.ts",
     "test:v7-catalog-contract": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7CatalogContractResolution.test.ts",
     "test:v7-fire-alarm-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmV7SubmissionIssues.test.ts",
