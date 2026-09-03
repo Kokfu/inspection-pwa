@@ -5,6 +5,7 @@ export type ApiConfig = {
   allowPhase2UnauthenticatedSync: boolean;
   sessionCookieName: string;
   sessionDurationHours: number;
+  customerCatalogVersion: number;
   nodeEnv: string;
   uploadsPath: string;
 };
@@ -23,6 +24,7 @@ export function loadConfig(): ApiConfig {
       process.env.NODE_ENV !== "production",
     sessionCookieName: process.env.SESSION_COOKIE_NAME ?? "inspection_session",
     sessionDurationHours: Number(process.env.SESSION_DURATION_HOURS ?? 12),
+    customerCatalogVersion: Number(process.env.INSPECTION_CUSTOMER_CATALOG_VERSION ?? 7),
     nodeEnv,
     uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads"
   };

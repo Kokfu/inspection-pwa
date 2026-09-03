@@ -17,6 +17,20 @@ const nextUpdatedAt = (previous: string) => {
   return current > previous ? current : new Date(new Date(previous).getTime() + 1).toISOString();
 };
 export const fireAlarmJobSystemKey = (jobId: string) => `${jobId}:${systemKey}`;
+const deviceStates = ["normal", "test", "isolation"] as const;
+function canonicalV7DeviceStates(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length
+    || !value.every((item) => deviceStates.includes(item as typeof deviceStates[number]))) return value;
+  return deviceStates.filter((item) => value.includes(item));
+}
+function canonicalV7FireAlarmResponses(responses: FireAlarmResponses): FireAlarmResponses {
+  return { ...responses, primaryDeviceRows: responses.primaryDeviceRows.map((row) => ({ ...row,
+    manualCallPoint: canonicalV7DeviceStates(row.manualCallPoint) as typeof row.manualCallPoint,
+    flowSwitch: canonicalV7DeviceStates(row.flowSwitch) as typeof row.flowSwitch,
+    heatDetector: canonicalV7DeviceStates(row.heatDetector) as typeof row.heatDetector,
+    smokeDetector: canonicalV7DeviceStates(row.smokeDetector) as typeof row.smokeDetector
+  })) };
+}
 
 function definition(job: InspectionJob, catalog: InspectionCatalog) {
   const compatible = compatibleCatalogSystem(catalog, job.configurationSnapshot.template, systemKey);
@@ -117,7 +131,7 @@ export async function saveFireAlarmDraft(record: FireAlarmInspectionRecord, resp
     const live = await localDatabase.masterSystemInspections.get(record.clientUuid);
     if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error(staleMessage);
     const current = live as FireAlarmInspectionRecord;
-    const currentDispatch = dispatchForTemplate(current.masterTemplate); const canonical = currentDispatch === "v6" || currentDispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const currentDispatch = dispatchForTemplate(current.masterTemplate); const canonical = currentDispatch === "v7" ? canonicalV7FireAlarmResponses(structuredClone(responses)) : currentDispatch === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
     saved = { ...current, responses: canonical, localUpdatedAt: nextUpdatedAt(current.localUpdatedAt), lastSyncError: undefined };
     await localDatabase.masterSystemInspections.put(saved);
@@ -155,7 +169,7 @@ export async function submitFireAlarmLocal(record: FireAlarmInspectionRecord, re
     }
     const current = live as FireAlarmInspectionRecord;
     const dispatch = dispatchForTemplate(current.masterTemplate);
-    const canonical = dispatch === "v6" || dispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const canonical = dispatch === "v7" ? canonicalV7FireAlarmResponses(structuredClone(responses)) : dispatch === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
     const photos = dispatch === "v6" ? await listFireAlarmV6Photos(current.clientUuid) : dispatch === "v7" ? await listFireAlarmV7Photos(current.clientUuid) : [];
     const issues = dispatch === "v6"
@@ -278,9 +292,9 @@ async function mutateFireAlarmDraft(record: FireAlarmInspectionRecord, responses
     if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error(staleMessage);
     const current = live as FireAlarmInspectionRecord;
     const dispatch = dispatchForTemplate(current.masterTemplate);
-    const canonical = dispatch === "v6" || dispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const canonical = dispatch === "v7" ? canonicalV7FireAlarmResponses(structuredClone(responses)) : dispatch === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
-    const mutated = dispatch === "v6" || dispatch === "v7" ? structuredClone(mutation(canonical)) : canonicalizeFireAlarmResponses(mutation(canonical), current.inspectionSnapshot);
+    const mutated = dispatch === "v7" ? canonicalV7FireAlarmResponses(structuredClone(mutation(canonical))) : dispatch === "v6" ? structuredClone(mutation(canonical)) : canonicalizeFireAlarmResponses(mutation(canonical), current.inspectionSnapshot);
     saved = { ...current, responses: mutated, localUpdatedAt: nextUpdatedAt(current.localUpdatedAt), lastSyncError: undefined };
     await localDatabase.masterSystemInspections.put(saved);
   });

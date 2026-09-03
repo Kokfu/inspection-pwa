@@ -113,7 +113,9 @@ function validateWetChemicalEnvelope(item: SyncItem): { payload?: Payload; failu
     || (payload.masterTemplate.version === 7 && !v7Manifest(payload.evidenceManifest, "wet_chemical", payload.responses))) {
     return { failure: fail(id, "VALIDATION_ERROR", "Wet Chemical form instance payload is invalid") };
   }
-  return { payload: { ...payload, originalCreatorSnapshot } as unknown as Payload };
+  const responses = payload.masterTemplate.version === 7 ? canonicalV7SuppressionResponses(payload.responses) : payload.responses;
+  if (!responses) return { failure: fail(id, "VALIDATION_ERROR", "Wet Chemical detector states are invalid") };
+  return { payload: { ...payload, originalCreatorSnapshot, responses } as unknown as Payload };
 }
 function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFailure } {
   const id = typeof item.entityId === "string" ? item.entityId : "unknown";
@@ -132,10 +134,33 @@ function validateEnvelope(item: SyncItem): { payload?: Payload; failure?: SyncFa
     || (p.masterTemplate.version === 7 && !v7Manifest(p.evidenceManifest, "co2_fire_extinguisher", p.responses))) {
     return { failure: fail(id, "VALIDATION_ERROR", "CO2 form instance payload is invalid") };
   }
-  return { payload: p as unknown as Payload };
+  const responses = p.masterTemplate.version === 7 ? canonicalV7SuppressionResponses(p.responses) : p.responses;
+  if (!responses) return { failure: fail(id, "VALIDATION_ERROR", "CO2 detector states are invalid") };
+  return { payload: { ...p, responses } as unknown as Payload };
 }
 function allowed(control: { options: Array<{ value: string }> }, value: unknown) {
   return typeof value === "string" && control.options.some((option) => option.value === value);
+}
+const detectorStates = ["normal", "test", "isolation"] as const;
+function canonicalV7DetectorStates(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > detectorStates.length || new Set(value).size !== value.length
+    || !value.every((item) => typeof item === "string" && detectorStates.includes(item as typeof detectorStates[number]))) return undefined;
+  return detectorStates.filter((item) => value.includes(item));
+}
+function canonicalV7SuppressionResponses(value: unknown) {
+  if (!isRecord(value) || !Array.isArray(value.detectorRows)) return undefined;
+  const detectorRows = value.detectorRows.map((row) => {
+    if (!isRecord(row)) return undefined;
+    const heatDetectorStatus = canonicalV7DetectorStates(row.heatDetectorStatus);
+    const smokeDetectorStatus = canonicalV7DetectorStates(row.smokeDetectorStatus);
+    return !heatDetectorStatus || !smokeDetectorStatus ? undefined : { ...row, heatDetectorStatus, smokeDetectorStatus };
+  });
+  return detectorRows.some((row) => !row) ? undefined : { ...value, detectorRows };
+}
+export function validCanonicalDetectorStates(control: { options: Array<{ value: string }> }, value: unknown) {
+  return Array.isArray(value) && value.length > 0 && value.length <= control.options.length
+    && value.every((item, index) => typeof item === "string" && control.options.some((option) => option.value === item)
+      && (index === 0 || control.options.findIndex((option) => option.value === value[index - 1]) < control.options.findIndex((option) => option.value === item)));
 }
 function validChecklist(value: unknown, definitions: ResolvedCo2Controls["chargerAndBatteries"]) {
   if (!isRecord(value) || !exactKeys(value, definitions.map((item) => item.key))) return false;
@@ -165,6 +190,10 @@ export function validateCo2Responses(value: UnknownRecord, controls: ResolvedCo2
     sequences.add(candidate.displaySequence as number);
     const heat = candidate.heatDetectorStatus;
     const smoke = candidate.smokeDetectorStatus;
+    if (controls.source.templateVersion === 7) {
+      return validCanonicalDetectorStates(controls.detectorRows.heatDetector.result, heat)
+        && validCanonicalDetectorStates(controls.detectorRows.smokeDetector.result, smoke);
+    }
     if (heat !== null && !allowed(controls.detectorRows.heatDetector.result, heat)) return false;
     if (smoke !== null && !allowed(controls.detectorRows.smokeDetector.result, smoke)) return false;
     return allowed(controls.detectorRows.heatDetector.result, heat) || allowed(controls.detectorRows.smokeDetector.result, smoke);

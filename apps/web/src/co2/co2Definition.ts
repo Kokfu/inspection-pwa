@@ -42,13 +42,13 @@ function named(values: UnknownRecord[], key: string, name: string) {
 }
 
 function resultControl(control: unknown, allowedValues: unknown): ResultControlDefinition {
-  if ((control !== "good_poor" && control !== "normal_test_isolation") || !Array.isArray(allowedValues)) {
+  if ((control !== "good_poor" && control !== "normal_test_isolation" && control !== "normal_test_isolation_multi") || !Array.isArray(allowedValues)) {
     throw new Error("CO2 definition has invalid result metadata");
   }
   const values = allowedValues.map((value) => text(value, "result option"));
   if (values.length === 0 || new Set(values).size !== values.length) throw new Error("CO2 result options are invalid");
   return {
-    type: "single_select",
+    type: control === "normal_test_isolation_multi" ? "multi_select" : "single_select",
     required: control === "good_poor",
     options: values.map((value) => {
       const label = optionLabels[value];
@@ -85,8 +85,8 @@ function sorted<T extends { sortOrder: number }>(items: T[]) {
 
 const exact = (value: UnknownRecord, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 function frozenRemarks(value: unknown, maximum: number) { return isRecord(value) && exact(value, ["policy", "maxLength"]) && value.policy === "optional" && value.maxLength === maximum; }
-function frozenResult(value: unknown, values: readonly string[], required: boolean) {
-  return isRecord(value) && exact(value, ["type", "required", "options"]) && value.type === "single_select" && value.required === required
+function frozenResult(value: unknown, values: readonly string[], required: boolean, type: "single_select" | "multi_select" = "single_select") {
+  return isRecord(value) && exact(value, ["type", "required", "options"]) && value.type === type && value.required === required
     && Array.isArray(value.options) && value.options.length === values.length
     && value.options.every((option, index) => isRecord(option) && exact(option, ["value", "label"])
       && option.value === values[index] && option.label === optionLabels[values[index]]);
@@ -113,8 +113,8 @@ export function parseFrozenCo2Controls(value: unknown): ResolvedCo2Controls | un
     || value.detectorRows.minimum !== 1 || value.detectorRows.maximum !== 250 || !isRecord(value.detectorRows.alarmZone) || !isRecord(value.detectorRows.location)
     || !exact(value.detectorRows.alarmZone, ["key", "label", "required", "maxLength"]) || value.detectorRows.alarmZone.key !== "alarm_zone" || value.detectorRows.alarmZone.label !== "Alarm Zone" || value.detectorRows.alarmZone.required !== true || value.detectorRows.alarmZone.maxLength !== 200
     || !exact(value.detectorRows.location, ["key", "label", "required", "maxLength"]) || value.detectorRows.location.key !== "location" || value.detectorRows.location.label !== "Location" || value.detectorRows.location.required !== true || value.detectorRows.location.maxLength !== 300
-    || !isRecord(value.detectorRows.heatDetector) || !exact(value.detectorRows.heatDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.heatDetector.key !== "heat_detector" || value.detectorRows.heatDetector.label !== "Heat Detector" || value.detectorRows.heatDetector.sortOrder !== 3 || !frozenResult(value.detectorRows.heatDetector.result, ["normal", "test", "isolation"], false)
-    || !isRecord(value.detectorRows.smokeDetector) || !exact(value.detectorRows.smokeDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.smokeDetector.key !== "smoke_detector" || value.detectorRows.smokeDetector.label !== "Smoke Detector" || value.detectorRows.smokeDetector.sortOrder !== 4 || !frozenResult(value.detectorRows.smokeDetector.result, ["normal", "test", "isolation"], false)
+    || !isRecord(value.detectorRows.heatDetector) || !exact(value.detectorRows.heatDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.heatDetector.key !== "heat_detector" || value.detectorRows.heatDetector.label !== "Heat Detector" || value.detectorRows.heatDetector.sortOrder !== 3 || !frozenResult(value.detectorRows.heatDetector.result, ["normal", "test", "isolation"], false, isV7 ? "multi_select" : "single_select")
+    || !isRecord(value.detectorRows.smokeDetector) || !exact(value.detectorRows.smokeDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.smokeDetector.key !== "smoke_detector" || value.detectorRows.smokeDetector.label !== "Smoke Detector" || value.detectorRows.smokeDetector.sortOrder !== 4 || !frozenResult(value.detectorRows.smokeDetector.result, ["normal", "test", "isolation"], false, isV7 ? "multi_select" : "single_select")
     || !frozenRemarks(value.detectorRows.remarks, 2000) || !frozenChecklist(value.chargerAndBatteries, [["main_supply", "Main Supply"], ["battery", "Battery"], ["charger", "Charger"]], checklistValues)
     || !frozenChecklist(value.physicalOutlook, physical, checklistValues) || !frozenChecklist(value.mainFunctionKeys, functions, checklistValues) || !frozenRemarks(value.comments, 4000)) return undefined;
   return value as unknown as ResolvedCo2Controls;

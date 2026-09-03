@@ -8,7 +8,7 @@ export type ResultOptionDefinition = {
 };
 
 export type ResultControlDefinition = {
-  type: "single_select";
+  type: "single_select" | "multi_select";
   required: boolean;
   options: ResultOptionDefinition[];
 };

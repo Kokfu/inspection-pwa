@@ -21,7 +21,7 @@ const text = (key: string, label: string, required: boolean, sortOrder: number, 
 const result = (
   key: string,
   label: string,
-  control: "good_poor" | "normal_test_isolation",
+  control: "good_poor" | "normal_test_isolation" | "normal_test_isolation_multi",
   sortOrder: number,
   version: 3 | 6 | 7 = 3
 ): FireAlarmDefinitionField => ({
@@ -50,8 +50,8 @@ function canonicalDefinition(version: 3 | 6 | 7 = 3): FireAlarmSystemDefinition 
           { key: "control_panel_location", title: "Control Panel Location", type: "checklist", sortOrder: 1, items: [text("control_panel_location", "Control Panel Location", true, 1)] },
           { key: "device_rows", title: "Zone and Device Rows", type: "repeatable_table", sortOrder: 2, supportsZones: true, supportsLocations: true, columns: [
             text("asset_reference", "No.", false, 1), text("alarm_zone", "Alarm Zone", true, 2), text("location", "Location", true, 3),
-            result("manual_call_point", "Manual Call Point", "normal_test_isolation", 4), result("flow_switch", "Flow Switch", "normal_test_isolation", 5),
-            result("heat_detector", "Heat Detector", "normal_test_isolation", 6), result("smoke_detector", "Smoke Detector", "normal_test_isolation", 7),
+            result("manual_call_point", "Manual Call Point", version === 7 ? "normal_test_isolation_multi" : "normal_test_isolation", 4, version), result("flow_switch", "Flow Switch", version === 7 ? "normal_test_isolation_multi" : "normal_test_isolation", 5, version),
+            result("heat_detector", "Heat Detector", version === 7 ? "normal_test_isolation_multi" : "normal_test_isolation", 6, version), result("smoke_detector", "Smoke Detector", version === 7 ? "normal_test_isolation_multi" : "normal_test_isolation", 7, version),
             text("remarks", "Remarks", false, 8, "remarks")
           ] }
         ]
@@ -139,8 +139,8 @@ export function parseFireAlarmRowPreset(value: unknown): FireAlarmRowPreset | un
   return { fireAlarmTable: item.fireAlarmTable };
 }
 
-const deviceResult = (): ResolvedFireAlarmResult<DeviceState> => ({
-  type: "single_select", required: true,
+const deviceResult = (multi = false): ResolvedFireAlarmResult<DeviceState> => ({
+  type: multi ? "multi_select" : "single_select", required: true,
   options: [{ value: "normal", label: "Normal" }, { value: "test", label: "Test" }, { value: "isolation", label: "Isolation" }]
 });
 const goodPoorResult = (version: 3 | 6 | 7): ResolvedFireAlarmResult<GoodPoor> => ({
@@ -168,7 +168,7 @@ export function resolveFireAlarmControls(definition: unknown, templateCode = "MF
       assetReference: { key: "asset_reference", label: "No.", required: false, maxLength: 250 },
       alarmZone: { key: "alarm_zone", label: "Alarm Zone", required: true, maxLength: 200 },
       location: { key: "location", label: "Location", required: true, maxLength: 300 },
-      manualCallPoint: deviceResult(), flowSwitch: deviceResult(), heatDetector: deviceResult(), smokeDetector: deviceResult(),
+      manualCallPoint: deviceResult(definitionVersion === 7), flowSwitch: deviceResult(definitionVersion === 7), heatDetector: deviceResult(definitionVersion === 7), smokeDetector: deviceResult(definitionVersion === 7),
       remarks: { policy: "optional", maxLength: 2000 }
     },
     chargerAndBatteries: [resolvedChecklist("main_supply", "Main Supply", 1, definitionVersion), resolvedChecklist("battery", "Battery", 2, definitionVersion), resolvedChecklist("charger", "Charger", 3, definitionVersion)],

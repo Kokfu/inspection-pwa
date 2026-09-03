@@ -3,7 +3,7 @@ import { formatClientDateTime } from "../uiPresentation";
 import { useEffect, useState } from "react";
 import { loadV7AcceptedEvidence, v7AcceptedEvidenceContentUrl, type V7AcceptedEvidence } from "./v7AcceptedEvidence";
 
-const label = (value: unknown) => value === "good" ? "Good" : value === "poor" ? "Poor" : value === "not_relevant" ? "Not Relevant"
+const label = (value: unknown): string => Array.isArray(value) ? value.map(label).join(", ") : value === "good" ? "Good" : value === "poor" ? "Poor" : value === "not_relevant" ? "Not Relevant"
   : value === "normal" ? "Normal" : value === "test" ? "Test" : value === "isolation" ? "Isolation" : "Not recorded";
 
 export function ServerCo2View({ inspection, onBack }: { inspection: ServerCo2Detail; onBack: () => void }) {

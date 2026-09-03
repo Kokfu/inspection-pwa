@@ -4,6 +4,7 @@ export type FieldControl =
   | "boolean_status"
   | "good_poor"
   | "normal_test_isolation"
+  | "normal_test_isolation_multi"
   | "text"
   | "number"
   | "measurement"

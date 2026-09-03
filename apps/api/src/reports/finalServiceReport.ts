@@ -216,7 +216,16 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
   const context = fireAlarmV6ReportContext(snapshot, response);
   if (!context) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
   const fields: FinalReportField[] = [];
-  const add = (label: string, value: unknown, depth = 0) => { const rendered = typeof value === "string" ? value : undefined; if (!rendered) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid."); fields.push({ label, value: rendered, depth }); };
+  const add = (label: string, value: unknown, depth = 0) => {
+    const rendered = typeof value === "string" ? value
+      : Array.isArray(value) && value.length > 0 && value.every((item, index) => typeof item === "string"
+        && ["normal", "test", "isolation"].includes(item)
+        && (index === 0 || ["normal", "test", "isolation"].indexOf(value[index - 1] as string) < ["normal", "test", "isolation"].indexOf(item)))
+        ? value.map((item) => item[0]!.toUpperCase() + item.slice(1)).join(", ")
+        : undefined;
+    if (!rendered) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
+    fields.push({ label, value: rendered, depth });
+  };
   add(context.controls.controlPanelLocation.label, context.response.controlPanelLocation);
   for (const [index, row] of context.response.primaryDeviceRows.entries()) {
     if (!isRecord(row)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");

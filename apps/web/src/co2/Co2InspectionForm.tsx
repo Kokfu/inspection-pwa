@@ -13,6 +13,7 @@ import type {
 } from "./co2Types";
 import { listV7SuppressionPhotos, v7SubmissionIssues, type V7SuppressionFieldPath } from "./v7Evidence";
 import { V7EvidenceField } from "./V7EvidenceField";
+import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
 type Props = {
   record: MasterSystemFormInstanceRecord;
@@ -149,8 +150,8 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
           <h3>Detector Row {index + 1}</h3>
           <label>{controls.detectorRows.alarmZone.label}<input maxLength={controls.detectorRows.alarmZone.maxLength} value={row.alarmZone} onChange={(event) => updateDetector(row.rowUuid, { alarmZone: event.target.value })} /></label>
           <label>{controls.detectorRows.location.label}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
-          <div><strong>{controls.detectorRows.heatDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={row.heatDetectorStatus} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /></div>
-          <div><strong>{controls.detectorRows.smokeDetector.label}</strong><ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={row.smokeDetectorStatus} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /></div>
+          <div><strong>{controls.detectorRows.heatDetector.label}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={row.heatDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>
+          <div><strong>{controls.detectorRows.smokeDetector.label}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={row.smokeDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>
           <RemarksField label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
           {!readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));

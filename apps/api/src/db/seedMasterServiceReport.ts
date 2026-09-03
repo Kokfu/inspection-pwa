@@ -49,6 +49,16 @@ const demoWetChemicalEnabledSystemId = "00000000-0000-4000-8000-000000000742";
 const demoWetChemicalZoneId = "00000000-0000-4000-8000-000000000743";
 const demoWetChemicalLocationId = "00000000-0000-4000-8000-000000000744";
 const demoWetChemicalJobId = "00000000-0000-4000-8000-000000000749";
+const demoV7CustomerId = "00000000-0000-4000-8000-000000000900";
+const demoV7RevisionId = "00000000-0000-4000-8000-000000000901";
+const demoV7FireAlarmEnabledSystemId = "00000000-0000-4000-8000-000000000902";
+const demoV7Co2EnabledSystemId = "00000000-0000-4000-8000-000000000903";
+const demoV7WetChemicalEnabledSystemId = "00000000-0000-4000-8000-000000000904";
+const demoV7Co2ZoneId = "00000000-0000-4000-8000-000000000905";
+const demoV7Co2LocationId = "00000000-0000-4000-8000-000000000906";
+const demoV7WetChemicalZoneId = "00000000-0000-4000-8000-000000000907";
+const demoV7WetChemicalLocationId = "00000000-0000-4000-8000-000000000908";
+const demoV7SiteId = "00000000-0000-4000-8000-000000000909";
 const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
 const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
 const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
@@ -100,6 +110,12 @@ const demoWetChemicalCustomer = {
   code: "DEMO-WET-CHEMICAL",
   name: "Demo Wet Chemical Client",
   revisionId: demoWetChemicalRevisionId
+} as const;
+const demoV7Customer = {
+  id: demoV7CustomerId,
+  code: "DEMO-V7-SHARED-EVIDENCE",
+  name: "Demo V7 Shared Evidence Client",
+  revisionId: demoV7RevisionId
 } as const;
 const demoPortableCustomer = {
   id: demoPortableCustomerId,
@@ -1011,6 +1027,48 @@ async function seedDemoConfigurations(client: PoolClient) {
     assetReference: "WC-01",
     sortOrder: 1
   });
+  const existingDemoV7Customer = await client.query<{ id: string }>(
+    "SELECT id FROM customers WHERE id = $1",
+    [demoV7Customer.id]
+  );
+  if (!existingDemoV7Customer.rows[0]) {
+    await seedCustomer(client, demoV7Customer, masterServiceReportV7.id);
+    await seedSite(client, { id: demoV7SiteId, customerId: demoV7Customer.id, code: "PRIMARY", name: "Primary Service Site" });
+    await seedEnabledSystem(
+      client, demoV7FireAlarmEnabledSystemId, demoV7RevisionId,
+      "fire_alarm_detector", 1, null, masterServiceReportV7.id
+    );
+    await seedEnabledSystem(
+      client, demoV7Co2EnabledSystemId, demoV7RevisionId,
+      "co2_fire_extinguisher", 2, null, masterServiceReportV7.id
+    );
+    await seedZone(client, demoV7Co2ZoneId, demoV7Co2EnabledSystemId, "v7-co2-zone", "V7 CO2 Zone", 1);
+    await seedLocation(client, {
+      id: demoV7Co2LocationId,
+      enabledSystemId: demoV7Co2EnabledSystemId,
+      zoneId: demoV7Co2ZoneId,
+      key: "v7-co2-location",
+      name: "V7 CO2 Location",
+      rowCount: 1,
+      assetReference: "V7-CO2-01",
+      sortOrder: 1
+    });
+    await seedEnabledSystem(
+      client, demoV7WetChemicalEnabledSystemId, demoV7RevisionId,
+      "wet_chemical", 3, null, masterServiceReportV7.id
+    );
+    await seedZone(client, demoV7WetChemicalZoneId, demoV7WetChemicalEnabledSystemId, "v7-wet-chemical-zone", "V7 Wet Chemical Zone", 1);
+    await seedLocation(client, {
+      id: demoV7WetChemicalLocationId,
+      enabledSystemId: demoV7WetChemicalEnabledSystemId,
+      zoneId: demoV7WetChemicalZoneId,
+      key: "v7-wet-chemical-location",
+      name: "V7 Wet Chemical Location",
+      rowCount: 1,
+      assetReference: "V7-WC-01",
+      sortOrder: 1
+    });
+  }
   await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
 }
 

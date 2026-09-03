@@ -17,13 +17,38 @@ const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.m
 const fail = (id: string, code: string, message: string): SyncFailure => ({ id, code, message });
 const unavailable = (id: string) => fail(id, "JOB_ACCESS_DENIED", "This V7 inspection is unavailable");
 const v7AcceptedEvidenceUniqueConstraints = new Set(["staged_inspection_evidence_v7_accepted_source_per_job_system", "staged_inspection_evidence_v7_accepted_stored_per_job_system"]);
+const deviceStates = ["normal", "test", "isolation"] as const;
+
+/** V7 stores detector state as a non-empty, duplicate-free array in the
+ * definition's order.  Reordered retries are normalized before fingerprinting. */
+export function validCanonicalV7DeviceStates(value: unknown): value is typeof deviceStates[number][] {
+  return Array.isArray(value) && value.length > 0 && value.length <= deviceStates.length
+    && value.every((item, index) => typeof item === "string" && deviceStates.indexOf(item as typeof deviceStates[number]) >= 0
+      && (index === 0 || deviceStates.indexOf(value[index - 1] as typeof deviceStates[number]) < deviceStates.indexOf(item as typeof deviceStates[number])));
+}
+function canonicalV7DeviceStates(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > deviceStates.length || new Set(value).size !== value.length
+    || !value.every((item) => typeof item === "string" && deviceStates.includes(item as typeof deviceStates[number]))) return undefined;
+  return deviceStates.filter((item) => value.includes(item));
+}
+function canonicalV7Responses(value: Value) {
+  if (!Array.isArray(value.primaryDeviceRows)) return undefined;
+  const rows = value.primaryDeviceRows.map((row) => {
+    if (!record(row)) return undefined;
+    const states = ["manualCallPoint", "flowSwitch", "heatDetector", "smokeDetector"] as const;
+    const canonical = Object.fromEntries(states.map((key) => [key, canonicalV7DeviceStates(row[key])])) as Record<typeof states[number], typeof deviceStates[number][] | undefined>;
+    return Object.values(canonical).some((item) => !item) ? undefined : { ...row, ...canonical };
+  });
+  return rows.some((row) => !row) ? undefined : { ...value, primaryDeviceRows: rows };
+}
 export const isFireAlarmV7AcceptedEvidenceUniqueViolation = (error: unknown) => record(error) && error.code === "23505" && typeof error.constraint === "string" && v7AcceptedEvidenceUniqueConstraints.has(error.constraint);
 
 function parse(item: SyncItem): Payload | undefined {
   if (!uuid.test(String(item.operationId)) || item.entityType !== "masterSystemInspection" || item.action !== "create" || !uuid.test(String(item.entityId)) || !record(item.payload)) return undefined;
   const p = item.payload; const keys = ["clientUuid", "jobId", "systemKey", "instanceKey", "configuredZoneId", "configuredLocationId", "displaySequence", "originalCreatorSnapshot", "masterTemplate", "configuration", "inspectionSnapshot", "responses", "evidenceManifest", "performedAt"];
   if (!exact(p, keys) || !uuid.test(String(p.clientUuid)) || p.clientUuid !== item.entityId || !uuid.test(String(p.jobId)) || p.systemKey !== "fire_alarm_detector" || p.instanceKey !== "primary" || p.configuredZoneId !== null || p.configuredLocationId !== null || p.displaySequence !== 1 || !record(p.masterTemplate) || !exact(p.masterTemplate, ["id", "code", "version"]) || !uuid.test(String(p.masterTemplate.id)) || p.masterTemplate.code !== "MFE-FSSR" || p.masterTemplate.version !== 7 || !record(p.configuration) || !exact(p.configuration, ["revisionId", "revisionNumber"]) || !uuid.test(String(p.configuration.revisionId)) || !Number.isSafeInteger(p.configuration.revisionNumber) || !record(p.inspectionSnapshot) || !record(p.responses) || !Array.isArray(p.evidenceManifest) || !timestamp.test(String(p.performedAt)) || new Date(String(p.performedAt)).toISOString() !== p.performedAt) return undefined;
-  return p as unknown as Payload;
+  const responses = canonicalV7Responses(p.responses);
+  return responses ? { ...p, responses } as unknown as Payload : undefined;
 }
 
 /** The V7 adapter owns Poor evidence. This validator keeps the non-evidence
@@ -36,7 +61,7 @@ function validResponses(responses: Value) {
   const ids = new Set<string>();
   for (let index = 0; index < responses.primaryDeviceRows.length; index += 1) {
     const row = responses.primaryDeviceRows[index]; const keys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "displaySequence", "assetReference", "alarmZone", "location", "manualCallPoint", "flowSwitch", "heatDetector", "smokeDetector", "remarks"];
-    if (!record(row) || !exact(row, keys) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || ids.has(row.rowUuid) || row.displaySequence !== index + 1 || typeof row.assetReference !== "string" || row.assetReference.length > 250 || typeof row.alarmZone !== "string" || !row.alarmZone.trim() || row.alarmZone.length > 200 || typeof row.location !== "string" || !row.location.trim() || row.location.length > 300 || typeof row.remarks !== "string" || row.remarks.length > 2000 || ![row.manualCallPoint, row.flowSwitch, row.heatDetector, row.smokeDetector].every((value) => ["normal", "test", "isolation"].includes(String(value)))) return false;
+    if (!record(row) || !exact(row, keys) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || ids.has(row.rowUuid) || row.displaySequence !== index + 1 || typeof row.assetReference !== "string" || row.assetReference.length > 250 || typeof row.alarmZone !== "string" || !row.alarmZone.trim() || row.alarmZone.length > 200 || typeof row.location !== "string" || !row.location.trim() || row.location.length > 300 || typeof row.remarks !== "string" || row.remarks.length > 2000 || ![row.manualCallPoint, row.flowSwitch, row.heatDetector, row.smokeDetector].every(validCanonicalV7DeviceStates)) return false;
     ids.add(row.rowUuid);
   }
   for (let index = 0; index < responses.secondaryAlarmDeviceRows.length; index += 1) {

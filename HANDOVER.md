@@ -3,18 +3,20 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-03 13:40 MPST
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `e30c649`
-**Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo`
+**Last updated:** 2026-09-03 — V7 detector Normal/Test/Isolation multi-select working tree
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `5bc968d`
+**Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
 
 ## 1. One-line status
 
 Phase 8F.2B.2A (V7 shared-evidence foundation + Fire Alarm / CO2 / Wet Chemical V7) is
-**code-complete and verified server-side (4 independent review passes, SAFE TO COMMIT)** but
-**still uncommitted**, and V7 has **no UI front door** yet — no customer can be placed on V7, so
-a technician cannot start a V7 inspection in the app.
+**committed** (`5bc968d`, safety branch `phase-8f2b2a-final-accepted`). STEP 0.2 (V7 front door)
+is **code-complete and re-verified** (all standard gates + `managerCustomers.integration.test.ts`
+green on owner re-run) and **uncommitted** (6 modified files). The catalog front door defaults new
+customer configurations and explicit Manager configuration revisions to V7; existing V1–V6
+revisions remain frozen. Next: STEP 0.4 (seed a v7 demo customer) then STEP 0.3 (browser sanity).
 
 ---
 
@@ -31,11 +33,16 @@ docker compose build api proxy ; docker compose up -d
 # V7 integration tests (disposable DB, never the runtime DB)
 docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=inspection -e POSTGRES_USER=inspection_app `
   -e POSTGRES_PASSWORD=replace-with-a-real-secret-outside-git -p 127.0.0.1:55432:5432 postgres:16-alpine
-# wait for pg_isready, then:
+# wait for TCP readiness (use -h 127.0.0.1 — the unix socket races the postgres:16-alpine init/restart):
+#   do { Start-Sleep -Seconds 1 } until (docker exec phase8f-v7-verify pg_isready -h 127.0.0.1 -U inspection_app -d inspection)
 cd apps/api
 $env:NODE_ENV='test'; $env:DATABASE_URL='postgres://bogus:bogus@10.255.255.1:9999/nope'
 $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/inspection'
 node --import tsx --test --test-concurrency=1 src/sync/co2V7.integration.test.ts src/sync/wetChemicalV7.integration.test.ts src/sync/fireAlarmV7.integration.test.ts src/sync/v7EvidenceRace.integration.test.ts
+# manager/catalog integration test needs its own dedicated DB (asserts path = /phase6_seed_integration):
+#   docker exec phase8f-v7-verify createdb -h 127.0.0.1 -U inspection_app phase6_seed_integration
+#   $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
+#   npx tsx --test src/routes/managerCustomers.integration.test.ts
 cd ../.. ; docker rm -f phase8f-v7-verify
 Remove-Item Env:DATABASE_URL,Env:NODE_ENV,Env:SEED_INTEGRATION_DATABASE_URL -ErrorAction SilentlyContinue
 
@@ -49,7 +56,9 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 
 ---
 
-## 3. What is DONE and verified (uncommitted, 39 modified + 25 new files)
+## 3. What is DONE and verified
+
+**STEP 0.1 — committed `5bc968d`** (safety branch `phase-8f2b2a-final-accepted`):
 
 - V7 template `00000000-0000-4000-8000-000000000807` (MFE-FSSR v7), migration `018`, shared
   staged-evidence authority, per-system contract adapters (`co2_fire_extinguisher`,
@@ -69,15 +78,24 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
   backend-api-security / indexeddb-data-model / AGENTS.md.
 - Review: 4 independent (Sol) passes; final verdict **SAFE TO COMMIT: Y**.
 
+**STEP 0.2 — uncommitted (6 modified files), re-verified 2026-09-03:**
+
+- `INSPECTION_CUSTOMER_CATALOG_VERSION` config key (`env.ts`, default 7); `managerCustomers.ts`
+  consumes it for every customer/config-revision/service-visit insert; `inspectionReference.ts`
+  lists + resolves v7 (Fire Alarm v7 → `resolveFireAlarmV6Controls(def, 7)`).
+- New coverage: `env.test.ts` (unset→7, `"6"`→6); `managerCustomers.integration.test.ts`
+  (catalog `[1..7]`, v7 Fire Alarm `templateVersion:7`, new customer + visit freeze v7).
+- All standard gates + both new tests green on owner re-run. DO-NOT-MODIFY list clean.
+
 ---
 
 ## 4. Known gaps / blockers
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
-| G1 | **No UI front door to V7.** `customerCatalogVersion = 6` hardcoded; catalog API filters `version IN (1..6)`. | No customer/visit can be on V7 → technician cannot start a V7 inspection → **browser demo of the new Good/Poor/Not Relevant + evidence flow is impossible today**. | `apps/api/src/routes/managerCustomers.ts:9`, `apps/api/src/routes/inspectionReference.ts:181` |
-| G2 | Manual browser sanity (offline → reload → sync → Accepted → PDF) not yet done for V7. | Blocked by G1. | — |
-| G3 | Phase work uncommitted (39M + 25 new). | No checkpoint; 8+ remediation rounds of unbacked work. | working tree |
+| ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
+| G3 | STEP 0.2 (6 files) + 0.4 (seed) + 0.4a (web catalog fix) uncommitted. | No checkpoint. | working tree |
+| G4 | Manager config flow accepts `dry_wet_riser` with `system_configuration = {}` (no `riserMode`), which 500s `GET /customers/:id/configuration` for that whole customer. | Any customer given a riser through the Manager UI becomes unusable for **all** its systems. Same class as the CO2/Wet Chemical location-authority guard. | `apps/api/src/routes/managerCustomers.ts`, throw at `apps/api/src/routes/inspectionReference.ts:389` |
 
 ---
 
@@ -91,15 +109,58 @@ manager picks them (`customer_enabled_systems` rows).
 
 ### STEP 0 — Workflow demo: Fire Alarm + CO2 + Wet Chemical  ← DO FIRST  (~2–3 working days)
 - [ ] 0.1 Commit the finished V7 work + create `phase-8f2b2a-final-accepted`. (ready now — owner review, then `git commit`)
-- [ ] 0.2 **G1 — V7 front door:** `customerCatalogVersion` config-driven (default 7);
+- [x] 0.2 **G1 — V7 front door:** `customerCatalogVersion` config-driven (default 7);
       `inspectionReference.ts` catalog includes v7; Manager customer setup can choose v7.
-      Re-verify gates + short Sol spot-check.
-- [ ] 0.3 **G2 — browser sanity** for each of Fire Alarm / CO2 / Wet Chemical V7: Good/Poor/Not
-      Relevant; Poor w/ own remark+photo; Save Draft → refresh → offline Submit → reconnect →
-      Sync → Accepted → Accepted Detail → photo → Final Report → PDF. Plus Poor→Good stale case.
-      Plus a V6 Fire Alarm job still works (additive check).
-- [ ] 0.4 Seed one clean demo customer on v7 with the 3 systems + a site.
-- [ ] 0.5 Commit checkpoint. **→ Demo-ready.**
+      Re-verify gates + short Sol spot-check. **DONE + re-verified 2026-09-03** — all standard
+      gates green; `managerCustomers.integration.test.ts` green after `createdb -h 127.0.0.1`
+      fix (Codex's repro block used the racy unix socket). Uncommitted (6 files). Nits (owner's
+      call): `loadConfig()` captured at module load in `managerCustomers.ts`; env pin to `"6"` is
+      a soft default only — `inspectionReference.ts` still lists/asserts exactly 7 published rows.
+- [x] 0.4 **DONE + verified 2026-09-03.** Seed demo customer `demoV7Customer`
+      (`00000000-0000-4000-8000-0000000009xx`, code `DEMO-V7-SHARED-EVIDENCE`): customer +
+      PRIMARY site + active configuration revision on V7 + 3 enabled systems (Fire Alarm, CO2,
+      Wet Chemical, all frozen to V7 `…0807`) + one zone/location each for CO2 and Wet Chemical.
+      **No job** — seeded jobs are deliberately `technician_visible = false` (regression-fixture
+      isolation, asserted by `seedMasterServiceReport.integration.test.ts`). Guarded no-op on
+      re-run. Terra did customer+systems+zones/locations; owner added the PRIMARY site
+      (`…0909`, inside the same guard) so 0.3 needs no manual add-site. seed + manager
+      integration + typecheck green. No open technician-visible pre-V7 Fire Alarm demo job
+      exists (0.3 additive check will need a pre-V7 job created via the Manager, or accept the
+      historical-matrix test as the V6 regression proof).
+- [x] 0.4a **Web catalog contract fix (found by browser sanity, 2026-09-03).**
+      `compatibleCatalogSystem` picked the contract template by scanning the catalog
+      (`version === contractVersions[key] || version === 7`); since the catalog is ordered by
+      version, V1 (CO2) / V4 (Wet Chemical) always shadowed V7, so a V7 job compared its V7
+      definition against the historical contract, mismatched, and threw "Cached template version
+      is unavailable" — **CO2 and Wet Chemical V7 were unreachable in the browser**. Now the
+      contract version is derived from the job's frozen identity.
+      `apps/web/src/referenceData/systemContractCompatibility.ts` + new regression suite
+      `apps/web/tests/v7CatalogContractResolution.test.ts` (`npm run test:v7-catalog-contract`,
+      proven to fail against the old code). Fire Alarm branch untouched.
+- [x] 0.4b **Fire Alarm V7 client submit gate (found by browser sanity, 2026-09-03).**
+      `v7FireAlarmSubmissionIssues` had dropped every *structural* check `v6SubmissionIssues`
+      performs (Control Panel Location, at-least-one-primary-device-row, per-row Alarm Zone /
+      Location / all four Normal-Test-Isolation) while the server's `validResponses`
+      (`apps/api/src/sync/fireAlarmV7Acceptance.ts`) still enforced them. The form therefore
+      queued submissions the server rejected non-retryably with `VALIDATION_ERROR` — offline
+      that strands the technician's work in the outbox as "Sync needs attention" with no
+      recovery. Structural checks restored in `apps/web/src/fireAlarm/fireAlarmV7Evidence.ts`;
+      regression suite `apps/web/tests/fireAlarmV7SubmissionIssues.test.ts`
+      (`npm run test:v7-fire-alarm-submit`, proven to fail against the old code).
+- [x] 0.3 **G2 — browser sanity: DONE 2026-09-03** on release `sha256-785201faec6bed92`
+      (`build-20260903T095536Z`), job `SV-20260903-34`. Per system: Good / Poor / Not Relevant;
+      Poor revealed its own remark + photo controls on that field only; Save Draft → full page
+      reload → state, remark and photo rehydrated; offline Submit queued ("waiting to sync");
+      reconnect → Sync → Accepted. Accepted Detail rendered `Main Supply: Good`,
+      `Battery: Not Relevant`, `CO2 Cylinder: Poor - <remark>` with the photo served from
+      `/api/v7-evidence/accepted/…`. Stale case: a second field set Poor with a photo then
+      reverted to Good was excluded — never staged, never accepted. Complete Service → Final
+      Report → PDF (30,543 bytes, 3 `/Subtype /Image` + 3 `/DCTDecode` streams). Accepted
+      evidence is field-scoped: `…co2_cylinder`, `…wet_chemical_cylinder`,
+      `charger_batteries.charger_battery_checks.main_supply`, all `master_template_version = 7`.
+      Additive check: historical CO2 (V1) and Wet Chemical (V4) forms still render 2-state.
+- [ ] 0.5 Commit checkpoint (0.2 + 0.4 + 0.4a + 0.4b). **→ Demo-ready.**
+      Not yet re-run since the web fixes: the full API gate set. Re-run before committing.
 
 ### CROSS-CUTTING — decide before building more services
 - [ ] C1 **Result model:** Hokuden's real reports use 4 states (Good / Not Good / Complete Repair
@@ -184,6 +245,51 @@ Done: 3 / 12 on V7.  Base template ready: 8 / 12.  Not started: 3 (Smoke Vent, F
 
 ## 7. Change log
 
+- 2026-09-03 (owner UI fix) — Fire Alarm primary device rows lost their visible column labels in
+  the multi-select change: `MultiResultSelector` exposes `label` only as `aria-label`, and Fire
+  Alarm's old `Select` had rendered a visible `<label>`. Four unlabelled Normal/Test/Isolation
+  clusters resulted. Fixed by wrapping each selector in `<div><strong>…</strong>` exactly as
+  `Co2InspectionForm` already does (`FireAlarmInspectionForm.tsx`). CO2 / Wet Chemical were never
+  affected. Verified on release `sha256-32ba5613c511dfc5` (`build-20260903T122716Z`).
+- 2026-09-03 (owner verification) — Multi-select change independently re-verified. All API + web
+  gates re-run green (historical matrix 20, V6 evidence 8, V6 + 4 V7 integrations, migration-019
+  upgrade path, seed, manager, all web suites). V7 Fire Alarm contract SHA recomputed from source
+  and confirmed to equal the hardcoded web constant `0fb524f9…`; V6 still `deec720d…`.
+  **Deployed to the live runtime**: `docker compose build api proxy` + recreate — API booted clean
+  (`inspection-api listening on 3000`), stored V7 control upgraded `normal_test_isolation` →
+  `normal_test_isolation_multi`, V6 unchanged. Browser-confirmed on `SV-20260903-36`: Normal/Test/
+  Isolation tick independently and all three can be on at once; clearing a detector blocks submit
+  with "Detector row 1: select at least one Normal/Test/Isolation for Heat Detector".
+  Caveat: Codex's repro block shipped a racy `pg_isready` for the fourth time — a single success
+  passes against postgres:16-alpine's temporary bootstrap server, so the owner's run failed with
+  "Connection terminated unexpectedly". Wait for THREE consecutive successes.
+- 2026-09-03 — Migration 019 upgrades only the three persisted V7 detector-state definitions from the prior single-value control to the V7 multi-select contract before the startup seed assertion. It leaves V1–V6 untouched and is covered by a disposable database upgrade-path test seeded from commit `5bc968d`.
+- 2026-09-03 — V7 detector-state controls are now multi-select only for Fire Alarm, CO2, and Wet Chemical. New V7 records store canonical non-empty arrays in Normal/Test/Isolation definition order; V1–V6 remain frozen single strings. The Fire Alarm V7 contract SHA is `0fb524f92033b523128743b6b6dfe3646880a34846b3b1c4a79498573f8c0f59`. Existing accepted V7 demo records for `SV-20260903-34` must be cleaned by the owner before a rebuilt runtime serves the new contract.
+- 2026-09-03 (late) — STEP 0.3 completed in-browser end to end (see roadmap 0.3). Second client
+  defect found and fixed (0.4b): the Fire Alarm V7 submit gate had lost every structural check,
+  so the form queued work the server rejected non-retryably — offline that is unrecoverable field
+  data loss. Both browser-found defects were client-side and invisible to the server-side
+  integration suite; both now carry regression tests that were proven to fail against the old code.
+- 2026-09-03 (evening) — First real browser pass on V7. Found and fixed two blockers:
+  (a) a Manager-created customer carried `dry_wet_riser` with `system_configuration={}`, 500ing
+  `GET /customers/:id/configuration` — stray rows deleted from the runtime; logged as G4;
+  (b) **`compatibleCatalogSystem` resolved V7 CO2/Wet Chemical against the V1/V4 contract**, so
+  both forms were unreachable ("Cached template version is unavailable"). Fixed + regression
+  suite added (0.4a). Verified in-browser on release `sha256-e9891d4f08618b8b`
+  (`build-20260903T092509Z`): Fire Alarm / CO2 / Wet Chemical V7 all open with Good/Poor/Not
+  Relevant, Poor reveals its own remark + photo controls, Normal/Test/Isolation unchanged; and
+  historical CO2 (V1) + Wet Chemical (V4) still render 2-state with zero "Not Relevant".
+  Note: a duplicate hand-made "DEMO-V7-SHARED-EVIDENCE" customer (`81955194-…`) exists alongside
+  the seeded `…0900`; the real job `SV-20260903-34` belongs to the seeded one.
+- 2026-09-03 (pm) — STEP 0.1 committed (`5bc968d`, branch `phase-8f2b2a-final-accepted`); docs
+  commit `be9ad11`. STEP 0.2 (V7 front door) reviewed + re-verified: `managerCustomers.integration.test.ts`
+  re-run green after fixing Codex's repro block (`createdb`/`pg_isready` must use `-h 127.0.0.1`,
+  not the racy unix socket). 0.2 accepted, still uncommitted (6 files). Reordered roadmap: STEP 0.4
+  seed now precedes STEP 0.3 browser sanity (Manager quick-create cannot enable CO2 / Wet Chemical).
+  STEP 0.4: Terra seeded `demoV7Customer` (customer + V7 revision + 3 systems + CO2/WC zones/locations,
+  no job). Owner added the PRIMARY site inside the same guard (Terra's brief had omitted it) and
+  re-ran seed + manager integration + typecheck green — twice Codex handed back a repro block still
+  using the racy `createdb`/`pg_isready` unix socket; the two DB tests only failed on that, not on code.
 - 2026-09-03 — Phase 8F.2B.2A server-side complete + 4 Sol passes + hermetic test-DB config.
   Runtime rebuilt (build `20260903T051655Z`); migration 018 + V7 seed confirmed live. Found G1
   (no V7 UI front door). Handover doc + full roadmap created. Owner confirmed target: all 12

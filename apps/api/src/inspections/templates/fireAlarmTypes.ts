@@ -1,6 +1,7 @@
 import type { SystemDefinition } from "./templateTypes.js";
 
 export type DeviceState = "normal" | "test" | "isolation";
+export type DeviceStateValue = DeviceState | DeviceState[];
 export type GoodPoor = "good" | "poor";
 export type FireAlarmSyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 
@@ -35,10 +36,10 @@ export type FireAlarmPrimaryDeviceRow = FireAlarmRowProvenance & {
   assetReference: string;
   alarmZone: string;
   location: string;
-  manualCallPoint: DeviceState | null;
-  flowSwitch: DeviceState | null;
-  heatDetector: DeviceState | null;
-  smokeDetector: DeviceState | null;
+  manualCallPoint: DeviceStateValue | null;
+  flowSwitch: DeviceStateValue | null;
+  heatDetector: DeviceStateValue | null;
+  smokeDetector: DeviceStateValue | null;
   remarks: string;
 };
 
@@ -94,7 +95,7 @@ export type ResolvedFireAlarmResultOption<T extends string> = {
 };
 
 export type ResolvedFireAlarmResult<T extends string> = {
-  type: "single_select";
+  type: "single_select" | "multi_select";
   required: true;
   options: ResolvedFireAlarmResultOption<T>[];
 };

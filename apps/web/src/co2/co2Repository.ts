@@ -209,6 +209,24 @@ export function listCo2Instances(groupKey: string) {
 function allowed(control: ResultControlDefinition, value: string | null) {
   return value !== null && control.options.some((option) => option.value === value);
 }
+export function isCanonicalDetectorStates(control: ResultControlDefinition, value: unknown) {
+  return Array.isArray(value) && value.length > 0 && value.length <= control.options.length
+    && value.every((item, index) => typeof item === "string" && control.options.some((option) => option.value === item)
+      && (index === 0 || control.options.findIndex((option) => option.value === value[index - 1]) < control.options.findIndex((option) => option.value === item)));
+}
+function canonicalV7DetectorStates(control: ResultControlDefinition, value: unknown) {
+  if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length
+    || !value.every((item) => typeof item === "string" && control.options.some((option) => option.value === item))) return value;
+  return control.options.filter((option) => value.includes(option.value));
+}
+function canonicalV7Responses(record: MasterSystemFormInstanceRecord, responses: Co2Responses): Co2Responses {
+  if (record.masterTemplate.version !== 7) return responses;
+  const controls = record.inspectionSnapshot.system.resolvedControls;
+  return { ...responses, detectorRows: responses.detectorRows.map((row) => ({ ...row,
+    heatDetectorStatus: canonicalV7DetectorStates(controls.detectorRows.heatDetector.result, row.heatDetectorStatus) as Co2DetectorRow["heatDetectorStatus"],
+    smokeDetectorStatus: canonicalV7DetectorStates(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus) as Co2DetectorRow["smokeDetectorStatus"]
+  })) };
+}
 
 export function getCo2SubmitIssues(record: MasterSystemFormInstanceRecord, responses: Co2Responses): Co2SubmitIssue[] {
   const controls = record.inspectionSnapshot.system.resolvedControls;
@@ -231,11 +249,16 @@ export function getCo2SubmitIssues(record: MasterSystemFormInstanceRecord, respo
     displaySequences.add(row.displaySequence);
     if (!row.alarmZone.trim()) issues.push({ section: "Detector Table", message: `${prefix}: Alarm Zone is required`, targetId });
     if (!row.location.trim()) issues.push({ section: "Detector Table", message: `${prefix}: Location is required`, targetId });
-    if (!allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus) && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) {
-      issues.push({ section: "Detector Table", message: `${prefix}: complete ${controls.detectorRows.heatDetector.label} or ${controls.detectorRows.smokeDetector.label} status`, targetId });
+    if (record.masterTemplate.version === 7) {
+      if (!isCanonicalDetectorStates(controls.detectorRows.heatDetector.result, row.heatDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: select at least one Normal/Test/Isolation for ${controls.detectorRows.heatDetector.label}`, targetId });
+      if (!isCanonicalDetectorStates(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: select at least one Normal/Test/Isolation for ${controls.detectorRows.smokeDetector.label}`, targetId });
+    } else {
+      if (!allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus as string | null) && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus as string | null)) {
+        issues.push({ section: "Detector Table", message: `${prefix}: complete ${controls.detectorRows.heatDetector.label} or ${controls.detectorRows.smokeDetector.label} status`, targetId });
+      }
+      if (row.heatDetectorStatus !== null && !allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus as string)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.heatDetector.label} status is invalid`, targetId });
+      if (row.smokeDetectorStatus !== null && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus as string)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.smokeDetector.label} status is invalid`, targetId });
     }
-    if (row.heatDetectorStatus !== null && !allowed(controls.detectorRows.heatDetector.result, row.heatDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.heatDetector.label} status is invalid`, targetId });
-    if (row.smokeDetectorStatus !== null && !allowed(controls.detectorRows.smokeDetector.result, row.smokeDetectorStatus)) issues.push({ section: "Detector Table", message: `${prefix}: ${controls.detectorRows.smokeDetector.label} status is invalid`, targetId });
     if (row.alarmZone.length > controls.detectorRows.alarmZone.maxLength || row.location.length > controls.detectorRows.location.maxLength || row.remarks.length > controls.detectorRows.remarks.maxLength) {
       issues.push({ section: "Detector Table", message: `${prefix}: text exceeds the allowed length`, targetId });
     }
@@ -275,7 +298,7 @@ export async function saveCo2Draft(record: MasterSystemFormInstanceRecord, respo
     if (!live || live.systemKey !== record.systemKey || live.syncStatus !== "Draft" || live.localUpdatedAt !== record.localUpdatedAt) {
       throw new Error("Only the current Draft suppression-system form can be edited");
     }
-    next = updated(live, responses, "Draft");
+    next = updated(live, canonicalV7Responses(live, responses), "Draft");
     await localDatabase.masterSystemFormInstances.put(next);
   });
   if (!next) throw new Error("Suppression-system Draft was not saved");
@@ -308,17 +331,18 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
     if (!live || live.systemKey !== record.systemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") {
       throw new Error("This suppression-system form cannot be submitted in its current state");
     }
+    const canonicalResponses = canonicalV7Responses(live, responses);
     const photos = live.masterTemplate.version === 7 ? await listV7SuppressionPhotos(live.clientUuid) : [];
-    if (getCo2SubmitIssues(live, responses).length > 0 || v7SubmissionIssues(live, responses, photos).length > 0) throw new Error("Complete the required suppression-system fields and evidence before local submission");
-    next = updated(live, responses, "Pending");
+    if (getCo2SubmitIssues(live, canonicalResponses).length > 0 || v7SubmissionIssues(live, canonicalResponses, photos).length > 0) throw new Error("Complete the required suppression-system fields and evidence before local submission");
+    next = updated(live, canonicalResponses, "Pending");
     const activeKey = `masterSystemFormInstance:create:${live.clientUuid}`;
     const outbox: SyncOutboxItem = {
       operationId: crypto.randomUUID(), entityType: "masterSystemFormInstance", entityId: live.clientUuid,
-      action: "create", payload: payload(next, live.masterTemplate.version === 7 ? v7EvidenceManifest(photos, responses) : undefined), createdAt: next.localCreatedAt, attempts: 0, status: "Pending", activeKey
+      action: "create", payload: payload(next, live.masterTemplate.version === 7 ? v7EvidenceManifest(photos, canonicalResponses) : undefined), createdAt: next.localCreatedAt, attempts: 0, status: "Pending", activeKey
     };
     // Evidence operations are intentionally enqueued before the parent form.
     // The sync engine additionally gates parent dispatch on exact photo confirmation.
-    if (live.masterTemplate.version === 7) for (const photo of photos.filter((photo) => v7EvidenceManifest(photos, responses).some((entry) => entry.photoUuid === photo.photoUuid))) { await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: now() }); const existingEvidence = await localDatabase.syncOutbox.where("activeKey").equals(`v7StagedEvidence:create:${photo.photoUuid}`).first(); if (!existingEvidence) await localDatabase.syncOutbox.add(v7EvidenceOutbox(photo)); }
+    if (live.masterTemplate.version === 7) for (const photo of photos.filter((photo) => v7EvidenceManifest(photos, canonicalResponses).some((entry) => entry.photoUuid === photo.photoUuid))) { await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: now() }); const existingEvidence = await localDatabase.syncOutbox.where("activeKey").equals(`v7StagedEvidence:create:${photo.photoUuid}`).first(); if (!existingEvidence) await localDatabase.syncOutbox.add(v7EvidenceOutbox(photo)); }
     await localDatabase.masterSystemFormInstances.put(next);
     const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
     if (existing) await localDatabase.syncOutbox.update(existing.operationId, { payload: outbox.payload, status: "Pending", lastError: undefined });

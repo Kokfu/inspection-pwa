@@ -10,13 +10,19 @@ function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
     sections: system.sections.map((section) => ({
       ...section,
       blocks: section.blocks.map((block) => {
-        if (block.type !== "checklist") return block;
-        return {
+        if (block.type === "checklist") return {
           ...block,
           items: block.items.map((field) => field.control === "good_poor"
             ? { ...field, allowedValues: v7ResultValues }
             : field)
         };
+        if (block.type === "repeatable_table") return {
+          ...block,
+          columns: block.columns.map((field) => field.control === "normal_test_isolation"
+            ? { ...field, control: "normal_test_isolation_multi" as const }
+            : field)
+        };
+        return block;
       })
     }))
   };

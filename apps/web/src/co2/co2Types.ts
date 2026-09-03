@@ -5,6 +5,7 @@ import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot, JobZoneSnap
 export type Co2Result = "good" | "poor" | "not_relevant";
 export type SuppressionSystemKey = "co2_fire_extinguisher" | "wet_chemical";
 export type DetectorStatus = "normal" | "test" | "isolation";
+export type DetectorStatusValue = DetectorStatus | DetectorStatus[];
 export type Co2SyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type Co2ChecklistResponse = { result: Co2Result | null; remarks: string };
 export type Co2DetectorRow = {
@@ -12,8 +13,8 @@ export type Co2DetectorRow = {
   displaySequence: number;
   alarmZone: string;
   location: string;
-  heatDetectorStatus: DetectorStatus | null;
-  smokeDetectorStatus: DetectorStatus | null;
+  heatDetectorStatus: DetectorStatusValue | null;
+  smokeDetectorStatus: DetectorStatusValue | null;
   remarks: string;
 };
 export type Co2Responses = {

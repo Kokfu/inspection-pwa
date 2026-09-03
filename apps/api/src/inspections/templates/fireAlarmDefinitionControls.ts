@@ -197,8 +197,8 @@ export function parseFireAlarmRowPreset(value: unknown): FireAlarmRowPreset | un
   return { fireAlarmTable: value.fireAlarmTable };
 }
 
-const deviceStateResult = (): ResolvedFireAlarmResult<DeviceState> => ({
-  type: "single_select",
+const deviceStateResult = (multi = false): ResolvedFireAlarmResult<DeviceState> => ({
+  type: multi ? "multi_select" : "single_select",
   required: true,
   options: [
     { value: "normal", label: "Normal" },
@@ -287,6 +287,10 @@ export function resolveFireAlarmV6Controls(definition: unknown, templateVersion:
       const fields = Array.isArray(block.items) ? block.items : Array.isArray(block.columns) ? block.columns : [];
       for (const field of fields) {
         if (isRecord(field) && field.control === "good_poor") field.allowedValues = ["good", "poor"];
+        // Reuse the proven V3 structural parser only after converting this
+        // V7-only metadata marker in the clone.  The frozen definition itself
+        // remains multi-select and is still verified by the V7 contract above.
+        if (isRecord(field) && field.control === "normal_test_isolation_multi") field.control = "normal_test_isolation";
       }
     }
   }
@@ -297,6 +301,13 @@ export function resolveFireAlarmV6Controls(definition: unknown, templateVersion:
   return {
     ...v3,
     source: { templateCode: "MFE-FSSR" as const, templateVersion, systemKey: "fire_alarm_detector" as const },
+    primaryDeviceRows: {
+      ...v3.primaryDeviceRows,
+      manualCallPoint: deviceStateResult(templateVersion === 7),
+      flowSwitch: deviceStateResult(templateVersion === 7),
+      heatDetector: deviceStateResult(templateVersion === 7),
+      smokeDetector: deviceStateResult(templateVersion === 7)
+    },
     chargerAndBatteries: v3.chargerAndBatteries.map((item) => ({ ...item, result: withV6Result() })),
     mainFunctionKeys: v3.mainFunctionKeys.map((item) => ({ ...item, result: withV6Result() })),
     secondaryAlarmDeviceRows: { ...v3.secondaryAlarmDeviceRows, alarmBell: withV6Result(), manualCallPoint: withV6Result() }

@@ -89,13 +89,14 @@ function assertVersionedCatalogRows(templates: TemplateRow[]) {
     identities.add(identity);
   }
   if (
-    templates.length !== 6
+    templates.length !== 7
     || !templates.some((template) => template.version === 1)
     || !templates.some((template) => template.version === 2)
     || !templates.some((template) => template.version === 3)
     || !templates.some((template) => template.version === 4)
     || !templates.some((template) => template.version === 5)
     || !templates.some((template) => template.version === 6)
+    || !templates.some((template) => template.version === 7)
   ) {
     throw new Error("Inspection catalog is missing a required published MFE-FSSR version");
   }
@@ -143,8 +144,8 @@ async function loadCatalogTemplate(template: TemplateRow, database: Pick<Pool, "
           && isCompatibleSystemContract("fire_alarm_detector", system.definitionStatus, system.definition)
           ? {
             ...system,
-            resolvedRuntimeControls: template.version === 6
-              ? resolveFireAlarmV6Controls(system.definition)
+            resolvedRuntimeControls: template.version === 6 || template.version === 7
+              ? resolveFireAlarmV6Controls(system.definition, template.version)
               : resolveFireAlarmControls(
                 system.definition,
                 template.code,
@@ -178,7 +179,7 @@ inspectionReferenceRouter.get(
           report_boilerplate AS "reportBoilerplate"
         FROM master_service_report_templates
         WHERE code = 'MFE-FSSR'
-          AND version IN (1, 2, 3, 4, 5, 6)
+          AND version IN (1, 2, 3, 4, 5, 6, 7)
           AND publication_status = 'published'
         ORDER BY version
       `);

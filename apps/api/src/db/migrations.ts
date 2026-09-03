@@ -52,6 +52,9 @@ const v6StagedEvidenceMigrationUrl = new URL(
 const v7SharedStagedEvidenceMigrationUrl = new URL(
   "../../migrations/018_v7_shared_staged_evidence.sql", import.meta.url
 );
+const v7DetectorStateMultiselectMigrationUrl = new URL(
+  "../../migrations/019_v7_detector_state_multiselect.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -61,6 +64,8 @@ export async function runMigrations(
   options: {
     serviceVisitMigrationTarget?: ServiceVisitMigrationTarget;
     finalServiceReportMigrationTarget?: FinalServiceReportMigrationTarget;
+    /** Test-only: prepare schema/migrations without publishing deterministic fixtures. */
+    seed?: boolean;
   } = {}
 ) {
   await database.query(`
@@ -260,5 +265,8 @@ export async function runMigrations(
     await database.query(await readFile(v6StagedEvidenceMigrationUrl, "utf8"));
   }
   await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
-  await seedMasterServiceReport(database);
+  await database.query(await readFile(v7DetectorStateMultiselectMigrationUrl, "utf8"));
+  if (options.seed !== false) {
+    await seedMasterServiceReport(database);
+  }
 }

@@ -37,10 +37,10 @@ function integer(value: unknown, name: string) { if (typeof value !== "number" |
 function list(value: unknown, name: string): UnknownRecord[] { if (!Array.isArray(value) || !value.every(isRecord)) throw new Error(`CO2 definition has invalid ${name}`); return value; }
 function named(values: UnknownRecord[], key: string, name: string) { const value = values.find((item) => item.key === key); if (!value) throw new Error(`CO2 definition is missing ${name}`); return value; }
 function control(type: unknown, values: unknown, required: boolean): ResultControlDefinition {
-  if ((type !== "good_poor" && type !== "normal_test_isolation") || !Array.isArray(values)) throw new Error("CO2 result metadata is invalid");
+  if ((type !== "good_poor" && type !== "normal_test_isolation" && type !== "normal_test_isolation_multi") || !Array.isArray(values)) throw new Error("CO2 result metadata is invalid");
   const options = values.map((value) => text(value, "result option"));
   if (!options.length || new Set(options).size !== options.length) throw new Error("CO2 result options are invalid");
-  return { type: "single_select", required, options: options.map((value) => {
+  return { type: type === "normal_test_isolation_multi" ? "multi_select" : "single_select", required, options: options.map((value) => {
     const label = labels[value]; if (!label) throw new Error(`Unknown CO2 result option ${value}`); return { value, label };
   }) };
 }

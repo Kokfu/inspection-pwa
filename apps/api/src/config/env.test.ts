@@ -21,3 +21,16 @@ test("test configuration prefers the integration database URL while production n
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   }
 });
+
+test("customer catalog version defaults to V7 and permits an explicit catalog pin", () => {
+  const previous = process.env.INSPECTION_CUSTOMER_CATALOG_VERSION;
+  try {
+    delete process.env.INSPECTION_CUSTOMER_CATALOG_VERSION;
+    assert.equal(loadConfig().customerCatalogVersion, 7);
+    process.env.INSPECTION_CUSTOMER_CATALOG_VERSION = "6";
+    assert.equal(loadConfig().customerCatalogVersion, 6);
+  } finally {
+    if (previous === undefined) delete process.env.INSPECTION_CUSTOMER_CATALOG_VERSION;
+    else process.env.INSPECTION_CUSTOMER_CATALOG_VERSION = previous;
+  }
+});

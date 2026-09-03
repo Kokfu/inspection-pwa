@@ -2,6 +2,7 @@ import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 
 export type DeviceState = "normal" | "test" | "isolation";
+export type DeviceStateValue = DeviceState | DeviceState[];
 export type GoodPoor = "good" | "poor" | "not_relevant";
 export type FireAlarmSyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
 export type FireAlarmRowPreset = { fireAlarmTable: "primary" | "secondary"; assetReference?: string };
@@ -28,10 +29,10 @@ export type FireAlarmPrimaryDeviceRow = FireAlarmRowProvenance & {
   assetReference: string;
   alarmZone: string;
   location: string;
-  manualCallPoint: DeviceState | null;
-  flowSwitch: DeviceState | null;
-  heatDetector: DeviceState | null;
-  smokeDetector: DeviceState | null;
+  manualCallPoint: DeviceStateValue | null;
+  flowSwitch: DeviceStateValue | null;
+  heatDetector: DeviceStateValue | null;
+  smokeDetector: DeviceStateValue | null;
   remarks: string;
 };
 export type FireAlarmSecondaryAlarmDeviceRow = FireAlarmRowProvenance & {
@@ -74,7 +75,7 @@ export type FireAlarmResponses = {
 export type FireAlarmDefinitionField = {
   key: string;
   label: string;
-  control: "text" | "remarks" | "good_poor" | "normal_test_isolation";
+  control: "text" | "remarks" | "good_poor" | "normal_test_isolation" | "normal_test_isolation_multi";
   required: boolean;
   sortOrder: number;
   allowedValues?: readonly string[];
@@ -101,7 +102,7 @@ export type FireAlarmSystemDefinition = {
 };
 
 export type ResolvedFireAlarmResult<T extends string> = {
-  type: "single_select";
+  type: "single_select" | "multi_select";
   required: true;
   options: Array<{ value: T; label: string }>;
 };
