@@ -11,6 +11,7 @@ import { masterServiceReportV3 } from "../inspections/templates/masterServiceRep
 import { masterServiceReportV4 } from "../inspections/templates/masterServiceReportV4.js";
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 import { masterServiceReportV6 } from "../inspections/templates/masterServiceReportV6.js";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 
 const demoRiserCustomerId = "00000000-0000-4000-8000-000000000810";
@@ -156,7 +157,7 @@ async function insertFixture(entity: string, operation: Promise<unknown>) {
   }
 }
 
-type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3 | typeof masterServiceReportV4 | typeof masterServiceReportV5 | typeof masterServiceReportV6;
+type MasterServiceReportTemplate = typeof masterServiceReportV1 | typeof masterServiceReportV2 | typeof masterServiceReportV3 | typeof masterServiceReportV4 | typeof masterServiceReportV5 | typeof masterServiceReportV6 | typeof masterServiceReportV7;
 
 async function assertPublishedMasterServiceReportTemplateMetadata(
   client: PoolClient,
@@ -417,6 +418,14 @@ async function seedTemplate(client: PoolClient) {
     [masterServiceReportV6.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]
   );
   await assertPublishedMasterServiceReportTemplate(client, "Published Master V6", masterServiceReportV6);
+
+  await insertFixture("Published Master V7 template", client.query(`INSERT INTO master_service_report_templates (id, code, name, version, selection_policy, header_definition, report_boilerplate, publication_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`, [masterServiceReportV7.id, masterServiceReportV7.code, masterServiceReportV7.name, masterServiceReportV7.version, masterServiceReportV7.selectionPolicy, JSON.stringify(masterServiceReportV7.header), JSON.stringify(masterServiceReportV7.reportBoilerplate)]));
+  await assertPublishedMasterServiceReportTemplateMetadata(client, "Published Master V7", masterServiceReportV7);
+  for (const system of masterServiceReportV7.systems) await client.query(
+    `INSERT INTO master_service_report_systems (template_version_id, system_key, display_name, sort_order, definition_status, definition) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id, system_key) DO NOTHING`,
+    [masterServiceReportV7.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]
+  );
+  await assertPublishedMasterServiceReportTemplate(client, "Published Master V7", masterServiceReportV7);
 }
 
 async function seedDryWetRiserFixture(client: PoolClient) {

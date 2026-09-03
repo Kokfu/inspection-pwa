@@ -49,6 +49,9 @@ const customerCreationIdempotencyMigrationUrl = new URL(
 const v6StagedEvidenceMigrationUrl = new URL(
   "../../migrations/017_v6_staged_evidence.sql", import.meta.url
 );
+const v7SharedStagedEvidenceMigrationUrl = new URL(
+  "../../migrations/018_v7_shared_staged_evidence.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -242,6 +245,20 @@ export async function runMigrations(
     await database.query(await readFile(serviceVisitScheduleTimeMigrationUrl, "utf8"));
   }
   await database.query(await readFile(customerCreationIdempotencyMigrationUrl, "utf8"));
-  await database.query(await readFile(v6StagedEvidenceMigrationUrl, "utf8"));
+  // Migration 017 predates V7 and temporarily narrows these checks to V6
+  // while it runs. Once V7 has been applied, replaying 017 would reject valid
+  // V7 rows before migration 018 can restore the wider additive checks.
+  const hasV7StagedEvidenceConstraint = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'staged_inspection_evidence_master_template_version_check'
+         AND conrelid = to_regclass('staged_inspection_evidence')
+         AND pg_get_constraintdef(oid) LIKE '%7%'
+     ) AS exists`
+  );
+  if (!hasV7StagedEvidenceConstraint.rows[0]?.exists) {
+    await database.query(await readFile(v6StagedEvidenceMigrationUrl, "utf8"));
+  }
+  await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
   await seedMasterServiceReport(database);
 }

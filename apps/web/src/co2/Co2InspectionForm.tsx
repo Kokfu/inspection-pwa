@@ -11,6 +11,8 @@ import type {
   DetectorStatus,
   MasterSystemFormInstanceRecord
 } from "./co2Types";
+import { listV7SuppressionPhotos, v7SubmissionIssues, type V7SuppressionFieldPath } from "./v7Evidence";
+import { V7EvidenceField } from "./V7EvidenceField";
 
 type Props = {
   record: MasterSystemFormInstanceRecord;
@@ -25,10 +27,13 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listV7SuppressionPhotos>>>([]);
   const controls = record.inspectionSnapshot.system.resolvedControls;
   const issues = useMemo(
-    () => showValidation ? getCo2SubmitIssues(record, responses) : [],
-    [record, responses, showValidation]
+    () => showValidation
+      ? [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))]
+      : [],
+    [record, responses, photos, showValidation]
   );
   const invalidTargets = useMemo(() => new Set(issues.map((issue) => issue.targetId)), [issues]);
   const grouped = useMemo(() => {
@@ -39,6 +44,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   const readOnly = record.syncStatus !== "Draft";
 
   useEffect(() => setResponses(record.responses), [record]);
+  useEffect(() => { if (record.masterTemplate.version === 7) void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); else setPhotos([]); }, [record.clientUuid, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);
 
   function updateDetector(rowUuid: string, change: Partial<Co2Responses["detectorRows"][number]>) {
@@ -69,7 +75,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   }
 
   async function submit() {
-    const currentIssues = getCo2SubmitIssues(record, responses);
+    const currentIssues = [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))];
     setShowValidation(true);
     if (currentIssues.length) {
       window.setTimeout(() => document.getElementById(currentIssues[0].targetId)?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -107,6 +113,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
             readOnly={readOnly}
             onChange={(remarks) => updateChecklist(group, definition.key, { remarks })}
           />
+          {record.masterTemplate.version === 7 && responses[group][definition.key]?.result === "poor" ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => setPhotos(await listV7SuppressionPhotos(record.clientUuid))} /> : null}
         </section>
       ))}
     </fieldset>;

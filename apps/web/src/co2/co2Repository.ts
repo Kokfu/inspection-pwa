@@ -17,6 +17,7 @@ import type {
   MasterSystemInspectionGroupRecord
 } from "./co2Types";
 import type { SuppressionSystemKey } from "./co2Types";
+import { listV7SuppressionPhotos, v7EvidenceManifest, v7EvidenceOutbox, v7SubmissionIssues } from "./v7Evidence";
 
 const co2SystemKey = "co2_fire_extinguisher" as const;
 const wetChemicalSystemKey = "wet_chemical" as const;
@@ -100,7 +101,7 @@ function snapshot(
   capturedAt: string
 ): Co2InspectionSnapshot {
   return {
-    schemaVersion: 1,
+    schemaVersion: job.configurationSnapshot.template.version === 7 ? 2 : 1,
     capturedAt,
     job: { id: job.id, reference: job.reference, title: job.title },
     customer: job.configurationSnapshot.customer,
@@ -281,7 +282,7 @@ export async function saveCo2Draft(record: MasterSystemFormInstanceRecord, respo
   return next;
 }
 
-function payload(record: MasterSystemFormInstanceRecord) {
+function payload(record: MasterSystemFormInstanceRecord, evidenceManifest?: ReturnType<typeof v7EvidenceManifest>) {
   return {
     clientUuid: record.clientUuid,
     jobId: record.jobId,
@@ -295,24 +296,29 @@ function payload(record: MasterSystemFormInstanceRecord) {
     configuration: record.configuration,
     inspectionSnapshot: record.inspectionSnapshot,
     responses: record.responses,
-    performedAt: record.performedAt
+    performedAt: record.performedAt,
+    ...(evidenceManifest ? { evidenceManifest } : {})
   };
 }
 
 export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, responses: Co2Responses) {
   let next: MasterSystemFormInstanceRecord | undefined;
-  await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.syncOutbox, async () => {
+  await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(record.clientUuid);
     if (!live || live.systemKey !== record.systemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") {
       throw new Error("This suppression-system form cannot be submitted in its current state");
     }
-    if (getCo2SubmitIssues(live, responses).length > 0) throw new Error("Complete the required suppression-system fields before local submission");
+    const photos = live.masterTemplate.version === 7 ? await listV7SuppressionPhotos(live.clientUuid) : [];
+    if (getCo2SubmitIssues(live, responses).length > 0 || v7SubmissionIssues(live, responses, photos).length > 0) throw new Error("Complete the required suppression-system fields and evidence before local submission");
     next = updated(live, responses, "Pending");
     const activeKey = `masterSystemFormInstance:create:${live.clientUuid}`;
     const outbox: SyncOutboxItem = {
       operationId: crypto.randomUUID(), entityType: "masterSystemFormInstance", entityId: live.clientUuid,
-      action: "create", payload: payload(next), createdAt: next.localCreatedAt, attempts: 0, status: "Pending", activeKey
+      action: "create", payload: payload(next, live.masterTemplate.version === 7 ? v7EvidenceManifest(photos, responses) : undefined), createdAt: next.localCreatedAt, attempts: 0, status: "Pending", activeKey
     };
+    // Evidence operations are intentionally enqueued before the parent form.
+    // The sync engine additionally gates parent dispatch on exact photo confirmation.
+    if (live.masterTemplate.version === 7) for (const photo of photos.filter((photo) => v7EvidenceManifest(photos, responses).some((entry) => entry.photoUuid === photo.photoUuid))) { await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: now() }); const existingEvidence = await localDatabase.syncOutbox.where("activeKey").equals(`v7StagedEvidence:create:${photo.photoUuid}`).first(); if (!existingEvidence) await localDatabase.syncOutbox.add(v7EvidenceOutbox(photo)); }
     await localDatabase.masterSystemFormInstances.put(next);
     const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
     if (existing) await localDatabase.syncOutbox.update(existing.operationId, { payload: outbox.payload, status: "Pending", lastError: undefined });

@@ -7,6 +7,7 @@ import {
 import type { ResolvedFireAlarmControls } from "../inspections/templates/fireAlarmTypes.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 import { acceptFireAlarmV6Inspection, isFireAlarmV6Payload } from "./fireAlarmV6Acceptance.js";
+import { acceptFireAlarmV7Inspection, isFireAlarmV7Payload } from "./fireAlarmV7Acceptance.js";
 
 type UnknownRecord = Record<string, unknown>;
 type SyncItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
@@ -209,6 +210,11 @@ export async function syncFireAlarmInspections(items: SyncItem[], actorUserId?: 
     if (isFireAlarmV6Payload(item)) {
       const v6 = await acceptFireAlarmV6Inspection(item, actorUserId);
       result.acceptedIds.push(...v6.acceptedIds); result.duplicateIds.push(...v6.duplicateIds); result.failed.push(...v6.failed);
+      continue;
+    }
+    if (isFireAlarmV7Payload(item)) {
+      const v7 = await acceptFireAlarmV7Inspection(item, actorUserId);
+      result.acceptedIds.push(...v7.acceptedIds); result.duplicateIds.push(...v7.duplicateIds); result.failed.push(...v7.failed);
       continue;
     }
     const checked = validateEnvelope(item);

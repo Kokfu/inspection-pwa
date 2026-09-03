@@ -7,6 +7,7 @@ import { parseFireAlarmRowPreset, parseFireAlarmSystemDefinition, resolveFireAla
 import type { FireAlarmInspectionRecord, FireAlarmInspectionSnapshot, FireAlarmPrimaryDeviceRow, FireAlarmResponses, FireAlarmSecondaryAlarmDeviceRow } from "./fireAlarmTypes";
 import { canonicalizeFireAlarmResponses, getFireAlarmSubmissionIssues } from "./fireAlarmValidation";
 import { listFireAlarmV6Photos, v6ContractSha256, v6EvidenceOutbox, v6Manifest, v6SubmissionIssues } from "./fireAlarmV6Evidence";
+import { listFireAlarmV7Photos, v7FireAlarmEvidenceOutbox, v7FireAlarmManifest, v7FireAlarmSubmissionIssues } from "./fireAlarmV7Evidence";
 
 const systemKey = "fire_alarm_detector" as const;
 const staleMessage = "This Fire Alarm Draft changed elsewhere. Reload before saving.";
@@ -22,7 +23,7 @@ function definition(job: InspectionJob, catalog: InspectionCatalog) {
   const template = compatible?.template;
   const candidate = compatible?.system;
   const dispatch = compatible?.fireAlarmDispatch;
-  const definitionVersion = dispatch === "v6" ? 6 : dispatch === "historical" ? 3 : undefined;
+  const definitionVersion = dispatch === "v6" ? 6 : dispatch === "v7" ? 7 : dispatch === "historical" ? 3 : undefined;
   const parsed = definitionVersion ? parseFireAlarmSystemDefinition(candidate?.definition, definitionVersion) : undefined;
   if (!template || !candidate || !dispatch || !parsed) throw new Error("Compatible confirmed Fire Alarm reference data is unavailable or malformed");
   return { definition: parsed, controls: resolveFireAlarmControls(parsed, template.code, definitionVersion), dispatch };
@@ -50,7 +51,7 @@ function configuredRows(system: JobSystemSnapshot) {
 }
 function emptyResponses(system: JobSystemSnapshot, dispatch: FireAlarmClientDispatch): FireAlarmResponses {
   const rows = configuredRows(system); const response = () => ({ result: null, remarks: "" });
-  return { schemaVersion: dispatch === "v6" ? 2 : 1, controlPanelLocation: "", primaryDeviceRows: rows.primary, chargerAndBatteries: { main_supply: response(), battery: response(), charger: response() }, mainFunctionKeys: { main_alarm_reset: response(), lamp_test: response(), evacuate: response(), ac_supply: response(), dc_supply: response(), spka_system: response(), alarm_lift_trip: response(), signal_gas_discharge: response() }, secondaryAlarmDeviceRows: rows.secondary.map((row) => dispatch === "v6" ? { ...row, fieldRemarks: {} } : row), comments: "" };
+  return { schemaVersion: dispatch === "v6" || dispatch === "v7" ? 2 : 1, controlPanelLocation: "", primaryDeviceRows: rows.primary, chargerAndBatteries: { main_supply: response(), battery: response(), charger: response() }, mainFunctionKeys: { main_alarm_reset: response(), lamp_test: response(), evacuate: response(), ac_supply: response(), dc_supply: response(), spka_system: response(), alarm_lift_trip: response(), signal_gas_discharge: response() }, secondaryAlarmDeviceRows: rows.secondary.map((row) => dispatch === "v6" || dispatch === "v7" ? { ...row, fieldRemarks: {} } : row), comments: "" };
 }
 export async function getFireAlarmInspection(jobSystemKey: string) {
   const record = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(jobSystemKey).first();
@@ -67,11 +68,11 @@ export async function getFireAlarmInspection(jobSystemKey: string) {
  * untouched. Historical drafts deliberately bypass this path.
  */
 export async function hydrateFireAlarmInspection(record: FireAlarmInspectionRecord) {
-  if (fireAlarmClientDispatch(record.masterTemplate) !== "v6") return record;
-  const definition = parseFireAlarmSystemDefinition(record.inspectionSnapshot.system.definition, 6);
+  const recordDispatch = fireAlarmClientDispatch(record.masterTemplate); if (recordDispatch !== "v6" && recordDispatch !== "v7") return record;
+  const definitionVersion = recordDispatch === "v7" ? 7 : 6; const definition = parseFireAlarmSystemDefinition(record.inspectionSnapshot.system.definition, definitionVersion);
   if (!definition || record.responses.schemaVersion !== 2) throw new Error("Stored V6 Fire Alarm Draft is invalid");
   const contractSha256 = await v6ContractSha256(definition);
-  const controls = resolveFireAlarmControls(definition, "MFE-FSSR", 6);
+  const controls = resolveFireAlarmControls(definition, "MFE-FSSR", definitionVersion);
   const snapshot = record.inspectionSnapshot;
   const hydrated: FireAlarmInspectionRecord = {
     ...record,
@@ -79,16 +80,16 @@ export async function hydrateFireAlarmInspection(record: FireAlarmInspectionReco
       ...snapshot,
       schemaVersion: 2,
       contractSha256,
-      template: { ...snapshot.template, id: record.masterTemplate.id, code: "MFE-FSSR", version: 6 },
+      template: { ...snapshot.template, id: record.masterTemplate.id, code: "MFE-FSSR", version: definitionVersion },
       system: { ...snapshot.system, definition, resolvedControls: controls }
     }
   };
   if (snapshot.schemaVersion === hydrated.inspectionSnapshot.schemaVersion
     && snapshot.contractSha256 === contractSha256
     && snapshot.template.id === hydrated.inspectionSnapshot.template.id
-    && snapshot.template.version === 6
+    && snapshot.template.version === definitionVersion
     && snapshot.system.resolvedControls.schemaVersion === 2
-    && snapshot.system.resolvedControls.source.templateVersion === 6) return record;
+    && snapshot.system.resolvedControls.source.templateVersion === definitionVersion) return record;
   await localDatabase.masterSystemInspections.put(hydrated);
   return hydrated;
 }
@@ -103,9 +104,9 @@ export async function getOrCreateFireAlarmInspection(job: InspectionJob, system:
   if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts");
   if (system.systemKey !== systemKey || !job.configurationSnapshot.enabledSystems.some((item) => item.enabledSystemId === system.enabledSystemId && item.systemKey === systemKey)) throw new Error("Invalid frozen Fire Alarm system identity");
   const resolved = definition(job, catalog); const timestamp = now();
-  const contractSha256 = resolved.dispatch === "v6" ? await v6ContractSha256(resolved.definition) : null;
+  const contractSha256 = resolved.dispatch === "v6" || resolved.dispatch === "v7" ? await v6ContractSha256(resolved.definition) : null;
   const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null;
-  const inspectionSnapshot: FireAlarmInspectionSnapshot = { schemaVersion: resolved.dispatch === "v6" ? 2 : 1, capturedAt: timestamp, contractSha256, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: { ...job.configurationSnapshot.template, code: "MFE-FSSR" }, system: { ...structuredClone(system), systemKey, definition: resolved.definition, resolvedControls: resolved.controls, repetitionMode: "single_with_two_repeatable_tables" } };
+  const inspectionSnapshot: FireAlarmInspectionSnapshot = { schemaVersion: resolved.dispatch === "v6" || resolved.dispatch === "v7" ? 2 : 1, capturedAt: timestamp, contractSha256, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: { ...job.configurationSnapshot.template, code: "MFE-FSSR" }, system: { ...structuredClone(system), systemKey, definition: resolved.definition, resolvedControls: resolved.controls, repetitionMode: "single_with_two_repeatable_tables" } };
   const record: FireAlarmInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: key, jobId: job.id, systemKey, instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system, resolved.dispatch), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" };
   if (resolved.dispatch === "historical") record.responses = canonicalizeFireAlarmResponses(record.responses, inspectionSnapshot);
   try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { if (!(error instanceof Error) || error.name !== "ConstraintError") throw error; const winner = await getFireAlarmInspection(key); if (!winner) throw error; return winner; }
@@ -116,7 +117,7 @@ export async function saveFireAlarmDraft(record: FireAlarmInspectionRecord, resp
     const live = await localDatabase.masterSystemInspections.get(record.clientUuid);
     if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error(staleMessage);
     const current = live as FireAlarmInspectionRecord;
-    const canonical = dispatchForTemplate(current.masterTemplate) === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const currentDispatch = dispatchForTemplate(current.masterTemplate); const canonical = currentDispatch === "v6" || currentDispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
     saved = { ...current, responses: canonical, localUpdatedAt: nextUpdatedAt(current.localUpdatedAt), lastSyncError: undefined };
     await localDatabase.masterSystemInspections.put(saved);
@@ -154,11 +155,12 @@ export async function submitFireAlarmLocal(record: FireAlarmInspectionRecord, re
     }
     const current = live as FireAlarmInspectionRecord;
     const dispatch = dispatchForTemplate(current.masterTemplate);
-    const canonical = dispatch === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const canonical = dispatch === "v6" || dispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
-    const photos = dispatch === "v6" ? await listFireAlarmV6Photos(current.clientUuid) : [];
+    const photos = dispatch === "v6" ? await listFireAlarmV6Photos(current.clientUuid) : dispatch === "v7" ? await listFireAlarmV7Photos(current.clientUuid) : [];
     const issues = dispatch === "v6"
       ? v6SubmissionIssues(canonical, photos).map((message) => ({ message }))
+      : dispatch === "v7" ? v7FireAlarmSubmissionIssues(canonical, photos).map((message) => ({ message }))
       : getFireAlarmSubmissionIssues(canonical, current.inspectionSnapshot);
     if (issues.length) throw new Error(issues.map((issue) => issue.message).join("; "));
     if (await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first()) {
@@ -180,6 +182,7 @@ export async function submitFireAlarmLocal(record: FireAlarmInspectionRecord, re
       action: "create",
       payload: dispatch === "v6"
         ? { ...syncPayload(submitted), evidenceManifest: v6Manifest(photos) }
+        : dispatch === "v7" ? { ...syncPayload(submitted), evidenceManifest: v7FireAlarmManifest(photos, canonical) }
         : syncPayload(submitted),
       createdAt: submitted.localCreatedAt,
       attempts: 0,
@@ -187,11 +190,13 @@ export async function submitFireAlarmLocal(record: FireAlarmInspectionRecord, re
       activeKey
     };
     await localDatabase.masterSystemInspections.put(submitted);
-    if (dispatch === "v6") {
-      for (const photo of photos) {
+    if (dispatch === "v6" || dispatch === "v7") {
+      const frozenPhotoUuids = new Set((dispatch === "v7" ? v7FireAlarmManifest(photos, canonical) : v6Manifest(photos)).map((entry) => entry.photoUuid));
+      for (const photo of photos.filter((candidate) => frozenPhotoUuids.has(candidate.photoUuid))) {
         await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: timestamp });
-        const existingEvidenceWork = await localDatabase.syncOutbox.where("activeKey").equals(`v6StagedEvidence:create:${photo.photoUuid}`).first();
-        if (!existingEvidenceWork) await localDatabase.syncOutbox.add(v6EvidenceOutbox(photo));
+        const activeKey = `${dispatch === "v7" ? "v7StagedEvidence" : "v6StagedEvidence"}:create:${photo.photoUuid}`;
+        const existingEvidenceWork = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
+        if (!existingEvidenceWork) await localDatabase.syncOutbox.add(dispatch === "v7" ? v7FireAlarmEvidenceOutbox(photo) : v6EvidenceOutbox(photo));
       }
     }
     await localDatabase.syncOutbox.add(outbox);
@@ -273,9 +278,9 @@ async function mutateFireAlarmDraft(record: FireAlarmInspectionRecord, responses
     if (!live || live.systemKey !== systemKey || live.clientUuid !== record.clientUuid || live.jobSystemKey !== record.jobSystemKey || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error(staleMessage);
     const current = live as FireAlarmInspectionRecord;
     const dispatch = dispatchForTemplate(current.masterTemplate);
-    const canonical = dispatch === "v6" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
+    const canonical = dispatch === "v6" || dispatch === "v7" ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, current.inspectionSnapshot);
     assertFireAlarmRowIdentity(current.responses, canonical);
-    const mutated = dispatch === "v6" ? structuredClone(mutation(canonical)) : canonicalizeFireAlarmResponses(mutation(canonical), current.inspectionSnapshot);
+    const mutated = dispatch === "v6" || dispatch === "v7" ? structuredClone(mutation(canonical)) : canonicalizeFireAlarmResponses(mutation(canonical), current.inspectionSnapshot);
     saved = { ...current, responses: mutated, localUpdatedAt: nextUpdatedAt(current.localUpdatedAt), lastSyncError: undefined };
     await localDatabase.masterSystemInspections.put(saved);
   });
@@ -298,7 +303,7 @@ export function removeFireAlarmPrimaryTechnicianRow(record: FireAlarmInspectionR
 export function addFireAlarmSecondaryTechnicianRow(record: FireAlarmInspectionRecord, responses: FireAlarmResponses) {
   return mutateFireAlarmDraft(record, responses, (current) => {
     if (current.secondaryAlarmDeviceRows.length >= 250) throw new Error("Secondary Fire Alarm row maximum reached");
-    return { ...current, secondaryAlarmDeviceRows: [...current.secondaryAlarmDeviceRows, { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: current.secondaryAlarmDeviceRows.length + 1, assetReference: "", location: "", alarmBell: null, manualCallPoint: null, remarks: "", ...(dispatchForTemplate(record.masterTemplate) === "v6" ? { fieldRemarks: {} } : {}) }] };
+    const dispatch = dispatchForTemplate(record.masterTemplate); return { ...current, secondaryAlarmDeviceRows: [...current.secondaryAlarmDeviceRows, { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: current.secondaryAlarmDeviceRows.length + 1, assetReference: "", location: "", alarmBell: null, manualCallPoint: null, remarks: "", ...(dispatch === "v6" || dispatch === "v7" ? { fieldRemarks: {} } : {}) }] };
   });
 }
 export function removeFireAlarmSecondaryTechnicianRow(record: FireAlarmInspectionRecord, responses: FireAlarmResponses, rowUuid: string) {

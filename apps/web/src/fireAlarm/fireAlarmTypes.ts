@@ -115,7 +115,7 @@ export type ResolvedFireAlarmChecklistItem<K extends string> = {
 };
 export type ResolvedFireAlarmControls = {
   schemaVersion: 1 | 2;
-  source: { templateCode: "MFE-FSSR"; templateVersion: 3 | 6; systemKey: "fire_alarm_detector" };
+  source: { templateCode: "MFE-FSSR"; templateVersion: 3 | 6 | 7; systemKey: "fire_alarm_detector" };
   repetitionMode: "single_with_two_repeatable_tables";
   instance: { key: "primary"; displaySequence: 1; zoneId: null; locationId: null };
   controlPanelLocation: ResolvedFireAlarmText & { key: "control_panel_location"; required: true; maxLength: 300 };

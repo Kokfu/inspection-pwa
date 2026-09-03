@@ -10,6 +10,7 @@
     "test:fire-alarm-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmAcceptedDetailTuple.test.ts",
     "test:fire-alarm-dispatch": "playwright test tests/fire-alarm-client-dispatch.spec.ts",
     "test:v6-draft-browser": "playwright test tests/fire-alarm-v6-draft-reload.spec.ts",
+    "test:v7-stale-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7EvidenceStaleManifest.test.ts",
     "test:historical-draft": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/historicalDraftCompatibility.test.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"

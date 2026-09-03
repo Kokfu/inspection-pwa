@@ -10,6 +10,7 @@ type UnknownRecord = Record<string, unknown>;
 const optionLabels: Readonly<Record<string, string>> = {
   good: "Good",
   poor: "Poor",
+  not_relevant: "Not Relevant",
   normal: "Normal",
   test: "Test",
   isolation: "Isolation"
@@ -90,19 +91,21 @@ function frozenResult(value: unknown, values: readonly string[], required: boole
     && value.options.every((option, index) => isRecord(option) && exact(option, ["value", "label"])
       && option.value === values[index] && option.label === optionLabels[values[index]]);
 }
-function frozenChecklist(value: unknown, definitions: readonly (readonly [string, string])[]) {
+function frozenChecklist(value: unknown, definitions: readonly (readonly [string, string])[], values: readonly string[]) {
   return Array.isArray(value) && value.length === definitions.length && value.every((item, index) => isRecord(item)
     && exact(item, ["key", "label", "sortOrder", "result", "remarks"]) && item.key === definitions[index]?.[0]
     && item.label === definitions[index]?.[1] && item.sortOrder === index + 1
-    && frozenResult(item.result, ["good", "poor"], true) && frozenRemarks(item.remarks, 2000));
+    && frozenResult(item.result, values, true) && frozenRemarks(item.remarks, 2000));
 }
 
 export function parseFrozenCo2Controls(value: unknown): ResolvedCo2Controls | undefined {
   const physical = [["co2_cylinder", "CO2 Cylinder"], ["electric_actuator", "Electric Actuator"], ["manual_release_key", "Manual Release Key"], ["alarm_bell", "Alarm Bell"], ["twin_flashing_light", "Twin Flashing Light"], ["24v_dc_tripping_device", "24V DC Tripping Device"], ["manual_pull_station", "Manual Pull Station"], ["high_pressure_hose", "High Pressure Hose"], ["discharge_nozzles", "Discharge Nozzles"], ["pilot_cylinder", "Pilot Cylinder"]] as const;
   const functions = [["main_alarm_reset", "Main Alarm Reset"], ["lamp_test", "Lamp Test"], ["evacuate", "Evacuate"], ["ac_supply", "A/C Supply"], ["dc_supply", "D/C Supply"], ["signal_alarm_to_mfap", "Signal Alarm to MFAP"]] as const;
+  const isV7 = isRecord(value) && isRecord(value.source) && value.source.templateVersion === 7;
+  const checklistValues = isV7 ? ["good", "poor", "not_relevant"] : ["good", "poor"];
   if (!isRecord(value) || !exact(value, ["schemaVersion", "source", "repetitionMode", "controlPanelLocation", "detectorRows", "chargerAndBatteries", "physicalOutlook", "mainFunctionKeys", "comments"])
     || value.schemaVersion !== 1 || !isRecord(value.source) || !exact(value.source, ["templateCode", "templateVersion", "systemKey"])
-    || value.source.templateCode !== "MFE-FSSR" || value.source.templateVersion !== 1 || value.source.systemKey !== "co2_fire_extinguisher"
+    || value.source.templateCode !== "MFE-FSSR" || !(value.source.templateVersion === 1 || value.source.templateVersion === 7) || value.source.systemKey !== "co2_fire_extinguisher"
     || value.repetitionMode !== "per_location" || !isRecord(value.controlPanelLocation)
     || !exact(value.controlPanelLocation, ["key", "label", "required", "maxLength"]) || value.controlPanelLocation.key !== "control_panel_location"
     || value.controlPanelLocation.label !== "Control Panel Location" || value.controlPanelLocation.required !== true || value.controlPanelLocation.maxLength !== 300
@@ -112,8 +115,8 @@ export function parseFrozenCo2Controls(value: unknown): ResolvedCo2Controls | un
     || !exact(value.detectorRows.location, ["key", "label", "required", "maxLength"]) || value.detectorRows.location.key !== "location" || value.detectorRows.location.label !== "Location" || value.detectorRows.location.required !== true || value.detectorRows.location.maxLength !== 300
     || !isRecord(value.detectorRows.heatDetector) || !exact(value.detectorRows.heatDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.heatDetector.key !== "heat_detector" || value.detectorRows.heatDetector.label !== "Heat Detector" || value.detectorRows.heatDetector.sortOrder !== 3 || !frozenResult(value.detectorRows.heatDetector.result, ["normal", "test", "isolation"], false)
     || !isRecord(value.detectorRows.smokeDetector) || !exact(value.detectorRows.smokeDetector, ["key", "label", "sortOrder", "result"]) || value.detectorRows.smokeDetector.key !== "smoke_detector" || value.detectorRows.smokeDetector.label !== "Smoke Detector" || value.detectorRows.smokeDetector.sortOrder !== 4 || !frozenResult(value.detectorRows.smokeDetector.result, ["normal", "test", "isolation"], false)
-    || !frozenRemarks(value.detectorRows.remarks, 2000) || !frozenChecklist(value.chargerAndBatteries, [["main_supply", "Main Supply"], ["battery", "Battery"], ["charger", "Charger"]])
-    || !frozenChecklist(value.physicalOutlook, physical) || !frozenChecklist(value.mainFunctionKeys, functions) || !frozenRemarks(value.comments, 4000)) return undefined;
+    || !frozenRemarks(value.detectorRows.remarks, 2000) || !frozenChecklist(value.chargerAndBatteries, [["main_supply", "Main Supply"], ["battery", "Battery"], ["charger", "Charger"]], checklistValues)
+    || !frozenChecklist(value.physicalOutlook, physical, checklistValues) || !frozenChecklist(value.mainFunctionKeys, functions, checklistValues) || !frozenRemarks(value.comments, 4000)) return undefined;
   return value as unknown as ResolvedCo2Controls;
 }
 
@@ -151,7 +154,7 @@ export function resolvePublishedCo2Controls(
 
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: wetChemical ? 4 : 1, systemKey: wetChemical ? "wet_chemical" : "co2_fire_extinguisher" },
+    source: { templateCode: "MFE-FSSR", templateVersion: templateVersion === 7 ? 7 : wetChemical ? 4 : 1, systemKey: wetChemical ? "wet_chemical" : "co2_fire_extinguisher" },
     repetitionMode: "per_location",
     controlPanelLocation: {
       key: "control_panel_location",

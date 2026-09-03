@@ -10,7 +10,7 @@ import { isCompatibleSystemContract } from "./systemContractCompatibility.js";
 type UnknownRecord = Record<string, unknown>;
 export type ResolvedCo2Controls = {
   schemaVersion: 1;
-  source: { templateCode: "MFE-FSSR"; templateVersion: 1 | 4; systemKey: "co2_fire_extinguisher" | "wet_chemical" };
+  source: { templateCode: "MFE-FSSR"; templateVersion: 1 | 4 | 7; systemKey: "co2_fire_extinguisher" | "wet_chemical" };
   repetitionMode: "per_location";
   controlPanelLocation: { key: "control_panel_location"; label: string; required: true; maxLength: number };
   detectorRows: {
@@ -29,7 +29,7 @@ export type ResolvedCo2Controls = {
 };
 
 const labels: Readonly<Record<string, string>> = {
-  good: "Good", poor: "Poor", normal: "Normal", test: "Test", isolation: "Isolation"
+  good: "Good", poor: "Poor", not_relevant: "Not Relevant", normal: "Normal", test: "Test", isolation: "Isolation"
 };
 const isRecord = (value: unknown): value is UnknownRecord => typeof value === "object" && value !== null && !Array.isArray(value);
 function text(value: unknown, name: string) { if (typeof value !== "string" || !value) throw new Error(`CO2 definition has invalid ${name}`); return value; }
@@ -59,8 +59,7 @@ function canonicalize(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** Wet Chemical accepts only the published V3 definition, including every
- * field, control, result value and source wording. */
+/** Historical Wet Chemical accepts only the published V4 definition. */
 export function isPublishedWetChemicalDefinition(value: unknown) {
   return canonicalize(value) === canonicalize(wetChemicalV4);
 }
@@ -71,8 +70,10 @@ export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR
     || !Number.isSafeInteger(templateVersion) || templateVersion < 1
     || (!wetChemical && (definition.key !== "co2_fire_extinguisher"
       || !isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", definition)))
-    || (wetChemical && (!isPublishedWetChemicalDefinition(definition)
-      || !isCompatibleSystemContract("wet_chemical", "confirmed", definition)))) {
+    || (wetChemical && (templateVersion === 7
+      ? !isCompatibleSystemContract("wet_chemical", "confirmed", definition)
+      : (!isPublishedWetChemicalDefinition(definition)
+        || !isCompatibleSystemContract("wet_chemical", "confirmed", definition))))) {
     throw new Error("Unsupported suppression-system template definition");
   }
   const sections = list(definition.sections, "sections");
@@ -92,7 +93,7 @@ export function resolveCo2Controls(definition: unknown, templateCode = "MFE-FSSR
     schemaVersion: 1,
     source: {
       templateCode: "MFE-FSSR",
-      templateVersion: wetChemical ? 4 : 1,
+      templateVersion: templateVersion === 7 ? 7 : wetChemical ? 4 : 1,
       systemKey: wetChemical ? "wet_chemical" : "co2_fire_extinguisher"
     },
     repetitionMode: "per_location",

@@ -73,12 +73,12 @@ export function validateHoseReelHistoricalPayload(snapshotValue: unknown, respon
   } catch { return false; }
 }
 
-export function validateAcceptedCo2Detail(row: R) {
-  if (!identity(row) || row.systemKey !== "co2_fire_extinguisher" || typeof row.locationId !== "string" || !uuid.test(row.locationId)
+function validateAcceptedSuppressionDetail(row: R, expectedSystemKey: "co2_fire_extinguisher" | "wet_chemical") {
+  if (!identity(row) || row.systemKey !== expectedSystemKey || typeof row.locationId !== "string" || !uuid.test(row.locationId)
     || !(row.zoneId === null || typeof row.zoneId === "string" && uuid.test(row.zoneId))
     || row.instanceKey !== `location:${row.locationId}` || !Number.isSafeInteger(row.displaySequence) || Number(row.displaySequence) < 1
     || !rec(row.inspectionSnapshot) || !exact(row.inspectionSnapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "instance"])
-    || row.inspectionSnapshot.schemaVersion !== 1 || !canonicalMillis(row.inspectionSnapshot.acceptedAt)
+    || !canonicalMillis(row.inspectionSnapshot.acceptedAt)
     || !rec(row.inspectionSnapshot.job) || !exact(row.inspectionSnapshot.job, ["id", "reference", "title"])
     || row.inspectionSnapshot.job.id !== row.jobId || !text(row.inspectionSnapshot.job.reference, 250) || !text(row.inspectionSnapshot.job.title, 300)
     || !rec(row.inspectionSnapshot.customer) || !exact(row.inspectionSnapshot.customer, ["id", "code", "displayName"])
@@ -92,15 +92,24 @@ export function validateAcceptedCo2Detail(row: R) {
   if (!exact(template, ["id", "code", "version"]) || template.id !== row.templateId || template.code !== "MFE-FSSR"
     || !Number.isSafeInteger(template.version) || Number(template.version) < 1
     || !exact(configuration, ["revisionId", "revisionNumber"]) || configuration.revisionId !== row.configurationRevisionId
-    || system.key !== "co2_fire_extinguisher" || system.repetitionMode !== "per_location"
+    || system.key !== expectedSystemKey || system.repetitionMode !== "per_location"
     || !exact(instance, ["instanceKey", "displaySequence", "zone", "location"])
     || instance.instanceKey !== row.instanceKey || instance.displaySequence !== row.displaySequence
     || !rec(instance.location) || instance.location.id !== row.locationId
-    || (row.zoneId === null ? instance.zone !== null : !rec(instance.zone) || instance.zone.id !== row.zoneId)) return undefined;
+    || (row.zoneId === null ? instance.zone !== null : !rec(instance.zone) || instance.zone.id !== row.zoneId)
+    || row.inspectionSnapshot.schemaVersion !== (template.version === 7 ? 2 : 1)) return undefined;
   try {
     const controls = resolveCo2Controls(system.definition, "MFE-FSSR", template.version as number);
-    if (controls.source.systemKey !== "co2_fire_extinguisher" || canonical(system.resolvedControls) !== canonical(controls)
+    if (controls.source.systemKey !== expectedSystemKey || canonical(system.resolvedControls) !== canonical(controls)
       || !validateCo2Responses(row.responses, controls)) return undefined;
     return { snapshot, controls };
   } catch { return undefined; }
+}
+
+export function validateAcceptedCo2Detail(row: R) {
+  return validateAcceptedSuppressionDetail(row, "co2_fire_extinguisher");
+}
+
+export function validateAcceptedWetChemicalDetail(row: R) {
+  return validateAcceptedSuppressionDetail(row, "wet_chemical");
 }

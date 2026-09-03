@@ -14,6 +14,8 @@
     "test:v6-integration": "tsx --test src/sync/fireAlarmV6Acceptance.integration.test.ts",
     "test:wet-chemical-definition": "tsx --test src/inspections/templates/wetChemicalDefinitionControls.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
+    "test:wet-chemical-v7-integration": "tsx --test src/sync/wetChemicalV7.integration.test.ts",
+    "test:fire-alarm-v7-integration": "tsx --test src/sync/fireAlarmV7.integration.test.ts",
     "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
     "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",
     "test:customer-creation-integration": "tsx --test src/routes/customerCreation.integration.test.ts",

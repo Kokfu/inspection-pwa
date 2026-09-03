@@ -53,9 +53,9 @@ export type StoredFireAlarmDetail = { responses: FireAlarmResponses; template:{i
 export function validateFireAlarmHistoricalPayload(snapshotValue: unknown, responseValue: unknown) {
   if (rec(snapshotValue) && snapshotValue.schemaVersion === 2) {
     if (!rec(snapshotValue.template) || !rec(snapshotValue.system) || !rec(responseValue)
-      || !exact(snapshotValue.template,["id","code","version"]) || snapshotValue.template.code !== "MFE-FSSR" || snapshotValue.template.version !== 6
+      || !exact(snapshotValue.template,["id","code","version"]) || snapshotValue.template.code !== "MFE-FSSR" || !([6,7] as const).includes(snapshotValue.template.version as 6|7)
       || !rec(snapshotValue.system.definition) || responseValue.schemaVersion !== 2) return false;
-    try { resolveFireAlarmV6Controls(snapshotValue.system.definition); } catch { return false; }
+    try { resolveFireAlarmV6Controls(snapshotValue.system.definition, snapshotValue.template.version as 6|7); } catch { return false; }
     return text(responseValue.controlPanelLocation,300,true) && text(responseValue.comments,4000)
       && Array.isArray(responseValue.primaryDeviceRows) && Array.isArray(responseValue.secondaryAlarmDeviceRows)
       && rec(responseValue.chargerAndBatteries) && rec(responseValue.mainFunctionKeys);
@@ -78,17 +78,17 @@ export function validateStoredFireAlarmDetail(row:R):StoredFireAlarmDetail|undef
   if (rec(row.inspectionSnapshot) && row.inspectionSnapshot.schemaVersion === 2) {
     const snap = row.inspectionSnapshot;
     if (("snapshotSchemaVersion" in row && row.snapshotSchemaVersion !== 2) || ("responseSchemaVersion" in row && row.responseSchemaVersion !== 2) || !rec(snap.template) || !rec(snap.system) || !rec(row.responses)
-      || !exact(snap.template,["id","code","version"]) || snap.template.code !== "MFE-FSSR" || snap.template.version !== 6
+      || !exact(snap.template,["id","code","version"]) || snap.template.code !== "MFE-FSSR" || !([6,7] as const).includes(snap.template.version as 6|7)
       || !rec(snap.system) || !rec(snap.system.definition) || !rec(snap.system.resolvedControls)
       || typeof snap.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snap.contractSha256) || snap.contractSha256 !== fireAlarmV6ContractSha256(snap.system.definition)
       || row.responses.schemaVersion !== 2) return;
-    try { resolveFireAlarmV6Controls(snap.system.definition); } catch { return; }
+    try { resolveFireAlarmV6Controls(snap.system.definition, snap.template.version as 6|7); } catch { return; }
     const responses = row.responses;
     if (!text(responses.controlPanelLocation,300,true) || !text(responses.comments,4000) || !Array.isArray(responses.primaryDeviceRows) || !Array.isArray(responses.secondaryAlarmDeviceRows)) return;
     const results = [responses.chargerAndBatteries, responses.mainFunctionKeys];
     if (!results.every((group) => rec(group) && Object.values(group).every((field) => rec(field) && exact(field,["result","remarks"]) && ["good","poor","not_relevant"].includes(String(field.result)) && text(field.remarks,2000) && (field.result !== "poor" || (field.remarks as string).trim())))) return;
     if (!responses.secondaryAlarmDeviceRows.every((row) => { if (!rec(row) || !Object.keys(row).every((key) => secondaryKeys.includes(key) || key === "fieldRemarks") || !secondaryKeys.every((key) => key in row) || ![row.alarmBell,row.manualCallPoint].every((value) => ["good","poor","not_relevant"].includes(String(value)))) return false; const remarks = "fieldRemarks" in row ? row.fieldRemarks : {}; return rec(remarks) && Object.entries(remarks).every(([key,value]) => (key === "alarmBell" || key === "manualCallPoint") && text(value,2000)) && (row.alarmBell !== "poor" || text(remarks.alarmBell,2000,true)) && (row.manualCallPoint !== "poor" || text(remarks.manualCallPoint,2000,true)); })) return;
-    return { responses: responses as unknown as FireAlarmResponses, template: { id: row.templateId as string, code: "MFE-FSSR", version: 6 }, configuration: { revisionId: row.configurationRevisionId as string, revisionNumber: Number((snap.configuration as R | undefined)?.revisionNumber) }, contract: { responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: snap.contractSha256 } };
+    return { responses: responses as unknown as FireAlarmResponses, template: { id: row.templateId as string, code: "MFE-FSSR", version: snap.template.version as 6|7 }, configuration: { revisionId: row.configurationRevisionId as string, revisionNumber: Number((snap.configuration as R | undefined)?.revisionNumber) }, contract: { responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: snap.contractSha256 } };
   }
   const snap=row.inspectionSnapshot;if(!rec(snap)||!exact(snap,["schemaVersion","acceptedAt","job","customer","configuration","template","system","instance"])||snap.schemaVersion!==1||!rec(snap.job)||!rec(snap.customer)||!rec(snap.configuration)||!rec(snap.template)||!rec(snap.system)||!rec(snap.instance))return;
   if(("snapshotSchemaVersion" in row&&row.snapshotSchemaVersion!==1)||("responseSchemaVersion" in row&&row.responseSchemaVersion!==1))return;

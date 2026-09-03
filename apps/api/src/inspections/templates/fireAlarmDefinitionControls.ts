@@ -273,10 +273,10 @@ export function resolveFireAlarmControls(
 
 /** V6 is deliberately separate from the historical parser.  A malformed V6
  * definition never falls back to the V3 Good/Poor contract. */
-export function resolveFireAlarmV6Controls(definition: unknown) {
+export function resolveFireAlarmV6Controls(definition: unknown, templateVersion: 6 | 7 = 6) {
   if (!isCompatibleSystemContract("fire_alarm_detector", "confirmed", definition, {
-    id: "00000000-0000-4000-8000-000000000806", version: 6
-  })) throw new Error("Unsupported or malformed Fire Alarm MFE-FSSR V6 definition");
+    id: templateVersion === 7 ? "00000000-0000-4000-8000-000000000807" : "00000000-0000-4000-8000-000000000806", version: templateVersion
+  })) throw new Error("Unsupported or malformed Fire Alarm evidence definition");
   const legacyShape = structuredClone(definition) as UnknownRecord;
   const sections = legacyShape.sections;
   if (!Array.isArray(sections)) throw new Error("Malformed Fire Alarm MFE-FSSR V6 definition");
@@ -296,7 +296,7 @@ export function resolveFireAlarmV6Controls(definition: unknown) {
     options: [{ value: "good" as const, label: "Good" }, { value: "poor" as const, label: "Poor" }, { value: "not_relevant" as const, label: "Not Relevant" }] });
   return {
     ...v3,
-    source: { templateCode: "MFE-FSSR" as const, templateVersion: 6 as const, systemKey: "fire_alarm_detector" as const },
+    source: { templateCode: "MFE-FSSR" as const, templateVersion, systemKey: "fire_alarm_detector" as const },
     chargerAndBatteries: v3.chargerAndBatteries.map((item) => ({ ...item, result: withV6Result() })),
     mainFunctionKeys: v3.mainFunctionKeys.map((item) => ({ ...item, result: withV6Result() })),
     secondaryAlarmDeviceRows: { ...v3.secondaryAlarmDeviceRows, alarmBell: withV6Result(), manualCallPoint: withV6Result() }

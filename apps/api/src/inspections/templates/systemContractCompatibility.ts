@@ -4,6 +4,7 @@ import { masterServiceReportV3 } from "./masterServiceReportV3.js";
 import { masterServiceReportV4 } from "./masterServiceReportV4.js";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
+import { masterServiceReportV7 } from "./masterServiceReportV7.js";
 import type { MasterServiceReportDefinition } from "./templateTypes.js";
 
 export const implementedSystemKeys = [
@@ -36,7 +37,8 @@ const templates = new Map<number, MasterServiceReportDefinition>([
   [3, masterServiceReportV3],
   [4, masterServiceReportV4],
   [5, masterServiceReportV5],
-  [6, masterServiceReportV6]
+  [6, masterServiceReportV6],
+  [7, masterServiceReportV7]
 ]);
 
 function canonicalize(value: unknown): string {
@@ -82,7 +84,13 @@ export const systemContractVariants: readonly SystemContractVariant[] = [
     masterTemplateVersion: 6,
     systemKey: "fire_alarm_detector",
     contract: canonicalize(runtimeContract(masterServiceReportV6.systems.find((system) => system.key === "fire_alarm_detector")!))
-  }
+  },
+  ...(["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector"] as const).map((systemKey) => ({
+    masterTemplateId: masterServiceReportV7.id,
+    masterTemplateVersion: 7,
+    systemKey,
+    contract: canonicalize(runtimeContract(masterServiceReportV7.systems.find((system) => system.key === systemKey)!))
+  }))
 ];
 
 export function isImplementedSystemKey(value: string): value is ImplementedSystemKey {

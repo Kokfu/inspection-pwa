@@ -10,9 +10,11 @@ export type ApiConfig = {
 };
 
 export function loadConfig(): ApiConfig {
+  const nodeEnv = process.env.NODE_ENV ?? "production";
   return {
     port: Number(process.env.API_PORT ?? 3000),
     databaseUrl:
+      (nodeEnv === "test" ? process.env.SEED_INTEGRATION_DATABASE_URL : undefined) ??
       process.env.DATABASE_URL ??
       "postgres://inspection_app:replace-with-a-real-secret-outside-git@postgres:5432/inspection",
     authRequired: process.env.AUTH_REQUIRED !== "false",
@@ -21,7 +23,7 @@ export function loadConfig(): ApiConfig {
       process.env.NODE_ENV !== "production",
     sessionCookieName: process.env.SESSION_COOKIE_NAME ?? "inspection_session",
     sessionDurationHours: Number(process.env.SESSION_DURATION_HOURS ?? 12),
-    nodeEnv: process.env.NODE_ENV ?? "production",
+    nodeEnv,
     uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads"
   };
 }

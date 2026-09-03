@@ -11,7 +11,7 @@ const contractVersions: Readonly<Record<ImplementedSystemKey, number>> = {
   hydrant: 1, co2_fire_extinguisher: 1, wet_chemical: 4, portable_fire_extinguisher: 5
 };
 
-export type FireAlarmClientDispatch = "historical" | "v6";
+export type FireAlarmClientDispatch = "historical" | "v6" | "v7";
 type FrozenTemplateIdentity = { id: string; code: string; version: number };
 export type FireAlarmAcceptedDetailTuple = FrozenTemplateIdentity & {
   responseSchemaVersion: number;
@@ -26,6 +26,7 @@ const fireAlarmClientDispatches: readonly (FireAlarmAcceptedDetailTuple & { disp
   { id: "00000000-0000-4000-8000-000000000804", code: "MFE-FSSR", version: 4, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
   { id: "00000000-0000-4000-8000-000000000805", code: "MFE-FSSR", version: 5, dispatch: "historical", responseSchemaVersion: 1, snapshotSchemaVersion: 1, systemContractSha256: null },
   { id: "00000000-0000-4000-8000-000000000806", code: "MFE-FSSR", version: 6, dispatch: "v6", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "deec720d8b9bebd4cca552748bfda24a5e4d99f5c13f22c0eee7e50f5cc8755d" }
+  ,{ id: "00000000-0000-4000-8000-000000000807", code: "MFE-FSSR", version: 7, dispatch: "v7", responseSchemaVersion: 2, snapshotSchemaVersion: 2, systemContractSha256: "deec720d8b9bebd4cca552748bfda24a5e4d99f5c13f22c0eee7e50f5cc8755d" }
 ];
 
 export function fireAlarmClientDispatch(templateIdentity: FrozenTemplateIdentity): FireAlarmClientDispatch | undefined {
@@ -70,7 +71,8 @@ export function compatibleCatalogSystem(
   const contractTemplate = catalog.templates.find((candidate) => candidate.code === "MFE-FSSR"
     && (systemKey === "fire_alarm_detector"
       ? candidate.id === templateIdentity.id && candidate.version === templateIdentity.version && fireAlarmDispatch !== undefined
-      : candidate.version === contractVersions[systemKey]));
+      : candidate.version === contractVersions[systemKey]
+        || (candidate.version === 7 && (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical"))));
   const system = template?.systems.find((candidate) => candidate.key === systemKey);
   const contract = contractTemplate?.systems.find((candidate) => candidate.key === systemKey);
   if (!template || template.code !== "MFE-FSSR" || !system || !contract

@@ -17,6 +17,7 @@ import { validateFireAlarmHistoricalPayload } from "../inspections/fireAlarmAcce
 import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { validateHydrantHistoricalPayload } from "../sync/hydrantInspectionSync.js";
 import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguisherSync.js";
+import { resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
 
 type RecordValue = Record<string, unknown>;
 type Queryable = { query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }> };
@@ -136,8 +137,9 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
-    || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2)) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
+    || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
     || !frozenTemplate || !frozenConfiguration
     || snapshot.job.id !== job.id || snapshot.job.reference !== job.reference
@@ -151,8 +153,8 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
     || snapshot.template.code !== "MFE-FSSR" || !Number.isSafeInteger(snapshot.template.version)
     || (snapshot.system.systemKey !== row.system_key && snapshot.system.key !== row.system_key)) return false;
   if (row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) {
-    return frozenTemplate.version === 6 && row.master_template_version_id === frozenTemplate.id
-      && snapshot.template.id === frozenTemplate.id && snapshot.template.version === 6
+    return (frozenTemplate.version === 6 || frozenTemplate.version === 7) && row.master_template_version_id === frozenTemplate.id
+      && snapshot.template.id === frozenTemplate.id && (snapshot.template.version === 6 || snapshot.template.version === 7)
       && validateFireAlarmHistoricalPayload(snapshot, response);
   }
   // CO2 and Wet Chemical accepted snapshots predate the common systemKey field
@@ -202,7 +204,9 @@ type FireAlarmV6ReportResponse = RecordValue & {
 function fireAlarmV6ReportContext(snapshot: unknown, response: unknown) {
   if (!isRecord(snapshot) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition) || !isRecord(response)) return undefined;
   try {
-    const controls = resolveFireAlarmV6Controls(snapshot.system.definition);
+    const template = isRecord(snapshot.template) ? snapshot.template : undefined;
+    const version = template?.version === 7 ? 7 : 6;
+    const controls = resolveFireAlarmV6Controls(snapshot.system.definition, version);
     if (!Array.isArray(response.primaryDeviceRows) || !Array.isArray(response.secondaryAlarmDeviceRows) || !isRecord(response.chargerAndBatteries) || !isRecord(response.mainFunctionKeys)) return undefined;
     return { controls, response: response as FireAlarmV6ReportResponse };
   } catch { return undefined; }
@@ -272,6 +276,29 @@ async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInst
   if (rows.length !== required.length || rows.some((item, index) => item.field_path !== required[index])) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence is incomplete or mismatched.");
   const uploadsRoot = path.resolve(loadConfig().uploadsPath); const evidence: FinalReportEvidence[] = [];
   for (const item of rows) { const caption = fireAlarmV6EvidenceCaption(row.inspection_snapshot, row.response_payload, item.field_path); if (!caption || !text(item.storage_relative_path, 500) || !/^[0-9a-f]{64}$/.test(item.stored_sha256) || !Number.isInteger(item.width) || !Number.isInteger(item.height)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 evidence is invalid."); const relative=item.storage_relative_path; if (relative.includes("\\") || relative.split("/").some((part)=>part===""||part==="."||part==="..")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is invalid."); const file=path.resolve(uploadsRoot,...relative.split("/")); if(!file.startsWith(`${uploadsRoot}${path.sep}`))throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is invalid."); let content:Buffer;try{content=await readFile(file);}catch{throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is unavailable.");} if(createHash("sha256").update(content).digest("hex")!==item.stored_sha256)throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt."); let metadata:{format?:string;width?:number;height?:number};try{metadata=await sharp(content,{failOn:"error"}).metadata();}catch{throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt.");}if(metadata.format!=="jpeg"||metadata.width!==item.width||metadata.height!==item.height)throw new FinalReportError("FINAL_REPORT_DATA_INVALID",409,"Accepted Fire Alarm V6 evidence is corrupt.");evidence.push({field:item.field_path,caption,content,width:item.width,height:item.height}); }
+  return evidence;
+}
+
+async function validatedV7SuppressionEvidence(database: Queryable, row: ReportInstanceRow) {
+  const snapshot = row.inspection_snapshot;
+  if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
+    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
+  const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
+  const required = adapter?.derivePoorFieldPaths(row.response_payload);
+  if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
+  const rows = (await database.query<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }>(`SELECT field_path,stored_sha256,storage_relative_path,width,height FROM staged_inspection_evidence WHERE form_instance_id=$1 AND master_template_version=7 AND status='accepted' ORDER BY field_path,photo_uuid`, [row.form_instance_id])).rows;
+  if (rows.length !== required.length || rows.some((item, index) => item.field_path !== required[index])) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is incomplete or mismatched.");
+  const uploadsRoot = path.resolve(loadConfig().uploadsPath); const evidence: FinalReportEvidence[] = [];
+  for (const item of rows) {
+    const caption = adapter.acceptedEvidenceCaption(item.field_path); const relative = item.storage_relative_path;
+    if (!caption || !text(relative, 500) || !/^[0-9a-f]{64}$/.test(item.stored_sha256) || !Number.isInteger(item.width) || !Number.isInteger(item.height) || relative.includes("\\") || relative.split("/").some((part) => !part || part === "." || part === "..")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is invalid.");
+    const file = path.resolve(uploadsRoot, ...relative.split("/")); if (!file.startsWith(`${uploadsRoot}${path.sep}`)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is invalid.");
+    let content: Buffer; try { content = await readFile(file); } catch { throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is unavailable."); }
+    if (createHash("sha256").update(content).digest("hex") !== item.stored_sha256) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
+    let metadata: { format?: string; width?: number; height?: number }; try { metadata = await sharp(content, { failOn: "error" }).metadata(); } catch { throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt."); }
+    if (metadata.format !== "jpeg" || metadata.width !== item.width || metadata.height !== item.height) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
+    evidence.push({ field: item.field_path, caption, content, width: item.width, height: item.height });
+  }
   return evidence;
 }
 
@@ -400,7 +427,7 @@ export async function loadFinalServiceReport(
       const location = historicalLocation(system, unit, matching[0]!.instance_key);
       if (unit.authorityKey.startsWith("location:") && !location) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Frozen report location identity is unavailable.");
       sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location,
-        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedFireAlarmV6Evidence(database, matching[0]!) : [] });
+        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
     }
   }
   return { customer, site, serviceDate, jobReference: reference,

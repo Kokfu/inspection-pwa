@@ -10,7 +10,7 @@ export type AttachmentSyncStatus =
 export type InspectionAttachmentRecord = {
   photoUuid: string;
   inspectionClientUuid: string;
-  systemKey: "automatic_sprinkler" | "fire_alarm_detector";
+  systemKey: "automatic_sprinkler" | "fire_alarm_detector" | "co2_fire_extinguisher" | "wet_chemical";
   fieldPath: string;
   evidencePolicyId: string;
   evidencePolicyVersion: number;
@@ -29,7 +29,7 @@ export type InspectionAttachmentRecord = {
   lastSyncError?: string;
   serverAttachmentId?: string;
   lastSyncedAt?: string;
-  protocolVersion?: 6;
+  protocolVersion?: 6 | 7;
   masterTemplateId?: string;
   contractSha256?: string;
 };
