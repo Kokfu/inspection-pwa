@@ -3,20 +3,33 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-04 — C1-REWORK V7 four-state result model working tree
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `5bc968d`
+**Last updated:** 2026-09-04 — C1-REWORK committed (`d7ecc0d`)
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `d7ecc0d`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
 
 ## 1. One-line status
 
-Phase 8F.2B.2A (V7 shared-evidence foundation + Fire Alarm / CO2 / Wet Chemical V7) is
-**committed** (`5bc968d`, safety branch `phase-8f2b2a-final-accepted`). STEP 0.2 (V7 front door)
-is **code-complete and re-verified** (all standard gates + `managerCustomers.integration.test.ts`
-green on owner re-run) and **uncommitted** (6 modified files). The catalog front door defaults new
-customer configurations and explicit Manager configuration revisions to V7; existing V1–V6
-revisions remain frozen. Next: STEP 0.4 (seed a v7 demo customer) then STEP 0.3 (browser sanity).
+**3 of 12 services on the V7 evidence model** (Fire Alarm, CO2, Wet Chemical), all committed and
+browser-proven through the full offline→sync→Accepted→PDF workflow. Result model is now
+**4-state** (Hokuden legend: `good` / `not_good` / `complete_repair` / `na`); validators are
+per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
+Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
+
+Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-select ·
+`7635cb3` paper-form transcription + C3 skill · `2e07ab1` C3 row model (T1) ·
+`d7ecc0d` **C1-REWORK 4-state**. Safety branches: `phase-8f2b2a…d-final-accepted`, `phase-8f2c-final-accepted`.
+
+**Not yet deployed:** `d7ecc0d` needs `docker compose build api proxy` + recreate (migration 020
+upgrades stored V7 defs) + a browser sanity pass for 4-state. The 3 accepted V7 demo records on
+`SV-20260903-36` are contract-invalid — hide with `UPDATE inspection_jobs SET
+technician_visible=false WHERE job_reference='SV-20260903-36'` (safe: no triggers, no delete),
+then create a fresh V7 visit via Manager.
+
+**Next:** STEP 1 (Hydrant / Hose Reel / Sprinkler / Riser / Portable → V7) or STEP 2 new services
+(Roller Shutter, Smoke Vent, Fire Intercom, FM200). All STEP 1/2 services now inherit 4-state +
+C3. Gated on client answers for C2 (remarks pick-list) and Fire Intercom's Yes/No `1`/`2` columns.
 
 ---
 
@@ -94,8 +107,10 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
-| G3 | STEP 0.2 (6 files) + 0.4 (seed) + 0.4a (web catalog fix) uncommitted. | No checkpoint. | working tree |
-| G4 | Manager config flow accepts `dry_wet_riser` with `system_configuration = {}` (no `riserMode`), which 500s `GET /customers/:id/configuration` for that whole customer. | Any customer given a riser through the Manager UI becomes unusable for **all** its systems. Same class as the CO2/Wet Chemical location-authority guard. | `apps/api/src/routes/managerCustomers.ts`, throw at `apps/api/src/routes/inspectionReference.ts:389` |
+| ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
+| G4 | Manager config flow accepts `dry_wet_riser` with `system_configuration = {}` (no `riserMode`), which 500s `GET /customers/:id/configuration` for that whole customer. Same class as the CO2/Wet Chemical location-authority guard. | Any customer given a riser through the Manager UI becomes unusable for **all** its systems. Fix before STEP 1.4. | `apps/api/src/routes/managerCustomers.ts`, throw at `apps/api/src/routes/inspectionReference.ts:389` |
+| G5 | Manager "Create Service Visit" silently reset the form without creating anything and no error (hit during 0.3 browser sanity, 2026-09-03). | Primary action fails silently. | `apps/web` new-service-visit flow |
+| G6 | `d7ecc0d` not deployed to runtime; 4-state not browser-verified; 3 stale V7 demo records on `SV-20260903-36`. | Runtime still serves 3-state V7. | see §1 |
 
 ---
 
@@ -244,20 +259,21 @@ then the repo is self-describing.
 
 | Service | Base template | V7 evidence workflow | Left to do |
 |---|---|---|---|
-| Fire Alarm / Detector | ✅ confirmed | ✅ done | reachable after STEP 0.2 |
-| CO2 Fire Extinguisher | ✅ confirmed | ✅ done | reachable after STEP 0.2 |
-| Wet Chemical | ✅ confirmed | ✅ done | reachable after STEP 0.2 |
-| Hydrant | ✅ confirmed | ❌ | STEP 1.1 |
+| Fire Alarm / Detector | ✅ confirmed | ✅ **done** (4-state, NTI multi-select, browser-proven) | deploy `d7ecc0d` + re-check 4-state |
+| CO2 Fire Extinguisher | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
+| Wet Chemical | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
+| Hydrant | ✅ confirmed | ❌ | STEP 1.1 — first C3 consumer |
 | Hose Reel | ✅ confirmed | ❌ | STEP 1.2 (+ 30-min pump test) |
 | Automatic Sprinkler | ✅ confirmed | ❌ | STEP 1.3 (preserve PSI photo lifecycle) |
-| Dry / Wet Riser | ✅ confirmed | ❌ | STEP 1.4 (resolve measurement/response) |
+| Dry / Wet Riser | ✅ confirmed | ❌ | STEP 1.4 (resolve measurement/response); also see G4 |
 | Portable Fire Extinguisher | ✅ confirmed | ❌ | STEP 1.5 |
-| FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 |
-| Smoke Ventilation | ❌ none | ❌ | STEP 2.2 |
-| Fire Intercom | ❌ none | ❌ | STEP 2.3 |
-| Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 (needs client spec) |
+| FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — clone CO2 V7 adapter |
+| Smoke Ventilation | ❌ none | ❌ | STEP 2.2 — `docs/paper-forms/smoke-ventilation.md` |
+| Fire Intercom | ❌ none | ❌ | STEP 2.3 — needs client answer on Yes/No `1`/`2` columns |
+| Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
 
-Done: 3 / 12 on V7.  Base template ready: 8 / 12.  Not started: 3 (Smoke Vent, Fire Intercom, Roller Shutter) + FM200 stub.
+Done: **3 / 12 on V7.**  Base template ready: 8 / 12.  New services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
+All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
 
