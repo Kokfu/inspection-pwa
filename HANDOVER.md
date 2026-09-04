@@ -3,8 +3,8 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-04 — C1-REWORK committed (`d7ecc0d`)
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `d7ecc0d`
+**Last updated:** 2026-09-04 — G7 root-caused + fixed (uncommitted), G9 raised
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `b64d53b`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
@@ -21,11 +21,10 @@ Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-s
 `7635cb3` paper-form transcription + C3 skill · `2e07ab1` C3 row model (T1) ·
 `d7ecc0d` **C1-REWORK 4-state**. Safety branches: `phase-8f2b2a…d-final-accepted`, `phase-8f2c-final-accepted`.
 
-**Not yet deployed:** `d7ecc0d` needs `docker compose build api proxy` + recreate (migration 020
-upgrades stored V7 defs) + a browser sanity pass for 4-state. The 3 accepted V7 demo records on
-`SV-20260903-36` are contract-invalid — hide with `UPDATE inspection_jobs SET
-technician_visible=false WHERE job_reference='SV-20260903-36'` (safe: no triggers, no delete),
-then create a fresh V7 visit via Manager.
+**Deployed:** runtime rebuilt + recreated 2026-09-04 on the uncommitted G7 fix
+(`build-20260903T174358Z`); migration 020 applied, API booted clean, stored V7 defs are 4-state.
+`SV-20260903-36` is already `technician_visible=false`. **Still owed: the 4-state browser sanity
+pass** (checklist in §4) — it is the only thing between here and "3/12 fully proven".
 
 **Next:** STEP 1 (Hydrant / Hose Reel / Sprinkler / Riser / Portable → V7) or STEP 2 new services
 (Roller Shutter, Smoke Vent, Fire Intercom, FM200). All STEP 1/2 services now inherit 4-state +
@@ -111,9 +110,26 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 | G4 | Manager config flow accepts `dry_wet_riser` with `system_configuration = {}` (no `riserMode`), which 500s `GET /customers/:id/configuration` for that whole customer. Same class as the CO2/Wet Chemical location-authority guard. | Any customer given a riser through the Manager UI becomes unusable for **all** its systems. Fix before STEP 1.4. | `apps/api/src/routes/managerCustomers.ts`, throw at `apps/api/src/routes/inspectionReference.ts:389` |
 | G5 | Manager "Create Service Visit" silently reset the form without creating anything and no error (hit during 0.3 browser sanity, 2026-09-03). | Primary action fails silently. | `apps/web` new-service-visit flow |
 | ~~G6~~ | **PARTLY CLOSED 2026-09-04.** `d7ecc0d` deployed; 4-state options render in all 3 forms. Bug found + fixed (`3065539`): CO2/Wet Chemical `V7EvidenceField` was gated on `result === "poor"` (unreachable) so no photo could be attached on a finding — now `not_good \|\| complete_repair`. Deployed `sha256-188fbb1857f422d5`. |
-| G7 | **Fire Alarm V7 "Sync Failed", no error surfaced** (owner, 2026-09-03 17:12; instance `8b4cc663`). Evidence staged OK, inspection never accepted, no reason shown to user or in API logs. Fire Alarm photo widget itself works (uses `isV7EvidenceFinding`). Suspect server-side 4-state Fire Alarm acceptance OR a client/server value mismatch. **Verify `fireAlarmV7.integration.test.ts` actually submits `not_good`/`complete_repair` + evidence** — it passed C1-REWORK but may not exercise the new vocab. Needs a clean browser repro with the outbox `lastError` captured. | Fire Alarm V7 may not be submittable end-to-end. | `apps/api/src/sync/fireAlarmV7Acceptance.ts` |
+| ~~G7~~ | **ROOT-CAUSED + FIXED 2026-09-04, awaiting browser re-verification.** Not a 4-state defect at all: the technician **attached the same photo to two findings**. Reproduced in-browser on `SV-20260904-38` (instance `10433777`), outbox `lastError` captured = `"This V7 inspection is unavailable"` (`JOB_ACCESS_DENIED`). Both staged rows carried identical `source_sha256` **and** `stored_sha256`, so `parseV7EvidenceManifest` refused the manifest, and `fireAlarmV7Acceptance.ts` folded `!manifest` into the collapsed job-access guard — reporting a payload problem as a Job problem. Confirmed the same duplicate pair in the owner's original `8b4cc663` rows. Fixes: (a) capture-time guard in `saveFireAlarmV7Photo` / `saveV7SuppressionPhoto` refuses a photo already attached to another field, naming it; (b) submit gate `duplicateV7PhotoIssues` in both `fireAlarmV7Evidence.ts` and `co2/v7Evidence.ts` — the offline-safety layer, same precedent as 0.4b; (c) server splits the manifest failure out of the collapsed guard (after it, so no job-existence leak) and names the reused image; CO2/WC get the same treatment plus a separate `EVIDENCE_NOT_STAGED` for two sources that normalize to the same stored bytes. Coverage: new `fireAlarmV7.integration.test.ts` case (first ever to submit `complete_repair`, a secondary alarm-device row finding with row-scoped evidence, and a reused photo); 3 new web submit-gate tests, the duplicate one **proven to fail against the pre-fix code**. | — | — |
+| G9 | **Duplicate photo across two *instances* of one system in the same Job** (CO2/Wet Chemical multi-location) is still only caught at acceptance, by the `acceptedHashes` pre-check (backed by the `staged_inspection_evidence_v7_accepted_*_per_job_system` indexes) → `EVIDENCE_CONFLICT`. The message is truthful, but the outbox re-attempts `Failed` items on every sync (`syncEngine.ts:193`), so it can never succeed. The G7 client guards are scoped to one `inspectionClientUuid`; attachments carry no `jobId`, so widening needs a join through `masterSystemFormInstances`. | A technician reusing one photo across two CO2 locations retries forever. | `apps/web/src/co2/v7Evidence.ts`, `apps/api/src/sync/co2FormInstanceSync.ts` |
 | G8 | Fire Alarm form auto-persists a Draft on Add/Remove row (pre-existing — technician-row helpers write immediately). Not a C1-REWORK regression. Low priority. | Minor UX surprise. | `apps/web/src/fireAlarm/fireAlarmRepository.ts` |
-| — | ~13 orphaned `staged` Fire Alarm evidence rows in runtime back to Aug 30 — abandoned drafts/test runs, **not a bug** (evidence stages before acceptance). Ignore or clean at leisure. | none | — |
+| — | ~13 orphaned `staged` Fire Alarm evidence rows in runtime back to Aug 30 — abandoned drafts/test runs, **not a bug** (evidence stages before acceptance). Ignore or clean at leisure. Two more were added by the G7 repro (`10433777…`). | none | — |
+
+### Outstanding owner check — 4-state browser sanity (blocks closing G7)
+
+Sign in as `technician-demo` on `https://localhost/` (build `build-20260903T174358Z` or later), then
+per system on a V7 job (`SV-20260903-37` is open and untouched):
+
+1. **Fire Alarm / CO2 / Wet Chemical each:** `Good` and `No Need Checking / N.A.` show **no**
+   remark-required and **no** photo widget; `Not Good` and `Complete Repair` each reveal
+   `Remark *` **and** the photo widget on that field only.
+2. **G7 regression:** attach one photo to a finding, then attach the *same file* to a second
+   finding — expect `This photo is already attached to <field>. Each finding needs its own photo.`
+   at capture time, and nothing queued.
+3. Distinct photos on every finding → Submit → Sync → **Accepted** → Accepted Detail renders the
+   4-state labels and serves each photo from `/api/v7-evidence/accepted/…`.
+4. Complete Service → Final Report → **PDF** with one embedded image per finding.
+5. Additive: historical CO2 (V1) and Wet Chemical (V4) still render 2-state.
 
 ---
 
@@ -283,6 +299,24 @@ Done: **3 / 12 on V7.**  Base template ready: 8 / 12.  New services (no template
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-04 (G7) — **Fire Alarm V7 "Sync Failed" root-caused: one photo on two findings.**
+  Browser repro on `SV-20260904-38` reproduced the owner's failure exactly and captured the
+  outbox `lastError`; the runtime rows for the owner's own `8b4cc663` show the same duplicate
+  `source_sha256`/`stored_sha256` pair. The 4-state model was never at fault — `d7ecc0d` and the
+  stored V7 definition are consistent (`fire_alarm_detector` contract
+  `3dafe01f42efd7d9ca8adfdfd288356d212406c38e82ad33c21bcd327a29e3b0`, `allowedValues` =
+  4-state). Both forms already render `record.lastSyncError`; the message itself
+  ("This V7 inspection is unavailable") was the problem, not its absence.
+  `fireAlarmV7.integration.test.ts` did submit `not_good` + `na` + evidence, so it was green —
+  its real gaps were `complete_repair`, secondary alarm-device rows (it sent `[]`), and any
+  duplicate-photo case. All three now covered. API + web typecheck/build, all 4 V7 integration
+  suites, historical matrix (20), V6 evidence (8) and every web unit gate re-run green.
+  **Not yet done: the 4-state browser sanity pass** — the in-app browser profile's IndexedDB
+  wedged (`inspection-pwa` v90, `deleteDatabase` permanently blocked) and its technician session
+  is gone; agents must not enter passwords. Owner: sign in as `technician-demo` in a clean
+  profile and run §4 G7's checklist. Runtime already rebuilt and recreated on the fix
+  (`build-20260903T174358Z`, API booted clean).
 
 - 2026-09-03 (owner UI fix) — Fire Alarm primary device rows lost their visible column labels in
   the multi-select change: `MultiResultSelector` exposes `label` only as `aria-label`, and Fire
