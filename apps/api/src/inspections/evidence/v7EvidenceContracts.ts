@@ -180,6 +180,20 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   return fireAlarmAdapter(values.definition);
 }
 
+/** `parseV7EvidenceManifest` deliberately collapses every refusal into one
+ * `undefined` so a caller cannot use it to probe the frozen contract.  The
+ * technician still has to be told which of their own actions to undo, and
+ * attaching one photo to two findings is the only case they can reach by hand —
+ * so that one is named.  Nothing here reads the contract or the response. */
+export function v7EvidenceManifestFailureMessage(value: unknown, fallback: string) {
+  const sources = (Array.isArray(value) ? value : [])
+    .map((entry) => isRecord(entry) && typeof entry.sourceSha256 === "string" ? entry.sourceSha256 : undefined)
+    .filter((entry): entry is string => entry !== undefined);
+  return new Set(sources).size !== sources.length
+    ? "Each finding needs its own photo; the same image is attached to more than one finding"
+    : fallback;
+}
+
 export function parseV7EvidenceManifest(value: unknown, adapter: V7EvidenceContractAdapter, response: unknown) {
   if (!Array.isArray(value) || value.length > 250) return undefined;
   const required = adapter.derivePoorFieldPaths(response);

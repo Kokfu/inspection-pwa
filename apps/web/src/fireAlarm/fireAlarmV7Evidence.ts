@@ -53,8 +53,24 @@ export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attac
     }
   });
   for (const row of responses.secondaryAlarmDeviceRows) for (const key of ["alarmBell", "manualCallPoint"] as const) if (isEvidenceFinding(row[key]) && !row.fieldRemarks?.[key]?.trim()) issues.push(`Alarm-device row ${row.displaySequence} requires its own ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`);
+  const required = v7RequiredFireAlarmFieldPaths(responses);
   const fields = new Set(attachments.filter((attachment) => attachment.protocolVersion === 7).map((attachment) => attachment.fieldPath));
-  for (const fieldPath of v7RequiredFireAlarmFieldPaths(responses)) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
+  for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
+  issues.push(...duplicateV7PhotoIssues(attachments, required));
+  return issues;
+}
+/** The server refuses a manifest that reuses one image across two findings
+ * (`parseV7EvidenceManifest`) and the accepted-evidence unique indexes refuse it
+ * again per Job + system.  Catching it here is what keeps an offline technician
+ * from stranding finished work in the outbox — the G7 failure mode. */
+export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
+  const required = new Set<string>(requiredFieldPaths);
+  const issues: string[] = []; const firstUse = new Map<string, string>();
+  for (const attachment of attachments.filter((item) => item.protocolVersion === 7 && required.has(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
+    const earlier = firstUse.get(attachment.sha256);
+    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    else firstUse.set(attachment.sha256, attachment.fieldPath);
+  }
   return issues;
 }
 export async function saveFireAlarmV7Photo(values: { record: FireAlarmInspectionRecord; fieldPath: FireAlarmV7FieldPath; captureSource: AttachmentCaptureSource; blob: Blob; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; sha256: string; capturedAt?: string }) {
@@ -63,7 +79,10 @@ export async function saveFireAlarmV7Photo(values: { record: FireAlarmInspection
   await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.inspectionAttachments, async () => {
     const live = await localDatabase.masterSystemInspections.get(values.record.clientUuid);
     if (!live || live.systemKey !== "fire_alarm_detector" || live.masterTemplate.version !== 7 || live.syncStatus !== "Draft") throw new Error("Fire Alarm V7 Draft changed before evidence was saved");
-    const existing = await localDatabase.inspectionAttachments.where("[inspectionClientUuid+fieldPath]").equals([live.clientUuid, values.fieldPath]).first(); const timestamp = now();
+    const held = await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(live.clientUuid).toArray();
+    const clash = held.find((item) => item.protocolVersion === 7 && item.sha256 === values.sha256 && item.fieldPath !== values.fieldPath);
+    if (clash) throw new Error(`This photo is already attached to ${clash.fieldPath}. Each finding needs its own photo.`);
+    const existing = held.find((item) => item.fieldPath === values.fieldPath); const timestamp = now();
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: "fire_alarm_detector", fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }

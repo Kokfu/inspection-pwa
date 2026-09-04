@@ -98,6 +98,60 @@ test("every client-accepted detector-state combination is accepted by the server
   }
 });
 
+const attachment = (fieldPath: string, sha256: string) => ({
+  photoUuid: crypto.randomUUID(), fieldPath, sha256, protocolVersion: 7
+} as unknown as Parameters<typeof v7FireAlarmSubmissionIssues>[1][number]);
+
+const twoFindings = () => responses({
+  chargerAndBatteries: {
+    main_supply: { result: "not_good", remarks: "Supply low" },
+    battery: { result: "good", remarks: "" },
+    charger: { result: "na", remarks: "" }
+  },
+  mainFunctionKeys: {
+    main_alarm_reset: { result: "complete_repair", remarks: "Reset board replaced" },
+    lamp_test: { result: "good", remarks: "" }, evacuate: { result: "good", remarks: "" },
+    ac_supply: { result: "good", remarks: "" }, dc_supply: { result: "good", remarks: "" },
+    spka_system: { result: "good", remarks: "" }, alarm_lift_trip: { result: "good", remarks: "" },
+    signal_gas_discharge: { result: "good", remarks: "" }
+  }
+});
+
+// G7: the owner attached one photo to two findings.  The server refuses that
+// manifest, so without this gate the form queues work that can never be accepted
+// — offline, that is unrecoverable field data loss.
+test("one photo reused across two findings is refused before it can be queued", () => {
+  const issues = v7FireAlarmSubmissionIssues(twoFindings(), [
+    attachment("charger_batteries.charger_battery_checks.main_supply", "same-bytes"),
+    attachment("main_function_key.function_checks.main_alarm_reset", "same-bytes")
+  ]);
+  assert.ok(
+    issues.some((issue) => /use the same photo; each finding needs its own photo/.test(issue)),
+    `expected a duplicate-photo issue, got ${JSON.stringify(issues)}`
+  );
+});
+
+test("distinct photos on two findings raise no issue", () => {
+  assert.deepEqual(v7FireAlarmSubmissionIssues(twoFindings(), [
+    attachment("charger_batteries.charger_battery_checks.main_supply", "bytes-a"),
+    attachment("main_function_key.function_checks.main_alarm_reset", "bytes-b")
+  ]), []);
+});
+
+test("a photo left over on a field that is no longer a finding does not count as a duplicate", () => {
+  const draft = responses({
+    chargerAndBatteries: {
+      main_supply: { result: "not_good", remarks: "Supply low" },
+      battery: { result: "good", remarks: "" },
+      charger: { result: "good", remarks: "" }
+    }
+  });
+  assert.deepEqual(v7FireAlarmSubmissionIssues(draft, [
+    attachment("charger_batteries.charger_battery_checks.main_supply", "bytes-a"),
+    attachment("charger_batteries.charger_battery_checks.battery", "bytes-a")
+  ]), []);
+});
+
 test("each V7 finding state requires its own remark and photo", () => {
   const poor = v7FireAlarmSubmissionIssues(
     responses({ chargerAndBatteries: {

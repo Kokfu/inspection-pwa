@@ -30,8 +30,23 @@ export function v7SubmissionIssues(record: MasterSystemFormInstanceRecord, respo
   for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) {
     if (isEvidenceFinding(value.result) && !value.remarks.trim()) issues.push(`${prefix}.${key} requires its own Remark`);
   }
+  const required = v7RequiredFieldPaths(responses);
   const fields = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
-  for (const fieldPath of v7RequiredFieldPaths(responses)) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
+  for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
+  issues.push(...duplicateV7PhotoIssues(attachments, required));
+  return issues;
+}
+/** See the Fire Alarm twin: the server refuses one image reused across two
+ * findings, so the submit gate has to refuse it first or offline work strands
+ * in the outbox (G7). */
+export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
+  const required = new Set<string>(requiredFieldPaths);
+  const issues: string[] = []; const firstUse = new Map<string, string>();
+  for (const attachment of attachments.filter((item) => item.protocolVersion === 7 && required.has(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
+    const earlier = firstUse.get(attachment.sha256);
+    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    else firstUse.set(attachment.sha256, attachment.fieldPath);
+  }
   return issues;
 }
 export async function listV7SuppressionPhotos(inspectionClientUuid: string) {
@@ -43,7 +58,10 @@ export async function saveV7SuppressionPhoto(values: { record: MasterSystemFormI
   await localDatabase.transaction("rw", localDatabase.masterSystemFormInstances, localDatabase.inspectionAttachments, async () => {
     const live = await localDatabase.masterSystemFormInstances.get(values.record.clientUuid);
     if (!live || live.clientUuid !== values.record.clientUuid || live.syncStatus !== "Draft" || live.masterTemplate.version !== 7) throw new Error("V7 Draft changed before evidence was saved");
-    const existing = await localDatabase.inspectionAttachments.where("[inspectionClientUuid+fieldPath]").equals([live.clientUuid, values.fieldPath]).first();
+    const held = await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(live.clientUuid).toArray();
+    const clash = held.find((item) => item.protocolVersion === 7 && item.sha256 === values.sha256 && item.fieldPath !== values.fieldPath);
+    if (clash) throw new Error(`This photo is already attached to ${clash.fieldPath}. Each finding needs its own photo.`);
+    const existing = held.find((item) => item.fieldPath === values.fieldPath);
     const timestamp = now();
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: live.systemKey, fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });

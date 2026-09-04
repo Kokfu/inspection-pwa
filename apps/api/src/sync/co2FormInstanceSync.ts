@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { pool } from "../db/pool.js";
 import { resolveCo2Controls, type ResolvedCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
-import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
+import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256, v7EvidenceManifestFailureMessage } from "../inspections/evidence/v7EvidenceContracts.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 
 type UnknownRecord = Record<string, unknown>;
@@ -242,7 +242,7 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
     try {
       await client.query("BEGIN");
       const preManifest = payload.masterTemplate.version === 7 ? v7Manifest(payload.evidenceManifest) : [];
-      if (payload.masterTemplate.version === 7 && !preManifest) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "V7 evidence manifest is invalid")); continue; }
+      if (payload.masterTemplate.version === 7 && !preManifest) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", v7EvidenceManifestFailureMessage(payload.evidenceManifest, "V7 evidence manifest is invalid"))); continue; }
       if (payload.masterTemplate.version === 7) {
         requestFingerprint = createHash("sha256").update(canonicalize({ clientUuid: payload.clientUuid, jobId: payload.jobId, systemKey: payload.systemKey, instanceKey: payload.instanceKey, configuredZoneId: payload.configuredZoneId, configuredLocationId: payload.configuredLocationId, displaySequence: payload.displaySequence, masterTemplate: payload.masterTemplate, configuration: payload.configuration, responses: payload.responses, performedAt: payload.performedAt, originalCreatorSnapshot: payload.originalCreatorSnapshot, evidenceManifest: preManifest })).digest("hex");
         const existing = await client.query<{ request_fingerprint: string; synced_by_user_id: string }>("SELECT instance.request_fingerprint,instance.synced_by_user_id FROM master_system_form_instances instance INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id WHERE instance.client_uuid=$1 AND inspection.system_key=$2 FOR UPDATE", [payload.clientUuid, payload.systemKey]);
@@ -279,7 +279,7 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       }
       const v7Adapter = payload.masterTemplate.version === 7 ? resolveV7EvidenceContract({ systemKey: payload.systemKey, templateId: payload.masterTemplate.id, templateVersion: 7, definition: definitionResult.rows[0].definition, contractSha256: v7EvidenceContractSha256(definitionResult.rows[0].definition) }) : undefined;
       const evidenceManifest = v7Adapter ? parseV7EvidenceManifest(payload.evidenceManifest, v7Adapter, payload.responses) : [];
-      if (payload.masterTemplate.version === 7 && (!v7Adapter || !evidenceManifest || !actorUserId)) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", "V7 evidence manifest is invalid")); continue; }
+      if (payload.masterTemplate.version === 7 && (!v7Adapter || !evidenceManifest || !actorUserId)) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "VALIDATION_ERROR", v7Adapter && actorUserId ? v7EvidenceManifestFailureMessage(payload.evidenceManifest, "V7 evidence photos do not match the current findings") : "V7 evidence manifest is invalid")); continue; }
       if (payload.masterTemplate.version === 7) {
         const reservation = await client.query<{ job_id: string; system_key: string; master_template_version_id: string; master_template_version: number; system_contract_sha256: string; reserved_by_user_id: string }>(
           "SELECT job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256,reserved_by_user_id FROM inspection_evidence_reservations WHERE inspection_client_uuid=$1 FOR UPDATE",
@@ -339,9 +339,13 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
       const formInstanceId = randomUUID();
       if (evidenceManifest && evidenceManifest.length) {
         const staged = await client.query<{ photo_uuid: string; field_path: string; source_sha256: string; stored_sha256: string; uploader_user_id: string; job_id: string; system_key: string; master_template_version_id: string; master_template_version: number; system_contract_sha256: string }>(`SELECT photo_uuid,field_path,source_sha256,stored_sha256,uploader_user_id,job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256 FROM staged_inspection_evidence WHERE inspection_client_uuid=$1 AND status='staged' FOR UPDATE`, [payload.clientUuid]);
-        const byPath = new Map(staged.rows.map((row) => [row.field_path, row])); const stored = new Set<string>();
+        const byPath = new Map(staged.rows.map((row) => [row.field_path, row]));
         const contractSha256 = v7EvidenceContractSha256(definitionResult.rows[0].definition);
-        if (staged.rows.length !== evidenceManifest.length || evidenceManifest.some((entry) => { const row = byPath.get(entry.fieldPath); return !row || row.photo_uuid !== entry.photoUuid || row.source_sha256 !== entry.sourceSha256 || row.job_id !== payload.jobId || row.system_key !== payload.systemKey || row.master_template_version_id !== payload.masterTemplate.id || row.master_template_version !== 7 || row.system_contract_sha256 !== contractSha256 || row.uploader_user_id !== String(actorUserId) || stored.has(row.stored_sha256) || !(stored.add(row.stored_sha256), true); })) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "JOB_ACCESS_DENIED", "This V7 form is not available to this actor")); continue; }
+        // Two different source images can still normalize to the same stored bytes,
+        // which the manifest check cannot see.  Reported on its own rather than as
+        // "not available to this actor", which is untrue and unactionable (G7).
+        if (staged.rows.length === evidenceManifest.length && new Set(staged.rows.map((row) => row.stored_sha256)).size !== staged.rows.length) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "EVIDENCE_NOT_STAGED", "Each finding needs its own photo; two findings resolved to the same stored image")); continue; }
+        if (staged.rows.length !== evidenceManifest.length || evidenceManifest.some((entry) => { const row = byPath.get(entry.fieldPath); return !row || row.photo_uuid !== entry.photoUuid || row.source_sha256 !== entry.sourceSha256 || row.job_id !== payload.jobId || row.system_key !== payload.systemKey || row.master_template_version_id !== payload.masterTemplate.id || row.master_template_version !== 7 || row.system_contract_sha256 !== contractSha256 || row.uploader_user_id !== String(actorUserId); })) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "JOB_ACCESS_DENIED", "This V7 form is not available to this actor")); continue; }
         const acceptedHashes = await client.query<{ photo_uuid: string; source_sha256: string; stored_sha256: string }>(`SELECT photo_uuid,source_sha256,stored_sha256 FROM staged_inspection_evidence WHERE job_id=$1 AND system_key=$2 AND master_template_version=7 AND status='accepted' AND (photo_uuid=ANY($3::uuid[]) OR source_sha256=ANY($4::text[]) OR stored_sha256=ANY($5::text[])) FOR UPDATE`, [payload.jobId, payload.systemKey, staged.rows.map((row) => row.photo_uuid), staged.rows.map((row) => row.source_sha256), staged.rows.map((row) => row.stored_sha256)]);
         if (acceptedHashes.rowCount) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence hashes are already bound to another location in this Job")); continue; }
       }
