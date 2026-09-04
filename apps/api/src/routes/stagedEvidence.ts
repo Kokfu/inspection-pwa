@@ -88,7 +88,7 @@ stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspecto
     const result = await pool.query(`SELECT evidence.photo_uuid AS "photoUuid",evidence.system_key AS "systemKey",evidence.field_path AS "fieldPath",evidence.source_sha256 AS "sourceSha256",evidence.stored_sha256 AS "storedSha256",evidence.mime_type AS "mimeType",evidence.stored_size_bytes AS "sizeBytes",evidence.width,evidence.height,evidence.form_instance_id AS "formInstanceId"
       FROM staged_inspection_evidence evidence
       INNER JOIN master_system_form_instances form ON form.id=evidence.form_instance_id AND form.client_uuid=$1 AND form.status='submitted'
-      INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector')
+      INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector','hydrant','hose_reel','automatic_sprinkler')
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.inspection_client_uuid=$1 AND evidence.master_template_version=7 AND evidence.status='accepted'
         AND ($2::text='admin' OR (job.technician_visible=true AND form.synced_by_user_id=$3))
@@ -103,7 +103,7 @@ stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole
     if (typeof photoUuid !== "string" || !uuid.test(photoUuid)) { response.status(400).json({ error: "INVALID_ATTACHMENT_ID" }); return; }
     const result = await pool.query<{ storage_relative_path: string }>(`SELECT evidence.storage_relative_path FROM staged_inspection_evidence evidence
       INNER JOIN master_system_form_instances form ON form.id=evidence.form_instance_id AND form.status='submitted'
-      INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector')
+      INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector','hydrant','hose_reel','automatic_sprinkler')
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.photo_uuid=$1 AND evidence.master_template_version=7 AND evidence.status='accepted'
         AND ($2::text='admin' OR (job.technician_visible=true AND form.synced_by_user_id=$3))`, [photoUuid, request.currentUser!.role, request.currentUser!.id]);

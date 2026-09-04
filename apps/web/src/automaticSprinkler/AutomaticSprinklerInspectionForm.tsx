@@ -88,6 +88,12 @@ export function AutomaticSprinklerInspectionForm({
           : "Inspection Complete"
     : statusLabels[record.syncStatus];
   const evidencePolicy = useMemo(() => {
+    // The legacy Cut-In / Cut-Out PSI photo lifecycle belongs to V1-V6 records
+    // only. A V7 sprinkler carries V7 finding evidence exclusively and its
+    // accepted form instance has no frozen evidence policy, so a captured PSI
+    // photo could never upload (403 EVIDENCE_NOT_ALLOWED) and would strand the
+    // outbox. Never surface the control on a V7 record.
+    if (isV7) return undefined;
     try {
       return resolveAutomaticSprinklerEvidencePolicy(
         record.inspectionSnapshot.system.evidencePolicy
@@ -95,7 +101,7 @@ export function AutomaticSprinklerInspectionForm({
     } catch {
       return undefined;
     }
-  }, [record.inspectionSnapshot.system.evidencePolicy]);
+  }, [isV7, record.inspectionSnapshot.system.evidencePolicy]);
 
   useEffect(() => setResponses(record.responses), [record]);
   async function refreshAttachments() {

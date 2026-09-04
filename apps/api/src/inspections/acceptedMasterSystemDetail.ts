@@ -218,3 +218,54 @@ export function validateAcceptedHoseReelV7Detail(row: R) {
   if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
   return { snapshot, adapter };
 }
+
+/**
+ * Automatic Sprinkler V7 is single-instance with no repeatable table.  Its
+ * schema-2 response carries a flat checklist (including the three-row Test Run
+ * block) plus PSI measurement rows, and a frozen evidence manifest.  V7
+ * Automatic Sprinkler deliberately DROPS the legacy Cut-In/Cut-Out PSI photo
+ * lifecycle, so there is no evidence policy on the form instance and nothing to
+ * reconcile against `inspection_attachments` here.  This reader stays separate
+ * from `validateAutomaticSprinklerHistoricalPayload` so the V1-V6 validator can
+ * never learn the schema-2 shape.  Re-derive the adapter from the stored
+ * definition, then re-parse the manifest against the stored response.
+ */
+export function validateAcceptedAutomaticSprinklerV7Detail(row: R) {
+  if (!identity(row) || row.systemKey !== "automatic_sprinkler" || row.instanceKey !== "primary"
+    || row.zoneId !== null || row.locationId !== null || row.displaySequence !== 1
+    || !rec(row.inspectionSnapshot) || !rec(row.responses)) return undefined;
+  const snapshot = row.inspectionSnapshot;
+  if (!exact(snapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "contractSha256", "instance", "evidenceManifest"])
+    || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
+    || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
+    || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
+    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
+    || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
+    || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
+    || !rec(snapshot.template) || !exact(snapshot.template, ["id", "code", "version"]) || snapshot.template.id !== row.templateId || snapshot.template.code !== "MFE-FSSR" || snapshot.template.version !== 7
+    || !rec(snapshot.system) || snapshot.system.key !== "automatic_sprinkler" || snapshot.system.systemKey !== "automatic_sprinkler" || snapshot.system.definitionStatus !== "confirmed" || snapshot.system.repetitionMode !== "single" || !rec(snapshot.system.definition)
+    || !rec(snapshot.instance) || !exact(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"]) || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+    || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
+  const response = row.responses;
+  const checklistKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions", "breaching_inlet", "alarm_gong", "flow_meter_valve_positions", "trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"];
+  const measurementKeys = [["jockey_pump_pressure", ["cut_in", "cut_out"]], ["duty_pump_cut_in", ["value"]], ["standby_pump_cut_in", ["value"]], ["water_supply_gauge", ["value"]], ["installation_gauge", ["value"]]] as const;
+  if (!exact(response, ["schemaVersion", "checklist", "measurements", "comments"]) || response.schemaVersion !== 2
+    || !rec(response.checklist) || !exact(response.checklist, checklistKeys) || !rec(response.measurements)
+    || !exact(response.measurements, measurementKeys.map(([key]) => key))
+    || typeof response.comments !== "string" || response.comments.length > 4000) return undefined;
+  for (const key of checklistKeys) {
+    const item = response.checklist[key];
+    if (!rec(item) || !exact(item, ["result", "remarks"]) || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000) return undefined;
+  }
+  for (const [key, valueKeys] of measurementKeys) {
+    const item = response.measurements[key];
+    const values = rec(item) && rec(item.values) ? item.values : undefined;
+    if (!rec(item) || !exact(item, ["values", "unit", "result", "remarks"]) || !values || !exact(values, valueKeys)
+      || item.unit !== "PSI" || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000
+      || valueKeys.some((field) => values[field] !== null && (typeof values[field] !== "number" || !Number.isFinite(values[field])))) return undefined;
+  }
+  const adapter = resolveV7EvidenceContract({ systemKey: "automatic_sprinkler", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+  if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
+  return { snapshot, adapter };
+}

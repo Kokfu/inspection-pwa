@@ -191,6 +191,16 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
     const adapter = resolveV7EvidenceContract({ systemKey: "hose_reel", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
     return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
   }
+  if (row.system_key === "automatic_sprinkler" && snapshot.schemaVersion === 2) {
+    if (frozenTemplate.version !== 7 || snapshot.template.version !== 7 || snapshot.system.key !== "automatic_sprinkler"
+      || snapshot.system.systemKey !== "automatic_sprinkler" || snapshot.system.repetitionMode !== "single"
+      || !isRecord(snapshot.system.definition) || !isRecord(snapshot.instance)
+      || !exactKeys(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"])
+      || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+      || typeof snapshot.contractSha256 !== "string") return false;
+    const adapter = resolveV7EvidenceContract({ systemKey: "automatic_sprinkler", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+    return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
+  }
   if (snapshot.system.enabledSystemId !== system.enabledSystemId || snapshot.system.definitionStatus !== "confirmed") return false;
   switch (row.system_key) {
     case "automatic_sprinkler": return validateAutomaticSprinklerHistoricalPayload(response, snapshot);
@@ -324,7 +334,7 @@ async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInst
 async function validatedV7SuppressionEvidence(database: Queryable, row: ReportInstanceRow) {
   const snapshot = row.inspection_snapshot;
   if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
-    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
+    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
   const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
   const required = adapter?.derivePoorFieldPaths(row.response_payload);
   if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
@@ -469,7 +479,7 @@ export async function loadFinalServiceReport(
       const location = historicalLocation(system, unit, matching[0]!.instance_key);
       if (unit.authorityKey.startsWith("location:") && !location) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Frozen report location identity is unavailable.");
       sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location,
-        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
+        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? (isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedEvidence(matching, system)) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
     }
   }
   return { customer, site, serviceDate, jobReference: reference,

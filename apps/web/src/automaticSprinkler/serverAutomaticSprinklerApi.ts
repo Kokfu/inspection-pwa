@@ -1,4 +1,4 @@
-import type { LegacyAutomaticSprinklerResponses, ResolvedAutomaticSprinklerControls } from "./automaticSprinklerTypes";
+import type { AutomaticSprinklerV7ChecklistKey, LegacyAutomaticSprinklerResponses, ResolvedAutomaticSprinklerControls, SprinklerResult, V7AutomaticSprinklerResponses } from "./automaticSprinklerTypes";
 
 type UnknownRecord = Record<string, unknown>;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -17,10 +17,15 @@ const mainAlarmValve = ["breaching_inlet", "alarm_gong", "flow_meter_valve_posit
 const measurementKeys = ["jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "water_supply_gauge", "installation_gauge"] as const;
 const measurementSortOrders: Readonly<Record<(typeof measurementKeys)[number], number>> = { jockey_pump_pressure: 1, duty_pump_cut_in: 2, standby_pump_cut_in: 3, water_supply_gauge: 1, installation_gauge: 2 };
 const evidencePaths = ["measurements.jockey_pump_pressure.cut_in", "measurements.jockey_pump_pressure.cut_out", "measurements.duty_pump_cut_in.value", "measurements.standby_pump_cut_in.value", "measurements.water_supply_gauge.value", "measurements.installation_gauge.value"] as const;
+const v7TemplateId = "00000000-0000-4000-8000-000000000807";
+const v7ChecklistKeys = [...waterTank, ...pumpHouse, ...mainAlarmValve, "trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"] as const satisfies readonly AutomaticSprinklerV7ChecklistKey[];
+const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
+const measurementValueKeys: Readonly<Record<(typeof measurementKeys)[number], readonly string[]>> = { jockey_pump_pressure: ["cut_in", "cut_out"], duty_pump_cut_in: ["value"], standby_pump_cut_in: ["value"], water_supply_gauge: ["value"], installation_gauge: ["value"] };
+const v7DetailKeys = ["clientUuid", "serverFormInstanceId", "jobId", "jobReference", "jobTitle", "customerName", "systemKey", "systemLabel", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "receivedAt", "template", "configuration", "responses", "displayControls", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"] as const;
 
 export type ServerInspectionAttachment = { serverAttachmentId: string; photoUuid: string; inspectionClientUuid: string; status: "accepted"; fieldPath: string; captureSource: "camera" | "gallery" | "unknown"; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; sourceSha256: string; storedSha256: string; capturedAt: string; receivedAt: string };
 type ServerEvidencePolicy = { id: string; version: 1; definition: { schemaVersion: 1; code: "automatic-sprinkler-psi-evidence"; version: 1; systemKey: "automatic_sprinkler"; points: Record<(typeof evidencePaths)[number], { allowed: true; required: false; maxCount: 1 }> }; definitionSha256: string };
-export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; responses: LegacyAutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
+export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; templateVersion?: 7; responses: LegacyAutomaticSprinklerResponses | V7AutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls | null; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
 
 export class ServerInspectionNotFoundError extends Error {}
 export class InvalidServerInspectionDetailError extends Error {}
@@ -78,7 +83,35 @@ function parseEvidencePolicy(value: UnknownRecord) {
   for (const path of evidencePaths) { const point = value.evidencePolicyDefinition.points[path]; if (!exactKeys(point, ["allowed", "required", "maxCount"]) || point.allowed !== true || point.required !== false || point.maxCount !== 1) return undefined; }
   return { id: policyId, version: 1 as const, definition: value.evidencePolicyDefinition as ServerEvidencePolicy["definition"], definitionSha256: policyHash };
 }
+/** V7 Automatic Sprinkler accepted detail: a schema-2 flat checklist (with the
+ * three-row Test Run block) plus PSI measurement rows, no legacy evidence
+ * policy, and its finding photos served from `/api/v7-evidence/accepted`. */
+function parseV7Responses(value: unknown): V7AutomaticSprinklerResponses | undefined {
+  if (!exactKeys(value, ["schemaVersion", "checklist", "measurements", "comments"]) || value.schemaVersion !== 2 || typeof value.comments !== "string" || value.comments.length > maxComments) return undefined;
+  if (!exactKeys(value.checklist, v7ChecklistKeys)) return undefined;
+  const checklist: Record<string, { result: SprinklerResult; remarks: string }> = {};
+  for (const key of v7ChecklistKeys) {
+    const item = value.checklist[key];
+    if (!exactKeys(item, ["result", "remarks"]) || typeof item.result !== "string" || !v7ResultValues.includes(item.result as (typeof v7ResultValues)[number]) || typeof item.remarks !== "string" || item.remarks.length > maxRemarks) return undefined;
+    checklist[key] = { result: item.result as SprinklerResult, remarks: item.remarks };
+  }
+  if (!exactKeys(value.measurements, measurementKeys)) return undefined;
+  const measurements: Record<string, { values: Record<string, number | null>; unit: string; result: SprinklerResult; remarks: string }> = {};
+  for (const key of measurementKeys) {
+    const item = value.measurements[key];
+    const memberKeys = measurementValueKeys[key];
+    if (!exactKeys(item, ["values", "unit", "result", "remarks"]) || item.unit !== "PSI" || typeof item.result !== "string" || !v7ResultValues.includes(item.result as (typeof v7ResultValues)[number]) || typeof item.remarks !== "string" || item.remarks.length > maxRemarks || !exactKeys(item.values, memberKeys) || memberKeys.some((member) => { const measured = (item.values as UnknownRecord)[member]; return measured !== null && (typeof measured !== "number" || !Number.isFinite(measured)); })) return undefined;
+    measurements[key] = { values: item.values as Record<string, number | null>, unit: "PSI", result: item.result as SprinklerResult, remarks: item.remarks };
+  }
+  return { schemaVersion: 2, checklist: checklist as V7AutomaticSprinklerResponses["checklist"], measurements: measurements as V7AutomaticSprinklerResponses["measurements"], comments: value.comments };
+}
 export function parseServerAutomaticSprinklerDetail(value: unknown): ServerAutomaticSprinklerDetail | undefined {
+  if (record(value) && exactKeys(value, v7DetailKeys) && value.systemKey === "automatic_sprinkler" && record(value.template) && value.template.version === 7) {
+    if (!text(value.clientUuid) || !uuid.test(value.clientUuid) || !text(value.serverFormInstanceId) || !uuid.test(value.serverFormInstanceId) || !text(value.jobId) || !uuid.test(value.jobId) || !text(value.jobReference, 250) || !text(value.jobTitle, 300) || !text(value.customerName, 250) || !text(value.systemLabel, 300) || value.instanceKey !== "primary" || value.zoneId !== null || value.locationId !== null || value.displaySequence !== 1 || value.status !== "submitted" || !canonicalTimestamp(value.performedAt) || !canonicalTimestamp(value.receivedAt) || value.displayControls !== null || !optionalText(value.deviceReportedCreatorUsername) || !optionalText(value.verifiedOriginalCreatorUsername) || !text(value.syncedByUsername) || value.template.id !== v7TemplateId || !record(value.configuration)) return undefined;
+    const responses = parseV7Responses(value.responses);
+    if (!responses) return undefined;
+    return { clientUuid: value.clientUuid, serverFormInstanceId: value.serverFormInstanceId, jobId: value.jobId, jobReference: value.jobReference, jobTitle: value.jobTitle, customerName: value.customerName, systemKey: "automatic_sprinkler", systemLabel: value.systemLabel, instanceKey: "primary", status: "submitted", performedAt: value.performedAt, receivedAt: value.receivedAt, templateVersion: 7, responses, displayControls: null, deviceReportedCreatorUsername: value.deviceReportedCreatorUsername as string | null, verifiedOriginalCreatorUsername: value.verifiedOriginalCreatorUsername as string | null, syncedByUsername: value.syncedByUsername, evidencePolicy: null, attachments: [] };
+  }
   const keys = ["clientUuid", "serverFormInstanceId", "jobId", "jobReference", "jobTitle", "customerName", "systemKey", "systemLabel", "instanceKey", "status", "performedAt", "receivedAt", "responses", "displayControls", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername", "evidencePolicyId", "evidencePolicyVersion", "evidencePolicyDefinition", "evidencePolicySha256"];
   if (!exactKeys(value, keys) || !text(value.clientUuid) || !uuid.test(value.clientUuid) || !text(value.serverFormInstanceId) || !uuid.test(value.serverFormInstanceId) || !text(value.jobId) || !uuid.test(value.jobId) || !text(value.jobReference) || !text(value.jobTitle) || !text(value.customerName) || value.systemKey !== "automatic_sprinkler" || !text(value.systemLabel) || value.instanceKey !== "primary" || value.status !== "submitted" || !canonicalTimestamp(value.performedAt) || !canonicalTimestamp(value.receivedAt) || !optionalText(value.deviceReportedCreatorUsername) || !optionalText(value.verifiedOriginalCreatorUsername) || !text(value.syncedByUsername)) return undefined;
   const responses = parseResponses(value.responses), displayControls = parseControls(value.displayControls), evidencePolicy = parseEvidencePolicy(value);
@@ -112,6 +145,9 @@ export async function loadServerAutomaticSprinklerDetail(clientUuid: string): Pr
   if (!exactKeys(envelope, ["inspection"])) throw new InvalidServerInspectionDetailError("Server returned invalid Automatic Sprinkler detail");
   const inspection = parseServerAutomaticSprinklerDetail(envelope.inspection);
   if (!inspection || inspection.clientUuid !== clientUuid) throw new InvalidServerInspectionDetailError("Server returned invalid Automatic Sprinkler detail");
+  // V7 Automatic Sprinkler drops the legacy PSI attachment lifecycle; its
+  // finding photos are read separately from `/api/v7-evidence/accepted`.
+  if (inspection.templateVersion === 7) return inspection;
   const attachments = await loadServerAttachments(clientUuid, inspection);
   return { ...inspection, attachments };
 }
