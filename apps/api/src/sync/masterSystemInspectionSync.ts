@@ -7,6 +7,7 @@ import {
   type ResultControlDefinition
 } from "../inspections/templates/definitionControls.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { acceptHoseReelV7Inspection, isHoseReelV7Payload } from "./hoseReelV7Acceptance.js";
 
 type SyncRequestItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
 type UnknownRecord = Record<string, unknown>;
@@ -184,6 +185,11 @@ function fingerprint(payload: HoseReelPayload, responses: UnknownRecord) {
 export async function syncMasterSystemInspections(items: SyncRequestItem[], actorUserId?: number): Promise<SyncResult> {
   const result: SyncResult = { acceptedIds: [], duplicateIds: [], failed: [] };
   for (const item of items) {
+    if (isHoseReelV7Payload(item)) {
+      const v7 = await acceptHoseReelV7Inspection(item, actorUserId);
+      result.acceptedIds.push(...v7.acceptedIds); result.duplicateIds.push(...v7.duplicateIds); result.failed.push(...v7.failed);
+      continue;
+    }
     const validation = validateItem(item);
     if (!validation.payload) { result.failed.push(validation.failure ?? failure("unknown", "VALIDATION_ERROR", "Invalid inspection")); continue; }
     const payload = validation.payload;

@@ -17,7 +17,7 @@ import { validateFireAlarmHistoricalPayload } from "../inspections/fireAlarmAcce
 import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { validateHydrantHistoricalPayload } from "../sync/hydrantInspectionSync.js";
 import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguisherSync.js";
-import { resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
+import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
 
 type RecordValue = Record<string, unknown>;
 type Queryable = { query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }> };
@@ -144,7 +144,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
-  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector") && isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
     || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
@@ -170,6 +170,16 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   if ((row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical")
     && snapshot.system.key === row.system_key) {
     return validSuppressionHistoricalUnit(row, snapshot, response, system);
+  }
+  if (row.system_key === "hydrant" && snapshot.schemaVersion === 2) {
+    if (frozenTemplate.version !== 7 || snapshot.template.version !== 7 || snapshot.system.key !== "hydrant"
+      || snapshot.system.systemKey !== "hydrant" || snapshot.system.repetitionMode !== "single_with_repeatable_rows"
+      || !isRecord(snapshot.system.definition) || !isRecord(snapshot.instance)
+      || !exactKeys(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"])
+      || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+      || typeof snapshot.contractSha256 !== "string") return false;
+    const adapter = resolveV7EvidenceContract({ systemKey: "hydrant", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+    return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
   }
   if (snapshot.system.enabledSystemId !== system.enabledSystemId || snapshot.system.definitionStatus !== "confirmed") return false;
   switch (row.system_key) {
@@ -304,7 +314,7 @@ async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInst
 async function validatedV7SuppressionEvidence(database: Queryable, row: ReportInstanceRow) {
   const snapshot = row.inspection_snapshot;
   if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
-    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
+    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
   const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
   const required = adapter?.derivePoorFieldPaths(row.response_payload);
   if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
@@ -449,7 +459,7 @@ export async function loadFinalServiceReport(
       const location = historicalLocation(system, unit, matching[0]!.instance_key);
       if (unit.authorityKey.startsWith("location:") && !location) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Frozen report location identity is unavailable.");
       sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location,
-        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
+        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? await validatedEvidence(matching, system) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
     }
   }
   return { customer, site, serviceDate, jobReference: reference,

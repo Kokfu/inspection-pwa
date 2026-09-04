@@ -3,7 +3,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
-import { validateAcceptedCo2Detail, validateAcceptedHoseReelDetail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { validateAcceptedCo2Detail, validateAcceptedHoseReelDetail, validateAcceptedHydrantV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -50,7 +50,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical", actor: { id: number; role: "admin" | "inspector" }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant", actor: { id: number; role: "admin" | "inspector" }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
@@ -429,7 +429,8 @@ masterSystemInspectionsRouter.get(
             instance.evidence_policy_id AS "evidencePolicyId",
             instance.evidence_policy_version AS "evidencePolicyVersion",
             instance.evidence_policy_snapshot AS "evidencePolicyDefinition",
-            instance.evidence_policy_sha256 AS "evidencePolicySha256"
+            instance.evidence_policy_sha256 AS "evidencePolicySha256",
+            instance.snapshot_schema_version AS "snapshotSchemaVersion"
           FROM master_system_form_instances instance
           INNER JOIN master_system_inspections inspection
             ON inspection.id = instance.inspection_group_id
@@ -446,6 +447,14 @@ masterSystemInspectionsRouter.get(
         response.status(404).json({ error: "INSPECTION_NOT_FOUND" });
         return;
       }
+      if (inspection.systemKey === "hydrant" && inspection.snapshotSchemaVersion === 2) {
+        const v7 = await acceptedDetailRow(clientUuid, "hydrant", request.currentUser!);
+        if (!v7) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+        if (!validateAcceptedHydrantV7Detail(v7)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+        response.json({ inspection: { ...acceptedDetailResponse(v7, "Hydrant System"), displayControls: null } });
+        return;
+      }
+      delete inspection.snapshotSchemaVersion;
       response.json({ inspection });
     } catch (error) {
       next(error);

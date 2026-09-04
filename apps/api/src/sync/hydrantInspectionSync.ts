@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { pool } from "../db/pool.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 import { isCompatibleSystemContract } from "../inspections/templates/systemContractCompatibility.js";
+import { acceptHydrantV7Inspection, isHydrantV7Payload } from "./hydrantV7Acceptance.js";
 type R=Record<string,unknown>;const rec=(x:unknown):x is R=>typeof x==="object"&&x!==null&&!Array.isArray(x);const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;const fail=(id:string,code:string,message:string):SyncFailure=>({id,code,message});
 type SyncItem={operationId:unknown;entityType:unknown;entityId:unknown;action:unknown;payload:unknown};
 type HydrantPayload=R&{clientUuid:string;jobId:string;systemKey:"hydrant";masterTemplate:R&{id:string;code:"MFE-FSSR";version:number};configuration:R&{revisionId:string;revisionNumber:number};inspectionSnapshot:R;responses:R;performedAt:string;originalCreatorSnapshot:R|null};
@@ -29,7 +30,7 @@ function sameSnapshot(value: unknown, expected: { id: string; displayName: strin
     && value.displayName === expected.displayName;
 }
 
-function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydrantRow[] | undefined {
+export function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydrantRow[] | undefined {
   if (!uuid.test(String(system.enabledSystemId)) || !Array.isArray(system.zones) || !Array.isArray(system.locations)) return undefined;
 
   const enabledSystemId = system.enabledSystemId;
@@ -83,7 +84,7 @@ function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydrantRow[
   return expected.length <= 250 ? expected : undefined;
 }
 
-function configuredHydrantRowsMatch(responses: unknown, expected: ExpectedConfiguredHydrantRow[]) {
+export function configuredHydrantRowsMatch(responses: unknown, expected: ExpectedConfiguredHydrantRow[]) {
   if (!rec(responses) || !Array.isArray(responses.rows)) return false;
   const expectedByIdentity = new Map(expected.map((row) => [`${row.locationId}:${row.ordinal}`, row]));
   if (expectedByIdentity.size !== expected.length) return false;
@@ -178,6 +179,14 @@ export async function syncHydrantInspections(
 
   for (const item of items) {
     const id = typeof item.entityId === "string" ? item.entityId : "unknown";
+    // V7 Hydrant owns its own atomic acceptance (frozen manifest + staged
+    // evidence binding).  It is dispatched before the historical path, which
+    // stays exactly as it was for V1-V6.
+    if (isHydrantV7Payload(item)) {
+      const v7 = await acceptHydrantV7Inspection(item, actorUserId);
+      out.acceptedIds.push(...v7.acceptedIds); out.duplicateIds.push(...v7.duplicateIds); out.failed.push(...v7.failed);
+      continue;
+    }
     if (typeof item.operationId !== "string" || !uuid.test(item.operationId) || item.entityType !== "masterSystemInspection" || item.action !== "create"
       || typeof item.entityId !== "string" || !uuid.test(item.entityId) || !rec(item.payload)) {
       out.failed.push(fail(id, "VALIDATION_ERROR", "Hydrant sync operation is invalid"));

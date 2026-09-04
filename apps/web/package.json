@@ -14,7 +14,10 @@
     "test:repeatable-rows": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/repeatableRows.test.ts",
     "test:historical-draft": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/historicalDraftCompatibility.test.ts",
     "test:v7-catalog-contract": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7CatalogContractResolution.test.ts",
+    "test:v7-cross-instance-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/co2V7CrossInstanceEvidence.test.ts",
+    "test:v7-cross-instance-browser": "playwright test tests/co2-v7-cross-instance.spec.ts",
     "test:v7-fire-alarm-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmV7SubmissionIssues.test.ts",
+    "test:v7-hydrant-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hydrantV7SubmissionIssues.test.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"
   },

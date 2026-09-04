@@ -2,6 +2,7 @@ import { resolveHoseReelControls } from "./templates/definitionControls.js";
 import { resolveCo2Controls } from "./templates/co2DefinitionControls.js";
 import { validateHoseReelSubmission } from "../sync/masterSystemInspectionSync.js";
 import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
+import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "./evidence/v7EvidenceContracts.js";
 
 type R = Record<string, unknown>;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -112,4 +113,48 @@ export function validateAcceptedCo2Detail(row: R) {
 
 export function validateAcceptedWetChemicalDetail(row: R) {
   return validateAcceptedSuppressionDetail(row, "wet_chemical");
+}
+
+/**
+ * V7 Hydrant snapshots intentionally have a different, frozen shape from the
+ * V1-V6 Hydrant snapshot.  Keep this reader separate so accepting the V7
+ * `instance` and `evidenceManifest` keys can never broaden the historical
+ * validator.
+ */
+export function validateAcceptedHydrantV7Detail(row: R) {
+  if (!identity(row) || row.systemKey !== "hydrant" || row.instanceKey !== "primary"
+    || row.zoneId !== null || row.locationId !== null || row.displaySequence !== 1
+    || !rec(row.inspectionSnapshot) || !rec(row.responses)) return undefined;
+  const snapshot = row.inspectionSnapshot;
+  if (!exact(snapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "contractSha256", "instance", "evidenceManifest"])
+    || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
+    || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
+    || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
+    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
+    || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
+    || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
+    || !rec(snapshot.template) || !exact(snapshot.template, ["id", "code", "version"]) || snapshot.template.id !== row.templateId || snapshot.template.code !== "MFE-FSSR" || snapshot.template.version !== 7
+    || !rec(snapshot.system) || snapshot.system.key !== "hydrant" || snapshot.system.systemKey !== "hydrant" || snapshot.system.definitionStatus !== "confirmed" || snapshot.system.repetitionMode !== "single_with_repeatable_rows" || !rec(snapshot.system.definition)
+    || !rec(snapshot.instance) || !exact(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"]) || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+    || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
+  const response = row.responses;
+  const responseKeys = ["schemaVersion", "hydrantType", "rows", "comments"];
+  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "canvasHose1Result", "canvasHose2Result", "diffuserNozzleResult", "landingValveResult", "landingValveHandleResult", "hoseCabinetResult", "keyLockResult", "remarks", "fieldRemarks", "sortOrder"];
+  const resultKeys = ["canvasHose1Result", "canvasHose2Result", "diffuserNozzleResult", "landingValveResult", "landingValveHandleResult", "hoseCabinetResult", "keyLockResult"];
+  if (!exact(response, responseKeys) || response.schemaVersion !== 1 || !["pressurize", "meter", "public"].includes(String(response.hydrantType)) || typeof response.comments !== "string" || response.comments.length > 4000
+    || !Array.isArray(response.rows) || response.rows.length < 1 || response.rows.length > 250) return undefined;
+  const rowIds = new Set<string>();
+  for (const [index, item] of response.rows.entries()) {
+    if (!rec(item) || !exact(item, rowKeys) || typeof item.rowUuid !== "string" || !uuid.test(item.rowUuid) || rowIds.has(item.rowUuid)
+      || item.sortOrder !== index + 1 || !text(item.locationText, 300) || typeof item.assetReference !== "string" || item.assetReference.length > 200 || typeof item.remarks !== "string" || item.remarks.length > 2000
+      || !rec(item.fieldRemarks) || Object.keys(item.fieldRemarks).some((key) => !resultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
+    if (item.source === "configured") {
+      if (typeof item.configuredLocationId !== "string" || !uuid.test(item.configuredLocationId) || !Number.isSafeInteger(item.configuredRowOrdinal) || Number(item.configuredRowOrdinal) < 1) return undefined;
+    } else if (item.source !== "technician" || item.configuredLocationId !== null || item.configuredRowOrdinal !== null || item.zoneSnapshot !== null || item.locationSnapshot !== null) return undefined;
+    rowIds.add(item.rowUuid);
+  }
+  const adapter = resolveV7EvidenceContract({ systemKey: "hydrant", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+  if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
+  return { snapshot, adapter };
 }

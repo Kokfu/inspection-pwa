@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -21,6 +21,7 @@ export type V7EvidenceContractAdapter = {
 export const isV7EvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
 
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const canonicalize = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonicalize).join(",")}]`
   : isRecord(value) ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalize(value[key])}`).join(",")}}`
     : JSON.stringify(value);
@@ -169,15 +170,202 @@ const fireAlarmAdapter = (definition: unknown): V7EvidenceContractAdapter | unde
   };
 };
 
+const hydrantRowFields = [
+  ["canvasHose1Result", "canvas_hose_1", "Canvas Hose 1"],
+  ["canvasHose2Result", "canvas_hose_2", "Canvas Hose 2"],
+  ["diffuserNozzleResult", "diffuser_nozzle", "Diffuser Nozzle"],
+  ["landingValveResult", "landing_valve", "Landing Valve"],
+  ["landingValveHandleResult", "landing_valve_handle", "Landing Valve Handle"],
+  ["hoseCabinetResult", "hose_cabinet", "Hose Cabinet"],
+  ["keyLockResult", "key_lock", "Key Lock"]
+] as const;
+const hydrantRowPath = /^hydrant_set\.hydrant_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(canvas_hose_1|canvas_hose_2|diffuser_nozzle|landing_valve|landing_valve_handle|hose_cabinet|key_lock)$/i;
+
+/** Row UUIDs are client-generated, so canonical path validation can validate
+ * only their UUID shape. As in Fire Alarm, response traversal resolves that
+ * UUID against the submitted row before deriving a finding or its own remark. */
+const repeatableRowAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const valuesByResponseKey = new Map<string, Set<string>>();
+  const responseKeyByColumn = new Map<string, string>();
+  for (const [responseKey, columnKey] of hydrantRowFields) {
+    const values = allowedValues(definition, "hydrant_set", "hydrant_rows", columnKey);
+    if (!values) return undefined;
+    valuesByResponseKey.set(responseKey, values);
+    responseKeyByColumn.set(columnKey, responseKey);
+  }
+  const rowForPath = (response: unknown, fieldPath: string) => {
+    const match = hydrantRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.rows)) return undefined;
+    const row = response.rows.find((value) => isRecord(value) && value.rowUuid === match[1]);
+    const responseKey = responseKeyByColumn.get(match[2]!);
+    return isRecord(row) && responseKey ? { row, responseKey } : undefined;
+  };
+  return {
+    systemKey: "hydrant", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && hydrantRowPath.test(fieldPath);
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
+      const poor: string[] = []; const rowIds = new Set<string>();
+      for (const row of response.rows) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        rowIds.add(row.rowUuid);
+        for (const [responseKey, columnKey] of hydrantRowFields) {
+          const result = row[responseKey];
+          if (typeof result !== "string" || !valuesByResponseKey.get(responseKey)?.has(result)) return undefined;
+          if (isV7EvidenceFinding(result)) {
+            const remark = row.fieldRemarks[responseKey];
+            if (typeof remark !== "string" || !remark.trim()) return undefined;
+            poor.push(`hydrant_set.hydrant_rows.rows.${row.rowUuid}.${columnKey}`);
+          }
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      const target = rowForPath(response, fieldPath);
+      if (!target || !isV7EvidenceFinding(target.row[target.responseKey]) || !isRecord(target.row.fieldRemarks)) return undefined;
+      const remark = target.row.fieldRemarks[target.responseKey];
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      const match = hydrantRowPath.exec(fieldPath);
+      const field = match && hydrantRowFields.find(([, columnKey]) => columnKey === match[2]);
+      return field ? `Hydrant Set - ${field[2]}` : undefined;
+    }
+  };
+};
+
+const hoseChecklistFields = [
+  ["water_tank", "water_tank_checks", "saj_main_water_supply", "Water Tank - S.A.J Main Water Supply"],
+  ["water_tank", "water_tank_checks", "water_level", "Water Tank - Water Level"],
+  ["water_tank", "water_tank_checks", "automatic_refilling_facilities", "Water Tank - Automatic Refilling Facilities"],
+  ["water_tank", "water_tank_checks", "drain_and_stop_valve_positions", "Water Tank - Drain Valve In Close Position And All Stop Valve"],
+  ["pump_house", "pump_house_checks", "pump_house_clean", "Pump House - Keep Clean In Pump House"],
+  ["pump_house", "pump_house_checks", "standby_pump_service_items", "Pump House - Stand-by Pump Oil, Fuel and Other Service Items"],
+  ["pump_house", "pump_house_checks", "charger_power_failure_alarm", "Pump House - Battery Charger Power Failure Alarm"],
+  ["pump_house", "pump_house_checks", "battery_serviceable", "Pump House - Battery in Good Serviceable Condition / Function"],
+  ["pump_house", "pump_house_checks", "pump_failure_alarm", "Pump House - Pump Run / Failure Alarm to Fire Alarm Panel"],
+  ["pump_house", "pump_house_checks", "pumps_auto_start", "Pump House - Jockey and Stand-by Pumps in Auto Start Position"],
+  ["pump_house", "pump_house_checks", "test_and_gate_valve_positions", "Pump House - Test Valve Closed and Gate Valves Open"],
+  ["test_run_fire_pump_30_minutes", "test_run_fire_pump_checks", "trfp_duty_pump", "Test Run Fire Pump 30 Minutes - Duty Pump"],
+  ["test_run_fire_pump_30_minutes", "test_run_fire_pump_checks", "trfp_standby_pump", "Test Run Fire Pump 30 Minutes - Standby Pump"]
+] as const;
+const hoseRowFields = [
+  ["drumResult", "drum", "Drum"], ["hoseResult", "hose", "Hose"], ["nozzleResult", "nozzle", "Nozzle"],
+  ["valveResult", "valve", "Valve"], ["nozzleBoxResult", "nozzle_box", "Nozzle Box"]
+] as const;
+const hoseMeasurementFields = [
+  ["jockey_pump_pressure", "Jockey Pump Pressure"], ["standby_pump_cut_in", "Stand-by Pump Cut In"]
+] as const;
+const hoseRowPath = /^hose_reel_drum\.hose_reel_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(drum|hose|nozzle|valve|nozzle_box)$/i;
+
+/** Hose Reel is the first V7 system to combine flat checklist findings with
+ * row-scoped findings.  Validate both against their frozen per-field values. */
+const hoseReelAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const checklistValues = new Map<string, Set<string>>();
+  const checklistPaths = new Map<string, string>();
+  for (const [section, block, key, caption] of hoseChecklistFields) {
+    const values = allowedValues(definition, section, block, key);
+    if (!values) return undefined;
+    checklistValues.set(key, values);
+    checklistPaths.set(`hose_reel_checks.${key}`, caption);
+  }
+  const rowValues = new Map<string, Set<string>>();
+  const rowKeyByColumn = new Map<string, string>();
+  for (const [responseKey, columnKey] of hoseRowFields) {
+    const values = allowedValues(definition, "hose_reel_drum", "hose_reel_rows", columnKey);
+    if (!values) return undefined;
+    rowValues.set(responseKey, values);
+    rowKeyByColumn.set(columnKey, responseKey);
+  }
+  const measurementValues = new Map<string, Set<string>>();
+  for (const [key] of hoseMeasurementFields) {
+    if (!isRecord(definition) || !Array.isArray(definition.sections)) return undefined;
+    const section = definition.sections.find((value) => isRecord(value) && value.key === "pump_house");
+    const block = isRecord(section) && Array.isArray(section.blocks) ? section.blocks.find((value) => isRecord(value) && value.key === "pump_pressure_measurements") : undefined;
+    const item = isRecord(block) && Array.isArray(block.items) ? block.items.find((value) => isRecord(value) && value.key === key) : undefined;
+    const result = isRecord(item) ? item.result : undefined;
+    if (!isRecord(result) || result.control !== "good_poor" || !Array.isArray(result.allowedValues) || result.allowedValues.length === 0 || !result.allowedValues.every((value) => typeof value === "string")) return undefined;
+    measurementValues.set(key, new Set(result.allowedValues as string[]));
+  }
+  const rowTarget = (response: unknown, fieldPath: string) => {
+    const match = hoseRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.rows)) return undefined;
+    const row = response.rows.find((value) => isRecord(value) && value.rowUuid === match[1]);
+    const responseKey = rowKeyByColumn.get(match[2]!);
+    return isRecord(row) && responseKey ? { row, responseKey } : undefined;
+  };
+  return {
+    systemKey: "hose_reel", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && (checklistPaths.has(fieldPath) || measurementValues.has(fieldPath.replace("hose_reel_measurements.", "")) && fieldPath.startsWith("hose_reel_measurements.") || hoseRowPath.test(fieldPath));
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !isRecord(response.checklist) || !Array.isArray(response.rows)) return undefined;
+      const poor: string[] = [];
+      for (const [, , key] of hoseChecklistFields) {
+        const value = response.checklist[key];
+        if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !checklistValues.get(key)?.has(value.result)) return undefined;
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_checks.${key}`); }
+      }
+      if (!isRecord(response.measurements)) return undefined;
+      for (const [key] of hoseMeasurementFields) {
+        const value = response.measurements[key];
+        if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !measurementValues.get(key)?.has(value.result)) return undefined;
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_measurements.${key}`); }
+      }
+      const rowIds = new Set<string>();
+      for (const row of response.rows) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        rowIds.add(row.rowUuid);
+        for (const [responseKey, columnKey] of hoseRowFields) {
+          const result = row[responseKey];
+          if (typeof result !== "string" || !rowValues.get(responseKey)?.has(result)) return undefined;
+          if (isV7EvidenceFinding(result)) {
+            const remark = row.fieldRemarks[responseKey];
+            if (typeof remark !== "string" || !remark.trim()) return undefined;
+            poor.push(`hose_reel_drum.hose_reel_rows.rows.${row.rowUuid}.${columnKey}`);
+          }
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      if (!isRecord(response)) return undefined;
+      const checklistKey = fieldPath.startsWith("hose_reel_checks.") ? fieldPath.slice("hose_reel_checks.".length) : undefined;
+      const checklist = checklistKey && isRecord(response.checklist) ? response.checklist[checklistKey] : undefined;
+      if (isRecord(checklist) && isV7EvidenceFinding(checklist.result) && typeof checklist.remarks === "string" && checklist.remarks.trim()) return checklist.remarks.trim();
+      const measurementKey = fieldPath.startsWith("hose_reel_measurements.") ? fieldPath.slice("hose_reel_measurements.".length) : undefined;
+      const measurement = measurementKey && isRecord(response.measurements) ? response.measurements[measurementKey] : undefined;
+      if (isRecord(measurement) && isV7EvidenceFinding(measurement.result) && typeof measurement.remarks === "string" && measurement.remarks.trim()) return measurement.remarks.trim();
+      const target = rowTarget(response, fieldPath);
+      if (!target || !isV7EvidenceFinding(target.row[target.responseKey]) || !isRecord(target.row.fieldRemarks)) return undefined;
+      const remark = target.row.fieldRemarks[target.responseKey];
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      const checklist = checklistPaths.get(fieldPath); if (checklist) return checklist;
+      if (fieldPath.startsWith("hose_reel_measurements.")) return `Pump House - ${hoseMeasurementFields.find(([key]) => key === fieldPath.slice("hose_reel_measurements.".length))?.[1] ?? ""}`;
+      const match = hoseRowPath.exec(fieldPath);
+      const field = match && hoseRowFields.find(([, columnKey]) => columnKey === match[2]);
+      return field ? `Hose Reel Drum - ${field[2]}` : undefined;
+    }
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
     || v7EvidenceContractSha256(values.definition) !== values.contractSha256) return undefined;
   if (values.systemKey === "co2_fire_extinguisher") return adapter("co2_fire_extinguisher", co2AdapterFields, values.definition);
   if (values.systemKey === "wet_chemical") return adapter("wet_chemical", wetChemicalAdapterFields, values.definition);
-  return fireAlarmAdapter(values.definition);
+  if (values.systemKey === "fire_alarm_detector") return fireAlarmAdapter(values.definition);
+  if (values.systemKey === "hose_reel") return hoseReelAdapter(values.definition);
+  return repeatableRowAdapter(values.definition);
 }
 
 /** `parseV7EvidenceManifest` deliberately collapses every refusal into one

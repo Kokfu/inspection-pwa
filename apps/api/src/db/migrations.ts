@@ -58,6 +58,12 @@ const v7DetectorStateMultiselectMigrationUrl = new URL(
 const v7FourStateResultModelMigrationUrl = new URL(
   "../../migrations/020_v7_four_state_result_model.sql", import.meta.url
 );
+const v7HydrantEvidenceMigrationUrl = new URL(
+  "../../migrations/021_v7_hydrant_evidence.sql", import.meta.url
+);
+const v7HoseReelEvidenceMigrationUrl = new URL(
+  "../../migrations/022_v7_hose_reel_evidence.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -270,6 +276,8 @@ export async function runMigrations(
   await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
   await database.query(await readFile(v7DetectorStateMultiselectMigrationUrl, "utf8"));
   await database.query(await readFile(v7FourStateResultModelMigrationUrl, "utf8"));
+  await database.query(await readFile(v7HydrantEvidenceMigrationUrl, "utf8"));
+  await database.query(await readFile(v7HoseReelEvidenceMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

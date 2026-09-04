@@ -5,6 +5,9 @@ export const implementedSystemKeys = [
   "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher"
 ] as const;
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
+/** Every non-Fire-Alarm system that owns the shared V7 evidence contract.
+ * Future rollout systems add one key here rather than another version branch. */
+export const v7SharedEvidenceSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "hydrant"] as const;
 
 const contractVersions: Readonly<Record<ImplementedSystemKey, number>> = {
   automatic_sprinkler: 1, dry_wet_riser: 2, hose_reel: 1, fire_alarm_detector: 3,
@@ -73,7 +76,7 @@ export function compatibleCatalogSystem(
   // by version, so a bare `find` over `version === contractVersions[key] || version === 7`
   // always returns the older row and compares a V7 definition against a V1/V4 contract.
   const contractVersion = templateIdentity.version === 7
-    && (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical")
+    && v7SharedEvidenceSystemKeys.includes(systemKey as typeof v7SharedEvidenceSystemKeys[number])
     ? 7
     : contractVersions[systemKey];
   const contractTemplate = catalog.templates.find((candidate) => candidate.code === "MFE-FSSR"
