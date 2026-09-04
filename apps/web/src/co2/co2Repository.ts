@@ -17,7 +17,7 @@ import type {
   MasterSystemInspectionGroupRecord
 } from "./co2Types";
 import type { SuppressionSystemKey } from "./co2Types";
-import { listV7SuppressionPhotos, v7EvidenceManifest, v7EvidenceOutbox, v7SubmissionIssues } from "./v7Evidence";
+import { collectV7SiblingEvidence, listV7SuppressionPhotos, v7EvidenceManifest, v7EvidenceOutbox, v7SubmissionIssues } from "./v7Evidence";
 
 const co2SystemKey = "co2_fire_extinguisher" as const;
 const wetChemicalSystemKey = "wet_chemical" as const;
@@ -217,7 +217,7 @@ export function isCanonicalDetectorStates(control: ResultControlDefinition, valu
 function canonicalV7DetectorStates(control: ResultControlDefinition, value: unknown) {
   if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length
     || !value.every((item) => typeof item === "string" && control.options.some((option) => option.value === item))) return value;
-  return control.options.filter((option) => value.includes(option.value));
+  return control.options.filter((option) => value.includes(option.value)).map((option) => option.value);
 }
 function canonicalV7Responses(record: MasterSystemFormInstanceRecord, responses: Co2Responses): Co2Responses {
   if (record.masterTemplate.version !== 7) return responses;
@@ -333,7 +333,11 @@ export async function submitLocalCo2(record: MasterSystemFormInstanceRecord, res
     }
     const canonicalResponses = canonicalV7Responses(live, responses);
     const photos = live.masterTemplate.version === 7 ? await listV7SuppressionPhotos(live.clientUuid) : [];
-    if (getCo2SubmitIssues(live, canonicalResponses).length > 0 || v7SubmissionIssues(live, canonicalResponses, photos).length > 0) throw new Error("Complete the required suppression-system fields and evidence before local submission");
+    // G9: the same bytes on two location-instances of one system is refused at
+    // acceptance (jobId+systemKey uniqueness) with a retryable error the outbox
+    // can never clear, so the submit gate has to see the siblings too.
+    const siblings = live.masterTemplate.version === 7 ? await collectV7SiblingEvidence(live) : [];
+    if (getCo2SubmitIssues(live, canonicalResponses).length > 0 || v7SubmissionIssues(live, canonicalResponses, photos, siblings).length > 0) throw new Error("Complete the required suppression-system fields and evidence before local submission");
     next = updated(live, canonicalResponses, "Pending");
     const activeKey = `masterSystemFormInstance:create:${live.clientUuid}`;
     const outbox: SyncOutboxItem = {

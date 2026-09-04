@@ -11,7 +11,7 @@ import type {
   DetectorStatus,
   MasterSystemFormInstanceRecord
 } from "./co2Types";
-import { isEvidenceFinding, listV7SuppressionPhotos, v7SubmissionIssues, type V7SuppressionFieldPath } from "./v7Evidence";
+import { collectV7SiblingEvidence, isEvidenceFinding, listV7SuppressionPhotos, v7SubmissionIssues, type V7SiblingEvidence, type V7SuppressionFieldPath } from "./v7Evidence";
 import { V7EvidenceField } from "./V7EvidenceField";
 import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
@@ -29,12 +29,15 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listV7SuppressionPhotos>>>([]);
+  // G9: duplicate detection spans every location-instance of this system in the
+  // Job, so the sibling evidence has to be in state next to `photos`.
+  const [siblings, setSiblings] = useState<V7SiblingEvidence[]>([]);
   const controls = record.inspectionSnapshot.system.resolvedControls;
   const issues = useMemo(
     () => showValidation
-      ? [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))]
+      ? [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos, siblings).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))]
       : [],
-    [record, responses, photos, showValidation]
+    [record, responses, photos, siblings, showValidation]
   );
   const invalidTargets = useMemo(() => new Set(issues.map((issue) => issue.targetId)), [issues]);
   const grouped = useMemo(() => {
@@ -45,7 +48,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   const readOnly = record.syncStatus !== "Draft";
 
   useEffect(() => setResponses(record.responses), [record]);
-  useEffect(() => { if (record.masterTemplate.version === 7) void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); else setPhotos([]); }, [record.clientUuid, record.masterTemplate.version, record.localUpdatedAt]);
+  useEffect(() => { if (record.masterTemplate.version === 7) { void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); void collectV7SiblingEvidence(record).then(setSiblings); } else { setPhotos([]); setSiblings([]); } }, [record.clientUuid, record.groupKey, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);
 
   function updateDetector(rowUuid: string, change: Partial<Co2Responses["detectorRows"][number]>) {
@@ -76,7 +79,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   }
 
   async function submit() {
-    const currentIssues = [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))];
+    const currentIssues = [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos, siblings).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))];
     setShowValidation(true);
     if (currentIssues.length) {
       window.setTimeout(() => document.getElementById(currentIssues[0].targetId)?.scrollIntoView({ behavior: "smooth", block: "center" }));
@@ -114,7 +117,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
             readOnly={readOnly}
             onChange={(remarks) => updateChecklist(group, definition.key, { remarks })}
           />
-          {record.masterTemplate.version === 7 && isEvidenceFinding(responses[group][definition.key]?.result) ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => setPhotos(await listV7SuppressionPhotos(record.clientUuid))} /> : null}
+          {record.masterTemplate.version === 7 && isEvidenceFinding(responses[group][definition.key]?.result) ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => { setPhotos(await listV7SuppressionPhotos(record.clientUuid)); setSiblings(await collectV7SiblingEvidence(record)); }} /> : null}
         </section>
       ))}
     </fieldset>;

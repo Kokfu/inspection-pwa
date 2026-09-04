@@ -1,0 +1,121 @@
+<!doctype html><html><body><button id="run">Run CO2 V7 cross-instance</button><pre id="result">Ready</pre><script type="module">
+// G9 — real IndexedDB proof that the widened duplicate-photo guard is scoped to
+// Job + systemKey: refused across two locations of one system in one Job, still
+// allowed for a different system key in the same Job and for a different Job.
+//
+// The checks below assert the *decision* (capture guard throw + the issue list
+// that submitLocalCo2 gates on) rather than a successful Pending submission,
+// because a separate pre-existing defect makes any V7 suppression draft
+// unsubmittable: canonicalV7DetectorStates (co2Repository.ts) returns
+// `control.options.filter(...)` — ResultOptionDefinition objects — where
+// isCanonicalDetectorStates requires a string[], so every saved V7 draft trips
+// "select at least one Normal/Test/Isolation".  That is out of scope here and is
+// asserted explicitly at the end so this harness fails loudly once it is fixed.
+import {localDatabase} from "/src/db/localDatabase.ts";
+import {initializeCo2InspectionGroup,saveCo2Draft,submitLocalCo2,getCo2SubmitIssues} from "/src/co2/co2Repository.ts";
+import {saveV7SuppressionPhoto,listV7SuppressionPhotos,collectV7SiblingEvidence,v7SubmissionIssues} from "/src/co2/v7Evidence.ts";
+const out=document.querySelector("#result"), checks=[], check=(name,passed,detail)=>checks.push({name,passed:Boolean(passed),detail});
+const id=n=>`79000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const field=(key,label,sortOrder,control="good_poor",allowedValues=["good","not_good","complete_repair","na"])=>({key,label,sortOrder,control,required:false,allowedValues,remarksPolicy:"optional"});
+const definition=(systemKey,systemName,cylinderKey,wet)=>({key:systemKey,displayName:`${systemName} System`,sortOrder:4,definitionStatus:"confirmed",configuration:{supportsZones:true,supportsLocations:true,supportsPresetRows:true},sections:[
+ {key:"control_panel",title:`${systemName} Control Panel`,sortOrder:1,blocks:[
+  {key:"control_panel_location",title:"Control Panel Location",type:"checklist",sortOrder:1,items:[field("control_panel_location","Control Panel Location",1,"text",[])]},
+  {key:"detector_rows",title:"Zone and Detector Rows",type:"repeatable_table",sortOrder:2,columns:[field("alarm_zone","Alarm Zone",1,"text",[]),field("location","Location",2,"text",[]),field("heat_detector","Heat Detector",3,"normal_test_isolation",["normal","test","isolation"]),field(wet?"unconfirmed_second_heat_detector":"smoke_detector",wet?"Second Heat Detector":"Smoke Detector",4,"normal_test_isolation",["normal","test","isolation"]),field("remarks","Remarks",5,"remarks",[])]}]},
+ {key:"charger_batteries",title:"Charger & Batteries",sortOrder:2,blocks:[{key:"charger_battery_checks",title:"Charger",type:"checklist",sortOrder:1,items:[field("main_supply","Main Supply",1),field("battery","Battery",2),field("charger","Charger",3)]}]},
+ {key:"physical_outlook",title:"Physical Outlook Checking",sortOrder:3,blocks:[{key:"physical_outlook_checks",title:"Physical",type:"checklist",sortOrder:1,items:[field(cylinderKey,"Cylinder",1),field("electric_actuator","Electric Actuator",2)]}]},
+ {key:"main_function_key",title:"Main Function Key",sortOrder:4,blocks:[
+  {key:"function_checks",title:"Functions",type:"checklist",sortOrder:1,items:[field("main_alarm_reset","Main Alarm Reset",1),field("lamp_test","Lamp Test",2),field("evacuate","Evacuate",3),field("ac_supply","A/C Supply",4),field("dc_supply","D/C Supply",5),field("signal_alarm_to_mfap","Signal Alarm to MFAP",6)]},
+  {key:"comments",title:"Comments",type:"comments",sortOrder:2,field:field("comments","Comments",1,"remarks",[])}]}]});
+const fixture=(jobId,systemKey,locations)=>{
+ const wet=systemKey==="wet_chemical", systemName=wet?"Wet Chemical":"CO2", cylinderKey=wet?"wet_chemical_cylinder":"co2_cylinder";
+ const template_id="00000000-0000-4000-8000-000000000807";
+ const system={enabledSystemId:id(wet?41:40),systemKey,displayName:`${systemName} System`,sortOrder:4,definitionStatus:"confirmed",
+  zones:[{id:id(5),key:"z",displayName:"Zone A",sortOrder:1}],
+  locations:locations.map((name,index)=>({id:`${jobId.slice(0,-3)}${wet?"8":"6"}${index}0`,zoneId:id(5),key:`unit-${index}`,displayName:name,sortOrder:index+1}))};
+ const d=definition(systemKey,systemName,cylinderKey,wet);
+ const template={id:template_id,code:"MFE-FSSR",name:"MFE Fire System Service Report Template",version:7,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:systemKey,displayName:system.displayName,sortOrder:4,definitionStatus:"confirmed",definition:d}]};
+ const job={id:jobId,reference:`XI-${systemName}`,title:`${systemName} cross-instance`,status:"open",createdAt:new Date().toISOString(),
+  configurationSnapshot:{schemaVersion:1,customer:{id:id(2),code:"XI",displayName:"Cross Instance Customer"},configuration:{revisionId:id(3),revisionNumber:1},template:{id:template_id,code:"MFE-FSSR",name:template.name,version:7},enabledSystems:[system]}};
+ return{job,system,cylinderKey,catalog:{template:{...template,id:id(20),version:1,systems:[]},templates:[template]}};};
+const complete=(record,locationName)=>{const x=structuredClone(record.responses);x.controlPanelLocation=locationName;
+ Object.assign(x.detectorRows[0],{alarmZone:"Zone A",location:locationName,heatDetectorStatus:["normal"],smokeDetectorStatus:["normal"]});
+ for(const group of [x.chargerAndBatteries,x.physicalOutlook,x.mainFunctionKeys])for(const v of Object.values(group))Object.assign(v,{result:"good",remarks:""});
+ x.chargerAndBatteries.main_supply={result:"not_good",remarks:`Main supply low at ${locationName}`};return x;};
+const photo=async(record,sha256,fieldPath="charger_batteries.charger_battery_checks.main_supply")=>saveV7SuppressionPhoto({record,fieldPath,captureSource:"camera",blob:new Blob([sha256],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:5,width:1,height:1,sha256});
+const threw=async fn=>{try{await fn();return""}catch(e){return String(e?.message??e)}};
+// The gate submitLocalCo2 applies, evaluated on the live Dexie state.
+const evidenceIssues=async r=>{const live=await localDatabase.masterSystemFormInstances.get(r.clientUuid);
+ return v7SubmissionIssues(live,live.responses,await listV7SuppressionPhotos(live.clientUuid),await collectV7SiblingEvidence(live))};
+const detectorIssues=async r=>{const live=await localDatabase.masterSystemFormInstances.get(r.clientUuid);
+ return getCo2SubmitIssues(live,live.responses).map(i=>i.message)};
+const JOB_ONE=id(801), JOB_TWO=id(802), SHARED="a".repeat(64), MAIN="charger_batteries.charger_battery_checks.main_supply";
+
+document.querySelector("#run").onclick=async()=>{try{
+ checks.length=0; await localDatabase.open();
+ for(const jobId of [JOB_ONE,JOB_TWO]){
+  for(const row of await localDatabase.masterSystemFormInstances.where("jobId").equals(jobId).toArray())
+   await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(row.clientUuid).delete();
+  await localDatabase.masterSystemFormInstances.where("jobId").equals(jobId).delete();
+  await localDatabase.masterSystemInspectionGroups.where("jobId").equals(jobId).delete();
+ }
+ await localDatabase.syncOutbox.clear();
+
+ // Job 1, CO2, two configured locations -> two form-instance rows, one groupKey.
+ const co2=fixture(JOB_ONE,"co2_fire_extinguisher",["CO2 Room A","CO2 Room B"]);
+ const {instances}=await initializeCo2InspectionGroup(co2.job,co2.system,co2.catalog,{id:1,username:"browser-tech",role:"inspector"});
+ check("one Job holds two CO2 location-instances sharing a groupKey",instances.length===2&&new Set(instances.map(x=>x.groupKey)).size===1,instances.map(x=>x.groupKey));
+ let [a,b]=instances;
+ a=await saveCo2Draft(a,complete(a,"CO2 Room A"));
+ b=await saveCo2Draft(b,complete(b,"CO2 Room B"));
+
+ await photo(a,SHARED);
+ const captureError=await threw(()=>photo(b,SHARED));
+ check("capture-time guard refuses the same photo on the second location",/already attached to/.test(captureError)&&captureError.includes("CO2 Room A"),captureError);
+ check("nothing was stored on the second location",(await listV7SuppressionPhotos(b.clientUuid)).length===0);
+
+ // Bypass the capture guard the way a pre-fix build would have, and prove the
+ // submit gate refuses it too — and that submitLocalCo2 does not queue it.
+ const seeded=(await listV7SuppressionPhotos(a.clientUuid))[0];
+ await localDatabase.inspectionAttachments.put({...seeded,photoUuid:crypto.randomUUID(),inspectionClientUuid:b.clientUuid,systemKey:b.systemKey});
+ const duplicateIssues=await evidenceIssues(b);
+ const submitError=await threw(()=>submitLocalCo2(b,b.responses));
+ check("submit gate refuses a cross-instance duplicate and names the other location",
+  duplicateIssues.some(i=>/use the same photo; each finding needs its own photo/.test(i))&&duplicateIssues.some(i=>i.includes("CO2 Room A"))&&/Complete the required/.test(submitError),
+  {duplicateIssues,submitError});
+ check("nothing was queued",(await localDatabase.syncOutbox.count())===0);
+ await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(b.clientUuid).delete();
+
+ // A distinct photo on the second location raises no evidence issue.
+ await photo(b,"b".repeat(64));
+ check("a distinct photo on the second location is accepted",(await evidenceIssues(b)).length===0,await evidenceIssues(b));
+
+ // A sibling photo on a field that is no longer a finding must not block.
+ await photo(a,"c".repeat(64),"physical_outlook.physical_outlook_checks.co2_cylinder");
+ const staleFree=await evidenceIssues(b);
+ await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(b.clientUuid).delete();
+ await localDatabase.inspectionAttachments.put({...(await listV7SuppressionPhotos(a.clientUuid)).find(p=>p.sha256==="c".repeat(64)),photoUuid:crypto.randomUUID(),inspectionClientUuid:b.clientUuid,fieldPath:MAIN,systemKey:b.systemKey});
+ check("a stale sibling photo (field reverted to good) does not block",staleFree.length===0&&(await evidenceIssues(b)).length===0,await evidenceIssues(b));
+ await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(b.clientUuid).delete();
+ await photo(b,"b".repeat(64));
+
+ // Same bytes, different system key, same Job -> allowed (uniqueness is jobId+systemKey).
+ const wet=fixture(JOB_ONE,"wet_chemical",["Kitchen Hood"]);
+ const {instances:[w]}=await initializeCo2InspectionGroup(wet.job,wet.system,wet.catalog,{id:1,username:"browser-tech",role:"inspector"});
+ const wetDraft=await saveCo2Draft(w,complete(w,"Kitchen Hood"));
+ const wetError=await threw(()=>photo(wetDraft,SHARED));
+ check("a different system key in the same Job may reuse the bytes",wetError===""&&(await evidenceIssues(wetDraft)).length===0,{wetError,issues:await evidenceIssues(wetDraft)});
+
+ // Same bytes, different Job -> allowed.
+ const other=fixture(JOB_TWO,"co2_fire_extinguisher",["Other Job Room"]);
+ const {instances:[o]}=await initializeCo2InspectionGroup(other.job,other.system,other.catalog,{id:1,username:"browser-tech",role:"inspector"});
+ const otherDraft=await saveCo2Draft(o,complete(o,"Other Job Room"));
+ const otherError=await threw(()=>photo(otherDraft,SHARED));
+ check("the same bytes in a different Job may still be used",otherError===""&&(await evidenceIssues(otherDraft)).length===0,{otherError,issues:await evidenceIssues(otherDraft)});
+
+ // Guard on the out-of-scope defect this harness routes around (see header).
+ check("PRE-EXISTING (out of scope): canonicalV7DetectorStates corrupts detector states, blocking every V7 submission",
+  (await detectorIssues(b)).some(i=>/Normal\/Test\/Isolation/.test(i)),await detectorIssues(b));
+
+ out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checks},null,1);
+}catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks},null,1)}};
+</script></body></html>
