@@ -70,9 +70,15 @@ export type ResolvedHoseReelControls = {
 
 const remarksMaxLength = 2000;
 const commentsMaxLength = 4000;
+/** Labels only.  Which values a field may carry is decided by that field's own
+ * `allowedValues` in the frozen definition, never by this map, so carrying the
+ * V7 four-state labels here cannot widen a historical 2-state page. */
 const v1OptionLabels: Readonly<Record<string, string>> = {
   good: "Good",
-  poor: "Poor"
+  poor: "Poor",
+  not_good: "Not Good",
+  complete_repair: "Complete Repair",
+  na: "N.A."
 };
 
 const v1ChecklistLabels: Readonly<Record<string, string>> = {
@@ -136,7 +142,7 @@ function resolveResult(control: unknown, allowedValues: unknown): ResultControlD
     options: values.map((value) => {
       const label = v1OptionLabels[value];
       if (!label) {
-        throw new Error(`MFE-FSSR V1 has unknown result option ${value}`);
+        throw new Error(`MFE-FSSR definition has unknown result option ${value}`);
       }
       return { value, label };
     })

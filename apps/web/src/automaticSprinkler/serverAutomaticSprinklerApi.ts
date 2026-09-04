@@ -1,4 +1,4 @@
-import type { AutomaticSprinklerResponses, ResolvedAutomaticSprinklerControls } from "./automaticSprinklerTypes";
+import type { LegacyAutomaticSprinklerResponses, ResolvedAutomaticSprinklerControls } from "./automaticSprinklerTypes";
 
 type UnknownRecord = Record<string, unknown>;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,7 +20,7 @@ const evidencePaths = ["measurements.jockey_pump_pressure.cut_in", "measurements
 
 export type ServerInspectionAttachment = { serverAttachmentId: string; photoUuid: string; inspectionClientUuid: string; status: "accepted"; fieldPath: string; captureSource: "camera" | "gallery" | "unknown"; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; sourceSha256: string; storedSha256: string; capturedAt: string; receivedAt: string };
 type ServerEvidencePolicy = { id: string; version: 1; definition: { schemaVersion: 1; code: "automatic-sprinkler-psi-evidence"; version: 1; systemKey: "automatic_sprinkler"; points: Record<(typeof evidencePaths)[number], { allowed: true; required: false; maxCount: 1 }> }; definitionSha256: string };
-export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; responses: AutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
+export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; responses: LegacyAutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
 
 export class ServerInspectionNotFoundError extends Error {}
 export class InvalidServerInspectionDetailError extends Error {}
@@ -43,7 +43,7 @@ function parseRows(value: unknown, keys: readonly string[]) {
   for (const key of keys) { const row = parseRow(value[key]); if (!row) return undefined; result[key] = row; }
   return result;
 }
-function parseResponses(value: unknown): AutomaticSprinklerResponses | undefined {
+function parseResponses(value: unknown): LegacyAutomaticSprinklerResponses | undefined {
   if (!exactKeys(value, ["schemaVersion", "waterTank", "pumpHouse", "measurements", "mainAlarmValve", "comments"]) || value.schemaVersion !== 1 || typeof value.comments !== "string" || value.comments.length > maxComments) return undefined;
   const water = parseRows(value.waterTank, waterTank), pump = parseRows(value.pumpHouse, pumpHouse), valve = parseRows(value.mainAlarmValve, mainAlarmValve);
   if (!water || !pump || !valve || !exactKeys(value.measurements, measurementKeys)) return undefined;
@@ -59,7 +59,7 @@ function parseResponses(value: unknown): AutomaticSprinklerResponses | undefined
     if (!exactKeys(values, memberKeys) || item.unit !== "PSI" || (item.result !== "good" && item.result !== "poor") || typeof item.remarks !== "string" || item.remarks.length > maxRemarks || memberKeys.some((member) => typeof values[member] !== "number" || !Number.isFinite(values[member]))) return undefined;
     measurements[key] = { values: values as Record<string, number>, unit: "PSI", result: item.result, remarks: item.remarks };
   }
-  return { schemaVersion: 1, waterTank: water as AutomaticSprinklerResponses["waterTank"], pumpHouse: pump as AutomaticSprinklerResponses["pumpHouse"], measurements: measurements as AutomaticSprinklerResponses["measurements"], mainAlarmValve: valve as AutomaticSprinklerResponses["mainAlarmValve"], comments: value.comments };
+  return { schemaVersion: 1, waterTank: water as LegacyAutomaticSprinklerResponses["waterTank"], pumpHouse: pump as LegacyAutomaticSprinklerResponses["pumpHouse"], measurements: measurements as LegacyAutomaticSprinklerResponses["measurements"], mainAlarmValve: valve as LegacyAutomaticSprinklerResponses["mainAlarmValve"], comments: value.comments };
 }
 function parseControls(value: unknown): ResolvedAutomaticSprinklerControls | undefined {
   if (!exactKeys(value, ["schemaVersion", "source", "repetitionMode", "instance", "checklist", "measurements", "layout", "comments"]) || value.schemaVersion !== 1 || value.repetitionMode !== "single" || !exactKeys(value.source, ["templateCode", "templateVersion", "systemKey"]) || value.source.templateCode !== "MFE-FSSR" || value.source.templateVersion !== 1 || value.source.systemKey !== "automatic_sprinkler" || !exactKeys(value.instance, ["key", "displaySequence", "zoneId", "locationId"]) || value.instance.key !== "primary" || value.instance.displaySequence !== 1 || value.instance.zoneId !== null || value.instance.locationId !== null || !exactKeys(value.checklist, ["waterTank", "pumpHouse", "mainAlarmValve"]) || !Array.isArray(value.measurements) || !exactKeys(value.layout, ["waterTank", "pumpHouse", "mainAlarmValve"]) || !exactKeys(value.comments, ["policy", "maxLength"]) || value.comments.policy !== "optional" || value.comments.maxLength !== maxComments) return undefined;

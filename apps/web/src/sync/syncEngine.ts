@@ -70,8 +70,8 @@ async function syncPendingV7Evidence() {
   let accepted = 0; let failed = 0;
   for (const item of work) {
     const attachment = await localDatabase.inspectionAttachments.get(item.entityId);
-    const record = attachment?.systemKey === "fire_alarm_detector" || attachment?.systemKey === "hydrant" || attachment?.systemKey === "hose_reel" ? await localDatabase.masterSystemInspections.get(attachment.inspectionClientUuid) : attachment ? await localDatabase.masterSystemFormInstances.get(attachment.inspectionClientUuid) : undefined;
-    if (!attachment || attachment.protocolVersion !== 7 || !record || attachment.systemKey !== record.systemKey || (record.systemKey !== "co2_fire_extinguisher" && record.systemKey !== "wet_chemical" && record.systemKey !== "fire_alarm_detector" && record.systemKey !== "hydrant" && record.systemKey !== "hose_reel")) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local V7 evidence or inspection is unavailable" }); failed += 1; continue; }
+    const record = attachment?.systemKey === "fire_alarm_detector" || attachment?.systemKey === "hydrant" || attachment?.systemKey === "hose_reel" || attachment?.systemKey === "automatic_sprinkler" ? await localDatabase.masterSystemInspections.get(attachment.inspectionClientUuid) : attachment ? await localDatabase.masterSystemFormInstances.get(attachment.inspectionClientUuid) : undefined;
+    if (!attachment || attachment.protocolVersion !== 7 || !record || attachment.systemKey !== record.systemKey || (record.systemKey !== "co2_fire_extinguisher" && record.systemKey !== "wet_chemical" && record.systemKey !== "fire_alarm_detector" && record.systemKey !== "hydrant" && record.systemKey !== "hose_reel" && record.systemKey !== "automatic_sprinkler")) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local V7 evidence or inspection is unavailable" }); failed += 1; continue; }
     const at = new Date().toISOString();
     await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
     try {
@@ -90,8 +90,8 @@ async function v6FormReady(item: SyncOutboxItem) {
 }
 
 async function v7FormReady(item: SyncOutboxItem) {
-  const isHydrantOrHoseReelOutboxItem = item.entityType === "masterSystemInspection" && typeof item.payload === "object" && item.payload !== null && ((item.payload as { systemKey?: unknown }).systemKey === "hydrant" || (item.payload as { systemKey?: unknown }).systemKey === "hose_reel");
-  if ((item.entityType !== "masterSystemFormInstance" && !isFireAlarmOutboxItem(item) && !isHydrantOrHoseReelOutboxItem) || !Array.isArray((item.payload as { evidenceManifest?: unknown }).evidenceManifest)) return true;
+  const isV7MasterSystemInspectionOutboxItem = item.entityType === "masterSystemInspection" && typeof item.payload === "object" && item.payload !== null && (["hydrant", "hose_reel", "automatic_sprinkler"] as const).some((systemKey) => (item.payload as { systemKey?: unknown }).systemKey === systemKey);
+  if ((item.entityType !== "masterSystemFormInstance" && !isFireAlarmOutboxItem(item) && !isV7MasterSystemInspectionOutboxItem) || !Array.isArray((item.payload as { evidenceManifest?: unknown }).evidenceManifest)) return true;
   const manifest = (item.payload as { evidenceManifest: Array<{ photoUuid?: unknown; fieldPath?: unknown; sourceSha256?: unknown }> }).evidenceManifest;
   for (const entry of manifest) { if (typeof entry.photoUuid !== "string") return false; const attachment = await localDatabase.inspectionAttachments.get(entry.photoUuid); if (!attachment || attachment.protocolVersion !== 7 || attachment.syncStatus !== "Synced" || attachment.fieldPath !== entry.fieldPath || attachment.sha256 !== entry.sourceSha256) return false; }
   return true;

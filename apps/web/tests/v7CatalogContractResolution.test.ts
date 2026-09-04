@@ -45,7 +45,7 @@ function template(version: number, id: string): CatalogTemplate {
     selectionPolicy: "preset_only",
     headerDefinition: {},
     reportBoilerplate: {},
-    systems: [suppression("co2_fire_extinguisher"), suppression("wet_chemical"), suppression("hydrant"), suppression("hose_reel")]
+    systems: [suppression("co2_fire_extinguisher"), suppression("wet_chemical"), suppression("hydrant"), suppression("hose_reel"), suppression("automatic_sprinkler")]
   };
 }
 
@@ -79,6 +79,13 @@ test("V7 Hydrant resolves against V7's own contract, not the historical row", ()
 test("V7 Hose Reel resolves against V7's own contract, not the V1 row", () => {
   const resolved = compatibleCatalogSystem(catalog(), identity(7), "hose_reel");
   assert.ok(resolved, "hose_reel must resolve on a V7 job");
+  assert.equal(resolved.template.version, 7);
+  assert.deepEqual(resolved.system.definition.results, ["good", "not_good", "complete_repair", "na"]);
+});
+
+test("V7 Automatic Sprinkler resolves against V7's own contract, not the V1 row", () => {
+  const resolved = compatibleCatalogSystem(catalog(), identity(7), "automatic_sprinkler");
+  assert.ok(resolved, "automatic sprinkler must resolve on a V7 job");
   assert.equal(resolved.template.version, 7);
   assert.deepEqual(resolved.system.definition.results, ["good", "not_good", "complete_repair", "na"]);
 });

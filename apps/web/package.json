@@ -19,6 +19,7 @@
     "test:v7-fire-alarm-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmV7SubmissionIssues.test.ts",
     "test:v7-hydrant-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hydrantV7SubmissionIssues.test.ts",
     "test:v7-hose-reel-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hoseReelV7SubmissionIssues.test.ts",
+    "test:v7-automatic-sprinkler-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/automaticSprinklerV7SubmissionIssues.test.ts tests/v7StagingAllowList.test.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"
   },

@@ -55,6 +55,7 @@ const mainValveChecklistOrder = [
   "alarm_gong",
   "flow_meter_valve_positions"
 ] as const;
+const testRunFirePumpOrder = ["trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"] as const;
 const measurementOrder = [
   "jockey_pump_pressure",
   "duty_pump_cut_in",
@@ -109,15 +110,19 @@ function exactMembers(values: UnknownRecord[], expected: readonly string[], name
     throw new Error(`Automatic Sprinkler definition has invalid ${name} members`);
   }
 }
+const optionLabels: Readonly<Record<string, string>> = {
+  good: "Good", poor: "Poor", not_good: "Not Good", complete_repair: "Complete Repair", na: "N.A."
+};
 function result(control: unknown, allowedValues: unknown): ResultControlDefinition {
-  if (control !== "good_poor" || !Array.isArray(allowedValues)
-    || allowedValues.length !== 2 || allowedValues[0] !== "good" || allowedValues[1] !== "poor") {
+  if (control !== "good_poor" || !Array.isArray(allowedValues) || allowedValues.length === 0
+    || !allowedValues.every((value) => typeof value === "string" && optionLabels[value] !== undefined)
+    || new Set(allowedValues).size !== allowedValues.length) {
     throw new Error("Automatic Sprinkler definition has invalid result metadata");
   }
   return {
     type: "single_select",
     required: true,
-    options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }]
+    options: allowedValues.map((value) => ({ value, label: optionLabels[value] }))
   };
 }
 const remarks = (maxLength = 2000): ResolvedRemarksDefinition => ({
@@ -182,6 +187,9 @@ export function resolvePublishedAutomaticSprinklerControls(
   const pumpMeasurements = list(named(pumpBlocks, "pump_pressure_measurements", "Pump measurements").items, "Pump measurement items");
   const valveBlocks = list(valve.blocks, "Main Alarm Valve blocks");
   const valveItems = list(named(valveBlocks, "main_alarm_valve_checks", "Main Alarm Valve checks").items, "Main Alarm Valve items");
+  const testRunItems = templateVersion === 7
+    ? list(named(valveBlocks, "test_run_fire_pump_checks", "Test Run Fire Pump checks").items, "Test Run Fire Pump items")
+    : [];
   const valveMeasurements = list(named(valveBlocks, "alarm_valve_measurements", "Main Alarm Valve measurements").items, "Main Alarm Valve measurement items");
   const commentsBlock = named(valveBlocks, "comments", "Comments");
   if (!isRecord(commentsBlock.field) || commentsBlock.field.control !== "remarks") throw new Error("Automatic Sprinkler comments metadata is invalid");
@@ -189,6 +197,7 @@ export function resolvePublishedAutomaticSprinklerControls(
   exactMembers(waterItems, waterTankOrder, "Water Tank");
   exactMembers(pumpItems, pumpChecklistOrder, "Pump House checklist");
   exactMembers(valveItems, mainValveChecklistOrder, "Main Alarm Valve checklist");
+  if (templateVersion === 7) exactMembers(testRunItems, testRunFirePumpOrder, "Test Run Fire Pump checklist");
   exactMembers([...pumpMeasurements, ...valveMeasurements], measurementOrder, "measurement");
   const measurements = ordered([...pumpMeasurements, ...valveMeasurements].map(measurement), measurementOrder);
   const jockey = measurements.find((item) => item.key === "jockey_pump_pressure");
@@ -202,13 +211,14 @@ export function resolvePublishedAutomaticSprinklerControls(
 
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "automatic_sprinkler" },
+    source: { templateCode: "MFE-FSSR", templateVersion: templateVersion === 7 ? 7 : 1, systemKey: "automatic_sprinkler" },
     repetitionMode: "single",
     instance: { key: "primary", displaySequence: 1, zoneId: null, locationId: null },
     checklist: {
       waterTank: ordered(waterItems.map(checklist), waterTankOrder),
       pumpHouse: ordered(pumpItems.map(checklist), pumpChecklistOrder),
-      mainAlarmValve: ordered(valveItems.map(checklist), mainValveChecklistOrder)
+      mainAlarmValve: ordered(valveItems.map(checklist), mainValveChecklistOrder),
+      testRunFirePump: templateVersion === 7 ? ordered(testRunItems.map(checklist), testRunFirePumpOrder) : []
     },
     measurements,
     layout: {

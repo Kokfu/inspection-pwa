@@ -18,6 +18,7 @@ import {
   controlsForAutomaticSprinklerSnapshot,
   resolvePublishedAutomaticSprinklerControls
 } from "./automaticSprinklerDefinition";
+import { listAutomaticSprinklerV7Photos, v7AutomaticSprinklerEvidenceOutbox, v7AutomaticSprinklerManifest, v7AutomaticSprinklerSubmissionIssues } from "./automaticSprinklerV7Evidence";
 import type {
   AutomaticSprinklerInspectionRecord,
   AutomaticSprinklerInspectionSnapshot,
@@ -28,6 +29,7 @@ import type {
   SprinklerMeasurementKey,
   SprinklerRowResponse,
   SprinklerResult,
+  AutomaticSprinklerV7ChecklistKey,
   WaterTankKey
 } from "./automaticSprinklerTypes";
 
@@ -71,42 +73,30 @@ function unit(definition: ResolvedMeasurementRow) {
 }
 
 function emptyResponses(controls: ResolvedAutomaticSprinklerControls): AutomaticSprinklerResponses {
+  const measurements = {
+    jockey_pump_pressure: {
+      values: { cut_in: null, cut_out: null },
+      unit: unit(measurementDefinition(controls, "jockey_pump_pressure")), result: null, remarks: ""
+    },
+    duty_pump_cut_in: { values: { value: null }, unit: unit(measurementDefinition(controls, "duty_pump_cut_in")), result: null, remarks: "" },
+    standby_pump_cut_in: { values: { value: null }, unit: unit(measurementDefinition(controls, "standby_pump_cut_in")), result: null, remarks: "" },
+    water_supply_gauge: { values: { value: null }, unit: unit(measurementDefinition(controls, "water_supply_gauge")), result: null, remarks: "" },
+    installation_gauge: { values: { value: null }, unit: unit(measurementDefinition(controls, "installation_gauge")), result: null, remarks: "" }
+  };
+  if (controls.source.templateVersion === 7) return {
+    schemaVersion: 2,
+    checklist: blankRows<AutomaticSprinklerV7ChecklistKey>([
+      ...controls.checklist.waterTank, ...controls.checklist.pumpHouse,
+      ...controls.checklist.mainAlarmValve, ...controls.checklist.testRunFirePump
+    ]),
+    measurements,
+    comments: ""
+  };
   return {
     schemaVersion: 1,
     waterTank: blankRows<WaterTankKey>(controls.checklist.waterTank),
     pumpHouse: blankRows<PumpHouseChecklistKey>(controls.checklist.pumpHouse),
-    measurements: {
-      jockey_pump_pressure: {
-        values: { cut_in: null, cut_out: null },
-        unit: unit(measurementDefinition(controls, "jockey_pump_pressure")),
-        result: null,
-        remarks: ""
-      },
-      duty_pump_cut_in: {
-        values: { value: null },
-        unit: unit(measurementDefinition(controls, "duty_pump_cut_in")),
-        result: null,
-        remarks: ""
-      },
-      standby_pump_cut_in: {
-        values: { value: null },
-        unit: unit(measurementDefinition(controls, "standby_pump_cut_in")),
-        result: null,
-        remarks: ""
-      },
-      water_supply_gauge: {
-        values: { value: null },
-        unit: unit(measurementDefinition(controls, "water_supply_gauge")),
-        result: null,
-        remarks: ""
-      },
-      installation_gauge: {
-        values: { value: null },
-        unit: unit(measurementDefinition(controls, "installation_gauge")),
-        result: null,
-        remarks: ""
-      }
-    },
+    measurements,
     mainAlarmValve: blankRows<MainAlarmValveChecklistKey>(controls.checklist.mainAlarmValve),
     comments: ""
   };
@@ -145,7 +135,7 @@ export async function getOrCreateAutomaticSprinklerInspection(
   }
   if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts");
   if (system.systemKey !== systemKey || system.zones.length !== 0 || system.locations.length !== 0) {
-    throw new Error("Automatic Sprinkler V1 supports one fixed form without configured zones or locations");
+    throw new Error("Automatic Sprinkler supports one fixed form without configured zones or locations");
   }
   const { definition, controls } = definitionFor(catalog, job.configurationSnapshot.template);
   const timestamp = now();
@@ -194,7 +184,12 @@ export function getAutomaticSprinklerSubmitIssues(
 ) {
   const controls = controlsForAutomaticSprinklerSnapshot(inspectionSnapshot);
   const issues: AutomaticSprinklerSubmitIssue[] = [];
-  const checklistGroups = [
+  const checklistGroups = responses.schemaVersion === 2 ? [
+    ["Water Tank", controls.checklist.waterTank, responses.checklist],
+    ["Pump House", controls.checklist.pumpHouse, responses.checklist],
+    ["Main Alarm Valve", controls.checklist.mainAlarmValve, responses.checklist],
+    ["Test Run Fire Pump 30 Minutes", controls.checklist.testRunFirePump, responses.checklist]
+  ] as const : [
     ["Water Tank", controls.checklist.waterTank, responses.waterTank],
     ["Pump House", controls.checklist.pumpHouse, responses.pumpHouse],
     ["Main Alarm Valve", controls.checklist.mainAlarmValve, responses.mainAlarmValve]
@@ -289,7 +284,7 @@ export async function saveAutomaticSprinklerDraft(
   return next;
 }
 
-function payload(record: AutomaticSprinklerInspectionRecord) {
+function payload(record: AutomaticSprinklerInspectionRecord, evidenceManifest?: ReturnType<typeof v7AutomaticSprinklerManifest>) {
   return {
     clientUuid: record.clientUuid,
     jobId: record.jobId,
@@ -303,7 +298,8 @@ function payload(record: AutomaticSprinklerInspectionRecord) {
     configuration: record.configuration,
     inspectionSnapshot: record.inspectionSnapshot,
     responses: record.responses,
-    performedAt: record.performedAt
+    performedAt: record.performedAt,
+    ...(evidenceManifest ? { evidenceManifest } : {})
   };
 }
 
@@ -380,8 +376,25 @@ export async function submitLocalAutomaticSprinkler(
       submittedRecord = liveRecord;
       return;
     }
-    if (getAutomaticSprinklerSubmitIssues(responses, liveRecord.inspectionSnapshot).length > 0) {
+    const isV7 = liveRecord.masterTemplate.version === 7;
+    const v7Photos = isV7 ? await listAutomaticSprinklerV7Photos(liveRecord.clientUuid) : [];
+    if (getAutomaticSprinklerSubmitIssues(responses, liveRecord.inspectionSnapshot).length > 0
+      || (isV7 && v7AutomaticSprinklerSubmissionIssues(liveRecord, responses, v7Photos).length > 0)) {
       throw new Error("Complete required Automatic Sprinkler results and PSI values");
+    }
+    if (isV7) {
+      const next = updated(liveRecord, responses, "Pending");
+      const manifest = v7AutomaticSprinklerManifest(v7Photos, responses);
+      const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first();
+      const outbox: SyncOutboxItem = { operationId: existing?.operationId ?? crypto.randomUUID(), entityType: "masterSystemInspection", entityId: record.clientUuid, action: "create", payload: payload(next, manifest), createdAt: next.localCreatedAt, attempts: existing?.attempts ?? 0, status: "Pending", activeKey };
+      await localDatabase.masterSystemInspections.put(next); submittedRecord = next;
+      if (existing) await localDatabase.syncOutbox.put(outbox); else await localDatabase.syncOutbox.add(outbox);
+      for (const photo of v7Photos.filter((candidate) => manifest.some((entry) => entry.photoUuid === candidate.photoUuid))) {
+        await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: next.localUpdatedAt });
+        const evidenceKey = `v7StagedEvidence:create:${photo.photoUuid}`;
+        if (!await localDatabase.syncOutbox.where("activeKey").equals(evidenceKey).first()) await localDatabase.syncOutbox.add(v7AutomaticSprinklerEvidenceOutbox(photo));
+      }
+      return;
     }
     const attachments = await localDatabase.inspectionAttachments
       .where("inspectionClientUuid")

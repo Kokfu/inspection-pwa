@@ -6,7 +6,9 @@ import type {
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 
-export type SprinklerResult = "good" | "poor";
+/** The frozen definition selects the permitted subset.  Historical records use
+ * Good/Poor; V7 records use the four-state paper-form result model. */
+export type SprinklerResult = "good" | "poor" | "not_good" | "complete_repair" | "na";
 export type SprinklerSyncStatus =
   | "Draft"
   | "Pending"
@@ -55,20 +57,32 @@ export type SprinklerMeasurementKey =
   | "water_supply_gauge"
   | "installation_gauge";
 
-export type AutomaticSprinklerResponses = {
+type SprinklerMeasurements = {
+  jockey_pump_pressure: SprinklerMeasurementResponse<"cut_in" | "cut_out">;
+  duty_pump_cut_in: SprinklerMeasurementResponse<"value">;
+  standby_pump_cut_in: SprinklerMeasurementResponse<"value">;
+  water_supply_gauge: SprinklerMeasurementResponse<"value">;
+  installation_gauge: SprinklerMeasurementResponse<"value">;
+};
+
+export type LegacyAutomaticSprinklerResponses = {
   schemaVersion: 1;
   waterTank: Record<WaterTankKey, SprinklerRowResponse>;
   pumpHouse: Record<PumpHouseChecklistKey, SprinklerRowResponse>;
-  measurements: {
-    jockey_pump_pressure: SprinklerMeasurementResponse<"cut_in" | "cut_out">;
-    duty_pump_cut_in: SprinklerMeasurementResponse<"value">;
-    standby_pump_cut_in: SprinklerMeasurementResponse<"value">;
-    water_supply_gauge: SprinklerMeasurementResponse<"value">;
-    installation_gauge: SprinklerMeasurementResponse<"value">;
-  };
+  measurements: SprinklerMeasurements;
   mainAlarmValve: Record<MainAlarmValveChecklistKey, SprinklerRowResponse>;
   comments: string;
 };
+
+export type AutomaticSprinklerV7ChecklistKey = WaterTankKey | PumpHouseChecklistKey | MainAlarmValveChecklistKey | "trfp_jockey_pump" | "trfp_duty_pump" | "trfp_standby_pump";
+export type V7AutomaticSprinklerResponses = {
+  schemaVersion: 2;
+  checklist: Record<AutomaticSprinklerV7ChecklistKey, SprinklerRowResponse>;
+  measurements: SprinklerMeasurements;
+  comments: string;
+};
+
+export type AutomaticSprinklerResponses = LegacyAutomaticSprinklerResponses | V7AutomaticSprinklerResponses;
 
 export type SprinklerLayoutRow = {
   kind: "checklist" | "measurement";
@@ -79,7 +93,7 @@ export type ResolvedAutomaticSprinklerControls = {
   schemaVersion: 1;
   source: {
     templateCode: "MFE-FSSR";
-    templateVersion: 1;
+    templateVersion: 1 | 7;
     systemKey: "automatic_sprinkler";
   };
   repetitionMode: "single";
@@ -93,6 +107,7 @@ export type ResolvedAutomaticSprinklerControls = {
     waterTank: ResolvedChecklistItem[];
     pumpHouse: ResolvedChecklistItem[];
     mainAlarmValve: ResolvedChecklistItem[];
+    testRunFirePump: ResolvedChecklistItem[];
   };
   measurements: ResolvedMeasurementRow[];
   layout: {

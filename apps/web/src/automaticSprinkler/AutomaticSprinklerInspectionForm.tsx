@@ -13,13 +13,16 @@ import {
   controlsForAutomaticSprinklerSnapshot
 } from "./automaticSprinklerDefinition";
 import { getAutomaticSprinklerSubmitIssues } from "./automaticSprinklerRepository";
+import { AutomaticSprinklerV7EvidenceField } from "./AutomaticSprinklerV7EvidenceField";
+import { isAutomaticSprinklerV7EvidenceFinding, type AutomaticSprinklerV7FieldPath, v7AutomaticSprinklerSubmissionIssues } from "./automaticSprinklerV7Evidence";
 import type {
   AutomaticSprinklerInspectionRecord,
   AutomaticSprinklerResponses,
   SprinklerMeasurementKey,
   SprinklerMeasurementResponse,
   SprinklerRowResponse,
-  SprinklerResult
+  SprinklerResult,
+  AutomaticSprinklerV7ChecklistKey
 } from "./automaticSprinklerTypes";
 
 type Props = {
@@ -52,13 +55,17 @@ export function AutomaticSprinklerInspectionForm({
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [attachments, setAttachments] = useState<InspectionAttachmentRecord[]>([]);
+  const isV7 = record.masterTemplate.version === 7;
   const controls = useMemo(
     () => controlsForAutomaticSprinklerSnapshot(record.inspectionSnapshot),
     [record.inspectionSnapshot]
   );
   const issues = useMemo(
-    () => showValidation ? getAutomaticSprinklerSubmitIssues(responses, record.inspectionSnapshot) : [],
-    [record.inspectionSnapshot, responses, showValidation]
+    () => showValidation ? [
+      ...getAutomaticSprinklerSubmitIssues(responses, record.inspectionSnapshot),
+      ...v7AutomaticSprinklerSubmissionIssues(record, responses, attachments).map((message) => ({ section: "V7 Evidence", message, targetId: "sprinkler-comments" }))
+    ] : [],
+    [attachments, record, record.inspectionSnapshot, responses, showValidation]
   );
   const invalidTargets = useMemo(() => new Set(issues.map((issue) => issue.targetId)), [issues]);
   const groupedIssues = useMemo(() => {
@@ -104,20 +111,14 @@ export function AutomaticSprinklerInspectionForm({
   }, [record.clientUuid]);
 
   function updateChecklist(
-    section: "waterTank" | "pumpHouse" | "mainAlarmValve",
+    section: "waterTank" | "pumpHouse" | "mainAlarmValve" | "testRunFirePump",
     key: string,
     change: { result?: SprinklerResult | null; remarks?: string }
   ) {
-    setResponses((current) => ({
-      ...current,
-      [section]: {
-        ...current[section],
-        [key]: {
-          ...(current[section] as Record<string, SprinklerRowResponse>)[key],
-          ...change
-        }
-      }
-    }));
+    setResponses((current) => current.schemaVersion === 2
+      ? { ...current, checklist: { ...current.checklist, [key]: { ...current.checklist[key as AutomaticSprinklerV7ChecklistKey], ...change } } }
+      : { ...current, [section]: { ...(current[section as "waterTank" | "pumpHouse" | "mainAlarmValve"]), [key]: { ...(current[section as "waterTank" | "pumpHouse" | "mainAlarmValve"] as Record<string, SprinklerRowResponse>)[key], ...change } } }
+    );
   }
 
   function updateMeasurement(
@@ -134,12 +135,14 @@ export function AutomaticSprinklerInspectionForm({
   }
 
   function checklistRow(
-    section: "waterTank" | "pumpHouse" | "mainAlarmValve",
+    section: "waterTank" | "pumpHouse" | "mainAlarmValve" | "testRunFirePump",
     key: string
   ) {
     const definitions = controls.checklist[section];
     const definition = definitions.find((candidate) => candidate.key === key);
-    const response = (responses[section] as Record<string, SprinklerRowResponse>)[key];
+    const response = responses.schemaVersion === 2
+      ? responses.checklist[key as AutomaticSprinklerV7ChecklistKey]
+      : (responses[section as "waterTank" | "pumpHouse" | "mainAlarmValve"] as Record<string, SprinklerRowResponse>)[key];
     if (!definition || !response) return null;
     const targetId = `sprinkler-${key}`;
     return <section className={`hose-check-row ${invalidTargets.has(targetId) ? "field-invalid" : ""}`} id={targetId} key={key}>
@@ -158,6 +161,12 @@ export function AutomaticSprinklerInspectionForm({
         readOnly={readOnly}
         onChange={(remarks) => updateChecklist(section, key, { remarks })}
       />
+      {isV7 && isAutomaticSprinklerV7EvidenceFinding(response.result) ? <AutomaticSprinklerV7EvidenceField
+        record={record}
+        fieldPath={`automatic_sprinkler_checks.${key}` as AutomaticSprinklerV7FieldPath}
+        attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_checks.${key}`)}
+        onChanged={refreshAttachments}
+      /> : null}
     </section>;
   }
 
@@ -169,6 +178,8 @@ export function AutomaticSprinklerInspectionForm({
     const targetId = `sprinkler-${key}`;
     return <section className={`measurement-card ${invalidTargets.has(targetId) ? "field-invalid" : ""}`} id={targetId} key={key}>
       <strong>{definition.label}</strong>
+      <div className="sprinkler-measurement-evidence">
+      <div className="sprinkler-legacy-psi-evidence">
       {definition.values.map((valueDefinition) => (
         <div className="psi-value-with-evidence" key={valueDefinition.key}>
           <MeasurementValueInput
@@ -192,6 +203,7 @@ export function AutomaticSprinklerInspectionForm({
           })() : null}
         </div>
       ))}
+      </div>
       <ResultSelector<SprinklerResult>
         definition={definition.result}
         label={`${definition.label} result`}
@@ -206,6 +218,13 @@ export function AutomaticSprinklerInspectionForm({
         readOnly={readOnly}
         onChange={(remarks) => updateMeasurement(measurementKey, { remarks })}
       />
+      {isV7 && isAutomaticSprinklerV7EvidenceFinding(response.result) ? <AutomaticSprinklerV7EvidenceField
+        record={record}
+        fieldPath={`automatic_sprinkler_measurements.${measurementKey}` as AutomaticSprinklerV7FieldPath}
+        attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_measurements.${measurementKey}`)}
+        onChanged={refreshAttachments}
+      /> : null}
+      </div>
     </section>;
   }
 
@@ -227,7 +246,10 @@ export function AutomaticSprinklerInspectionForm({
   }
 
   async function submit() {
-    const currentIssues = getAutomaticSprinklerSubmitIssues(responses, record.inspectionSnapshot);
+    const currentIssues = [
+      ...getAutomaticSprinklerSubmitIssues(responses, record.inspectionSnapshot),
+      ...v7AutomaticSprinklerSubmissionIssues(record, responses, attachments).map((message) => ({ section: "V7 Evidence", message, targetId: "sprinkler-comments" }))
+    ];
     setShowValidation(true);
     if (currentIssues.length > 0) {
       setMessage("");
@@ -291,6 +313,7 @@ export function AutomaticSprinklerInspectionForm({
     <fieldset disabled={readOnly}><legend>Water Tank</legend>{sectionRows("waterTank")}</fieldset>
     <fieldset disabled={readOnly}><legend>Pump House</legend>{sectionRows("pumpHouse")}</fieldset>
     <fieldset disabled={readOnly}><legend>Main Alarm Valve</legend>{sectionRows("mainAlarmValve")}</fieldset>
+    {isV7 ? <fieldset disabled={readOnly}><legend>Test Run Fire Pump 30 Minutes</legend>{controls.checklist.testRunFirePump.map((definition) => checklistRow("testRunFirePump", definition.key))}</fieldset> : null}
     <fieldset id="sprinkler-comments" className={invalidTargets.has("sprinkler-comments") ? "field-invalid" : ""} disabled={readOnly}>
       <legend>Comments</legend>
       <RemarksField

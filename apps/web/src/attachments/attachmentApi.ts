@@ -1,5 +1,8 @@
 import type { InspectionAttachmentRecord } from "./attachmentTypes";
 
+/** Keep this explicit client boundary in lockstep with the server contract union. */
+export const v7StagingSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "hydrant", "hose_reel", "automatic_sprinkler"] as const;
+
 export type ServerAttachmentMetadata = {
   serverAttachmentId: string;
   photoUuid: string;
@@ -85,7 +88,7 @@ export async function stageFireAlarmV6Evidence(attachment: InspectionAttachmentR
 }
 
 export async function stageV7Evidence(attachment: InspectionAttachmentRecord, record: { jobId: string; masterTemplate: { id: string; version: number } }) {
-  if (attachment.protocolVersion !== 7 || record.masterTemplate.version !== 7 || !attachment.contractSha256 || (attachment.systemKey !== "co2_fire_extinguisher" && attachment.systemKey !== "wet_chemical" && attachment.systemKey !== "fire_alarm_detector" && attachment.systemKey !== "hydrant" && attachment.systemKey !== "hose_reel")) throw new AttachmentUploadError("VALIDATION_ERROR", "V7 staged evidence identity is invalid");
+  if (attachment.protocolVersion !== 7 || record.masterTemplate.version !== 7 || !attachment.contractSha256 || !v7StagingSystemKeys.some((systemKey) => systemKey === attachment.systemKey)) throw new AttachmentUploadError("VALIDATION_ERROR", "V7 staged evidence identity is invalid");
   const body = new FormData();
   body.set("photoUuid", attachment.photoUuid); body.set("inspectionClientUuid", attachment.inspectionClientUuid); body.set("jobId", record.jobId); body.set("systemKey", attachment.systemKey); body.set("fieldPath", attachment.fieldPath); body.set("masterTemplateId", record.masterTemplate.id); body.set("masterTemplateVersion", "7"); body.set("contractSha256", attachment.contractSha256); body.set("captureSource", attachment.captureSource); body.set("capturedAt", attachment.capturedAt); body.set("sha256", attachment.sha256); body.set("sizeBytes", String(attachment.sizeBytes)); body.set("width", String(attachment.width)); body.set("height", String(attachment.height)); body.set("file", attachment.blob, `${attachment.photoUuid}.jpg`);
   const response = await fetch("/api/v7-evidence/stage", { method: "POST", credentials: "same-origin", body });
