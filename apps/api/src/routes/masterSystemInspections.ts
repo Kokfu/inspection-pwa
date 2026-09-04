@@ -3,7 +3,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
-import { validateAcceptedCo2Detail, validateAcceptedHoseReelDetail, validateAcceptedHydrantV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { validateAcceptedCo2Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -101,6 +101,12 @@ masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireR
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
     const row = await acceptedDetailRow(clientUuid, "hose_reel", request.currentUser!);
     if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+    const isV7 = typeof row.inspectionSnapshot === "object" && row.inspectionSnapshot !== null && !Array.isArray(row.inspectionSnapshot) && (row.inspectionSnapshot as Record<string, unknown>).schemaVersion === 2;
+    if (isV7) {
+      if (!validateAcceptedHoseReelV7Detail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+      response.json({ inspection: { ...acceptedDetailResponse(row, "Hose Reel System"), displayControls: null } });
+      return;
+    }
     if (!validateAcceptedHoseReelDetail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
     response.json({ inspection: acceptedDetailResponse(row, "Hose Reel System") });
   } catch (error) { next(error); }

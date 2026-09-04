@@ -15,6 +15,8 @@ import {
 } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot } from "../jobs/jobTypes";
+import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
+import { listHoseReelV7Photos, v7HoseReelEvidenceOutbox, v7HoseReelManifest, v7HoseReelSubmissionIssues } from "./hoseReelV7Evidence";
 import { hoseReelLimits, type DeviceReportedCreator, type GoodPoor, type HoseReelInspectionSnapshot, type HoseReelResponses, type MasterSystemInspectionRecord } from "./hoseReelTypes";
 
 const key = "hose_reel";
@@ -39,7 +41,7 @@ function definitionFor(catalog: InspectionCatalogInput, job: InspectionJob) {
     ?? resolvePublishedHoseReelControls(system.definition, template.code, template.version);
   return { definition: system.definition, resolvedControls };
 }
-function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "" }; }
+function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number, isV7: boolean) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(isV7 ? { fieldRemarks: {} } : {}) }; }
 function measurement(controls: ResolvedHoseReelControls, measurementKey: string): ResolvedMeasurementRow {
   const value = controls.measurements.find((item) => item.key === measurementKey);
   if (!value) throw new Error(`Hose Reel definition is missing ${measurementKey}`);
@@ -57,7 +59,7 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
   let order = 0;
   return {
     checklist: Object.fromEntries(
-      [...controls.checklist.waterTank, ...controls.checklist.pumpHouse]
+      [...controls.checklist.waterTank, ...controls.checklist.pumpHouse, ...(controls.checklist.testRunFirePump ?? [])]
         .map((item) => [item.key, { result: null, remarks: "" }])
     ),
     measurements: {
@@ -77,10 +79,11 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
     drumTypes: { swing: false, fixed: false },
     rows: system.locations.flatMap((location) =>
       Array.from({ length: location.presetRowCount }, () =>
-        row(location, zones.get(location.zoneId ?? ""), ++order)
+        row(location, zones.get(location.zoneId ?? ""), ++order, controls.source.templateVersion === 7)
       )
     ),
-    comments: ""
+    comments: "",
+    ...(controls.source.templateVersion === 7 ? { schemaVersion: 2 } : {})
   };
 }
 function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput): HoseReelInspectionSnapshot {
@@ -117,12 +120,13 @@ export async function saveHoseReelDraft(record: MasterSystemInspectionRecord, re
 function allowedResult(definition: ResultControlDefinition, value: GoodPoor | null) {
   return value !== null && definition.options.some((option) => option.value === value);
 }
-export function getHoseReelSubmitIssues(responses: HoseReelResponses, snapshot: HoseReelInspectionSnapshot): HoseReelSubmitIssue[] {
+export function getHoseReelSubmitIssues(responses: HoseReelResponses, snapshot: HoseReelInspectionSnapshot, record?: MasterSystemInspectionRecord, attachments: InspectionAttachmentRecord[] = []): HoseReelSubmitIssue[] {
   const issues: HoseReelSubmitIssue[] = [];
   const controls = controlsForHoseReelSnapshot(snapshot);
   const checklistGroups = [
     ["Water Tank", controls.checklist.waterTank],
-    ["Pump House", controls.checklist.pumpHouse]
+    ["Pump House", controls.checklist.pumpHouse],
+    ["Test Run Fire Pump 30 Minutes", controls.checklist.testRunFirePump]
   ] as const;
   checklistGroups.forEach(([section, definitions]) => definitions.forEach((definition) => {
     const item = responses.checklist[definition.key];
@@ -165,15 +169,16 @@ export function getHoseReelSubmitIssues(responses: HoseReelResponses, snapshot: 
   });
 
   if (responses.comments.length > controls.comments.maxLength) issues.push({ section: "Comments", message: `Comments exceed ${controls.comments.maxLength} characters`, targetId: "hose-reel-comments" });
+  if (record) issues.push(...v7HoseReelSubmissionIssues(record, responses, attachments).map((message) => ({ section: "V7 Evidence", message, targetId: "hose-reel-locations" })));
   return issues;
 }
 
-function validateSubmit(record: MasterSystemInspectionRecord, responses: HoseReelResponses) {
-  if (getHoseReelSubmitIssues(responses, record.inspectionSnapshot).length > 0) {
+function validateSubmit(record: MasterSystemInspectionRecord, responses: HoseReelResponses, attachments: InspectionAttachmentRecord[]) {
+  if (getHoseReelSubmitIssues(responses, record.inspectionSnapshot, record, attachments).length > 0) {
     throw new Error("Complete required Hose Reel results and keep submitted text within the allowed limits");
   }
 }
-function payload(record: MasterSystemInspectionRecord) { return { clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey, originalCreatorSnapshot: record.originalCreatorSnapshot ?? null, masterTemplate: record.masterTemplate, configuration: record.configuration, inspectionSnapshot: record.inspectionSnapshot, responses: record.responses, performedAt: record.performedAt }; }
-export async function submitLocalHoseReel(record: MasterSystemInspectionRecord, responses: HoseReelResponses) { let next: MasterSystemInspectionRecord | undefined; const activeKey = `masterSystemInspection:create:${record.clientUuid}`; await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => { const live = await localDatabase.masterSystemInspections.get(record.clientUuid); if (!live || live.systemKey !== key || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error("This Hose Reel record changed elsewhere. Reload before submitting."); const current = live as MasterSystemInspectionRecord; const merged = preserveConfiguredRows(current.responses, responses); validateSubmit(current, merged); next = update(current, merged, "Pending"); const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first(); const outbox: SyncOutboxItem = { operationId: existing?.operationId ?? crypto.randomUUID(), entityType: "masterSystemInspection", entityId: current.clientUuid, action: "create", payload: payload(next), createdAt: next.localCreatedAt, attempts: existing?.attempts ?? 0, status: "Pending", activeKey }; await localDatabase.masterSystemInspections.put(next); if (existing) await localDatabase.syncOutbox.put(outbox); else await localDatabase.syncOutbox.add(outbox); }); if (!next) throw new Error("Hose Reel inspection was not submitted"); return next; }
+function payload(record: MasterSystemInspectionRecord, evidenceManifest?: ReturnType<typeof v7HoseReelManifest>) { return { clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey, ...(record.masterTemplate.version === 7 ? { instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1 } : {}), originalCreatorSnapshot: record.originalCreatorSnapshot ?? null, masterTemplate: record.masterTemplate, configuration: record.configuration, inspectionSnapshot: record.inspectionSnapshot, responses: record.responses, performedAt: record.performedAt, ...(evidenceManifest ? { evidenceManifest } : {}) }; }
+export async function submitLocalHoseReel(record: MasterSystemInspectionRecord, responses: HoseReelResponses) { let next: MasterSystemInspectionRecord | undefined; const activeKey = `masterSystemInspection:create:${record.clientUuid}`; await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { const live = await localDatabase.masterSystemInspections.get(record.clientUuid); if (!live || live.systemKey !== key || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error("This Hose Reel record changed elsewhere. Reload before submitting."); const current = live as MasterSystemInspectionRecord; const merged = preserveConfiguredRows(current.responses, responses); const photos = current.masterTemplate.version === 7 ? await listHoseReelV7Photos(current.clientUuid) : []; validateSubmit(current, merged, photos); next = update(current, merged, "Pending"); const manifest = current.masterTemplate.version === 7 ? v7HoseReelManifest(photos, merged) : undefined; const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first(); const outbox: SyncOutboxItem = { operationId: existing?.operationId ?? crypto.randomUUID(), entityType: "masterSystemInspection", entityId: current.clientUuid, action: "create", payload: payload(next, manifest), createdAt: next.localCreatedAt, attempts: existing?.attempts ?? 0, status: "Pending", activeKey }; await localDatabase.masterSystemInspections.put(next); if (existing) await localDatabase.syncOutbox.put(outbox); else await localDatabase.syncOutbox.add(outbox); for (const photo of photos.filter((photo) => manifest?.some((entry) => entry.photoUuid === photo.photoUuid))) { await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: next.localUpdatedAt }); const evidenceKey = `v7StagedEvidence:create:${photo.photoUuid}`; if (!await localDatabase.syncOutbox.where("activeKey").equals(evidenceKey).first()) await localDatabase.syncOutbox.add(v7HoseReelEvidenceOutbox(photo)); } }); if (!next) throw new Error("Hose Reel inspection was not submitted"); return next; }
 export async function editFailedHoseReel(record: MasterSystemInspectionRecord) { let next: MasterSystemInspectionRecord | undefined; const activeKey = `masterSystemInspection:create:${record.clientUuid}`; await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => { const live = await localDatabase.masterSystemInspections.get(record.clientUuid); if (!live || live.systemKey !== key || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) throw new Error("This Hose Reel record changed elsewhere. Reload before correcting it."); next = { ...(live as MasterSystemInspectionRecord), syncStatus: "Draft", localUpdatedAt: now(), lastSyncError: undefined }; const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first(); if (item) await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: now(), lastError: "Superseded by technician correction" }); await localDatabase.masterSystemInspections.put(next); }); if (!next) throw new Error("Hose Reel inspection was not corrected"); return next; }
-export function addHoseReelRow(responses: HoseReelResponses): HoseReelResponses { const sortOrder = Math.max(0, ...responses.rows.map((item) => item.sortOrder)) + 1; return { ...responses, rows: [...responses.rows, { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "", assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "" }] }; }
+export function addHoseReelRow(responses: HoseReelResponses): HoseReelResponses { const sortOrder = Math.max(0, ...responses.rows.map((item) => item.sortOrder)) + 1; return { ...responses, rows: [...responses.rows, { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "", assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(responses.schemaVersion === 2 ? { fieldRemarks: {} } : {}) }] }; }

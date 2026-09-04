@@ -10,7 +10,10 @@ type UnknownRecord = Record<string, unknown>;
 
 const optionLabels: Readonly<Record<string, string>> = {
   good: "Good",
-  poor: "Poor"
+  poor: "Poor",
+  not_good: "Not Good",
+  complete_repair: "Complete Repair",
+  na: "N.A."
 };
 const checklistLabels: Readonly<Record<string, string>> = {
   saj_main_water_supply: "S.A.J Main Water Supply",
@@ -73,7 +76,7 @@ function resultControl(control: unknown, allowedValues: unknown): ResultControlD
     options: values.map((value) => {
       const label = optionLabels[value];
       if (!label) {
-        throw new Error(`MFE-FSSR V1 has unknown result option ${value}`);
+        throw new Error(`Hose Reel definition has unknown result option ${value}`);
       }
       return { value, label };
     })
@@ -130,6 +133,7 @@ export function resolvePublishedHoseReelControls(
   const waterTank = named(sections, "water_tank", "Water Tank section");
   const pumpHouse = named(sections, "pump_house", "Pump House section");
   const drum = named(sections, "hose_reel_drum", "Hose Reel Drum section");
+  const testRun = templateVersion === 7 ? named(sections, "test_run_fire_pump_30_minutes", "Test Run Fire Pump section") : undefined;
   const waterChecks = named(list(waterTank.blocks, "Water Tank blocks"), "water_tank_checks", "Water Tank checklist");
   const pumpBlocks = list(pumpHouse.blocks, "Pump House blocks");
   const pumpChecks = named(pumpBlocks, "pump_house_checks", "Pump House checklist");
@@ -156,10 +160,11 @@ export function resolvePublishedHoseReelControls(
 
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "hose_reel" },
+    source: { templateCode: "MFE-FSSR", templateVersion: templateVersion === 7 ? 7 : 1, systemKey: "hose_reel" },
     checklist: {
       waterTank: sorted(list(waterChecks.items, "Water Tank items").map(checklistItem)),
-      pumpHouse: sorted(list(pumpChecks.items, "Pump House items").map(checklistItem))
+      pumpHouse: sorted(list(pumpChecks.items, "Pump House items").map(checklistItem)),
+      testRunFirePump: testRun ? sorted(list(named(list(testRun.blocks, "Test Run blocks"), "test_run_fire_pump_checks", "Test Run checklist").items, "Test Run items").map(checklistItem)) : []
     },
     measurements: sorted(list(measurements.items, "measurement rows").map(measurementRow)),
     repeatableRows: {
@@ -183,14 +188,15 @@ function sameOptionValues(control: unknown): control is ResultControlDefinition 
 
 export function parseFrozenHoseReelControls(value: unknown): ResolvedHoseReelControls | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.source)
-    || value.source.templateCode !== "MFE-FSSR" || value.source.templateVersion !== 1
+    || value.source.templateCode !== "MFE-FSSR" || (value.source.templateVersion !== 1 && value.source.templateVersion !== 7)
     || value.source.systemKey !== "hose_reel" || !isRecord(value.checklist)
     || !Array.isArray(value.checklist.waterTank) || !Array.isArray(value.checklist.pumpHouse)
+    || (value.source.templateVersion === 7 && !Array.isArray(value.checklist.testRunFirePump))
     || !Array.isArray(value.measurements) || !isRecord(value.repeatableRows)
     || !Array.isArray(value.repeatableRows.resultColumns) || !isRecord(value.comments)) {
     return undefined;
   }
-  const checklist = [...value.checklist.waterTank, ...value.checklist.pumpHouse];
+  const checklist = [...value.checklist.waterTank, ...value.checklist.pumpHouse, ...(Array.isArray(value.checklist.testRunFirePump) ? value.checklist.testRunFirePump : [])];
   const validRemarks = (candidate: unknown) =>
     isRecord(candidate)
     && (candidate.policy === "none" || candidate.policy === "optional")

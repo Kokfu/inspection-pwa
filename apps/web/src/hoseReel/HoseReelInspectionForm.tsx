@@ -13,6 +13,12 @@ import {
   type MasterSystemInspectionRecord
 } from "./hoseReelTypes";
 import { inspectionSyncMessage } from "../uiPresentation";
+import { HoseReelV7EvidenceField } from "./HoseReelV7EvidenceField";
+import {
+  isHoseReelV7EvidenceFinding,
+  listHoseReelV7Photos,
+  type HoseReelV7FieldPath
+} from "./hoseReelV7Evidence";
 
 type Props = {
   record: MasterSystemInspectionRecord;
@@ -40,6 +46,8 @@ export function HoseReelInspectionForm({
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listHoseReelV7Photos>>>([]);
+  const isV7 = record.masterTemplate.version === 7;
   const controlResolution = useMemo(() => {
     try {
       return { controls: controlsForHoseReelSnapshot(record.inspectionSnapshot) };
@@ -55,9 +63,9 @@ export function HoseReelInspectionForm({
   const controls = controlResolution.controls;
   const validationIssues = useMemo(
     () => showValidation && controls
-      ? getHoseReelSubmitIssues(responses, record.inspectionSnapshot)
+      ? getHoseReelSubmitIssues(responses, record.inspectionSnapshot, record, photos)
       : [],
-    [controls, record.inspectionSnapshot, responses, showValidation]
+    [controls, photos, record, record.inspectionSnapshot, responses, showValidation]
   );
   const invalidTargets = useMemo(
     () => new Set(validationIssues.map((issue) => issue.targetId)),
@@ -80,7 +88,14 @@ export function HoseReelInspectionForm({
     setShowValidation(false);
   }, [record.clientUuid]);
 
+  useEffect(() => {
+    if (isV7) void listHoseReelV7Photos(record.clientUuid).then(setPhotos);
+    else setPhotos([]);
+  }, [isV7, record.clientUuid, record.localUpdatedAt]);
+
   const readOnly = record.syncStatus !== "Draft";
+  const evidenceFor = (fieldPath: HoseReelV7FieldPath) => photos.find((photo) => photo.fieldPath === fieldPath);
+  const refreshPhotos = async () => setPhotos(await listHoseReelV7Photos(record.clientUuid));
   const lifecycleMessage = record.syncStatus === "Draft" ? "" : inspectionSyncMessage(record.syncStatus);
   const updateChecklist = (
     key: string,
@@ -140,7 +155,7 @@ export function HoseReelInspectionForm({
       setMessage(controlResolution.error ?? "Inspection controls are unavailable");
       return;
     }
-    const issues = getHoseReelSubmitIssues(responses, record.inspectionSnapshot);
+    const issues = getHoseReelSubmitIssues(responses, record.inspectionSnapshot, record, photos);
     setShowValidation(true);
     if (issues.length > 0) {
       setMessage("");
@@ -258,6 +273,14 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(remarks) => updateChecklist(definition.key, { remarks })}
             />
+            {isV7 && isHoseReelV7EvidenceFinding(responses.checklist[definition.key]?.result) ? (
+              <HoseReelV7EvidenceField
+                record={record}
+                fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath}
+                attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
+                onChanged={refreshPhotos}
+              />
+            ) : null}
           </div>
         ))}
       </fieldset>
@@ -285,6 +308,14 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(remarks) => updateChecklist(definition.key, { remarks })}
             />
+            {isV7 && isHoseReelV7EvidenceFinding(responses.checklist[definition.key]?.result) ? (
+              <HoseReelV7EvidenceField
+                record={record}
+                fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath}
+                attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
+                onChanged={refreshPhotos}
+              />
+            ) : null}
           </div>
         ))}
         <div
@@ -322,6 +353,14 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(remarks) => updateJockey({ remarks })}
           />
+          {isV7 && isHoseReelV7EvidenceFinding(responses.measurements.jockey_pump_pressure.result) ? (
+            <HoseReelV7EvidenceField
+              record={record}
+              fieldPath="hose_reel_measurements.jockey_pump_pressure"
+              attachment={evidenceFor("hose_reel_measurements.jockey_pump_pressure")}
+              onChanged={refreshPhotos}
+            />
+          ) : null}
         </div>
         <div
           className={`measurement-card ${invalidTargets.has("standby-measurement") ? "field-invalid" : ""}`}
@@ -355,8 +394,53 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(remarks) => updateStandby({ remarks })}
           />
+          {isV7 && isHoseReelV7EvidenceFinding(responses.measurements.standby_pump_cut_in.result) ? (
+            <HoseReelV7EvidenceField
+              record={record}
+              fieldPath="hose_reel_measurements.standby_pump_cut_in"
+              attachment={evidenceFor("hose_reel_measurements.standby_pump_cut_in")}
+              onChanged={refreshPhotos}
+            />
+          ) : null}
         </div>
       </fieldset>
+
+      {isV7 ? (
+        <fieldset disabled={readOnly}>
+          <legend>Test Run Fire Pump 30 Minutes</legend>
+          {(controls.checklist.testRunFirePump ?? []).map((definition) => (
+            <div
+              className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
+              id={`check-${definition.key}`}
+              key={definition.key}
+            >
+              <strong>{definition.label}</strong>
+              <ResultSelector<GoodPoor>
+                definition={definition.result}
+                label={`${definition.label} result`}
+                value={responses.checklist[definition.key]?.result ?? null}
+                readOnly={readOnly}
+                onChange={(result) => updateChecklist(definition.key, { result })}
+              />
+              <RemarksField
+                label="Remarks"
+                definition={definition.remarks}
+                value={responses.checklist[definition.key]?.remarks ?? ""}
+                readOnly={readOnly}
+                onChange={(remarks) => updateChecklist(definition.key, { remarks })}
+              />
+              {isHoseReelV7EvidenceFinding(responses.checklist[definition.key]?.result) ? (
+                <HoseReelV7EvidenceField
+                  record={record}
+                  fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath}
+                  attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
+                  onChanged={refreshPhotos}
+                />
+              ) : null}
+            </div>
+          ))}
+        </fieldset>
+      ) : null}
 
       <fieldset disabled={readOnly}>
         <legend>Hose Reel Drum</legend>
@@ -416,16 +500,37 @@ export function HoseReelInspectionForm({
               {controls.repeatableRows.resultColumns.map((definition) => {
                 const field = rowResultFields[definition.key as keyof typeof rowResultFields];
                 if (!field) return null;
+                const result = row[field];
+                const fieldPath = `hose_reel_drum.hose_reel_rows.rows.${row.rowUuid}.${definition.key}` as HoseReelV7FieldPath;
                 return (
                 <div className="hose-component" key={definition.key}>
                   <strong>{definition.label}</strong>
                   <ResultSelector<GoodPoor>
                     definition={definition.result}
                     label={`${definition.label} result`}
-                    value={row[field]}
+                    value={result}
                     readOnly={readOnly}
                     onChange={(result) => updateRow(row.rowUuid, { [field]: result })}
                   />
+                  {isV7 && isHoseReelV7EvidenceFinding(result) ? (
+                    <section>
+                      <RemarksField
+                        label={`${definition.label} Remark *`}
+                        definition={controls.repeatableRows.remarks}
+                        value={row.fieldRemarks?.[field] ?? ""}
+                        readOnly={readOnly}
+                        onChange={(remark) => updateRow(row.rowUuid, {
+                          fieldRemarks: { ...row.fieldRemarks, [field]: remark }
+                        })}
+                      />
+                      <HoseReelV7EvidenceField
+                        record={record}
+                        fieldPath={fieldPath}
+                        attachment={evidenceFor(fieldPath)}
+                        onChanged={refreshPhotos}
+                      />
+                    </section>
+                  ) : null}
                 </div>
                 );
               })}

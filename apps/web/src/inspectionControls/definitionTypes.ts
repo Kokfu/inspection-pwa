@@ -49,12 +49,13 @@ export type ResolvedHoseReelControls = {
   schemaVersion: 1;
   source: {
     templateCode: "MFE-FSSR";
-    templateVersion: 1;
+    templateVersion: 1 | 7;
     systemKey: "hose_reel";
   };
   checklist: {
     waterTank: ResolvedChecklistItem[];
     pumpHouse: ResolvedChecklistItem[];
+    testRunFirePump: ResolvedChecklistItem[];
   };
   measurements: ResolvedMeasurementRow[];
   repeatableRows: {
