@@ -28,16 +28,20 @@ function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
   };
 }
 
+/** Deep four-state rewrite.  Unlike `upgradeV7EvidenceSystem` this also reaches
+ * a measurement row's nested `result`, which is a `good_poor` control that is
+ * not a checklist item or a repeatable-table column. */
+const fourState = (value: unknown): unknown => Array.isArray(value)
+  ? value.map(fourState)
+  : value && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, key === "allowedValues" && (value as Record<string, unknown>).control === "good_poor" ? v7ResultValues : fourState(child)]))
+    : value;
+
 /** Hose Reel reaches V7 after the first four systems were published.  Keep its
  * expansion separate so those already-shipped contracts remain byte-identical.
  * The source paper form specifies only Duty and Standby in this test-run block;
  * it gives no Jockey row, duration semantics, or extra readings to model. */
 function upgradeV7HoseReel(system: SystemDefinition): SystemDefinition {
-  const fourState = (value: unknown): unknown => Array.isArray(value)
-    ? value.map(fourState)
-    : value && typeof value === "object"
-      ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, key === "allowedValues" && (value as Record<string, unknown>).control === "good_poor" ? v7ResultValues : fourState(child)]))
-      : value;
   const testRun = {
     key: "test_run_fire_pump_30_minutes",
     title: "Test Run Fire Pump 30 Minutes",
@@ -62,6 +66,43 @@ function upgradeV7HoseReel(system: SystemDefinition): SystemDefinition {
   };
 }
 
+/** Automatic Sprinkler reaches V7 after five systems were published, so its
+ * expansion is separate for the same reason Hose Reel's is.
+ *
+ * Two shape differences from Hose Reel are real and form-specific, not errors:
+ * the paper's TEST RUN FIRE PUMP 30 MINUTES block has THREE rows here (Jockey,
+ * Duty, Standby); and Comments lives inside the Main Alarm Valve section rather
+ * than in a trailing section of its own, so the new block is appended to that
+ * section immediately before Comments — which is exactly where the paper form
+ * places it (after MAIN ALARM VALVE, before Comments). */
+function upgradeV7AutomaticSprinkler(system: SystemDefinition): SystemDefinition {
+  const testRun = {
+    key: "test_run_fire_pump_checks",
+    title: "Test Run Fire Pump 30 Minutes",
+    type: "checklist" as const,
+    sortOrder: 3,
+    items: [
+      { key: "trfp_jockey_pump", label: "Jockey Pump", control: "good_poor" as const, required: false, sortOrder: 1, allowedValues: v7ResultValues, remarksPolicy: "optional" as const },
+      { key: "trfp_duty_pump", label: "Duty Pump", control: "good_poor" as const, required: false, sortOrder: 2, allowedValues: v7ResultValues, remarksPolicy: "optional" as const },
+      { key: "trfp_standby_pump", label: "Standby Pump", control: "good_poor" as const, required: false, sortOrder: 3, allowedValues: v7ResultValues, remarksPolicy: "optional" as const }
+    ]
+  };
+  const source = fourState(system) as SystemDefinition;
+  return {
+    ...source,
+    sections: source.sections.map((section) => section.key === "main_alarm_valve"
+      ? {
+        ...section,
+        blocks: [
+          ...section.blocks.filter((block) => block.type !== "comments"),
+          testRun,
+          ...section.blocks.filter((block) => block.type === "comments").map((block) => ({ ...block, sortOrder: 4 }))
+        ]
+      }
+      : section)
+  };
+}
+
 /**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
  * retains its independent detector-state control; Good/Poor fields use the
@@ -76,6 +117,8 @@ export const masterServiceReportV7 = {
       ? upgradeV7EvidenceSystem(system)
       : system.key === "hose_reel"
         ? upgradeV7HoseReel(system)
+      : system.key === "automatic_sprinkler"
+        ? upgradeV7AutomaticSprinkler(system)
       : system
   )
 } as const satisfies MasterServiceReportDefinition;

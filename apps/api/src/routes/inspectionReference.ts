@@ -368,6 +368,9 @@ inspectionReferenceRouter.get(
       // zone/location authority. Do not advertise malformed legacy data to a
       // technician merely because it was once present in a configuration.
       const usableEnabledSystems = enabledResult.rows.filter((system) => {
+        if (system.key === "dry_wet_riser") {
+          return Boolean(parseDryWetRiserSystemConfiguration(system.systemConfiguration));
+        }
         if (system.key !== "co2_fire_extinguisher" && system.key !== "wet_chemical") return true;
         const zoneIds = new Set(
           zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id).map((zone) => zone.id)
@@ -385,9 +388,6 @@ inspectionReferenceRouter.get(
             const systemConfiguration = system.key === "dry_wet_riser"
               ? parseDryWetRiserSystemConfiguration(storedSystemConfiguration)
               : undefined;
-            if (system.key === "dry_wet_riser" && !systemConfiguration) {
-              throw new Error("Dry/Wet Riser V2 configuration requires exactly riserMode dry or wet");
-            }
             return {
               ...baseSystem,
               ...(systemConfiguration ? { systemConfiguration } : {}),

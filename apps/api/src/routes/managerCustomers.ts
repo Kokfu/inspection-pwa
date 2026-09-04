@@ -3,6 +3,7 @@ import { Router } from "express";
 import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
+import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { requireRole } from "../middleware/requireRole.js";
 
@@ -123,6 +124,17 @@ function assertLocationDependentAssignments(keys: string[], configuration: Await
   }
 }
 
+function assertDryWetRiserAssignments(keys: string[], configuration: Awaited<ReturnType<typeof loadConfiguration>>) {
+  if (!keys.includes("dry_wet_riser")) return;
+  const existing = configuration.enabled.find((system) => system.key === "dry_wet_riser");
+  if (!existing || !parseDryWetRiserSystemConfiguration(existing.systemConfiguration)) {
+    throw new ManagerCustomerError(
+      "RISER_MODE_REQUIRED",
+      "dry_wet_riser.systemConfiguration.riserMode must be either dry or wet."
+    );
+  }
+}
+
 async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: string) {
   const revisionResult = await client.query<{ id: string; revision: number; templateId: string }>(`
     SELECT id, revision, template_version_id AS "templateId" FROM customer_configuration_revisions
@@ -177,6 +189,7 @@ async function copySelectedConfiguration(client: PoolClient, customerId: string,
   const current = await loadConfiguration(client, customerId);
   const supported = await requireSupportedKeys(client, keys);
   assertLocationDependentAssignments(keys, current);
+  assertDryWetRiserAssignments(keys, current);
   const newRevisionId = randomUUID();
   await client.query(`UPDATE customer_configuration_revisions SET status = 'superseded' WHERE id = $1`, [current.revision.id]);
   await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3 AND publication_status = 'published'), $4, 'active')`, [newRevisionId, customerId, customerCatalogVersion, current.revision.revision + 1]);
@@ -235,6 +248,7 @@ async function createCustomer(
   if (replayCustomerId) return { customerId: replayCustomerId, idempotent: true };
   await requireSupportedKeys(client, input.systemKeys);
   assertLocationDependentAssignments(input.systemKeys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
+  assertDryWetRiserAssignments(input.systemKeys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
   const customerId = randomUUID();
   const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const inserted = await client.query<{ id: string }>(`

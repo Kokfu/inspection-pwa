@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -355,8 +355,109 @@ const hoseReelAdapter = (definition: unknown): V7EvidenceContractAdapter | undef
   };
 };
 
+const sprinklerChecklistFields = [
+  ["water_tank", "water_tank_checks", "saj_main_water_supply", "Water Tank - S.A.J Main Water Supply"],
+  ["water_tank", "water_tank_checks", "water_level", "Water Tank - Water Level"],
+  ["water_tank", "water_tank_checks", "automatic_refilling_facilities", "Water Tank - Automatic Refilling Facilities"],
+  ["water_tank", "water_tank_checks", "drain_and_stop_valve_positions", "Water Tank - Drain Valve Closed and Stop Valves Open"],
+  ["pump_house", "pump_house_checks", "pump_house_clean", "Pump House - Keep Clean in Pump House"],
+  ["pump_house", "pump_house_checks", "manual_start_pumps", "Pump House - Manual Start Jockey, Duty and Stand-by Pumps"],
+  ["pump_house", "pump_house_checks", "standby_pump_service_items", "Pump House - Stand-by Pump Water, Oil, Fuel, Belt and Other Service Items"],
+  ["pump_house", "pump_house_checks", "battery_charging_alternator", "Pump House - Battery Charging Alternator Operation"],
+  ["pump_house", "pump_house_checks", "battery_serviceable", "Pump House - Battery in Good Serviceable Condition"],
+  ["pump_house", "pump_house_checks", "pump_phase_failure_alarm", "Pump House - Pump Run / Phase Failure Alarm Signal to Main Alarm Panel"],
+  ["pump_house", "pump_house_checks", "pumps_auto_start", "Pump House - Jockey, Duty and Stand-by Pumps in Auto Start Position"],
+  ["pump_house", "pump_house_checks", "test_and_gate_valve_positions", "Pump House - Test Valve Closed and Gate Valves Open"],
+  ["main_alarm_valve", "main_alarm_valve_checks", "breaching_inlet", "Main Alarm Valve - Breaching Inlet in Good Serviceable Condition"],
+  ["main_alarm_valve", "main_alarm_valve_checks", "alarm_gong", "Main Alarm Valve - Alarm Gong in Function"],
+  ["main_alarm_valve", "main_alarm_valve_checks", "flow_meter_valve_positions", "Main Alarm Valve - Flow Meter Valve Closed and Other Valves Open"],
+  ["main_alarm_valve", "test_run_fire_pump_checks", "trfp_jockey_pump", "Test Run Fire Pump 30 Minutes - Jockey Pump"],
+  ["main_alarm_valve", "test_run_fire_pump_checks", "trfp_duty_pump", "Test Run Fire Pump 30 Minutes - Duty Pump"],
+  ["main_alarm_valve", "test_run_fire_pump_checks", "trfp_standby_pump", "Test Run Fire Pump 30 Minutes - Standby Pump"]
+] as const;
+/** A V7 finding photo on a measurement field is a different object from the
+ * legacy Cut-In / Cut-Out PSI photo on the same reading: the legacy photo rides
+ * `inspection_attachments` under its frozen `inspection_evidence_policies`
+ * policy on `measurements.<key>.<value>` paths, while a V7 finding rides
+ * `staged_inspection_evidence` on the `automatic_sprinkler_measurements.<key>`
+ * path below.  They never share a row, an index or a policy. */
+const sprinklerMeasurementFields = [
+  ["pump_house", "jockey_pump_pressure", "Pump House - Jockey Pump"],
+  ["pump_house", "duty_pump_cut_in", "Pump House - Duty Pump Cut In"],
+  ["pump_house", "standby_pump_cut_in", "Pump House - Stand-by Pump Cut In"],
+  ["main_alarm_valve", "water_supply_gauge", "Main Alarm Valve - Water Supply Gauge"],
+  ["main_alarm_valve", "installation_gauge", "Main Alarm Valve - Installation Gauge"]
+] as const;
+const sprinklerChecklistPrefix = "automatic_sprinkler_checks.";
+const sprinklerMeasurementPrefix = "automatic_sprinkler_measurements.";
+
+/** Automatic Sprinkler is single-instance and has no repeatable table, so every
+ * finding is either a flat checklist field or a measurement row's result. */
+const automaticSprinklerAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const checklistValues = new Map<string, Set<string>>();
+  const captions = new Map<string, string>();
+  for (const [section, block, key, caption] of sprinklerChecklistFields) {
+    const values = allowedValues(definition, section, block, key);
+    if (!values) return undefined;
+    checklistValues.set(key, values);
+    captions.set(`${sprinklerChecklistPrefix}${key}`, caption);
+  }
+  const measurementValues = new Map<string, Set<string>>();
+  for (const [sectionKey, key, caption] of sprinklerMeasurementFields) {
+    if (!isRecord(definition) || !Array.isArray(definition.sections)) return undefined;
+    const section = definition.sections.find((value) => isRecord(value) && value.key === sectionKey);
+    const blocks = isRecord(section) && Array.isArray(section.blocks) ? section.blocks : [];
+    const block = blocks.find((value) => isRecord(value) && value.type === "measurement" && Array.isArray(value.items) && value.items.some((item) => isRecord(item) && item.key === key));
+    const item = isRecord(block) && Array.isArray(block.items) ? block.items.find((value) => isRecord(value) && value.key === key) : undefined;
+    const result = isRecord(item) ? item.result : undefined;
+    if (!isRecord(result) || result.control !== "good_poor" || !Array.isArray(result.allowedValues) || result.allowedValues.length === 0
+      || !result.allowedValues.every((value) => typeof value === "string") || new Set(result.allowedValues as string[]).size !== result.allowedValues.length) return undefined;
+    measurementValues.set(key, new Set(result.allowedValues as string[]));
+    captions.set(`${sprinklerMeasurementPrefix}${key}`, caption);
+  }
+  const entry = (response: unknown, fieldPath: string) => {
+    if (!isRecord(response)) return undefined;
+    if (fieldPath.startsWith(sprinklerChecklistPrefix)) {
+      const key = fieldPath.slice(sprinklerChecklistPrefix.length);
+      return checklistValues.has(key) && isRecord(response.checklist) ? response.checklist[key] : undefined;
+    }
+    if (fieldPath.startsWith(sprinklerMeasurementPrefix)) {
+      const key = fieldPath.slice(sprinklerMeasurementPrefix.length);
+      return measurementValues.has(key) && isRecord(response.measurements) ? response.measurements[key] : undefined;
+    }
+    return undefined;
+  };
+  return {
+    systemKey: "automatic_sprinkler", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && captions.has(fieldPath);
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !isRecord(response.checklist) || !isRecord(response.measurements)) return undefined;
+      const poor: string[] = [];
+      for (const [values, prefix] of [[checklistValues, sprinklerChecklistPrefix], [measurementValues, sprinklerMeasurementPrefix]] as const) {
+        const source = prefix === sprinklerChecklistPrefix ? response.checklist : response.measurements;
+        for (const key of values.keys()) {
+          const value = (source as RecordValue)[key];
+          if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !values.get(key)!.has(value.result)) return undefined;
+          if (isV7EvidenceFinding(value.result)) {
+            if (!value.remarks.trim()) return undefined;
+            poor.push(`${prefix}${key}`);
+          }
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      const value = entry(response, fieldPath);
+      return isRecord(value) && isV7EvidenceFinding(value.result) && typeof value.remarks === "string" && value.remarks.trim() ? value.remarks.trim() : undefined;
+    },
+    acceptedEvidenceCaption: (fieldPath: string) => captions.get(fieldPath)
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
@@ -365,6 +466,7 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   if (values.systemKey === "wet_chemical") return adapter("wet_chemical", wetChemicalAdapterFields, values.definition);
   if (values.systemKey === "fire_alarm_detector") return fireAlarmAdapter(values.definition);
   if (values.systemKey === "hose_reel") return hoseReelAdapter(values.definition);
+  if (values.systemKey === "automatic_sprinkler") return automaticSprinklerAdapter(values.definition);
   return repeatableRowAdapter(values.definition);
 }
 

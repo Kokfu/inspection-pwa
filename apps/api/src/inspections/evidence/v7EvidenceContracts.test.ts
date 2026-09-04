@@ -3,7 +3,7 @@ import test from "node:test";
 import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
 
-const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
+const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
 const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
   const definition = system(key); const value = () => ({ result, remarks });
   const section = (sectionKey: string, blockKey: string) => definition.sections.find((candidate) => candidate.key === sectionKey)!.blocks.find((candidate) => candidate.key === blockKey)!;
@@ -122,4 +122,68 @@ test("V7 Hose Reel combines frozen checklist and row-scoped evidence without acc
   assert.deepEqual(adapter.derivePoorFieldPaths(stale), [dutyPath]);
   const invalid = structuredClone(response); invalid.rows[0]!.valveResult = "poor";
   assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen field validates against its own allowedValues");
+});
+
+test("V7 Automatic Sprinkler derives flat checklist and measurement findings, each owning its remark", () => {
+  const definition = system("automatic_sprinkler");
+  const adapter = resolveV7EvidenceContract({ systemKey: "automatic_sprinkler", templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
+  assert.ok(adapter);
+  const alarmValve = definition.sections.find((section) => section.key === "main_alarm_valve")!;
+  assert.deepEqual(alarmValve.blocks.map((block) => [block.key, block.sortOrder]), [
+    ["main_alarm_valve_checks", 1], ["alarm_valve_measurements", 2], ["test_run_fire_pump_checks", 3], ["comments", 4]
+  ], "TEST RUN FIRE PUMP 30 MINUTES sits after MAIN ALARM VALVE and before Comments");
+  const testRun = alarmValve.blocks.find((block) => block.key === "test_run_fire_pump_checks")! as { items: Array<{ key: string; allowedValues: readonly string[] }> };
+  assert.deepEqual(testRun.items.map((item) => [item.key, item.allowedValues]), [
+    ["trfp_jockey_pump", ["good", "not_good", "complete_repair", "na"]],
+    ["trfp_duty_pump", ["good", "not_good", "complete_repair", "na"]],
+    ["trfp_standby_pump", ["good", "not_good", "complete_repair", "na"]]
+  ], "the paper form gives this block three rows, unlike Hose Reel's two");
+  for (const measurement of [...(definition.sections.find((section) => section.key === "pump_house")!.blocks.find((block) => block.key === "pump_pressure_measurements")! as unknown as { items: Array<{ result: { allowedValues: readonly string[] } }> }).items,
+    ...(alarmValve.blocks.find((block) => block.key === "alarm_valve_measurements")! as unknown as { items: Array<{ result: { allowedValues: readonly string[] } }> }).items]) {
+    assert.deepEqual(measurement.result.allowedValues, ["good", "not_good", "complete_repair", "na"], "a measurement row's own result is four-state too");
+  }
+  const checklist = Object.fromEntries([
+    "saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions",
+    "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions",
+    "breaching_inlet", "alarm_gong", "flow_meter_valve_positions",
+    "trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"
+  ].map((key) => [key, { result: "good", remarks: "" }]));
+  checklist.water_level = { result: "not_good", remarks: "Tank level below the mark" };
+  checklist.trfp_jockey_pump = { result: "complete_repair", remarks: "Jockey pump repaired during the 30 minute run" };
+  const measurement = (values: Record<string, number>, result = "good", remarks = "") => ({ values, unit: "PSI", result, remarks });
+  const response = {
+    schemaVersion: 2,
+    checklist,
+    measurements: {
+      jockey_pump_pressure: measurement({ cut_in: 80, cut_out: 100 }),
+      duty_pump_cut_in: measurement({ value: 70 }),
+      standby_pump_cut_in: measurement({ value: 60 }, "na"),
+      water_supply_gauge: measurement({ value: 90 }, "not_good", "Gauge reads low against the installation gauge"),
+      installation_gauge: measurement({ value: 95 })
+    },
+    comments: ""
+  };
+  const waterPath = "automatic_sprinkler_checks.water_level";
+  const jockeyPath = "automatic_sprinkler_checks.trfp_jockey_pump";
+  const gaugePath = "automatic_sprinkler_measurements.water_supply_gauge";
+  assert.equal(adapter.isCanonicalFieldPath(waterPath), true);
+  assert.equal(adapter.isCanonicalFieldPath(gaugePath), true);
+  assert.equal(adapter.isCanonicalFieldPath("automatic_sprinkler_checks.unknown"), false, "a non-canonical checklist path is refused");
+  assert.equal(adapter.isCanonicalFieldPath("automatic_sprinkler_measurements.jockey_pump_pressure.cut_in"), false, "the legacy PSI photo path is not a V7 finding path");
+  assert.equal(adapter.isCanonicalFieldPath("measurements.jockey_pump_pressure.cut_in"), false, "the legacy PSI evidence namespace is not reachable from the V7 contract");
+  assert.deepEqual(adapter.derivePoorFieldPaths(response), [gaugePath, jockeyPath, waterPath].sort());
+  assert.equal(adapter.ownPoorRemark(response, waterPath), "Tank level below the mark");
+  assert.equal(adapter.ownPoorRemark(response, jockeyPath), "Jockey pump repaired during the 30 minute run");
+  assert.equal(adapter.ownPoorRemark(response, gaugePath), "Gauge reads low against the installation gauge");
+  assert.equal(adapter.acceptedEvidenceCaption(waterPath), "Water Tank - Water Level");
+  assert.equal(adapter.acceptedEvidenceCaption(jockeyPath), "Test Run Fire Pump 30 Minutes - Jockey Pump");
+  assert.equal(adapter.acceptedEvidenceCaption(gaugePath), "Main Alarm Valve - Water Supply Gauge");
+  const stale = structuredClone(response); stale.checklist.water_level = { result: "good", remarks: "" }; stale.measurements.water_supply_gauge = measurement({ value: 90 });
+  assert.deepEqual(adapter.derivePoorFieldPaths(stale), [jockeyPath], "a finding reverted to good is excluded");
+  const missingRemark = structuredClone(response); missingRemark.checklist.water_level = { result: "not_good", remarks: "   " };
+  assert.equal(adapter.derivePoorFieldPaths(missingRemark), undefined, "each finding must own a remark");
+  const invalid = structuredClone(response); invalid.checklist.alarm_gong = { result: "poor", remarks: "" };
+  assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen field validates against its own allowedValues");
+  const invalidMeasurement = structuredClone(response); invalidMeasurement.measurements.installation_gauge = measurement({ value: 95 }, "poor");
+  assert.equal(adapter.derivePoorFieldPaths(invalidMeasurement), undefined, "a measurement result validates against its own allowedValues");
 });

@@ -5,6 +5,7 @@ import {
   type ResolvedAutomaticSprinklerControls
 } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { acceptAutomaticSprinklerV7Inspection, isAutomaticSprinklerV7Payload } from "./automaticSprinklerV7Acceptance.js";
 
 type UnknownRecord = Record<string, unknown>;
 type SyncItem = {
@@ -221,6 +222,11 @@ export async function syncAutomaticSprinklerInspections(
 ): Promise<SyncResult> {
   const result: SyncResult = { acceptedIds: [], duplicateIds: [], failed: [] };
   for (const item of items) {
+    if (isAutomaticSprinklerV7Payload(item)) {
+      const v7 = await acceptAutomaticSprinklerV7Inspection(item, actorUserId);
+      result.acceptedIds.push(...v7.acceptedIds); result.duplicateIds.push(...v7.duplicateIds); result.failed.push(...v7.failed);
+      continue;
+    }
     const checked = validateEnvelope(item);
     if (!checked.payload) {
       result.failed.push(checked.failure ?? failure("unknown", "VALIDATION_ERROR", "Invalid Automatic Sprinkler inspection"));

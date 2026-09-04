@@ -3,8 +3,7 @@ import test from "node:test";
 import express from "express";
 import { once } from "node:events";
 import type { Server } from "node:http";
-import { createManagerCustomersRouter } from "./managerCustomers.js";
-import { loadManagerCustomer } from "./managerCustomers.js";
+import { createManagerCustomersRouter, loadManagerCustomer, ManagerCustomerError } from "./managerCustomers.js";
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 
 async function close(server: Server) {
@@ -64,6 +63,47 @@ test("manager write connection failure is routed through Express error handling"
   try {
     const response = await fetch(`http://127.0.0.1:${address.port}/manager/customers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: "Failure", siteDisplayName: "Primary", systemKeys: ["hose_reel"] }) });
     assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: "MANAGER_UNAVAILABLE" });
+  } finally { await close(server); }
+});
+
+test("manager configuration activation rejects Dry/Wet Riser without systemConfiguration.riserMode before writing a revision", async () => {
+  const dryWetRiser = masterServiceReportV5.systems.find((system) => system.key === "dry_wet_riser")!;
+  const writes: string[] = [];
+  const client = {
+    async query(sql: string) {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+      if (sql.includes("FROM customers")) return { rows: [{ id: "73000000-0000-4000-8000-000000000001" }] };
+      if (sql.includes("FROM customer_sites")) return { rows: [] };
+      if (sql.includes("FROM customer_configuration_revisions")) return { rows: [{ id: "73000000-0000-4000-8000-000000000002", revision: 1, templateId: masterServiceReportV5.id }] };
+      if (sql.includes("FROM customer_enabled_systems")) return { rows: [{ id: "73000000-0000-4000-8000-000000000003", key: "dry_wet_riser", displayName: dryWetRiser.displayName, sortOrder: 1, systemConfiguration: {}, evidencePolicyId: null }] };
+      if (sql.includes("FROM customer_system_zones") || sql.includes("FROM customer_system_locations")) return { rows: [] };
+      if (sql.includes("FROM master_service_report_systems")) return { rows: [{ key: dryWetRiser.key, displayName: dryWetRiser.displayName, sortOrder: dryWetRiser.sortOrder, definitionStatus: dryWetRiser.definitionStatus, definition: dryWetRiser }] };
+      if (sql.startsWith("UPDATE customer_configuration_revisions")) return { rows: [] };
+      if (sql.startsWith("INSERT INTO customer_configuration_revisions") || sql.startsWith("INSERT INTO customer_enabled_systems")) { writes.push(sql); return { rows: [] }; }
+      if (sql.startsWith("INSERT INTO audit_events")) return { rows: [] };
+      throw new Error(`Unexpected query ${sql}`);
+    },
+    release() {}
+  };
+  const app = express(); app.use(express.json());
+  app.use((request, _response, next) => { request.currentUser = { id: 1, username: "admin", role: "admin" }; next(); });
+  app.use(createManagerCustomersRouter({ query: client.query, async connect() { return client; } } as never));
+  app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    if (error instanceof ManagerCustomerError) response.status(error.status).json({ error: error.code, message: error.message });
+    else response.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "Unknown error" });
+  });
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const address = server.address() as { port: number };
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/manager/customers/73000000-0000-4000-8000-000000000001/configuration-revisions`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ systemKeys: ["dry_wet_riser"] })
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 400, JSON.stringify(payload));
+    assert.deepEqual(payload, {
+      error: "RISER_MODE_REQUIRED",
+      message: "dry_wet_riser.systemConfiguration.riserMode must be either dry or wet."
+    });
+    assert.deepEqual(writes, []);
   } finally { await close(server); }
 });
 
