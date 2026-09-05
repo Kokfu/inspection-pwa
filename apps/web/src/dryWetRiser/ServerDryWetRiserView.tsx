@@ -1,11 +1,11 @@
-import type { RiserRow } from "./dryWetRiserTypes";
+import type { RiserResult, RiserRow } from "./dryWetRiserTypes";
 import type { ServerDryWetRiserDetail } from "./serverDryWetRiserApi";
 import { formatClientDateTime } from "../uiPresentation";
 
 type Props = { inspection: ServerDryWetRiserDetail; onBack: () => void };
 const waterTank = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"];
 const pumpHouse = ["pump_house_clean", "manual_start_pumps", "jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
-const label = (value: "good" | "poor" | null) => value === "good" ? "Good" : value === "poor" ? "Poor" : "Not recorded";
+const label = (value: RiserResult | null) => value === "good" ? "Good" : value === "poor" ? "Poor" : "Not recorded";
 const names: Record<string, string> = { saj_main_water_supply: "SAJ Main Water Supply", water_level: "Water Level", automatic_refilling_facilities: "Automatic Refilling Facilities", drain_and_stop_valve_positions: "Drain and Stop Valve Positions", pump_house_clean: "Pump House Cleanliness", manual_start_pumps: "Manual Start Pumps", jockey_pump_pressure: "Jockey Pump Pressure", duty_pump_cut_in: "Duty Pump Cut-In", standby_pump_cut_in: "Standby Pump Cut-In", standby_pump_service_items: "Standby Pump Service Items", battery_charging_alternator: "Battery Charging Alternator", battery_charger_failure_alarm: "Battery Charger Failure Alarm", battery_serviceable: "Battery Serviceable", pump_phase_failure_alarm: "Pump Phase Failure Alarm", pumps_auto_start: "Pumps Auto Start", test_and_gate_valve_positions: "Test and Gate Valve Positions" };
 const name = (value: string) => names[value] ?? value;
 

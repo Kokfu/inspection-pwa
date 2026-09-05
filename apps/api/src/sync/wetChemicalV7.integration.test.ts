@@ -55,3 +55,29 @@ test("Wet Chemical V7 uses the shared staged-evidence authority without widening
     } finally { server.close(); await once(server,"close"); }
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); if (!keepLiveBrowserFixture) await rm(uploads,{recursive:true,force:true}); }
 });
+
+// A fully clean per-location draft (every field Good/Normal) never stages a
+// photo, so it never gets a reservation row. Acceptance must not require one
+// when the frozen evidence manifest is empty.
+test("Wet Chemical V7 accepts a fully clean per-location draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  const database = new pg.Pool({ connectionString: databaseUrl }); const isolationLock = await database.connect(); await isolationLock.query("SELECT pg_advisory_lock(819276)");
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); await runMigrations(database);
+    const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='wet_chemical'")).rows[0]!;
+    const customer = id(), revision = id(), enabled = id(), zone = id(), location = id(), job = id(), client = id();
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'Wet Chemical V7 Clean',true)", [customer, `WETC-${customer}`]);
+    await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
+    await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'wet_chemical',1,'{}')", [enabled, revision, template.id]);
+    await database.query("INSERT INTO customer_system_zones(id,enabled_system_id,zone_key,display_name,sort_order) VALUES($1,$2,'k','Kitchen',1)", [zone, enabled]);
+    await database.query("INSERT INTO customer_system_locations(id,enabled_system_id,zone_id,location_key,display_name,sort_order) VALUES($1,$2,$3,'a','Kitchen A',1)", [location, enabled, zone]);
+    const system = { enabledSystemId: enabled, systemKey: "wet_chemical", displayName: "Wet Chemical", sortOrder: 1, definitionStatus: "confirmed", zones: [{ id: zone, key: "k", displayName: "Kitchen", sortOrder: 1 }], locations: [{ id: location, zoneId: zone, key: "a", displayName: "Kitchen A", sortOrder: 1 }] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `WETC-${customer}`, displayName: "Wet Chemical V7 Clean" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Wet Chemical V7 Clean','open',false,true,$4,$5,$6,'2026-09-05')", [job, template.id, `WETC-${job}`, customer, revision, snapshot]);
+    const allGood = (keys: readonly string[]) => Object.fromEntries(keys.map((key) => [key, result("good")]));
+    const responses = { controlPanelLocation: "Kitchen A", detectorRows: [{ rowUuid: id(), displaySequence: 1, alarmZone: "Kitchen", location: "Kitchen A", heatDetectorStatus: ["normal"], smokeDetectorStatus: ["normal"], remarks: "" }], chargerAndBatteries: allGood(["main_supply", "battery", "charger"]), physicalOutlook: allGood(["wet_chemical_cylinder", "electric_actuator", "manual_release_key", "alarm_bell", "twin_flashing_light", "manual_pull_station", "high_pressure_hose", "discharge_nozzle"]), mainFunctionKeys: allGood(["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "signal_alarm_to_mfap"]), comments: "" };
+    const item = { operationId: id(), entityType: "masterSystemFormInstance", entityId: client, action: "create", payload: { clientUuid: client, jobId: job, systemKey: "wet_chemical", instanceKey: `location:${location}`, configuredZoneId: zone, configuredLocationId: location, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: time, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" }, instance: { instanceKey: `location:${location}`, displaySequence: 1 } }, responses, evidenceManifest: [], performedAt: time } };
+    const actor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`wet-v7-clean-${id()}`])).rows[0]!.id;
+    const accepted = await syncCo2FormInstances([item], actor);
+    assert.deepEqual(accepted.acceptedIds, [client], JSON.stringify(accepted));
+  } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); }
+});

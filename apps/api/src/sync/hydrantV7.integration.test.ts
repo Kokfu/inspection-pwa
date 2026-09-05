@@ -280,6 +280,16 @@ test("Hydrant V7 collapses closed, hidden, unknown and forbidden Jobs into one J
   });
 });
 
+test("Hydrant V7 accepts a fully clean draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  await withV7Database(async (database) => {
+    const fixture = await seedHydrantV7(database, "clean");
+    const job = await fixture.makeJob(), clientUuid = id(), rowUuid = id();
+    const responses = hydrantResponses([hydrantRow(rowUuid, 1)]);
+    const outcome = await syncHydrantInspections([fixture.envelope({ clientUuid, job, responses, evidenceManifest: [] })], fixture.actor);
+    assert.deepEqual(outcome.acceptedIds, [clientUuid], JSON.stringify(outcome));
+  });
+});
+
 // Case 7 — the V7 dispatch is additive.  A V1 Hydrant record still travels the
 // historical path, keeps the 2-state result model and the schemaVersion-1
 // accepted snapshot, and never touches staged evidence.

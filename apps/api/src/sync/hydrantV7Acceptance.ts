@@ -168,8 +168,8 @@ export async function acceptHydrantV7Inspection(item: SyncItem, actorUserId?: nu
       [payload.clientUuid]
     );
     const reserved = reservation.rows[0];
-    if (!reserved || reserved.job_id !== payload.jobId || reserved.system_key !== payload.systemKey || reserved.master_template_version_id !== payload.masterTemplate.id
-      || reserved.master_template_version !== 7 || reserved.system_contract_sha256 !== contractSha256 || reserved.reserved_by_user_id !== String(actorUserId)) { await client.query("ROLLBACK"); result.failed.push(unavailable(payload.clientUuid)); return result; }
+    if ((manifest.length > 0 || reserved) && (!reserved || reserved.job_id !== payload.jobId || reserved.system_key !== payload.systemKey || reserved.master_template_version_id !== payload.masterTemplate.id
+      || reserved.master_template_version !== 7 || reserved.system_contract_sha256 !== contractSha256 || reserved.reserved_by_user_id !== String(actorUserId))) { await client.query("ROLLBACK"); result.failed.push(unavailable(payload.clientUuid)); return result; }
     const staged = await client.query<{ photo_uuid: string; field_path: string; source_sha256: string; stored_sha256: string; uploader_user_id: string }>(
       "SELECT photo_uuid,field_path,source_sha256,stored_sha256,uploader_user_id FROM staged_inspection_evidence WHERE inspection_client_uuid=$1 AND status='staged' FOR UPDATE",
       [payload.clientUuid]

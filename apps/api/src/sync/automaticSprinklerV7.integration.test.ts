@@ -166,6 +166,10 @@ test("Automatic Sprinkler V7 closed, hidden and forbidden Jobs are idempotent an
   });
 });
 
+test("Automatic Sprinkler V7 accepts a fully clean draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => { const f = await seed(database, "clean"), job = await f.job(), client = id(); const result = await syncAutomaticSprinklerInspections([f.envelope(client, job, responses(), [])], f.actor); assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result)); });
+});
+
 test("Automatic Sprinkler V7 accepted inspection completes into a Final Report", { skip: !databaseUrl }, async () => {
   const uploadsPath = path.join(tmpdir(), `phase8g-sprinkler-report-${randomUUID()}`);
   const previousUploadsPath = process.env.UPLOADS_PATH;

@@ -1,5 +1,5 @@
 import { parseDryWetRiserSystemConfiguration } from "./dryWetRiserConfiguration";
-import type { DryWetRiserResponses, RiserOutlet, RiserRow } from "./dryWetRiserTypes";
+import type { LegacyDryWetRiserResponses, RiserOutlet, RiserRow } from "./dryWetRiserTypes";
 
 const waterTankKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"] as const;
 const pumpHouseKeys = ["pump_house_clean", "manual_start_pumps", "jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"] as const;
@@ -16,7 +16,7 @@ export type ServerDryWetRiserDetail = {
   customer: { id: string; code: string; displayName: string }; systemKey: "dry_wet_riser"; systemLabel: string;
   status: "submitted"; performedAt: string; receivedAt: string; template: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number }; systemConfiguration: { riserMode: "dry" | "wet" };
-  responses: DryWetRiserResponses; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string;
+  responses: LegacyDryWetRiserResponses; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string;
 };
 
 export class ServerDryWetRiserNotFoundError extends Error {}
@@ -37,7 +37,7 @@ function outlet(value: unknown): RiserOutlet | undefined {
   if (value.source === "technician" && (value.configuredLocationId !== null || value.configuredRowOrdinal !== null || value.locationSnapshot !== null || value.zoneSnapshot !== null || value.assetReference !== "")) return undefined;
   return value as RiserOutlet;
 }
-function responses(value: unknown): DryWetRiserResponses | undefined {
+function responses(value: unknown): LegacyDryWetRiserResponses | undefined {
   const keys = ["schemaVersion", "mode", "waterTank", "pumpHouse", "measurements", "riserOutlets", "comments"];
   if (!record(value) || Object.keys(value).length !== keys.length || !keys.every((key) => key in value) || value.schemaVersion !== 1 || (value.mode !== "dry" && value.mode !== "wet") || !record(value.measurements) || Object.keys(value.measurements).length !== 5 || !number(value.measurements.jockeyCutIn) || !number(value.measurements.jockeyCutOut) || !number(value.measurements.dutyCutIn) || !number(value.measurements.standbyCutIn) || value.measurements.unit !== "PSI" || !Array.isArray(value.riserOutlets) || !text(value.comments) || value.comments.length > 4000) return undefined;
   const waterTank = fixedRows(value.waterTank, waterTankKeys), pumpHouse = fixedRows(value.pumpHouse, pumpHouseKeys), riserOutlets = value.riserOutlets.map(outlet);

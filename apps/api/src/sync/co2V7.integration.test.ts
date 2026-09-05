@@ -116,3 +116,36 @@ test("CO2 V7 stages distinct multipart evidence and atomically binds it to its o
     } finally { server.close(); await once(server, "close"); }
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); if (!keepLiveBrowserFixture) await rm(uploads!, { recursive: true, force: true }); }
 });
+
+// A fully clean per-location draft (every field Good/Normal) never stages a
+// photo, so it never gets a reservation row. Acceptance must not require one
+// when the frozen evidence manifest is empty.
+test("CO2 V7 accepts a fully clean per-location draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  const database = new pg.Pool({ connectionString: databaseUrl });
+  const isolationLock = await database.connect(); await isolationLock.query("SELECT pg_advisory_lock(819276)");
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); await runMigrations(database);
+    const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='co2_fire_extinguisher'")).rows[0]!;
+    const customer = id(), revision = id(), enabled = id(), zone = id(), location = id(), job = id(), clientUuid = id();
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'CO2 V7 Clean',true)", [customer, `CO2C-${customer}`]);
+    await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
+    await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'co2_fire_extinguisher',1,'{}')", [enabled, revision, template.id]);
+    await database.query("INSERT INTO customer_system_zones(id,enabled_system_id,zone_key,display_name,sort_order) VALUES($1,$2,'z','Zone',1)", [zone, enabled]);
+    await database.query("INSERT INTO customer_system_locations(id,enabled_system_id,zone_id,location_key,display_name,sort_order) VALUES($1,$2,$3,'co2','CO2 Room',1)", [location, enabled, zone]);
+    const system = { enabledSystemId: enabled, systemKey: "co2_fire_extinguisher", displayName: "CO2", sortOrder: 1, definitionStatus: "confirmed", zones: [{ id: zone, key: "z", displayName: "Zone", sortOrder: 1 }], locations: [{ id: location, zoneId: zone, key: "co2", displayName: "CO2 Room", sortOrder: 1 }] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `CO2C-${customer}`, displayName: "CO2 V7 Clean" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'CO2 V7 Clean','open',false,true,$4,$5,$6,'2026-09-05')", [job, template.id, `CO2C-${job}`, customer, revision, snapshot]);
+    const allGood = (keys: readonly string[]) => Object.fromEntries(keys.map((key) => [key, result("good")]));
+    const response = {
+      controlPanelLocation: "CO2 Room",
+      detectorRows: [{ rowUuid: id(), displaySequence: 1, alarmZone: "Zone", location: "CO2 Room", heatDetectorStatus: ["normal"], smokeDetectorStatus: ["normal"], remarks: "" }],
+      chargerAndBatteries: allGood(["main_supply", "battery", "charger"]),
+      physicalOutlook: allGood(["co2_cylinder", "electric_actuator", "manual_release_key", "alarm_bell", "twin_flashing_light", "24v_dc_tripping_device", "manual_pull_station", "high_pressure_hose", "discharge_nozzles", "pilot_cylinder"]),
+      mainFunctionKeys: allGood(["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "signal_alarm_to_mfap"]),
+      comments: ""
+    };
+    const item = { operationId: id(), entityType: "masterSystemFormInstance", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "co2_fire_extinguisher", instanceKey: `location:${location}`, configuredZoneId: zone, configuredLocationId: location, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: time, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" }, instance: { instanceKey: `location:${location}`, displaySequence: 1 } }, responses: response, evidenceManifest: [], performedAt: time } };
+    const accepted = await syncCo2FormInstances([item], (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`co2-v7-clean-${id()}`])).rows[0]!.id);
+    assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
+  } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); }
+});

@@ -105,3 +105,26 @@ test("Fire Alarm V7 accepts complete_repair and alarm-device row evidence, and n
     assert.equal(stored.secondaryAlarmDeviceRows[0]!.manualCallPoint, "na");
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); await rm(uploads, { recursive: true, force: true }); }
 });
+
+// A fully clean draft (every field Good/Normal, nothing repaired or missing)
+// never stages a photo, so it never gets a reservation row. Acceptance must
+// not require one when the frozen evidence manifest is empty.
+test("Fire Alarm V7 accepts a fully clean draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  const database = new pg.Pool({ connectionString: databaseUrl }); const isolationLock = await database.connect(); await isolationLock.query("SELECT pg_advisory_lock(819276)");
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); await runMigrations(database);
+    const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='fire_alarm_detector'")).rows[0]!;
+    const customer = id(), revision = id(), enabled = id(), job = id(), clientUuid = id();
+    const actor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`fire-v7-clean-${id()}`])).rows[0]!.id;
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'Fire Alarm V7 Clean',false)", [customer, `FAC-${customer}`]);
+    await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
+    await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'fire_alarm_detector',1,'{}')", [enabled, revision, template.id]);
+    const system = { enabledSystemId: enabled, systemKey: "fire_alarm_detector", displayName: "Fire Alarm / Detector System", sortOrder: 5, definitionStatus: "confirmed", zones: [], locations: [] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `FAC-${customer}`, displayName: "Fire Alarm V7 Clean" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Fire Alarm V7 Clean','open',false,true,$4,$5,$6,'2026-09-05')", [job, template.id, `FAC-${job}`, customer, revision, snapshot]);
+    const response = { schemaVersion: 2, controlPanelLocation: "Lobby", primaryDeviceRows: [{ rowUuid: id(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: 1, assetReference: "", alarmZone: "Lobby", location: "Lobby", manualCallPoint: ["normal"], flowSwitch: ["normal"], heatDetector: ["normal"], smokeDetector: ["normal"], remarks: "" }], chargerAndBatteries: { main_supply: result("good"), battery: result("good"), charger: result("good") }, mainFunctionKeys: { main_alarm_reset: result("good"), lamp_test: result("good"), evacuate: result("good"), ac_supply: result("good"), dc_supply: result("good"), spka_system: result("good"), alarm_lift_trip: result("good"), signal_gas_discharge: result("good") }, secondaryAlarmDeviceRows: [], comments: "" };
+    const item = { operationId: id(), entityType: "masterSystemInspection", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "fire_alarm_detector", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: timestamp, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" } }, responses: response, evidenceManifest: [], performedAt: timestamp } };
+    const accepted = await acceptFireAlarmV7Inspection(item, actor);
+    assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
+  } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); }
+});

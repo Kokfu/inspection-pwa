@@ -286,8 +286,8 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
           [payload.clientUuid]
         );
         const row = reservation.rows[0]; const contractSha256 = v7EvidenceContractSha256(definitionResult.rows[0].definition);
-        if (!row || row.job_id !== payload.jobId || row.system_key !== payload.systemKey || row.master_template_version_id !== payload.masterTemplate.id
-          || row.master_template_version !== 7 || row.system_contract_sha256 !== contractSha256 || row.reserved_by_user_id !== String(actorUserId)) {
+        if (((evidenceManifest?.length ?? 0) > 0 || row) && (!row || row.job_id !== payload.jobId || row.system_key !== payload.systemKey || row.master_template_version_id !== payload.masterTemplate.id
+          || row.master_template_version !== 7 || row.system_contract_sha256 !== contractSha256 || row.reserved_by_user_id !== String(actorUserId))) {
           await client.query("ROLLBACK"); result.failed.push(v7Unavailable(payload.clientUuid)); continue;
         }
       }

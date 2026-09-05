@@ -179,6 +179,15 @@ test("Dry/Wet Riser V7 closed, hidden and forbidden Jobs are idempotent and coll
   });
 });
 
+test("Dry/Wet Riser V7 accepts a fully clean draft with zero findings and no reservation", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "clean"), job = await f.job(), client = id();
+    const row = riserRow(f.location.id, f.location.displayName);
+    const result = await syncDryWetRiserInspections([f.envelope(client, job, responses(row), [])], f.actor);
+    assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result));
+  });
+});
+
 test("Dry/Wet Riser V1-V6 historical path still accepts through canonicalDryWetRiserResponses", { skip: !databaseUrl }, async () => {
   await withDatabase(async (database) => {
     const v2 = (await database.query<{ id: string; definition: Value }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=2 AND system.system_key='dry_wet_riser'")).rows[0]!;
