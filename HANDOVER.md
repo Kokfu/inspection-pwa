@@ -3,8 +3,8 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-04 — Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP 1.3 Slice 3 complete (uncommitted)
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `b64d53b`
+**Last updated:** 2026-09-05 — Dry/Wet Riser STEP 1.4 offline-round-trip browser proof committed (`a1cb7bf`), two independent Sol review passes both SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here). Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP 1.3 Slice 3 complete (uncommitted)
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `a1cb7bf`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
@@ -36,6 +36,19 @@ offline-round-trip browser proof (`automatic-sprinkler-v7-offline.html/.spec.ts`
 Save Draft → reload → offline Submit → reconnect Sync → Accepted → Accepted Detail with the
 accepted photo actually loading. `stagedEvidence.ts` `/v7-evidence/accepted[/…/content]` now
 serve all six V7 systems (owner fix — Hydrant/Hose Reel accepted photos returned empty before).
+
+**Dry/Wet Riser STEP 1.4 — DONE, committed `a1cb7bf`.** The V7 web module (form, evidence
+adapter, Accepted Detail, sync wiring) already existed from earlier work; this pass added the
+missing `dry-wet-riser-v7-offline.html/.spec.ts` automated browser proof, mirroring Automatic
+Sprinkler's Slice 3 harness: Save Draft → reload → offline Submit → reconnect Sync → Accepted →
+Accepted Detail, with 3 distinct findings (checklist / measurement / riser-outlet row), each
+owning its own remark + photo. Two independent Sol review passes, both **SAFE TO COMMIT: Y** —
+the first pass caught a stale `sortOrder` on the harness's synthetic fixture definition and a
+UUID-prefix collision with `fire-alarm-v6-offline.html`, both fixed and re-verified before commit.
+**G4 also closed** (see §4) — it turned out to already be fixed server-side in `ba1fb2a`, just
+never marked done in this doc. Historical V1–V6 riser (`dryWetRiserAccepted.test.ts`) unaffected.
+Not yet through a live-runtime manual browser sanity pass (unlike Fire Alarm/CO2/Wet Chemical's
+STEP 0.3) — verification here is the automated Playwright harness only.
 
 Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-select ·
 `7635cb3` paper-form transcription + C3 skill · `2e07ab1` C3 row model (T1) ·
@@ -127,7 +140,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 |---|-----|--------|-------|
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
-| G4 | Manager config flow accepts `dry_wet_riser` with `system_configuration = {}` (no `riserMode`), which 500s `GET /customers/:id/configuration` for that whole customer. Same class as the CO2/Wet Chemical location-authority guard. | Any customer given a riser through the Manager UI becomes unusable for **all** its systems. Fix before STEP 1.4. | `apps/api/src/routes/managerCustomers.ts`, throw at `apps/api/src/routes/inspectionReference.ts:389` |
+| ~~G4~~ | **CLOSED** (fixed in `ba1fb2a`, confirmed 2026-09-05 — never marked done here until now). `managerCustomers.ts`'s `assertDryWetRiserAssignments` rejects an unconfigured/invalid `dry_wet_riser` assignment at write time (`RISER_MODE_REQUIRED`, no valid `riserMode`); `inspectionReference.ts`'s `usableEnabledSystems` filter additionally excludes any stored riser row that fails `parseDryWetRiserSystemConfiguration` from `GET /customers/:id/configuration`, so a bad row degrades that one system instead of 500ing the whole customer. | — | — |
 | G5 | Manager "Create Service Visit" silently reset the form without creating anything and no error (hit during 0.3 browser sanity, 2026-09-03). | Primary action fails silently. | `apps/web` new-service-visit flow |
 | ~~G6~~ | **PARTLY CLOSED 2026-09-04.** `d7ecc0d` deployed; 4-state options render in all 3 forms. Bug found + fixed (`3065539`): CO2/Wet Chemical `V7EvidenceField` was gated on `result === "poor"` (unreachable) so no photo could be attached on a finding — now `not_good \|\| complete_repair`. Deployed `sha256-188fbb1857f422d5`. |
 | ~~G7~~ | **ROOT-CAUSED + FIXED 2026-09-04, awaiting browser re-verification.** Not a 4-state defect at all: the technician **attached the same photo to two findings**. Reproduced in-browser on `SV-20260904-38` (instance `10433777`), outbox `lastError` captured = `"This V7 inspection is unavailable"` (`JOB_ACCESS_DENIED`). Both staged rows carried identical `source_sha256` **and** `stored_sha256`, so `parseV7EvidenceManifest` refused the manifest, and `fireAlarmV7Acceptance.ts` folded `!manifest` into the collapsed job-access guard — reporting a payload problem as a Job problem. Confirmed the same duplicate pair in the owner's original `8b4cc663` rows. Fixes: (a) capture-time guard in `saveFireAlarmV7Photo` / `saveV7SuppressionPhoto` refuses a photo already attached to another field, naming it; (b) submit gate `duplicateV7PhotoIssues` in both `fireAlarmV7Evidence.ts` and `co2/v7Evidence.ts` — the offline-safety layer, same precedent as 0.4b; (c) server splits the manifest failure out of the collapsed guard (after it, so no job-existence leak) and names the reused image; CO2/WC get the same treatment plus a separate `EVIDENCE_NOT_STAGED` for two sources that normalize to the same stored bytes. Coverage: new `fireAlarmV7.integration.test.ts` case (first ever to submit `complete_repair`, a secondary alarm-device row finding with row-scoped evidence, and a reused photo); 3 new web submit-gate tests, the duplicate one **proven to fail against the pre-fix code**. | — | — |
@@ -239,6 +252,11 @@ manager picks them (`customer_enabled_systems` rows).
 - [x] C3 **Repeatable row model** — skill `.agents/skills/repeatable-row-model/SKILL.md` (`7635cb3`);
       helpers `apps/web/src/inspectionControls/repeatableRows.ts` + 4-invariant tests (`2e07ab1`,
       T1). Unconsumed until STEP 1.1 (Hydrant) / STEP 2.4 (Roller Shutter).
+- [x] **C4 DECIDED 2026-09-05 (owner) — a service with no result ovals on its paper form gets no
+      V7 evidence; never invent one.** Portable Fire Extinguisher's paper form is count-fields-only
+      (no Good/Poor anywhere). Precedent for any future service in the same situation: V7 work is
+      registration-only (carry the existing fields onto the V7 template/contract), not a synthetic
+      "overall condition" field. See STEP 1.5.
 - **Fire Intercom (STEP 2.3) — UNBLOCKED (owner, 2026-09-04).** Do not wait on the client for the
       `Condition Yes / No` `1`/`2` column meaning. Model each floor row as one standard 4-state
       result (good / not_good / complete_repair / na), same as every other service. The paper
@@ -261,10 +279,21 @@ field, add integration coverage, re-verify, Sol pass.
       schema-2 Accepted Detail reader, Final Report/PDF embedding, and a full offline-round-trip
       browser proof. **Owner decision:** V7 DROPS the legacy Cut-In/Cut-Out PSI photo lifecycle
       (V7 carries V7 finding evidence only); the legacy PSI lifecycle is untouched for V1–V6.
-- [ ] 1.4 **Dry / Wet Riser** — Dry/Wet toggle, Riser Outlet table. **Resolve the
-      measurement-definition vs deployed-response discrepancy** inside its own V7 contract. (~3–4 d)
-- [ ] 1.5 **Portable Fire Extinguisher** — summary counts + expiry; decide how little V7 it needs
-      (likely an overall condition + the count fields, no per-unit checklist). (~1–2 d)
+- [x] 1.4 **Dry / Wet Riser — DONE, committed `a1cb7bf`.** Dry/Wet toggle, Riser Outlet table,
+      four-state checklist/measurement/row-scoped V7 evidence (web module was already built from
+      earlier work); this pass added the missing `dry-wet-riser-v7-offline.html/.spec.ts`
+      offline-round-trip browser proof (Save Draft → reload → offline Submit → reconnect Sync →
+      Accepted → Accepted Detail, 3 distinct findings across checklist/measurement/row scopes,
+      each with its own remark + photo). Two Sol review passes, both **SAFE TO COMMIT: Y**.
+      Historical V1–V6 riser (`dryWetRiserAccepted.test.ts`) unaffected. See also G4 (closed).
+- [ ] 1.5 **Portable Fire Extinguisher — SCOPE DECIDED 2026-09-05 (owner).** No V7 evidence at
+      all: `docs/paper-forms/portable-fire-extinguisher.md` has no result ovals for this section
+      (count fields only — Total / 9KG Dry Powder / 2KG CO2 / free-text Others + Comments), so
+      there is no Poor-capable field to hang a photo/remark on and none is invented. V7 work is
+      registration-only: same count fields + comments as V1–V5 (`apps/web/src/
+      portableFireExtinguisher/`), carried onto the V7 template/contract for consistency, zero new
+      Good/Poor/evidence capability, no evidence-contract adapter. (~1 d — smaller than originally
+      estimated; there is no evidence adapter to build)
 
 ### STEP 2 — New services (need a fresh definition from the paper master + client input)
 - [ ] 2.1 **FM200** — client says "same structure as CO2 for now": clone the CO2 V7 adapter with
@@ -315,17 +344,48 @@ then the repo is self-describing.
 | Hydrant | ✅ confirmed | ❌ | STEP 1.1 — first C3 consumer |
 | Hose Reel | ✅ confirmed | ❌ | STEP 1.2 (+ 30-min pump test) |
 | Automatic Sprinkler | ✅ confirmed | ⚠️ slices 1–3 done, Slice 3 uncommitted | STEP 1.3 — V7 drops legacy PSI lifecycle (owner decision); commit + Sol pass |
-| Dry / Wet Riser | ✅ confirmed | ❌ | STEP 1.4 (resolve measurement/response); also see G4 |
-| Portable Fire Extinguisher | ✅ confirmed | ❌ | STEP 1.5 |
+| Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
+| Portable Fire Extinguisher | ✅ confirmed | ❌ | STEP 1.5 — next up; **scope decided 2026-09-05 (owner): no V7 evidence, registration-only.** V1–V5 web module already exists (`apps/web/src/portableFireExtinguisher/`), count-fields-only, no result control — stays that way on V7 too |
 | FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — clone CO2 V7 adapter |
 | Smoke Ventilation | ❌ none | ❌ | STEP 2.2 — `docs/paper-forms/smoke-ventilation.md` |
 | Fire Intercom | ❌ none | ❌ | STEP 2.3 — needs client answer on Yes/No `1`/`2` columns |
 | Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
 
-Done: **3 / 12 on V7.**  Base template ready: 8 / 12.  New services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
+Done: **4 / 12 on V7.**  Base template ready: 8 / 12.  New services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-05 — **STEP 1.5 scope decided (owner): Portable Fire Extinguisher gets no V7 evidence.**
+  Its paper form (`docs/paper-forms/portable-fire-extinguisher.md`) has no result ovals for this
+  section — count fields only (Total / 9KG Dry Powder / 2KG CO2 / Others + Comments), confirmed
+  against the existing V1–V5 module (`apps/web/src/portableFireExtinguisher/portableFireExtinguisher.ts`),
+  which has no result control today. Owner chose "no V7 evidence at all — count fields only" over
+  inventing a synthetic Overall Condition field, consistent with the project's standing rule
+  against inventing fields the paper source doesn't specify (same spirit as C2's remarks
+  pick-list). Logged as new cross-cutting precedent **C4** for any future service in the same
+  situation. STEP 1.5 is now registration-only: carry the same fields onto the V7 template/contract,
+  no evidence-contract adapter needed.
+
+- 2026-09-05 — **STEP 1.4 Dry/Wet Riser closed, committed `a1cb7bf`.** Added
+  `apps/web/tests/dry-wet-riser-v7-offline.html/.spec.ts`, mirroring Automatic Sprinkler's Slice 3
+  harness: Save Draft → reload → offline Submit → reconnect Sync → Accepted → Accepted Detail,
+  proving 3 distinct findings (checklist `saj_main_water_supply`, measurement `jockey_psi`, riser-
+  outlet row `canvasHoseAt2Result`) each own their own remark + photo end to end. No production
+  code touched — the V7 web module, evidence adapter, and Accepted Detail view already existed.
+  Two independent Sol review passes: first found the harness's synthetic fixture definition used
+  the wrong system-level `sortOrder` (1 vs the real 2, from `masterServiceReportV3.ts`) and a
+  UUID id-prefix (`76000000-…`) that collided with `fire-alarm-v6-offline.html`; both fixed and
+  re-verified, second pass returned SAFE TO COMMIT: Y with zero P0/P1. Historical Dry/Wet Riser
+  V1–V6 (`dryWetRiserAccepted.test.ts`) confirmed unaffected. Also closed **G4** while updating
+  this doc: the Manager-config 500-on-empty-riser-config bug was already fixed server-side in
+  `ba1fb2a` (write-time `RISER_MODE_REQUIRED` guard in `managerCustomers.ts` + a read-time filter
+  in `inspectionReference.ts` that excludes an invalid stored riser row instead of 500ing the
+  whole customer) — it just was never marked closed here. Next: STEP 1.5 Portable Fire
+  Extinguisher (last STEP 1 service). Unlike 1.1–1.4, this one is NOT a mirror-the-pattern task:
+  the paper form (`docs/paper-forms/portable-fire-extinguisher.md`) has no result ovals for this
+  section at all — count fields only — so "add V7 evidence" has no natural Poor-capable field to
+  hang a photo/remark on. Needs an owner decision on scope before Terra writes any code.
 
 - 2026-09-04 (G7) — **Fire Alarm V7 "Sync Failed" root-caused: one photo on two findings.**
   Browser repro on `SV-20260904-38` reproduced the owner's failure exactly and captured the
