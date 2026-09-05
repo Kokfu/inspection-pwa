@@ -3,7 +3,15 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-05 — Dry/Wet Riser STEP 1.4 offline-round-trip browser proof committed (`a1cb7bf`), two independent Sol review passes both SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here). Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP 1.3 Slice 3 complete (uncommitted)
+**Last updated:** 2026-09-05 — STEP 1.5 Portable Fire Extinguisher closed (uncommitted): hypothesis
+confirmed — a V7-templated job's Portable Fire Extinguisher system already resolved, opened,
+saved a Draft, submitted, and synced correctly with **zero code changes**, purely via the
+structural (non-version-gated) match in `isCompatibleSystemContract`. Proved with a real browser
+round trip and a real-Postgres integration test; no production file touched. Dry/Wet Riser STEP
+1.4 offline-round-trip browser proof committed (`a1cb7bf`), two independent Sol review passes both
+SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here).
+Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP
+1.3 Slice 3 complete (uncommitted)
 **Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `a1cb7bf`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
@@ -286,14 +294,29 @@ field, add integration coverage, re-verify, Sol pass.
       Accepted → Accepted Detail, 3 distinct findings across checklist/measurement/row scopes,
       each with its own remark + photo). Two Sol review passes, both **SAFE TO COMMIT: Y**.
       Historical V1–V6 riser (`dryWetRiserAccepted.test.ts`) unaffected. See also G4 (closed).
-- [ ] 1.5 **Portable Fire Extinguisher — SCOPE DECIDED 2026-09-05 (owner).** No V7 evidence at
-      all: `docs/paper-forms/portable-fire-extinguisher.md` has no result ovals for this section
-      (count fields only — Total / 9KG Dry Powder / 2KG CO2 / free-text Others + Comments), so
-      there is no Poor-capable field to hang a photo/remark on and none is invented. V7 work is
-      registration-only: same count fields + comments as V1–V5 (`apps/web/src/
-      portableFireExtinguisher/`), carried onto the V7 template/contract for consistency, zero new
-      Good/Poor/evidence capability, no evidence-contract adapter. (~1 d — smaller than originally
-      estimated; there is no evidence adapter to build)
+- [x] 1.5 **Portable Fire Extinguisher — DONE, uncommitted.** No V7 evidence at all (owner
+      decision C4): `docs/paper-forms/portable-fire-extinguisher.md` has no result ovals for this
+      section (count fields only — Total / 9KG Dry Powder / 2KG CO2 / free-text Others +
+      Comments), so there is no Poor-capable field to hang a photo/remark on and none was
+      invented. **Investigation found the hypothesis true: zero code changes needed.** Portable's
+      definition has been byte-identical since `masterServiceReportV5.ts` (V6/V7 both fall
+      through unchanged), both contract-version maps
+      (`apps/web/src/referenceData/systemContractCompatibility.ts`,
+      `apps/api/src/inspections/templates/systemContractCompatibility.ts`) compare a job's system
+      definition against the V5 contract structurally rather than gating on an exact template
+      version, and every call site (`serviceVisits.ts`, `portableFireExtinguisherSync.ts`,
+      `managerCustomers.ts`, the web sync engine's dedicated `isPortableOutboxItem` path) already
+      calls `isCompatibleSystemContract` without a `frozenMasterTemplate` filter — so a V7 job's
+      Portable Fire Extinguisher system already resolves, opens, saves a Draft, submits, and syncs
+      end to end with no version gate anywhere in the chain. Proved (not just inspected) with
+      `apps/web/tests/portable-fire-extinguisher-v7-offline.html/.spec.ts` (Draft → reload →
+      offline Submit → reconnect Sync → Accepted → Accepted Detail, zero evidence/photo steps, on
+      a V7-templated job fixture) and `apps/api/src/sync/portableFireExtinguisherV7.integration.test.ts`
+      (real Postgres: a V7-templated job accepts through the unmodified
+      `syncPortableFireExtinguishers` path, plus an exact-retry duplicate check). Existing
+      historical coverage (`portableFireExtinguisherDefinition.test.ts`,
+      `portable-fire-extinguisher-sync-race.html`) re-run and confirmed still green, untouched.
+      No new Good/Poor/evidence field, no evidence-contract adapter, V1–V6 untouched.
 
 ### STEP 2 — New services (need a fresh definition from the paper master + client input)
 - [ ] 2.1 **FM200** — client says "same structure as CO2 for now": clone the CO2 V7 adapter with
@@ -345,16 +368,43 @@ then the repo is self-describing.
 | Hose Reel | ✅ confirmed | ❌ | STEP 1.2 (+ 30-min pump test) |
 | Automatic Sprinkler | ✅ confirmed | ⚠️ slices 1–3 done, Slice 3 uncommitted | STEP 1.3 — V7 drops legacy PSI lifecycle (owner decision); commit + Sol pass |
 | Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
-| Portable Fire Extinguisher | ✅ confirmed | ❌ | STEP 1.5 — next up; **scope decided 2026-09-05 (owner): no V7 evidence, registration-only.** V1–V5 web module already exists (`apps/web/src/portableFireExtinguisher/`), count-fields-only, no result control — stays that way on V7 too |
+| Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
 | FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — clone CO2 V7 adapter |
 | Smoke Ventilation | ❌ none | ❌ | STEP 2.2 — `docs/paper-forms/smoke-ventilation.md` |
 | Fire Intercom | ❌ none | ❌ | STEP 2.3 — needs client answer on Yes/No `1`/`2` columns |
 | Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
 
-Done: **4 / 12 on V7.**  Base template ready: 8 / 12.  New services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
+Done: **5 / 12 on V7** (4 with a full V7 evidence workflow, 1 — Portable Fire Extinguisher —
+registration-only by design, C4, no evidence workflow).  Base template ready: 8 / 12.  New
+services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-05 — **STEP 1.5 closed (uncommitted): Portable Fire Extinguisher already works on V7,
+  zero code changes.** Investigated the "does it already work" hypothesis rather than assuming a
+  registration task was needed: Portable's definition has been byte-identical since
+  `masterServiceReportV5.ts` (V6/V7 fall through unchanged via the `: system` default case in
+  `masterServiceReportV7.ts`'s `systems.map`), and both contract-version maps
+  (`apps/web/src/referenceData/systemContractCompatibility.ts:10`,
+  `apps/api/src/inspections/templates/systemContractCompatibility.ts:31`) compare a job's system
+  definition against the frozen V5 contract structurally (canonicalized deep-equal), not by exact
+  template-version match. Every call site that resolves Portable Fire Extinguisher
+  (`compatibleCatalogSystem` on the web; `serviceVisits.ts`, `portableFireExtinguisherSync.ts`,
+  `managerCustomers.ts` on the API) calls `isCompatibleSystemContract` without a
+  `frozenMasterTemplate` filter, so there is no version gate anywhere in the chain — unlike Fire
+  Alarm, which explicitly branches on template version 6/7 vs. earlier. Confirmed with two real
+  tests, not by inspection alone: a new offline round-trip browser harness
+  (`apps/web/tests/portable-fire-extinguisher-v7-offline.html/.spec.ts`, mirroring Dry/Wet Riser's
+  STEP 1.4 harness shape but with the evidence/photo steps removed per C4 — Draft → reload →
+  offline Submit → reconnect Sync → Accepted → Accepted Detail, on a V7-templated job fixture) and
+  a real-Postgres integration test (`apps/api/src/sync/portableFireExtinguisherV7.integration.test.ts`,
+  seeded by the real `runMigrations()`/`seedMasterServiceReport()` path — a V7 job's Portable Fire
+  Extinguisher accepts through the unmodified `syncPortableFireExtinguishers`, plus an
+  exact-retry-returns-duplicate check). Both pass. Existing historical coverage
+  (`portableFireExtinguisherDefinition.test.ts`, `portable-fire-extinguisher-sync-race.html`)
+  re-run and confirmed still green, unmodified. Zero production files touched — only 3 new test
+  files added, plus this HANDOVER.md update.
 
 - 2026-09-05 — **STEP 1.5 scope decided (owner): Portable Fire Extinguisher gets no V7 evidence.**
   Its paper form (`docs/paper-forms/portable-fire-extinguisher.md`) has no result ovals for this
