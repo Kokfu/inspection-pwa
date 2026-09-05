@@ -35,6 +35,12 @@ import type { HydrantInspectionRecord, HydrantResponses } from "./hydrant/hydran
 import type { ServerHydrantDetail } from "./hydrant/serverHydrantApi";
 import { ServerHydrantView } from "./hydrant/ServerHydrantView";
 import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute, type HydrantAuthorityResolution } from "./hydrant/hydrantResolution";
+import { SmokeVentilationInspectionForm } from "./smokeVentilation/SmokeVentilationInspectionForm";
+import { returnFailedSmokeVentilationToDraft, saveSmokeVentilationDraft, submitLocalSmokeVentilation } from "./smokeVentilation/smokeVentilationRepository";
+import type { SmokeVentilationInspectionRecord, SmokeVentilationResponses } from "./smokeVentilation/smokeVentilationTypes";
+import type { ServerSmokeVentilationDetail } from "./smokeVentilation/serverSmokeVentilationApi";
+import { ServerSmokeVentilationView } from "./smokeVentilation/ServerSmokeVentilationView";
+import { canRenderLocalSmokeVentilation, resolveSmokeVentilationOpenTarget, resolveSmokeVentilationRoute, type SmokeVentilationAuthorityResolution } from "./smokeVentilation/smokeVentilationResolution";
 import { PortableFireExtinguisherForm } from "./portableFireExtinguisher/PortableFireExtinguisherForm";
 import { ServerPortableFireExtinguisherView } from "./portableFireExtinguisher/ServerPortableFireExtinguisherView";
 import { resolvePortableOpenTarget, resolvePortableRoute, returnFailedPortableToDraft, savePortableDraft, submitLocalPortable, type PortableRecord, type PortableResponses, type ServerPortableDetail } from "./portableFireExtinguisher/portableFireExtinguisher";
@@ -165,6 +171,7 @@ type AppRoute =
   | { name: "riser-form"; clientUuid: string }
   | { name: "fire-alarm-form"; jobId: string; clientUuid: string }
   | { name: "hydrant-form"; clientUuid: string }
+  | { name: "smoke-ventilation-form"; clientUuid: string }
   | { name: "portable-fire-extinguisher-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "wet-chemical-form"; clientUuid: string }
@@ -184,6 +191,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "riser-form" && parts[1]) return { name: "riser-form", clientUuid: parts[1] };
   if (parts[0] === "fire-alarm-form" && parts[1] && parts[2]) return { name: "fire-alarm-form", jobId: parts[1], clientUuid: parts[2] };
   if (parts[0] === "hydrant-form" && parts[1]) return { name: "hydrant-form", clientUuid: parts[1] };
+  if (parts[0] === "smoke-ventilation-form" && parts[1]) return { name: "smoke-ventilation-form", clientUuid: parts[1] };
   if (parts[0] === "portable-fire-extinguisher-form" && parts[1]) return { name: "portable-fire-extinguisher-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "wet-chemical-form" && parts[1]) return { name: "wet-chemical-form", clientUuid: parts[1] };
@@ -205,6 +213,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "riser-form") return `#/riser-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "fire-alarm-form") return `#/fire-alarm-form/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "hydrant-form") return `#/hydrant-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "smoke-ventilation-form") return `#/smoke-ventilation-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "portable-fire-extinguisher-form") return `#/portable-fire-extinguisher-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "wet-chemical-form") return `#/wet-chemical-form/${encodeURIComponent(route.clientUuid)}`;
@@ -247,7 +256,7 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | PortableRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | PortableRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [serverHoseReel, setServerHoseReel] = useState<ServerHoseReelDetail>();
@@ -284,6 +293,27 @@ export function App() {
     });
     return () => { current = false; };
   }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedHydrantUuid, verifiedHydrantAuthorityToken]);
+  const [activeSmokeVentilation, setActiveSmokeVentilation] = useState<SmokeVentilationInspectionRecord>();
+  const [serverSmokeVentilation, setServerSmokeVentilation] = useState<ServerSmokeVentilationDetail>();
+  const [serverAcceptedSmokeVentilationUuid, setServerAcceptedSmokeVentilationUuid] = useState<string>();
+  const [smokeVentilationRouteState, setSmokeVentilationRouteState] = useState<"idle" | "loading" | "not-cached" | "server-unavailable">("idle");
+  const [smokeVentilationRouteMessage, setSmokeVentilationRouteMessage] = useState("");
+  const [smokeVentilationAuthorityResolution, setSmokeVentilationAuthorityResolution] = useState<SmokeVentilationAuthorityResolution>();
+  const verifiedSmokeVentilationAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  useEffect(() => {
+    if (route.name !== "smoke-ventilation-form") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setServerAcceptedSmokeVentilationUuid(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("idle"); setSmokeVentilationRouteMessage(""); return; }
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("loading"); setSmokeVentilationRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Smoke Ventilation inspection." : ""); return; }
+    if (authState.status === "online-unavailable") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("server-unavailable"); setSmokeVentilationRouteMessage(authState.message); return; }
+    let currentSmokeVentilation = true;
+    setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("loading"); setSmokeVentilationRouteMessage("");
+    void resolveSmokeVentilationRoute(route.clientUuid, serverAcceptedSmokeVentilationUuid, authState.status).then((resolution) => {
+      if (!currentSmokeVentilation) return;
+      if (resolution.kind === "local") { setActiveSmokeVentilation(resolution.record); setServerSmokeVentilation(undefined); if (authState.status === "verified") setSmokeVentilationAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setSmokeVentilationRouteState("idle"); }
+      else if (resolution.kind === "server") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(resolution.inspection); setSmokeVentilationRouteState("idle"); }
+      else { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationRouteState(resolution.kind); setSmokeVentilationRouteMessage("message" in resolution ? resolution.message : ""); }
+    });
+    return () => { currentSmokeVentilation = false; };
+  }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedSmokeVentilationUuid, verifiedSmokeVentilationAuthorityToken]);
   useEffect(() => {
     if (route.name !== "portable-fire-extinguisher-form") { setActivePortable(undefined); setServerPortable(undefined); setServerAcceptedPortableUuid(undefined); setPortableRouteState("idle"); setPortableRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); return; }
@@ -978,6 +1008,14 @@ export function App() {
     authAuthorityGeneration,
     authState.status === "verified" ? authState.lastVerifiedAt : undefined
   );
+  const mayRenderLocalSmokeVentilation = canRenderLocalSmokeVentilation(
+    activeSmokeVentilation,
+    authState.status,
+    route.name === "smoke-ventilation-form" ? route.clientUuid : undefined,
+    smokeVentilationAuthorityResolution,
+    authAuthorityGeneration,
+    authState.status === "verified" ? authState.lastVerifiedAt : undefined
+  );
 
   async function refreshRecords() {
     setRecords(await listTestRecords());
@@ -1251,6 +1289,10 @@ export function App() {
   async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
   async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
+  async function handleOpenSmokeVentilation(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveSmokeVentilationOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedSmokeVentilationUuid(target.clientUuid);navigate({name:"smoke-ventilation-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Smoke Ventilation inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedSmokeVentilationUuid(undefined);setActiveSmokeVentilation(target.record);await refreshMasterSystemInspections();navigate({name:"smoke-ventilation-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Smoke Ventilation inspection could not be opened");}}
+  async function handleSaveSmokeVentilation(responses:SmokeVentilationResponses){if(activeSmokeVentilation){setActiveSmokeVentilation(await saveSmokeVentilationDraft(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}}
+  async function handleSubmitSmokeVentilation(responses:SmokeVentilationResponses){if(activeSmokeVentilation){setActiveSmokeVentilation(await submitLocalSmokeVentilation(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}}
+  async function handleEditFailedSmokeVentilation(){if(activeSmokeVentilation){setActiveSmokeVentilation(await returnFailedSmokeVentilationToDraft(activeSmokeVentilation));await refreshMasterSystemInspections();}}
   async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
   async function handleSavePortable(responses:PortableResponses){if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}}
   async function handleSubmitPortable(responses:PortableResponses){if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}}
@@ -1616,6 +1658,8 @@ export function App() {
             )
           ) : route.name === "hydrant-form" ? (
             mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading completed Hydrant inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+          ) : route.name === "smoke-ventilation-form" ? (
+            mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} /> : serverSmokeVentilation ? <ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /> : <section className="workspace"><h2>Smoke Ventilation inspection unavailable</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading completed Smoke Ventilation inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
             activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading completed Portable Fire Extinguisher inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
@@ -1700,6 +1744,7 @@ export function App() {
               onOpenDryWetRiser={handleOpenDryWetRiser}
               onOpenFireAlarm={handleOpenFireAlarm}
               onOpenHydrant={handleOpenHydrant}
+              onOpenSmokeVentilation={handleOpenSmokeVentilation}
               onOpenPortableFireExtinguisher={handleOpenPortableFireExtinguisher}
             />
           )}

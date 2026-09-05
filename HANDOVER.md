@@ -3,7 +3,17 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-05 — STEP 1.5 Portable Fire Extinguisher closed (uncommitted): hypothesis
+**Last updated:** 2026-09-05 — **STEP 2.2 Smoke Ventilation complete (uncommitted), Slices 1–3.**
+The first system with **zero V1–V6 lineage**: composed fresh into `masterServiceReportV7.ts`
+(sortOrder 10, four-state natively) rather than upgraded from V6, which needed a small new
+"no legacy contract" registration in both `systemContractCompatibility.ts` files. Full V7
+evidence path: adapter, migration 025, atomic acceptance, Accepted Detail, Final Report,
+web module, offline round trip. 9 adversarial DB integration cases + 12-check offline browser
+harness + 10 client submit-gate tests (drift guard proven to fail against a deliberately
+perturbed client path). **STEP 2.1 FM200 remains BLOCKED** — the roadmap's "client says same
+structure as CO2" line has no dated record and is contradicted by the stub's own
+`confirmationNotes` and by `docs/paper-forms/fm200.md`; see §7.
+Previously: STEP 1.5 Portable Fire Extinguisher closed (uncommitted): hypothesis
 confirmed — a V7-templated job's Portable Fire Extinguisher system already resolved, opened,
 saved a Draft, submitted, and synced correctly with **zero code changes**, purely via the
 structural (non-version-gated) match in `isCompatibleSystemContract`. Proved with a real browser
@@ -67,9 +77,11 @@ Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-s
 `SV-20260903-36` is already `technician_visible=false`. **Still owed: the 4-state browser sanity
 pass** (checklist in §4) — it is the only thing between here and "3/12 fully proven".
 
-**Next:** STEP 1 (Hydrant / Hose Reel / Sprinkler / Riser / Portable → V7) or STEP 2 new services
-(Roller Shutter, Smoke Vent, Fire Intercom, FM200). All STEP 1/2 services now inherit 4-state +
-C3. Gated on client answers for C2 (remarks pick-list) and Fire Intercom's Yes/No `1`/`2` columns.
+**Next:** STEP 2.3 **Fire Intercom** — already unblocked by the 2026-09-04 owner decision (collapse
+the paper Yes/No `1`/`2` grid into one four-state result + remark per floor row); it is the only
+remaining STEP 2 service that is ready to build. STEP 2.4 Roller Shutter still needs a
+client-confirmed spec, and STEP 2.1 FM200 is blocked on a real client answer (see §7). All
+STEP 1/2 services inherit 4-state + C3. C2 (remarks pick-list) remains deferred to last.
 
 ---
 
@@ -319,11 +331,49 @@ field, add integration coverage, re-verify, Sol pass.
       No new Good/Poor/evidence field, no evidence-contract adapter, V1–V6 untouched.
 
 ### STEP 2 — New services (need a fresh definition from the paper master + client input)
-- [ ] 2.1 **FM200** — client says "same structure as CO2 for now": clone the CO2 V7 adapter with
-      FM200 labels; flip `requires_confirmation` → `confirmed`. (~2 d)
-- [ ] 2.2 **Smoke Ventilation** — new definition from paper master (Control Panel No./Location,
-      per-zone Auto/Manual rows, Main Power AC, Secondary DC, Charger & Batteries, Main Function
-      Key, Signal Alarm to MFAP) + V7 adapter. (~2–3 d)
+- [ ] 2.1 **FM200 — BLOCKED, client-input gate NOT satisfied (investigated 2026-09-05).**
+      The "client says 'same structure as CO2 for now'" line below was written into this roadmap
+      by the very commit that first created the roadmap skeleton (`be9ad11`, 2026-09-03 14:12);
+      `git log -S` finds no other source for it, and there is **no dated §7 change-log entry**
+      recording it the way C1/C2/C4 and the "client answers" entry each got one. It is also
+      contradicted by two later, more careful artefacts: the fm200 stub's own
+      `confirmationNotes` in `masterServiceReportV1.ts:639` ("Do not enable this system or infer
+      fields from CO2 or Wet Chemical definitions") and `docs/paper-forms/fm200.md` (committed
+      `7635cb3`, ~8 h *after* the roadmap line), which records that FM200 has **no page at all**
+      in any source PDF and that "it is not known whether MFE uses the CO2 page as a stand-in".
+      **To unblock, one of:** (a) a dated, attributed change-log entry confirming the client was
+      actually asked *after* the paper-form research and said "reuse the CO2 checklist"; or
+      (b) an explicit owner override of the stub's own prohibition, with reasoning. Do not
+      resolve by inference. *(original note, unverified: clone the CO2 V7 adapter with FM200
+      labels; flip `requires_confirmation` → `confirmed`. ~2 d)*
+- [x] 2.2 **Smoke Ventilation — DONE (uncommitted), Slices 1–3.** First system with **no V1–V6
+      lineage at all**: composed fresh in `masterServiceReportV7.ts` (sortOrder 10, four-state
+      natively, no `upgradeV7*`/`fourState` rewrite because there is no legacy shape to
+      preserve). That required one real, small extension in both `systemContractCompatibility.ts`
+      files — a system whose "legacy" contract version *is* 7, giving it a single contract
+      variant instead of the legacy+V7 pair every STEP 1 system has. Source
+      `docs/paper-forms/smoke-ventilation.md`; follows the **blank master (Revision A)** — one
+      Control Panel No. / Location / Date Tested, a single Fan Schedule table (No. / Auto /
+      Manual / Remarks), Power Supply (AC + DC), Charger & Batteries, Main Function Key (4),
+      Comments. **Two interpretive calls are recorded in the definition's own
+      `confirmationNotes`** (same convention as Dry/Wet Riser's and Hose Reel's): (i) Auto/Manual
+      are modeled as two independent four-state results under the page's general Good/Poor
+      legend — confirm with the client if they instead denote a fixed operating-mode selection;
+      (ii) the Hokuden revision's 3 zone panels (8 rows each) and its free-text (not oval) AC/DC
+      fields are not modeled. Also: "Date Tested" is a `text` control, not a new `date` control —
+      the paper form is a write-in line and no per-system date control exists anywhere in the
+      web layer, so none was invented. Fan Schedule rows reuse the existing
+      `repeatable_table` + `customer_system_locations` machinery with `supportsZones: false`
+      (`zone_id` is already nullable) rather than a new "fixed rows, no location" mechanism.
+      Migration `025` widens the two evidence CHECK constraints only — the system row itself is
+      brand new, so the ordinary seed `INSERT … ON CONFLICT DO NOTHING` inserts it. Proofs:
+      `smokeVentilationV7.integration.test.ts` (9 adversarial cases: stale evidence, reused
+      photo naming, stored-hash collision, cross-Job byte reuse, concurrent race, closed/hidden/
+      unknown/forbidden collapse, closed-Job idempotent retry, clean zero-finding draft),
+      `smoke-ventilation-v7-offline.html/.spec.ts` (12 checks, Draft → reload → offline Submit →
+      reconnect Sync → Accepted → Accepted Detail with 3 photos across both evidence scopes),
+      `smokeVentilationV7SubmissionIssues.test.ts` (10 client-gate tests incl. the 0.4b
+      client/server path-drift guard, proven to fail against a deliberately perturbed path).
 - [ ] 2.3 **Fire Intercom** — new definition; paper form is a Yes/No matrix per handset location —
       confirm the exact control model with the client. + V7 adapter. (~2–3 d)
 - [ ] 2.4 **Fire Rated Roller Shutter** — NOT in the paper master; only in real Hokuden reports
@@ -369,17 +419,82 @@ then the repo is self-describing.
 | Automatic Sprinkler | ✅ confirmed | ⚠️ slices 1–3 done, Slice 3 uncommitted | STEP 1.3 — V7 drops legacy PSI lifecycle (owner decision); commit + Sol pass |
 | Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
 | Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
-| FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — clone CO2 V7 adapter |
-| Smoke Ventilation | ❌ none | ❌ | STEP 2.2 — `docs/paper-forms/smoke-ventilation.md` |
+| FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — **BLOCKED on a real client answer**, see roadmap |
+| Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, uncommitted) | commit + Sol pass |
 | Fire Intercom | ❌ none | ❌ | STEP 2.3 — needs client answer on Yes/No `1`/`2` columns |
 | Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
 
-Done: **5 / 12 on V7** (4 with a full V7 evidence workflow, 1 — Portable Fire Extinguisher —
-registration-only by design, C4, no evidence workflow).  Base template ready: 8 / 12.  New
-services (no template): Smoke Vent, Fire Intercom, Roller Shutter + FM200 stub.
+Done: **6 / 12 on V7** (5 with a full V7 evidence workflow — Smoke Ventilation is the newest and
+the only one with no V1–V6 lineage — plus Portable Fire Extinguisher, registration-only by
+design, C4, no evidence workflow).  Base template ready: 9 / 12.  New services still without a
+template: Fire Intercom, Roller Shutter + the FM200 stub (blocked).
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-05 — **STEP 2.1 FM200 investigated and STOPPED at its client-input gate; no code
+  written.** The roadmap's "client says 'same structure as CO2 for now'" instruction could not be
+  substantiated. `git log -S "same structure as CO2" -- HANDOVER.md` returns exactly one commit:
+  `be9ad11`, the commit that first created this roadmap skeleton — not a commit recording a
+  client conversation — and the line has never been touched since. There is **no dated §7 entry**
+  for it, unlike every other client/owner decision in this project (C1, C2, C4, and the
+  2026-09-04 "client answers" entry each have one). Two later artefacts contradict it: the fm200
+  stub's own `confirmationNotes` (`masterServiceReportV1.ts:639` — "the authoritative detailed
+  form is unavailable… Do not enable this system or infer fields from CO2 or Wet Chemical
+  definitions") and `docs/paper-forms/fm200.md`, transcribed in `7635cb3` roughly eight hours
+  *after* the roadmap line, which records that FM200 appears **only as a cover-page checkbox**
+  with no data page in the blank master or in any of the four filled reports examined, and states
+  outright that "it is not known whether MFE uses the CO2 page as a stand-in for FM 200".
+  Per the project's standing rule against inferring unconfirmed fields (same spirit as C4), this
+  is an owner/client question, not something to resolve by inference. **Unblock with either** a
+  dated entry confirming the client was asked *after* the paper-form research and answered, **or**
+  an explicit owner override of the stub's own prohibition. V1–V7's fm200 stub was left
+  byte-identical.
+
+- 2026-09-05 — **STEP 2.2 Smoke Ventilation complete (uncommitted), Slices 1–3.** The first
+  system in this codebase with **no V1–V6 presence at all**, which is why it is not a
+  "mirror the pattern" task: every STEP 1 system was *upgraded* from an existing confirmed
+  definition, so `masterServiceReportV7.ts` could `.map()` over `masterServiceReportV6.systems`.
+  Smoke Ventilation has nothing to map, so it is composed fresh and appended (sortOrder 10),
+  carrying the four-state model natively with no `fourState`/`upgradeV7*` rewrite. That exposed
+  the one genuinely new bit of architecture: `systemContractCompatibility.ts` (API **and** web)
+  assumed every implemented system has a pre-V7 "legacy" contract version plus a V7 one. Smoke
+  Ventilation's legacy version is **7 itself** — a deliberate self-reference giving it exactly one
+  contract variant — and `systemContractCompatibility.test.ts`'s blanket "every implemented system
+  exists in V5" loop was narrowed to systems whose contract version is ≤ 5, with a new positive
+  assertion that smoke_ventilation must *not* exist before V7. Definition follows the blank
+  master (Revision A) per `docs/paper-forms/smoke-ventilation.md`; the two unresolved paper
+  ambiguities (Auto/Manual semantics; the Hokuden 3-zone / free-text-AC-DC revision) are recorded
+  in the definition's own `confirmationNotes` rather than guessed silently, matching how Dry/Wet
+  Riser and Hose Reel flagged theirs. "Date Tested" is a `text` control, not a new `date` control:
+  the paper form is a write-in line and no per-system date control exists in the web layer, so
+  none was invented. The Fan Schedule reuses the existing `repeatable_table` +
+  `customer_system_locations` machinery with `supportsZones: false` (the column is already
+  nullable) rather than inventing a "fixed rows, no location" mechanism. Migration `025` widens
+  only the two evidence CHECK constraints — unlike every prior STEP 1.x migration there is no
+  existing row to rewrite, because the ordinary seed `INSERT … ON CONFLICT DO NOTHING` inserts
+  the brand-new system key itself. ~15 registration points wired (acceptance, Accepted Detail,
+  Final Report + PDF evidence, staged-evidence routes and allow-lists, job completion, sync
+  dispatch, web catalog/attachment/sync/local-DB unions, routing). **Proofs:** 9 adversarial
+  real-Postgres cases mirroring `hydrantV7.integration.test.ts` (stale evidence never accepted,
+  reused photo named rather than masked as JOB_ACCESS_DENIED per G7, two sources normalizing to
+  one stored image, same bytes allowed in a different Job, concurrent race → exactly one Accepted
+  + one retryable EVIDENCE_CONFLICT, closed/hidden/unknown/forbidden collapsed to one
+  JOB_ACCESS_DENIED, exact retry after Job closure → same authority not JOB_CLOSED, clean
+  zero-finding draft); a 12-check offline browser harness (`smoke-ventilation-v7-offline`) run
+  end to end — Draft → reload → offline Submit → reconnect Sync → Accepted → Accepted Detail with
+  one photo per finding across **both** evidence scopes; and 10 client submit-gate tests whose
+  client/server path-drift guard was **proven to fail** against a deliberately perturbed client
+  prefix before being reverted (the 0.4b failure mode). All 46 pre-existing V7 integration tests
+  and every other web submit-gate suite re-run green; V1–V6, migration 017 and the Fire Alarm V6
+  files untouched. **Known unrelated red, confirmed pre-existing by `git stash` against clean
+  HEAD:** `co2-v7-offline.spec.ts` fails with "Complete the required suppression-system fields and
+  evidence before local submission" (`co2Repository.ts:275`), and
+  `seedMasterServiceReport.integration.test.ts` fails on a dry_wet_riser sortOrder mismatch during
+  migration replay. Both reproduce with zero changes applied. Also spotted, not fixed (out of
+  scope): `finalServiceReport.ts`'s evidence ternary omits `dry_wet_riser`, so accepted riser
+  photos may not reach the Final Report PDF even though riser has a V7 branch in
+  `validHistoricalUnit`.
 
 - 2026-09-05 — **STEP 1.5 closed (uncommitted): Portable Fire Extinguisher already works on V7,
   zero code changes.** Investigated the "does it already work" hypothesis rather than assuming a

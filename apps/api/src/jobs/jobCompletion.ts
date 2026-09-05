@@ -91,7 +91,8 @@ const singleAuthoritySystems = new Set([
   "hose_reel",
   "fire_alarm_detector",
   "hydrant",
-  "portable_fire_extinguisher"
+  "portable_fire_extinguisher",
+  "smoke_ventilation"
 ]);
 const perLocationSystems = new Set(["co2_fire_extinguisher", "wet_chemical"]);
 

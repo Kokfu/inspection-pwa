@@ -8,16 +8,20 @@ import { resolveAutomaticSprinklerControls } from "./automaticSprinklerDefinitio
 import { resolveHoseReelControls } from "./definitionControls.js";
 import { resolveCo2Controls } from "./co2DefinitionControls.js";
 import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "./fireAlarmDefinitionControls.js";
-import { implementedSystemKeys, isCompatibleSystemContract } from "./systemContractCompatibility.js";
+import { implementedSystemKeys, isCompatibleSystemContract, systemContractVersion } from "./systemContractCompatibility.js";
 
 const clone = <T>(value: T): T => structuredClone(value);
 
 test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", () => {
-  for (const key of implementedSystemKeys) {
+  // Smoke Ventilation (STEP 2.2) has no legacy contract at all - it is V7-only
+  // from the start (systemContractVersion resolves it to 7, never <= 5) - so
+  // it is deliberately excluded from this pre-V7 lineage check.
+  for (const key of implementedSystemKeys.filter((candidate) => systemContractVersion(candidate) <= 5)) {
     const system = masterServiceReportV5.systems.find((candidate) => candidate.key === key);
     assert.ok(system, `${key} must exist in V5`);
     assert.equal(isCompatibleSystemContract(key, system.definitionStatus, system), true, `${key} must be V5-compatible`);
   }
+  assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "smoke_ventilation"), false, "smoke_ventilation must not exist before V7");
   const byKey = (key: string) => masterServiceReportV5.systems.find((candidate) => candidate.key === key)!;
   assert.equal(resolveAutomaticSprinklerControls(byKey("automatic_sprinkler"), "MFE-FSSR", 5).source.templateVersion, 1);
   assert.equal(resolveHoseReelControls(byKey("hose_reel"), "MFE-FSSR", 5).source.templateVersion, 1);

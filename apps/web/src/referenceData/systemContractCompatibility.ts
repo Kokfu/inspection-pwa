@@ -2,16 +2,20 @@ import type { InspectionCatalog, CatalogSystem, CatalogTemplate } from "./refere
 
 export const implementedSystemKeys = [
   "automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector",
-  "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher"
+  "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher",
+  "smoke_ventilation"
 ] as const;
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
 /** Every non-Fire-Alarm system that owns the shared V7 evidence contract.
  * Future rollout systems add one key here rather than another version branch. */
-export const v7SharedEvidenceSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "hydrant", "hose_reel", "automatic_sprinkler"] as const;
+export const v7SharedEvidenceSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "hydrant", "hose_reel", "automatic_sprinkler", "dry_wet_riser", "smoke_ventilation"] as const;
 
+// Smoke Ventilation has no pre-V7 contract (see the API's
+// systemContractCompatibility.ts) - its "legacy" version is 7 itself.
 const contractVersions: Readonly<Record<ImplementedSystemKey, number>> = {
   automatic_sprinkler: 1, dry_wet_riser: 2, hose_reel: 1, fire_alarm_detector: 3,
-  hydrant: 1, co2_fire_extinguisher: 1, wet_chemical: 4, portable_fire_extinguisher: 5
+  hydrant: 1, co2_fire_extinguisher: 1, wet_chemical: 4, portable_fire_extinguisher: 5,
+  smoke_ventilation: 7
 };
 
 export type FireAlarmClientDispatch = "historical" | "v6" | "v7";

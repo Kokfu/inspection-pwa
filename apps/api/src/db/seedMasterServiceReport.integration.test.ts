@@ -38,7 +38,7 @@ test("production seed preserves completed demo runtime state and rejects immutab
     // then replay current startup migrations and seed on that same database.
     // The FK-safe 020 upsert must repair definitions without deleting their
     // referenced master_service_report_systems rows.
-    const legacy = structuredClone(masterServiceReportV7.systems) as any[];
+    const legacy = structuredClone(masterServiceReportV7.systems) as unknown as any[];
     const downgrade = (value: any): any => Array.isArray(value) ? value.map(downgrade)
       : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, child]) => [key, key === "allowedValues" && value.control === "good_poor" ? ["good", "poor", "not_relevant"] : downgrade(child)])) : value;
     for (const system of legacy.filter((value) => ["fire_alarm_detector", "co2_fire_extinguisher", "wet_chemical"].includes(value.key))) await pool.query(

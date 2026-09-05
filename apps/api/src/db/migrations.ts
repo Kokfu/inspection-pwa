@@ -70,6 +70,9 @@ const v7AutomaticSprinklerEvidenceMigrationUrl = new URL(
 const v7DryWetRiserEvidenceMigrationUrl = new URL(
   "../../migrations/024_v7_dry_wet_riser_evidence.sql", import.meta.url
 );
+const v7SmokeVentilationEvidenceMigrationUrl = new URL(
+  "../../migrations/025_v7_smoke_ventilation_evidence.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -286,6 +289,7 @@ export async function runMigrations(
   await database.query(await readFile(v7HoseReelEvidenceMigrationUrl, "utf8"));
   await database.query(await readFile(v7AutomaticSprinklerEvidenceMigrationUrl, "utf8"));
   await database.query(await readFile(v7DryWetRiserEvidenceMigrationUrl, "utf8"));
+  await database.query(await readFile(v7SmokeVentilationEvidenceMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

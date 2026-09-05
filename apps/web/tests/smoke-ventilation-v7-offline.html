@@ -1,0 +1,70 @@
+<!doctype html><html><body><button id="run">Run Smoke Ventilation V7</button><pre id="result">Ready</pre><div id="form"></div><div id="accepted"></div><script type="module">
+import * as React from "react";import * as ReactDomClient from "react-dom/client";import{localDatabase}from"/src/db/localDatabase.ts";import{getOrCreateSmokeVentilationInspection,saveSmokeVentilationDraft,submitLocalSmokeVentilation}from"/src/smokeVentilation/smokeVentilationRepository.ts";import{saveSmokeVentilationV7Photo}from"/src/smokeVentilation/smokeVentilationV7Evidence.ts";import{syncPendingRecords}from"/src/sync/syncEngine.ts";import{SmokeVentilationInspectionForm}from"/src/smokeVentilation/SmokeVentilationInspectionForm.tsx";import{ServerSmokeVentilationView}from"/src/smokeVentilation/ServerSmokeVentilationView.tsx";
+const id=n=>`82000000-0000-4000-8000-${String(n).padStart(12,"0")}`,out=document.querySelector("#result"),checks=[],check=(name,passed)=>checks.push({name,passed:!!passed}),h="a".repeat(64),k="b".repeat(64),m="c".repeat(64),templateId="00000000-0000-4000-8000-000000000807",noop=async()=>{};
+const state4=["good","not_good","complete_repair","na"];
+const field=(key,label,sortOrder)=>({key,label,control:"good_poor",required:false,sortOrder,allowedValues:state4,remarksPolicy:"optional"});
+const textField=(key,label,sortOrder)=>({key,label,control:"text",required:false,sortOrder});
+const comments=sortOrder=>({key:"comments",title:"Comments",type:"comments",sortOrder,field:{key:"comments",label:"Comments",control:"remarks",required:false,sortOrder:1}});
+const rowUuid=id(5);
+// Mirrors `smokeVentilation` in masterServiceReportV7.ts exactly, including the
+// system-level sortOrder 10 and `supportsZones:false` (Smoke Ventilation has no
+// zone dimension) - a drift here would make the harness prove the wrong contract.
+const definition={key:"smoke_ventilation",displayName:"Smoke Ventilation System",sortOrder:10,definitionStatus:"confirmed",configuration:{supportsZones:false,supportsLocations:true,supportsPresetRows:true},sections:[
+  {key:"panel_identity",title:"Smoke Ventilation Control Panel",sortOrder:1,blocks:[{key:"panel_identity_fields",title:"Control Panel",type:"checklist",sortOrder:1,items:[textField("control_panel_no","Smoke Ventilation Control Panel No.",1),textField("location","Location",2),textField("date_tested","Date Tested",3)]}]},
+  {key:"fan_schedule",title:"Fan Schedule",sortOrder:2,blocks:[
+    {key:"fan_schedule_rows",title:"Fan Schedule Rows",type:"repeatable_table",sortOrder:1,supportsZones:false,supportsLocations:true,columns:[textField("asset_reference","No.",1),field("auto","Auto",2),field("manual","Manual",3),{key:"remarks",label:"Remarks",control:"remarks",required:false,sortOrder:4}]},
+    comments(2)]},
+  {key:"power_supply",title:"Power Supply",sortOrder:3,blocks:[{key:"power_supply_checks",title:"Power Supply",type:"checklist",sortOrder:1,items:[field("main_power_supply_ac","Main Power Supply (AC)",1),field("secondary_essential_supply_dc","Secondary Essential Supply (DC)",2)]}]},
+  {key:"charger_batteries",title:"Charger & Batteries",sortOrder:4,blocks:[{key:"charger_battery_checks",title:"Charger & Batteries",type:"checklist",sortOrder:1,items:[field("cb_battery","Battery",1),field("cb_charger","Charger",2)]}]},
+  {key:"main_function_key",title:"Main Function Key",sortOrder:5,blocks:[
+    {key:"function_checks",title:"Main Function Key",type:"checklist",sortOrder:1,items:[field("mfk_main_alarm_reset","Main Alarm Reset",1),field("mfk_lamp_test","Lamp Test",2),field("mfk_evacuate","Evacuate",3),field("mfk_signal_alarm_to_mfap","Signal Alarm to MFAP",4)]},
+    comments(2)]}]};
+const fixture=()=>{const ids={job:id(1),customer:id(2),revision:id(3),system:id(4)};const system={enabledSystemId:ids.system,systemKey:"smoke_ventilation",displayName:"Smoke Ventilation System",sortOrder:10,definitionStatus:"confirmed",zones:[],locations:[]};const template={id:templateId,code:"MFE-FSSR",name:"MFE",version:7,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:"smoke_ventilation",displayName:"Smoke Ventilation System",sortOrder:10,definitionStatus:"confirmed",definition}]};return{ids,system,catalog:{template:{...template,id:id(9),version:1,systems:[]},templates:[template]},job:{id:ids.job,reference:"SV-V7-BROWSER",title:"Smoke Ventilation V7 Browser",status:"open",createdAt:new Date().toISOString(),configurationSnapshot:{schemaVersion:1,customer:{id:ids.customer,code:"SV",displayName:"Smoke Vent Customer"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:templateId,code:"MFE-FSSR",name:"MFE",version:7},enabledSystems:[system]}}}};
+// Three findings across BOTH of this system's evidence scopes: two flat
+// checklist fields and one Fan Schedule row column.
+const complete=draft=>{const x=structuredClone(draft.responses);for(const key of Object.keys(x.checklist))x.checklist[key]={result:"good",remarks:""};x.checklist.secondary_essential_supply_dc={result:"not_good",remarks:"DC supply reading is low"};x.checklist.mfk_lamp_test={result:"complete_repair",remarks:"Lamp test board replaced"};x.controlPanelNo="1";x.location="Roof plant room";x.dateTested="2026-09-05";x.rows=[{rowUuid,source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,assetReference:"1",autoResult:"not_good",manualResult:"good",remarks:"",fieldRemarks:{autoResult:"Fan 1 does not start in Auto"},sortOrder:1}];x.comments="";return x};
+const snapshot=async clientUuid=>{const record=await localDatabase.masterSystemInspections.get(clientUuid),photos=await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(clientUuid).toArray(),outbox=await localDatabase.syncOutbox.toArray();return{record,photos:photos.filter(x=>x.systemKey==="smoke_ventilation"),outbox:outbox.filter(x=>x.entityId===clientUuid||photos.some(p=>p.photoUuid===x.entityId))}};
+const paths={power:"smoke_ventilation_checks.secondary_essential_supply_dc",lamp:"smoke_ventilation_checks.mfk_lamp_test",row:`fan_schedule.fan_schedule_rows.rows.${rowUuid}.auto`};
+document.querySelector("#run").onclick=async()=>{try{checks.length=0;const f=fixture();await localDatabase.open();await localDatabase.masterSystemInspections.where("jobId").equals(f.ids.job).delete();
+  const draft=await getOrCreateSmokeVentilationInspection(f.job,f.system,f.catalog,{id:1,username:"browser-tech",role:"inspector"});
+  const responses=complete(draft);
+  check("V7-only job opens with the four-state definition",draft.masterTemplate.version===7&&responses.schemaVersion===1&&responses.checklist.secondary_essential_supply_dc.result==="not_good"&&responses.checklist.mfk_lamp_test.result==="complete_repair"&&responses.rows[0].autoResult==="not_good");
+  // Render the V7 input form to prove the eight checklist rows exist and the
+  // finding widget appears only on findings, in both scopes.
+  const formRoot=ReactDomClient.createRoot(document.querySelector("#form"));
+  await new Promise(res=>{formRoot.render(React.createElement(SmokeVentilationInspectionForm,{record:{...draft,responses},onBack:()=>{},onSaveDraft:noop,onSubmitLocal:noop,onEditFailed:noop}));setTimeout(res,80)});
+  const formEl=document.querySelector("#form");
+  check("V7 form renders all eight flat checklist rows (Power Supply, Charger & Batteries, Main Function Key)",formEl.querySelectorAll(".hose-check-row").length===8);
+  check("V7 form renders the Fan Schedule row card",formEl.querySelectorAll(".hose-row-card").length===1);
+  check("V7 finding reveals the photo widget on findings only, in both scopes",formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.power}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.lamp}"]`).length===1&&formEl.querySelectorAll('[aria-label="Evidence photo for smoke_ventilation_checks.cb_battery"]').length===0&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.row}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for fan_schedule.fan_schedule_rows.rows.${rowUuid}.manual"]`).length===0);
+  formRoot.unmount();
+  for(const[fieldPath,sha]of[[paths.power,h],[paths.lamp,k],[paths.row,m]])await saveSmokeVentilationV7Photo({record:draft,fieldPath,captureSource:"gallery",blob:new Blob(["A"],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:sha});
+  check("one photo per finding is saved on this device across checklist and row scopes",(await snapshot(draft.clientUuid)).photos.length===3);
+  const saved=await saveSmokeVentilationDraft(draft,responses);
+  const pending=await submitLocalSmokeVentilation(saved,responses);
+  const st=await snapshot(pending.clientUuid);
+  check("offline Submit queues evidence before parent",st.record.syncStatus==="Pending"&&st.outbox.filter(x=>x.entityType==="v7StagedEvidence").length===3&&st.outbox.filter(x=>x.entityType==="masterSystemInspection").length===1);
+  localStorage.setItem("sv-v7-client",pending.clientUuid);
+  out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"READY_RELOAD":"FAIL",checks})}catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks})}};
+window.runAfterReload=async()=>{try{checks.length=0;const clientUuid=localStorage.getItem("sv-v7-client"),st=await snapshot(clientUuid),r=st.record;
+  check("reload rehydrates four-state results and own remarks",r.syncStatus==="Pending"&&r.responses.checklist.secondary_essential_supply_dc.result==="not_good"&&r.responses.checklist.secondary_essential_supply_dc.remarks==="DC supply reading is low"&&r.responses.checklist.mfk_lamp_test.result==="complete_repair"&&r.responses.checklist.mfk_lamp_test.remarks==="Lamp test board replaced"&&r.responses.rows[0].autoResult==="not_good"&&r.responses.rows[0].fieldRemarks.autoResult==="Fan 1 does not start in Auto"&&r.responses.controlPanelNo==="1"&&r.responses.location==="Roof plant room");
+  check("reload rehydrates photo Blobs",st.photos.length===3&&st.photos.every(p=>p.blob.type==="image/jpeg"));
+  const original=globalThis.fetch;
+  globalThis.fetch=async(input,init={})=>{const url=String(input);if(url.includes("/v7-evidence/stage")){const body=init.body;return new Response(JSON.stringify({outcome:"staged",photoUuid:body.get("photoUuid"),fieldPath:body.get("fieldPath"),sourceSha256:body.get("sha256"),storedSha256:"d".repeat(64)}),{status:201})}return new Response(JSON.stringify({acceptedIds:[clientUuid],duplicateIds:[],failed:[]}),{status:200})};
+  try{await syncPendingRecords()}finally{globalThis.fetch=original}
+  const synced=await snapshot(clientUuid);
+  check("reconnect Sync reaches Accepted",synced.record.syncStatus==="Synced"&&synced.outbox.every(x=>x.status==="Completed"));
+  const ev=synced.photos.slice().sort((a,b)=>a.fieldPath.localeCompare(b.fieldPath)).map((p,i)=>({photoUuid:p.photoUuid,systemKey:"smoke_ventilation",fieldPath:p.fieldPath,sourceSha256:p.sha256,storedSha256:["d","e","f"][i].repeat(64),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,formInstanceId:id(8)}));
+  globalThis.fetch=async input=>String(input).includes("/v7-evidence/accepted?")?new Response(JSON.stringify({evidence:ev}),{status:200}):new Response("jpeg-bytes",{status:200,headers:{"Content-Type":"image/jpeg"}});
+  const root=ReactDomClient.createRoot(document.querySelector("#accepted"));
+  root.render(React.createElement(ServerSmokeVentilationView,{inspection:{clientUuid,serverFormInstanceId:id(8),jobId:r.jobId,jobReference:"SV-V7-BROWSER",jobTitle:"Smoke Ventilation V7 Browser",customerName:"Smoke Vent Customer",systemKey:"smoke_ventilation",systemLabel:"Smoke Ventilation System",instanceKey:"primary",status:"submitted",performedAt:"2026-09-05T00:00:00.000000Z",receivedAt:"2026-09-05T00:00:00.000000Z",templateVersion:7,responses:r.responses,deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"browser-tech"},onBack:()=>{}}));
+  await new Promise(res=>setTimeout(res,120));
+  const acc=document.querySelector("#accepted"),textContent=acc.textContent;
+  check("Accepted Detail shows each finding's own remark across checklist and row scopes",textContent.includes("DC supply reading is low")&&textContent.includes("Lamp test board replaced")&&textContent.includes("Fan 1 does not start in Auto"));
+  check("Accepted Detail renders one accepted photo per finding",acc.querySelectorAll('a[href*="/api/v7-evidence/accepted/"]').length===3&&acc.querySelectorAll("img").length===3);
+  const firstUrl=acc.querySelector('img').getAttribute("src");
+  const bytes=await (await fetch(firstUrl)).text();
+  check("accepted photo bytes load non-empty",typeof bytes==="string"&&bytes.length>0);
+  globalThis.fetch=original;
+  out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checks})}catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks})}};
+</script></body></html>

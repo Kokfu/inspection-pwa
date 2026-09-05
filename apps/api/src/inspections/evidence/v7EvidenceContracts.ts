@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -579,8 +579,100 @@ const dryWetRiserAdapter = (definition: unknown): V7EvidenceContractAdapter | un
   };
 };
 
+const smokeVentilationChecklistFields = [
+  ["power_supply", "power_supply_checks", "main_power_supply_ac", "Power Supply - Main Power Supply (AC)"],
+  ["power_supply", "power_supply_checks", "secondary_essential_supply_dc", "Power Supply - Secondary Essential Supply (DC)"],
+  ["charger_batteries", "charger_battery_checks", "cb_battery", "Charger & Batteries - Battery"],
+  ["charger_batteries", "charger_battery_checks", "cb_charger", "Charger & Batteries - Charger"],
+  ["main_function_key", "function_checks", "mfk_main_alarm_reset", "Main Function Key - Main Alarm Reset"],
+  ["main_function_key", "function_checks", "mfk_lamp_test", "Main Function Key - Lamp Test"],
+  ["main_function_key", "function_checks", "mfk_evacuate", "Main Function Key - Evacuate"],
+  ["main_function_key", "function_checks", "mfk_signal_alarm_to_mfap", "Main Function Key - Signal Alarm to MFAP"]
+] as const;
+const smokeVentilationRowFields = [
+  ["autoResult", "auto", "Auto"],
+  ["manualResult", "manual", "Manual"]
+] as const;
+const smokeVentilationChecklistPrefix = "smoke_ventilation_checks.";
+const smokeVentilationRowPath = /^fan_schedule\.fan_schedule_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(auto|manual)$/i;
+
+/** Smoke Ventilation is single-instance (no zone dimension) with one
+ * repeatable Fan Schedule table, the same combined shape as Hose Reel minus
+ * the measurement rows: flat checklist findings plus row-scoped findings. */
+const smokeVentilationAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const checklistValues = new Map<string, Set<string>>();
+  const captions = new Map<string, string>();
+  for (const [section, block, key, caption] of smokeVentilationChecklistFields) {
+    const values = allowedValues(definition, section, block, key);
+    if (!values) return undefined;
+    checklistValues.set(key, values);
+    captions.set(`${smokeVentilationChecklistPrefix}${key}`, caption);
+  }
+  const rowValues = new Map<string, Set<string>>();
+  const rowKeyByColumn = new Map<string, string>();
+  for (const [responseKey, columnKey] of smokeVentilationRowFields) {
+    const values = allowedValues(definition, "fan_schedule", "fan_schedule_rows", columnKey);
+    if (!values) return undefined;
+    rowValues.set(responseKey, values);
+    rowKeyByColumn.set(columnKey, responseKey);
+  }
+  const rowTarget = (response: unknown, fieldPath: string) => {
+    const match = smokeVentilationRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.rows)) return undefined;
+    const row = response.rows.find((value) => isRecord(value) && value.rowUuid === match[1]);
+    const responseKey = rowKeyByColumn.get(match[2]!);
+    return isRecord(row) && responseKey ? { row, responseKey } : undefined;
+  };
+  return {
+    systemKey: "smoke_ventilation", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && (captions.has(fieldPath) || smokeVentilationRowPath.test(fieldPath));
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !isRecord(response.checklist) || !Array.isArray(response.rows)) return undefined;
+      const poor: string[] = [];
+      for (const [, , key] of smokeVentilationChecklistFields) {
+        const value = response.checklist[key];
+        if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !checklistValues.get(key)?.has(value.result)) return undefined;
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${smokeVentilationChecklistPrefix}${key}`); }
+      }
+      const rowIds = new Set<string>();
+      for (const row of response.rows) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        rowIds.add(row.rowUuid);
+        for (const [responseKey, columnKey] of smokeVentilationRowFields) {
+          const result = row[responseKey];
+          if (typeof result !== "string" || !rowValues.get(responseKey)?.has(result)) return undefined;
+          if (isV7EvidenceFinding(result)) {
+            const remark = row.fieldRemarks[responseKey];
+            if (typeof remark !== "string" || !remark.trim()) return undefined;
+            poor.push(`fan_schedule.fan_schedule_rows.rows.${row.rowUuid}.${columnKey}`);
+          }
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      if (!isRecord(response)) return undefined;
+      const checklistKey = fieldPath.startsWith(smokeVentilationChecklistPrefix) ? fieldPath.slice(smokeVentilationChecklistPrefix.length) : undefined;
+      const checklist = checklistKey && isRecord(response.checklist) ? response.checklist[checklistKey] : undefined;
+      if (isRecord(checklist) && isV7EvidenceFinding(checklist.result) && typeof checklist.remarks === "string" && checklist.remarks.trim()) return checklist.remarks.trim();
+      const target = rowTarget(response, fieldPath);
+      if (!target || !isV7EvidenceFinding(target.row[target.responseKey]) || !isRecord(target.row.fieldRemarks)) return undefined;
+      const remark = target.row.fieldRemarks[target.responseKey];
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      const checklist = captions.get(fieldPath); if (checklist) return checklist;
+      const match = smokeVentilationRowPath.exec(fieldPath);
+      const field = match && smokeVentilationRowFields.find(([, columnKey]) => columnKey === match[2]);
+      return field ? `Fan Schedule - ${field[2]}` : undefined;
+    }
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
@@ -591,6 +683,7 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   if (values.systemKey === "hose_reel") return hoseReelAdapter(values.definition);
   if (values.systemKey === "automatic_sprinkler") return automaticSprinklerAdapter(values.definition);
   if (values.systemKey === "dry_wet_riser") return dryWetRiserAdapter(values.definition);
+  if (values.systemKey === "smoke_ventilation") return smokeVentilationAdapter(values.definition);
   return repeatableRowAdapter(values.definition);
 }
 

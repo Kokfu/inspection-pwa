@@ -62,6 +62,7 @@ const demoV7SiteId = "00000000-0000-4000-8000-000000000909";
 const demoV7HydrantEnabledSystemId = "00000000-0000-4000-8000-000000000910";
 const demoV7HoseReelEnabledSystemId = "00000000-0000-4000-8000-000000000911";
 const demoV7SprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000912";
+const demoV7DryWetRiserEnabledSystemId = "00000000-0000-4000-8000-000000000913";
 const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
 const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
 const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
@@ -1090,6 +1091,36 @@ async function seedDemoConfigurations(client: PoolClient) {
     client, demoV7SprinklerEnabledSystemId, demoV7RevisionId,
     "automatic_sprinkler", 6, null, masterServiceReportV7.id
   );
+  // Dry/Wet Riser is not a plain seedEnabledSystem call: unlike the systems
+  // above, it carries a mandatory frozen system_configuration (riserMode)
+  // that seedEnabledSystem's generic INSERT does not set.
+  await insertFixture("Demo V7 Dry/Wet Riser enabled system", client.query(
+    `INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration) VALUES ($1,$2,$3,'dry_wet_riser',7,$4) ON CONFLICT (id) DO NOTHING`,
+    [demoV7DryWetRiserEnabledSystemId, demoV7RevisionId, masterServiceReportV7.id, JSON.stringify({ riserMode: "dry" })]
+  ));
+  const demoV7DryWetRiserEnabled = await client.query<Record<string, unknown>>(
+    `SELECT enabled.id, enabled.configuration_revision_id AS "configurationRevisionId",
+        enabled.template_version_id AS "templateVersionId", enabled.system_key AS "systemKey",
+        enabled.sort_order AS "sortOrder", system.definition_status AS "definitionStatus",
+        enabled.evidence_policy_id AS "evidencePolicyId", enabled.system_configuration AS "systemConfiguration"
+       FROM customer_enabled_systems enabled
+       INNER JOIN master_service_report_systems system
+         ON system.template_version_id = enabled.template_version_id
+        AND system.system_key = enabled.system_key
+       WHERE enabled.id = $1`,
+    [demoV7DryWetRiserEnabledSystemId]
+  );
+  assertFixtureFields(`Demo V7 Dry/Wet Riser enabled system`, demoV7DryWetRiserEnabled.rows[0], {
+    id: demoV7DryWetRiserEnabledSystemId,
+    configurationRevisionId: demoV7RevisionId,
+    templateVersionId: masterServiceReportV7.id,
+    systemKey: "dry_wet_riser",
+    sortOrder: 7,
+    definitionStatus: "confirmed",
+    evidencePolicyId: null,
+    systemConfiguration: { riserMode: "dry" }
+  });
+  if (!parseDryWetRiserSystemConfiguration(demoV7DryWetRiserEnabled.rows[0]?.systemConfiguration)) throw new Error("Demo V7 Dry/Wet Riser fixture configuration has unsupported keys");
   await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
 }
 

@@ -4,6 +4,7 @@ import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/a
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
+import type { SmokeVentilationInspectionRecord } from "../smokeVentilation/smokeVentilationTypes";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
   MasterSystemFormInstanceRecord,
@@ -103,7 +104,7 @@ export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   masterSystemInspections: EntityTable<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord,
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord,
     "clientUuid"
   >;
   masterSystemInspectionGroups: EntityTable<MasterSystemInspectionGroupRecord, "groupKey">;

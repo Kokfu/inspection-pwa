@@ -1,7 +1,7 @@
 import type { InspectionAttachmentRecord } from "./attachmentTypes";
 
 /** Keep this explicit client boundary in lockstep with the server contract union. */
-export const v7StagingSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "hydrant", "hose_reel", "automatic_sprinkler"] as const;
+export const v7StagingSystemKeys = ["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "hydrant", "hose_reel", "automatic_sprinkler", "dry_wet_riser", "smoke_ventilation"] as const;
 
 export type ServerAttachmentMetadata = {
   serverAttachmentId: string;

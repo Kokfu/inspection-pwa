@@ -3,7 +3,7 @@ import test from "node:test";
 import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
 
-const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
+const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
 const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
   const definition = system(key); const value = () => ({ result, remarks });
   const section = (sectionKey: string, blockKey: string) => definition.sections.find((candidate) => candidate.key === sectionKey)!.blocks.find((candidate) => candidate.key === blockKey)!;
@@ -236,5 +236,36 @@ test("V7 Dry/Wet Riser combines flat checklist/measurement findings with row-sco
   const stale = structuredClone(response); stale.checklist.water_level = { result: "good", remarks: "" }; stale.riserOutlets[0]!.diffuserNozzleResult = "good";
   assert.deepEqual(adapter.derivePoorFieldPaths(stale), [jockeyPath]);
   const invalid = structuredClone(response); invalid.riserOutlets[0]!.crandleResult = "poor";
+  assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen row column validates against its own allowedValues");
+});
+
+test("V7 Smoke Ventilation combines frozen checklist and Fan Schedule row-scoped evidence without accepting stale findings", () => {
+  const definition = system("smoke_ventilation");
+  assert.equal(masterServiceReportV7.systems.some((candidate) => candidate.key === "smoke_ventilation"), true, "smoke_ventilation has no V1-V6 lineage - it is added directly to V7");
+  const adapter = resolveV7EvidenceContract({ systemKey: "smoke_ventilation", templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
+  assert.ok(adapter);
+  const rowUuid = "00000000-0000-4000-8000-000000000905";
+  const checklist = Object.fromEntries([
+    "main_power_supply_ac", "secondary_essential_supply_dc", "cb_battery", "cb_charger",
+    "mfk_main_alarm_reset", "mfk_lamp_test", "mfk_evacuate", "mfk_signal_alarm_to_mfap"
+  ].map((key) => [key, { result: "good", remarks: "" }]));
+  checklist.secondary_essential_supply_dc = { result: "not_good", remarks: "DC supply reading is low" };
+  const response = {
+    checklist,
+    rows: [{ rowUuid, autoResult: "complete_repair", manualResult: "good", fieldRemarks: { autoResult: "Auto mode repaired on site" } }]
+  };
+  const powerPath = "smoke_ventilation_checks.secondary_essential_supply_dc";
+  const autoPath = `fan_schedule.fan_schedule_rows.rows.${rowUuid}.auto`;
+  assert.equal(adapter.isCanonicalFieldPath(powerPath), true);
+  assert.equal(adapter.isCanonicalFieldPath(`fan_schedule.fan_schedule_rows.rows.${rowUuid}.remarks`), false);
+  assert.equal(adapter.isCanonicalFieldPath("smoke_ventilation_checks.unknown"), false);
+  assert.deepEqual(adapter.derivePoorFieldPaths(response), [autoPath, powerPath].sort());
+  assert.equal(adapter.ownPoorRemark(response, powerPath), "DC supply reading is low");
+  assert.equal(adapter.ownPoorRemark(response, autoPath), "Auto mode repaired on site");
+  assert.equal(adapter.acceptedEvidenceCaption(powerPath), "Power Supply - Secondary Essential Supply (DC)");
+  assert.equal(adapter.acceptedEvidenceCaption(autoPath), "Fan Schedule - Auto");
+  const stale = structuredClone(response); stale.checklist.secondary_essential_supply_dc = { result: "good", remarks: "" }; stale.rows[0]!.autoResult = "good";
+  assert.deepEqual(adapter.derivePoorFieldPaths(stale), []);
+  const invalid = structuredClone(response); invalid.rows[0]!.manualResult = "poor";
   assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen row column validates against its own allowedValues");
 });

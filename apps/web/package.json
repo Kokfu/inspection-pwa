@@ -20,6 +20,9 @@
     "test:v7-hydrant-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hydrantV7SubmissionIssues.test.ts",
     "test:v7-hose-reel-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hoseReelV7SubmissionIssues.test.ts",
     "test:v7-automatic-sprinkler-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/automaticSprinklerV7SubmissionIssues.test.ts tests/v7StagingAllowList.test.ts",
+    "test:v7-dry-wet-riser-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/dryWetRiserV7SubmissionIssues.test.ts",
+    "test:v7-smoke-ventilation-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/smokeVentilationV7SubmissionIssues.test.ts",
+    "test:v7-smoke-ventilation-browser": "playwright test tests/smoke-ventilation-v7-offline.spec.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"
   },

@@ -1,7 +1,25 @@
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
-import type { MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
+import type { FieldDefinition, MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
 
 const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
+
+function v7GoodPoor(key: string, label: string, sortOrder: number): FieldDefinition {
+  return { key, label, control: "good_poor", required: false, sortOrder, allowedValues: v7ResultValues, remarksPolicy: "optional" };
+}
+
+function v7TextField(key: string, label: string, sortOrder: number): FieldDefinition {
+  return { key, label, control: "text", required: false, sortOrder };
+}
+
+function v7Comments(sortOrder: number) {
+  return {
+    key: "comments",
+    title: "Comments",
+    type: "comments" as const,
+    sortOrder,
+    field: { key: "comments", label: "Comments", control: "remarks" as const, required: false, sortOrder: 1 }
+  };
+}
 
 /** V7 is forward-only.  Earlier template objects are never mutated. */
 function upgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
@@ -136,6 +154,134 @@ function upgradeV7DryWetRiser(system: SystemDefinition): SystemDefinition {
 }
 
 /**
+ * STEP 2.2: Smoke Ventilation has no V1-V6 presence at all - unlike the
+ * STEP 1 systems above, there is no earlier confirmed definition to upgrade,
+ * so this system is composed fresh rather than derived from
+ * `masterServiceReportV6.systems`. It is V7-only from the start and carries
+ * the four-state result model natively (no `fourState`/`upgradeV7*` rewrite
+ * is needed because there is no legacy shape to preserve).
+ *
+ * Source: `docs/paper-forms/smoke-ventilation.md`. Two paper revisions exist
+ * with real structural differences; this definition follows the blank
+ * master (Revision A) - a single Control Panel No. / Location, one 10-row
+ * Fan Schedule table - consistent with how every other base system in this
+ * template is built from the blank master rather than a customer-specific
+ * Hokuden layout. The Hokuden 3-zone/8-row-per-zone revision and its
+ * free-text (not oval) AC/DC power-supply fields are not modeled; flagged
+ * below via `confirmationNotes` per the project's standing rule against
+ * inventing unconfirmed fields.
+ *
+ * The Fan Schedule's "No." rows (1-10) are fixed asset identities, not
+ * customer-varying physical locations, but this template reuses the same
+ * `repeatable_table` + `customer_system_locations` machinery Hydrant/Hose
+ * Reel/Riser already use (`supportsLocations: true`, no zone dimension -
+ * `customer_system_locations.zone_id` is already nullable) rather than
+ * inventing a new "fixed row count, no location" mechanism. Every customer
+ * enabling Smoke Ventilation is configured with the same 10 preset rows.
+ */
+const smokeVentilation: SystemDefinition = {
+  key: "smoke_ventilation",
+  displayName: "Smoke Ventilation System",
+  sortOrder: 10,
+  definitionStatus: "confirmed",
+  configuration: { supportsZones: false, supportsLocations: true, supportsPresetRows: true },
+  confirmationNotes: [
+    "Source has two paper revisions with structural differences (docs/paper-forms/smoke-ventilation.md). This definition follows the blank master (Revision A): one Control Panel No. / Location, a single 10-row Fan Schedule. The Hokuden revision's 3 separate zone panels (8 rows each) and free-text (not oval) AC/DC power-supply fields are not modeled.",
+    "The Fan Schedule's Auto/Manual ovals carry no page-local legend of their own. This definition treats them as two independent V7 four-state results under the page's general Good/Poor legend, consistent with every other checklist item on this form. Confirm with the client if Auto/Manual instead denote a fixed operating-mode selection rather than a pass/fail judgement."
+  ],
+  sections: [
+    {
+      key: "panel_identity",
+      title: "Smoke Ventilation Control Panel",
+      sortOrder: 1,
+      blocks: [{
+        key: "panel_identity_fields",
+        title: "Control Panel",
+        type: "checklist",
+        sortOrder: 1,
+        items: [
+          v7TextField("control_panel_no", "Smoke Ventilation Control Panel No.", 1),
+          v7TextField("location", "Location", 2),
+          v7TextField("date_tested", "Date Tested", 3)
+        ]
+      }]
+    },
+    {
+      key: "fan_schedule",
+      title: "Fan Schedule",
+      sortOrder: 2,
+      blocks: [
+        {
+          key: "fan_schedule_rows",
+          title: "Fan Schedule Rows",
+          type: "repeatable_table",
+          sortOrder: 1,
+          supportsZones: false,
+          supportsLocations: true,
+          columns: [
+            v7TextField("asset_reference", "No.", 1),
+            v7GoodPoor("auto", "Auto", 2),
+            v7GoodPoor("manual", "Manual", 3),
+            { ...v7TextField("remarks", "Remarks", 4), control: "remarks" }
+          ]
+        },
+        v7Comments(2)
+      ]
+    },
+    {
+      key: "power_supply",
+      title: "Power Supply",
+      sortOrder: 3,
+      blocks: [{
+        key: "power_supply_checks",
+        title: "Power Supply",
+        type: "checklist",
+        sortOrder: 1,
+        items: [
+          v7GoodPoor("main_power_supply_ac", "Main Power Supply (AC)", 1),
+          v7GoodPoor("secondary_essential_supply_dc", "Secondary Essential Supply (DC)", 2)
+        ]
+      }]
+    },
+    {
+      key: "charger_batteries",
+      title: "Charger & Batteries",
+      sortOrder: 4,
+      blocks: [{
+        key: "charger_battery_checks",
+        title: "Charger & Batteries",
+        type: "checklist",
+        sortOrder: 1,
+        items: [
+          v7GoodPoor("cb_battery", "Battery", 1),
+          v7GoodPoor("cb_charger", "Charger", 2)
+        ]
+      }]
+    },
+    {
+      key: "main_function_key",
+      title: "Main Function Key",
+      sortOrder: 5,
+      blocks: [
+        {
+          key: "function_checks",
+          title: "Main Function Key",
+          type: "checklist",
+          sortOrder: 1,
+          items: [
+            v7GoodPoor("mfk_main_alarm_reset", "Main Alarm Reset", 1),
+            v7GoodPoor("mfk_lamp_test", "Lamp Test", 2),
+            v7GoodPoor("mfk_evacuate", "Evacuate", 3),
+            v7GoodPoor("mfk_signal_alarm_to_mfap", "Signal Alarm to MFAP", 4)
+          ]
+        },
+        v7Comments(2)
+      ]
+    }
+  ]
+};
+
+/**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
  * retains its independent detector-state control; Good/Poor fields use the
  * four-state Hokuden checklist legend.
@@ -144,15 +290,18 @@ export const masterServiceReportV7 = {
   ...masterServiceReportV6,
   id: "00000000-0000-4000-8000-000000000807",
   version: 7,
-  systems: masterServiceReportV6.systems.map((system) =>
-    system.key === "co2_fire_extinguisher" || system.key === "wet_chemical" || system.key === "fire_alarm_detector" || system.key === "hydrant"
-      ? upgradeV7EvidenceSystem(system)
-      : system.key === "hose_reel"
-        ? upgradeV7HoseReel(system)
-      : system.key === "automatic_sprinkler"
-        ? upgradeV7AutomaticSprinkler(system)
-      : system.key === "dry_wet_riser"
-        ? upgradeV7DryWetRiser(system)
-      : system
-  )
+  systems: [
+    ...masterServiceReportV6.systems.map((system) =>
+      system.key === "co2_fire_extinguisher" || system.key === "wet_chemical" || system.key === "fire_alarm_detector" || system.key === "hydrant"
+        ? upgradeV7EvidenceSystem(system)
+        : system.key === "hose_reel"
+          ? upgradeV7HoseReel(system)
+        : system.key === "automatic_sprinkler"
+          ? upgradeV7AutomaticSprinkler(system)
+        : system.key === "dry_wet_riser"
+          ? upgradeV7DryWetRiser(system)
+        : system
+    ),
+    smokeVentilation
+  ]
 } as const satisfies MasterServiceReportDefinition;

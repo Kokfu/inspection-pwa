@@ -339,3 +339,61 @@ export function validateAcceptedDryWetRiserV7Detail(row: R) {
   if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
   return { snapshot, adapter, riserMode: riserMode.riserMode };
 }
+
+/**
+ * Smoke Ventilation has no V1-V6 lineage at all (see masterServiceReportV7.ts) -
+ * unlike every reader above, there is no historical shape to keep separate
+ * from. It combines a flat checklist (Power Supply / Charger & Batteries /
+ * Main Function Key) with one repeatable Fan Schedule table, the same shape
+ * as Hose Reel minus the measurement rows and the zone dimension (Smoke
+ * Ventilation's `configuration.supportsZones` is false).
+ */
+export function validateAcceptedSmokeVentilationV7Detail(row: R) {
+  if (!identity(row) || row.systemKey !== "smoke_ventilation" || row.instanceKey !== "primary"
+    || row.zoneId !== null || row.locationId !== null || row.displaySequence !== 1
+    || !rec(row.inspectionSnapshot) || !rec(row.responses)) return undefined;
+  const snapshot = row.inspectionSnapshot;
+  if (!exact(snapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "contractSha256", "instance", "evidenceManifest"])
+    || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
+    || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
+    || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
+    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
+    || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
+    || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
+    || !rec(snapshot.template) || !exact(snapshot.template, ["id", "code", "version"]) || snapshot.template.id !== row.templateId || snapshot.template.code !== "MFE-FSSR" || snapshot.template.version !== 7
+    || !rec(snapshot.system) || snapshot.system.key !== "smoke_ventilation" || snapshot.system.systemKey !== "smoke_ventilation" || snapshot.system.definitionStatus !== "confirmed" || snapshot.system.repetitionMode !== "single_with_repeatable_rows" || !rec(snapshot.system.definition)
+    || !rec(snapshot.instance) || !exact(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"]) || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+    || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
+  const response = row.responses;
+  const checklistKeys = ["main_power_supply_ac", "secondary_essential_supply_dc", "cb_battery", "cb_charger", "mfk_main_alarm_reset", "mfk_lamp_test", "mfk_evacuate", "mfk_signal_alarm_to_mfap"];
+  const rowResultKeys = ["autoResult", "manualResult"];
+  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", ...rowResultKeys, "remarks", "fieldRemarks", "sortOrder"];
+  if (!exact(response, ["schemaVersion", "controlPanelNo", "location", "dateTested", "checklist", "rows", "comments"]) || response.schemaVersion !== 1
+    || typeof response.controlPanelNo !== "string" || response.controlPanelNo.length > 200
+    || typeof response.location !== "string" || response.location.length > 300
+    || typeof response.dateTested !== "string" || response.dateTested.length > 200
+    || !rec(response.checklist) || !exact(response.checklist, checklistKeys)
+    || typeof response.comments !== "string" || response.comments.length > 4000
+    || !Array.isArray(response.rows) || response.rows.length < 1 || response.rows.length > 250) return undefined;
+  for (const key of checklistKeys) {
+    const item = response.checklist[key];
+    if (!rec(item) || !exact(item, ["result", "remarks"]) || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000) return undefined;
+  }
+  const rowIds = new Set<string>();
+  for (const [index, item] of response.rows.entries()) {
+    if (!rec(item) || !exact(item, rowKeys) || typeof item.rowUuid !== "string" || !uuid.test(item.rowUuid) || rowIds.has(item.rowUuid)
+      || item.sortOrder !== index + 1 || item.zoneSnapshot !== null
+      || typeof item.assetReference !== "string" || item.assetReference.length > 200
+      || typeof item.remarks !== "string" || item.remarks.length > 2000 || !rec(item.fieldRemarks)
+      || Object.keys(item.fieldRemarks).some((key) => !rowResultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
+    if (item.source === "configured") {
+      if (typeof item.configuredLocationId !== "string" || !uuid.test(item.configuredLocationId) || !Number.isSafeInteger(item.configuredRowOrdinal) || Number(item.configuredRowOrdinal) < 1
+        || !rec(item.locationSnapshot) || item.locationSnapshot.id !== item.configuredLocationId) return undefined;
+    } else if (item.source !== "technician" || item.configuredLocationId !== null || item.configuredRowOrdinal !== null || item.locationSnapshot !== null) return undefined;
+    rowIds.add(item.rowUuid);
+  }
+  const adapter = resolveV7EvidenceContract({ systemKey: "smoke_ventilation", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+  if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
+  return { snapshot, adapter };
+}
