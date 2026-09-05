@@ -171,13 +171,20 @@ function upgradeV7DryWetRiser(system: SystemDefinition): SystemDefinition {
  * below via `confirmationNotes` per the project's standing rule against
  * inventing unconfirmed fields.
  *
- * The Fan Schedule's "No." rows (1-10) are fixed asset identities, not
- * customer-varying physical locations, but this template reuses the same
- * `repeatable_table` + `customer_system_locations` machinery Hydrant/Hose
- * Reel/Riser already use (`supportsLocations: true`, no zone dimension -
- * `customer_system_locations.zone_id` is already nullable) rather than
- * inventing a new "fixed row count, no location" mechanism. Every customer
- * enabling Smoke Ventilation is configured with the same 10 preset rows.
+ * The Fan Schedule's "No." rows (1-10 on the paper page) are fixed asset
+ * identities, not customer-varying physical locations, but this template
+ * reuses the same `repeatable_table` + `customer_system_locations` machinery
+ * Hydrant/Hose Reel/Riser already use (`supportsLocations: true`, no zone
+ * dimension - `customer_system_locations.zone_id` is already nullable) rather
+ * than inventing a new "fixed row count, no location" mechanism.
+ *
+ * Row supply behaves exactly like Hydrant/Hose Reel/Riser and is NOT enforced
+ * by this template: configured preset rows are carried onto the form and must
+ * be retained when a customer has them, and a technician may add further rows;
+ * a customer configured with no locations simply starts with an empty table
+ * that the technician fills. Pre-seeding every customer with the paper page's
+ * ten rows is a Manager-configuration concern (STEP 3.1 / Phase 8H), not a
+ * guarantee this definition makes - do not read `1-10` here as an invariant.
  */
 const smokeVentilation: SystemDefinition = {
   key: "smoke_ventilation",

@@ -3,7 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-05 — **STEP 2.2 Smoke Ventilation complete (uncommitted), Slices 1–3.**
+**Last updated:** 2026-09-06 — **STEP 2.2 Sol remediation done (uncommitted, on top of `ade85f6`).**
+Sol returned SAFE TO COMMIT: N with 2 P1s. One confirmed and fixed (manifest ordering broke
+idempotent retry — but it is an INHERITED bug present in all six V7 acceptance handlers, not new;
+the other five are still wrong and need a separate cross-cutting task). One reclassified: the
+configured-Fan-Schedule-row concern was real as a *test and documentation* hole, not a missing
+guard — adding Sol's proposed guard would make Smoke Ventilation unassignable until Phase 8H.
+Both now closed with new coverage on the server and client. See §7.
+Previously: **STEP 2.2 Smoke Ventilation complete (committed `ade85f6`), Slices 1–3.**
 The first system with **zero V1–V6 lineage**: composed fresh into `masterServiceReportV7.ts`
 (sortOrder 10, four-state natively) rather than upgraded from V6, which needed a small new
 "no legacy contract" registration in both `systemContractCompatibility.ts` files. Full V7
@@ -431,6 +438,45 @@ template: Fire Intercom, Roller Shutter + the FM200 stub (blocked).
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-06 — **STEP 2.2 Sol re-review remediation (uncommitted, on top of `ade85f6`).** Sol
+  returned `SAFE TO COMMIT: N` with 2 P1s. Both investigated; one confirmed, one reclassified.
+  **(1) Manifest ordering vs idempotent retry — CONFIRMED, fixed.** `parseV7EvidenceManifest`
+  returns the manifest fieldPath-sorted and acceptance stores that sorted copy, but the
+  accepted-authority pre-check compared it positionally against the raw retry payload, so a
+  valid *unsorted* retry returned `IDEMPOTENCY_CONFLICT` instead of duplicate success — after Job
+  closure that is unrecoverable for the technician. Fixed in `smokeVentilationV7Acceptance.ts`
+  with an order-independent `sameManifest()` comparison, plus a regression case proven to fail
+  against the old comparison before being restored. **Sol classified this as a NEW defect; it is
+  not** — the identical raw-vs-sorted comparison exists in all six V7 acceptance handlers
+  (`fireAlarmV7Acceptance.ts:102`, `hydrantV7Acceptance.ts:131`, hose reel, sprinkler, riser),
+  and `hydrantV7.integration.test.ts` even documents the workaround in a comment ("Submit what
+  the client submits") rather than fixing it. Smoke Ventilation mirrored the proven path, as the
+  skill instructs. **The other five are still wrong and are NOT fixed here** (no scope widening) —
+  this needs a separate cross-cutting task; it is a latent P1 for every V7 system.
+  **(2) Configured Fan Schedule rows — RECLASSIFIED.** Sol was right that there was a real hole,
+  but not the one reported. Sol proposed adding smoke_ventilation to
+  `initialStructureRequiredSystemKeys`; that would be wrong — there is no Manager UI to configure
+  locations until STEP 3.1 / Phase 8H, so the guard would make Smoke Ventilation **unassignable**,
+  and Hydrant / Hose Reel / Riser are all deliberately ungated for exactly that reason (only CO2 /
+  Wet Chemical gate, because for them the location *is* the instance key). The actual defects were
+  (a) a doc comment in `masterServiceReportV7.ts` claiming "every customer … is configured with
+  the same 10 preset rows", which nothing enforced — corrected to state the real Hydrant-style
+  behaviour and that pre-seeding ten rows is a Phase 8H Manager concern, not a template
+  guarantee; and (b) **zero test coverage of the configured-row path** — every case used
+  `locations: []`. Now covered on both sides: a new DB case seeds real configured locations and
+  proves retained rows accept while a dropped row, a re-labelled `locationSnapshot.displayName`,
+  a rewritten `assetReference` and a forged configured provenance are each rejected; and three new
+  client-gate cases prove the web refuses the same. All five server sub-assertions passed on first
+  run, so the authentication logic itself was already correct — it was simply unproven.
+  **P2s:** the `systemContractCompatibility.test.ts` filter no longer derives its exclusion from
+  the production mapping it tests (an explicit `v7OnlySystemKeys` set plus a positive assertion
+  that every other system's contract version really is ≤ 5). `originalCreatorSnapshot` being
+  neither shape-validated nor fingerprinted is inherited from every other V7 handler and is left
+  alone. The missing `locationText` column is deliberate — the paper Fan Schedule has no Location
+  column — and Sol confirmed it does not weaken configured-row authentication. Sol also corrected
+  a claim of mine: `finalServiceReport.ts` has **five** smoke_ventilation registrations, not four
+  (lines 42, 147, 204, 350, 495); all five are present.
 
 - 2026-09-05 — **STEP 2.1 FM200 investigated and STOPPED at its client-input gate; no code
   written.** The roadmap's "client says 'same structure as CO2 for now'" instruction could not be

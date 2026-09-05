@@ -93,6 +93,37 @@ test("an empty Fan Schedule is refused by the structural gate", () => {
   assert.ok(submitIssues(record, responses({ rows: [] }), []).some((issue) => /At least one Fan Schedule row is required/.test(issue)));
 });
 
+// A customer that HAS been given structure: the client gate must enforce the
+// same "configured rows are retained" invariant the server does, or the form
+// queues a submission the server rejects non-retryably.
+const configuredLocationId = "00000000-0000-4000-8000-0000000000aa";
+const configuredRecord = {
+  masterTemplate: { version: 7 },
+  inspectionSnapshot: { system: { definition, locations: [{ id: configuredLocationId, presetRowCount: 2, displayName: "Roof Plant Room", rowPreset: { assetReference: "1" } }] } }
+} as unknown as SmokeVentilationInspectionRecord;
+const configuredRow = (ordinal: number, sortOrder: number) => ({
+  rowUuid: `00000000-0000-4000-8000-000000000b0${ordinal}`, source: "configured" as const,
+  configuredLocationId, configuredRowOrdinal: ordinal, zoneSnapshot: null,
+  locationSnapshot: { id: configuredLocationId, displayName: "Roof Plant Room" },
+  assetReference: "1", autoResult: "good" as const, manualResult: "good" as const,
+  remarks: "", fieldRemarks: {}, sortOrder
+});
+
+test("a configured customer's Fan Schedule rows submit when all are retained", () => {
+  assert.deepEqual(submitIssues(configuredRecord, responses({ rows: [configuredRow(1, 1), configuredRow(2, 2)] }), []), []);
+});
+
+test("dropping one of a configured customer's Fan Schedule rows is refused by the client gate", () => {
+  const issues = submitIssues(configuredRecord, responses({ rows: [configuredRow(1, 1)] }), []);
+  assert.ok(issues.some((issue) => /Configured Fan Schedule rows must be retained/.test(issue)), JSON.stringify(issues));
+});
+
+test("a technician row forging configured provenance is refused by the client gate", () => {
+  const forged = { ...configuredRow(1, 2), rowUuid: "00000000-0000-4000-8000-000000000c01", configuredRowOrdinal: 9 };
+  const issues = submitIssues(configuredRecord, responses({ rows: [configuredRow(1, 1), forged] }), []);
+  assert.ok(issues.some((issue) => /Configured Fan Schedule row identity is invalid/.test(issue)), JSON.stringify(issues));
+});
+
 // This is the 0.4b guard: a client gate that drifts from the server adapter
 // queues work the server rejects non-retryably, which offline is unrecoverable
 // field data loss.

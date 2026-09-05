@@ -12,11 +12,15 @@ import { implementedSystemKeys, isCompatibleSystemContract, systemContractVersio
 
 const clone = <T>(value: T): T => structuredClone(value);
 
+/** Systems with no pre-V7 lineage at all, named explicitly rather than derived
+ * from `systemContractVersion`.  Filtering by that production mapping would let
+ * an accidental edit (e.g. flipping a legacy system's version to 7) silently
+ * drop that system out of the invariant below instead of failing it. */
+const v7OnlySystemKeys = new Set<string>(["smoke_ventilation"]);
+
 test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", () => {
-  // Smoke Ventilation (STEP 2.2) has no legacy contract at all - it is V7-only
-  // from the start (systemContractVersion resolves it to 7, never <= 5) - so
-  // it is deliberately excluded from this pre-V7 lineage check.
-  for (const key of implementedSystemKeys.filter((candidate) => systemContractVersion(candidate) <= 5)) {
+  for (const key of implementedSystemKeys.filter((candidate) => !v7OnlySystemKeys.has(candidate))) {
+    assert.ok(systemContractVersion(key) <= 5, `${key} is not V7-only, so its contract version must be a pre-V7 one`);
     const system = masterServiceReportV5.systems.find((candidate) => candidate.key === key);
     assert.ok(system, `${key} must exist in V5`);
     assert.equal(isCompatibleSystemContract(key, system.definitionStatus, system), true, `${key} must be V5-compatible`);

@@ -100,11 +100,23 @@ async function seedSmokeVentilationV7(database: pg.Pool, label: string) {
   const snapshot = { schemaVersion: 1, customer: { id: customer, code: `SV-${customer}`, displayName: `Smoke Ventilation V7 ${label}` }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
   const contract = v7EvidenceContractSha256(template.definition);
 
-  const makeJob = async (options: { status?: "open" | "closed"; technicianVisible?: boolean } = {}) => {
+  /** `locations` freezes configured Fan Schedule rows into the Job snapshot, the
+   * way `serviceVisits.ts` does for a customer that has been given structure.
+   * Every other case deliberately leaves it empty (a customer with no configured
+   * locations, which is legal and mirrors Hydrant/Hose Reel/Riser). */
+  const makeJob = async (options: { status?: "open" | "closed"; technicianVisible?: boolean; locations?: Value[] } = {}) => {
     const job = id(); const closed = options.status === "closed";
-    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date,completed_at,completed_by_user_id,completed_by_display_name) VALUES($1,$2,$3,$4,$5,false,$6,$7,$8,$9,'2026-09-05',$10,$11,$12)", [job, template.id, `SV-${job}`, `Smoke Ventilation V7 ${label}`, options.status ?? "open", options.technicianVisible ?? true, customer, revision, snapshot, closed ? at : null, closed ? actor : null, closed ? "Smoke Ventilation V7 closer" : null]);
+    const jobSnapshot = options.locations
+      ? { ...snapshot, enabledSystems: [{ ...system, locations: options.locations }] }
+      : snapshot;
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date,completed_at,completed_by_user_id,completed_by_display_name) VALUES($1,$2,$3,$4,$5,false,$6,$7,$8,$9,'2026-09-05',$10,$11,$12)", [job, template.id, `SV-${job}`, `Smoke Ventilation V7 ${label}`, options.status ?? "open", options.technicianVisible ?? true, customer, revision, jobSnapshot, closed ? at : null, closed ? actor : null, closed ? "Smoke Ventilation V7 closer" : null]);
     return job;
   };
+  const configuredLocation = (values: { displayName: string; presetRowCount: number; assetReference: string; sortOrder: number }) => ({
+    id: id(), enabledSystemId: enabled, zoneId: null, key: `fan-bank-${values.sortOrder}`,
+    displayName: values.displayName, presetRowCount: values.presetRowCount,
+    rowPreset: { assetReference: values.assetReference }, sortOrder: values.sortOrder
+  });
   const reserve = async (clientUuid: string, job: string, reservedBy = actor) => {
     await database.query("INSERT INTO inspection_evidence_reservations(inspection_client_uuid,job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256,reserved_by_user_id) VALUES($1,$2,'smoke_ventilation',$3,7,$4,$5)", [clientUuid, job, template.id, contract, reservedBy]);
   };
@@ -121,8 +133,103 @@ async function seedSmokeVentilationV7(database: pg.Pool, label: string) {
   });
   const statuses = async (clientUuid: string) => (await database.query<{ status: string }>("SELECT status FROM staged_inspection_evidence WHERE inspection_client_uuid=$1 ORDER BY field_path", [clientUuid])).rows.map((value) => value.status);
 
-  return { template, actor, foreign, contract, makeJob, reserve, stage, envelope, statuses };
+  return { template, actor, foreign, contract, makeJob, configuredLocation, reserve, stage, envelope, statuses };
 }
+
+/** A configured row as the web's `configuredRows()` emits it. */
+const configuredRow = (location: Value, ordinal: number, sortOrder: number, change: Value = {}): Value => ({
+  rowUuid: id(), source: "configured", configuredLocationId: location.id, configuredRowOrdinal: ordinal,
+  zoneSnapshot: null, locationSnapshot: { id: location.id, displayName: location.displayName },
+  assetReference: (location.rowPreset as Value).assetReference, autoResult: "good", manualResult: "good",
+  remarks: "", fieldRemarks: {}, sortOrder, ...change
+});
+
+// Case 9 (Sol P1) — every other case runs with `locations: []`, which never
+// exercises the configured-row path at all.  A customer that HAS been given
+// structure must have its configured rows authenticated against the frozen
+// snapshot: retained exactly, not dropped, and not re-labelled by the client.
+test("Smoke Ventilation V7 authenticates configured Fan Schedule rows against the frozen snapshot", { skip: !databaseUrl }, async () => {
+  await withV7Database(async (database) => {
+    const fixture = await seedSmokeVentilationV7(database, "configured-rows");
+    const bankA = fixture.configuredLocation({ displayName: "Roof Plant Room", presetRowCount: 2, assetReference: "1", sortOrder: 1 });
+    const bankB = fixture.configuredLocation({ displayName: "Basement Plant Room", presetRowCount: 1, assetReference: "2", sortOrder: 2 });
+    const job = await fixture.makeJob({ locations: [bankA, bankB] });
+
+    // Happy path: all three configured rows retained in frozen order, plus one technician row.
+    const retained = () => [configuredRow(bankA, 1, 1), configuredRow(bankA, 2, 2), configuredRow(bankB, 1, 3)];
+    const clean = id();
+    const accepted = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid: clean, job, responses: smokeResponses([...retained(), smokeRow(id(), 4)]), evidenceManifest: [] })], fixture.actor);
+    assert.deepEqual(accepted.acceptedIds, [clean], JSON.stringify(accepted));
+
+    // Dropping a configured row is refused (C3 invariant 1: configured rows are retained).
+    const dropped = id();
+    const short = retained().slice(0, 2);
+    const droppedOutcome = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid: dropped, job, responses: smokeResponses(short), evidenceManifest: [] })], fixture.actor);
+    assert.equal(droppedOutcome.failed[0]?.code, "VALIDATION_ERROR", JSON.stringify(droppedOutcome));
+
+    // A client that re-labels the authoritative location name is refused.
+    const renamed = id();
+    const tampered = retained();
+    (tampered[0]!.locationSnapshot as Value).displayName = "Somewhere Else";
+    const renamedOutcome = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid: renamed, job, responses: smokeResponses(tampered), evidenceManifest: [] })], fixture.actor);
+    assert.equal(renamedOutcome.failed[0]?.code, "VALIDATION_ERROR", JSON.stringify(renamedOutcome));
+
+    // A client that rewrites the frozen asset reference is refused.
+    const reAssetted = id();
+    const swapped = retained();
+    swapped[2]!.assetReference = "99";
+    const assetOutcome = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid: reAssetted, job, responses: smokeResponses(swapped), evidenceManifest: [] })], fixture.actor);
+    assert.equal(assetOutcome.failed[0]?.code, "VALIDATION_ERROR", JSON.stringify(assetOutcome));
+
+    // A technician row claiming configured provenance is refused.
+    const forged = id();
+    const fake = [...retained(), smokeRow(id(), 4, { source: "configured", configuredLocationId: bankA.id, configuredRowOrdinal: 9 })];
+    const forgedOutcome = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid: forged, job, responses: smokeResponses(fake), evidenceManifest: [] })], fixture.actor);
+    assert.equal(forgedOutcome.failed[0]?.code, "VALIDATION_ERROR", JSON.stringify(forgedOutcome));
+
+    assert.equal((await database.query("SELECT 1 FROM master_system_form_instances instance INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id WHERE inspection.job_id=$1", [job])).rowCount ?? 0, 1, "only the clean submission was accepted");
+  });
+});
+
+// Case 10 (Sol P1) — the accepted snapshot stores the PARSED (fieldPath-sorted)
+// manifest while a retry carries whatever order the client sent, and the API
+// accepts any order.  An unsorted-but-identical retry must still be duplicate
+// success, not IDEMPOTENCY_CONFLICT — after Job closure that would be
+// unrecoverable for the technician.
+test("Smoke Ventilation V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  await withV7Database(async (database) => {
+    const fixture = await seedSmokeVentilationV7(database, "unsorted-retry");
+    const job = await fixture.makeJob(), clientUuid = id(), rowUuid = id();
+    await fixture.reserve(clientUuid, job);
+    const checklist = await fixture.stage({ clientUuid, job, fieldPath: checklistPath("secondary_essential_supply_dc") });
+    const row = await fixture.stage({ clientUuid, job, fieldPath: rowPath(rowUuid, "auto") });
+    // Deliberately submit in reverse fieldPath order: "smoke_ventilation_checks…"
+    // sorts after "fan_schedule…", so this is the order the client must not be
+    // punished for.
+    const unsorted = [checklist, row];
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const responses = smokeResponses(
+      [smokeRow(rowUuid, 1, { autoResult: "not_good", fieldRemarks: { autoResult: "Fan 1 does not start in Auto" } })],
+      { secondary_essential_supply_dc: { result: "not_good", remarks: "DC supply reading is low" } }
+    );
+    const item = fixture.envelope({ clientUuid, job, responses, evidenceManifest: unsorted });
+    const first = await syncSmokeVentilationInspections([item], fixture.actor);
+    assert.deepEqual(first.acceptedIds, [clientUuid], JSON.stringify(first));
+
+    const retry = await syncSmokeVentilationInspections([item], fixture.actor);
+    assert.deepEqual(retry.duplicateIds, [clientUuid], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    // Same again once the Job is closed — the case a technician actually hits.
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, fixture.actor]);
+    const afterClose = await syncSmokeVentilationInspections([item], fixture.actor);
+    assert.deepEqual(afterClose.duplicateIds, [clientUuid], JSON.stringify(afterClose));
+
+    // A genuinely different manifest is still a conflict, not a false duplicate.
+    const changed = fixture.envelope({ clientUuid, job, responses, evidenceManifest: [checklist] });
+    assert.equal((await syncSmokeVentilationInspections([changed], fixture.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
 
 // Case 1 — a photo staged for a finding the technician then reverted is stale.
 // It must never reach `accepted`: not while it is still named by the manifest,
