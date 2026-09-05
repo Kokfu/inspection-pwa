@@ -3,13 +3,17 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **STEP 2.2 Sol remediation done (uncommitted, on top of `ade85f6`).**
-Sol returned SAFE TO COMMIT: N with 2 P1s. One confirmed and fixed (manifest ordering broke
-idempotent retry — but it is an INHERITED bug present in all six V7 acceptance handlers, not new;
-the other five are still wrong and need a separate cross-cutting task). One reclassified: the
-configured-Fan-Schedule-row concern was real as a *test and documentation* hole, not a missing
-guard — adding Sol's proposed guard would make Smoke Ventilation unassignable until Phase 8H.
-Both now closed with new coverage on the server and client. See §7.
+**Last updated:** 2026-09-06 — **STEP 2.2 Sol remediation committed and re-reviewed: SAFE TO
+COMMIT: Y, 0 P0 / 0 P1.** Sol's first pass returned N with 2 P1s; both are now closed. (1) Manifest
+ordering broke idempotent retry — fixed, and Sol's re-review confirmed Terra's dispute: the bug is
+**INHERITED**, present in all six V7 acceptance handlers. **The other five are still wrong** and
+are the top outstanding P1 (see §4 G10). (2) The configured-Fan-Schedule-row concern was a *test
+and documentation* hole, not a missing guard — no guard added, correctly. **Note: Terra's stated
+reason for refusing that guard was factually wrong** (it conflated
+`initialStructureRequiredSystemKeys`, which only filters the technician initial-format picker and
+already contains Dry/Wet Riser, with `locationDependentSystemKeys`, which governs Manager
+assignment). The conclusion held; the reasoning did not. Corrected in §7 — do not trust the
+remediation commit message on that point.
 Previously: **STEP 2.2 Smoke Ventilation complete (committed `ade85f6`), Slices 1–3.**
 The first system with **zero V1–V6 lineage**: composed fresh into `masterServiceReportV7.ts`
 (sortOrder 10, four-state natively) rather than upgraded from V6, which needed a small new
@@ -172,6 +176,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 | ~~G6~~ | **PARTLY CLOSED 2026-09-04.** `d7ecc0d` deployed; 4-state options render in all 3 forms. Bug found + fixed (`3065539`): CO2/Wet Chemical `V7EvidenceField` was gated on `result === "poor"` (unreachable) so no photo could be attached on a finding — now `not_good \|\| complete_repair`. Deployed `sha256-188fbb1857f422d5`. |
 | ~~G7~~ | **ROOT-CAUSED + FIXED 2026-09-04, awaiting browser re-verification.** Not a 4-state defect at all: the technician **attached the same photo to two findings**. Reproduced in-browser on `SV-20260904-38` (instance `10433777`), outbox `lastError` captured = `"This V7 inspection is unavailable"` (`JOB_ACCESS_DENIED`). Both staged rows carried identical `source_sha256` **and** `stored_sha256`, so `parseV7EvidenceManifest` refused the manifest, and `fireAlarmV7Acceptance.ts` folded `!manifest` into the collapsed job-access guard — reporting a payload problem as a Job problem. Confirmed the same duplicate pair in the owner's original `8b4cc663` rows. Fixes: (a) capture-time guard in `saveFireAlarmV7Photo` / `saveV7SuppressionPhoto` refuses a photo already attached to another field, naming it; (b) submit gate `duplicateV7PhotoIssues` in both `fireAlarmV7Evidence.ts` and `co2/v7Evidence.ts` — the offline-safety layer, same precedent as 0.4b; (c) server splits the manifest failure out of the collapsed guard (after it, so no job-existence leak) and names the reused image; CO2/WC get the same treatment plus a separate `EVIDENCE_NOT_STAGED` for two sources that normalize to the same stored bytes. Coverage: new `fireAlarmV7.integration.test.ts` case (first ever to submit `complete_repair`, a secondary alarm-device row finding with row-scoped evidence, and a reused photo); 3 new web submit-gate tests, the duplicate one **proven to fail against the pre-fix code**. | — | — |
 | G9 | **Duplicate photo across two *instances* of one system in the same Job** (CO2/Wet Chemical multi-location) is still only caught at acceptance, by the `acceptedHashes` pre-check (backed by the `staged_inspection_evidence_v7_accepted_*_per_job_system` indexes) → `EVIDENCE_CONFLICT`. The message is truthful, but the outbox re-attempts `Failed` items on every sync (`syncEngine.ts:193`), so it can never succeed. The G7 client guards are scoped to one `inspectionClientUuid`; attachments carry no `jobId`, so widening needs a join through `masterSystemFormInstances`. | A technician reusing one photo across two CO2 locations retries forever. | `apps/web/src/co2/v7Evidence.ts`, `apps/api/src/sync/co2FormInstanceSync.ts` |
+| **G10** | **Unsorted evidence manifest breaks exact idempotent retry in FIVE V7 acceptance handlers.** `parseV7EvidenceManifest` returns the manifest fieldPath-sorted and acceptance stores that sorted copy, but the accepted-authority pre-check compares it **positionally** against the raw retry payload, which the API accepts in any order. A valid but unsorted retry therefore returns `IDEMPOTENCY_CONFLICT` instead of duplicate success. Found by Sol on Smoke Ventilation and **fixed there only** (`sameManifest()` in `smokeVentilationV7Acceptance.ts`, with a regression case proven to fail against the old comparison). The other five were deliberately left alone (no scope widening) and are still wrong. Today's web clients happen to emit sorted manifests, so it is latent — but nothing in the API enforces that, and `hydrantV7.integration.test.ts:33` documents the sorting workaround instead of fixing it. | A technician whose client submits an unsorted-but-identical manifest is stuck on "Sync needs attention" forever; after the Job closes there is no recovery path. | `fireAlarmV7Acceptance.ts:102`, `hydrantV7Acceptance.ts:131`, `hoseReelV7Acceptance.ts:101`, `automaticSprinklerV7Acceptance.ts:91`, `dryWetRiserV7Acceptance.ts:155` |
 | G8 | Fire Alarm form auto-persists a Draft on Add/Remove row (pre-existing — technician-row helpers write immediately). Not a C1-REWORK regression. Low priority. | Minor UX surprise. | `apps/web/src/fireAlarm/fireAlarmRepository.ts` |
 | — | ~13 orphaned `staged` Fire Alarm evidence rows in runtime back to Aug 30 — abandoned drafts/test runs, **not a bug** (evidence stages before acceptance). Ignore or clean at leisure. Two more were added by the G7 repro (`10433777…`). | none | — |
 
@@ -454,21 +459,31 @@ All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable
   the client submits") rather than fixing it. Smoke Ventilation mirrored the proven path, as the
   skill instructs. **The other five are still wrong and are NOT fixed here** (no scope widening) —
   this needs a separate cross-cutting task; it is a latent P1 for every V7 system.
-  **(2) Configured Fan Schedule rows — RECLASSIFIED.** Sol was right that there was a real hole,
-  but not the one reported. Sol proposed adding smoke_ventilation to
-  `initialStructureRequiredSystemKeys`; that would be wrong — there is no Manager UI to configure
-  locations until STEP 3.1 / Phase 8H, so the guard would make Smoke Ventilation **unassignable**,
-  and Hydrant / Hose Reel / Riser are all deliberately ungated for exactly that reason (only CO2 /
-  Wet Chemical gate, because for them the location *is* the instance key). The actual defects were
-  (a) a doc comment in `masterServiceReportV7.ts` claiming "every customer … is configured with
-  the same 10 preset rows", which nothing enforced — corrected to state the real Hydrant-style
-  behaviour and that pre-seeding ten rows is a Phase 8H Manager concern, not a template
-  guarantee; and (b) **zero test coverage of the configured-row path** — every case used
-  `locations: []`. Now covered on both sides: a new DB case seeds real configured locations and
-  proves retained rows accept while a dropped row, a re-labelled `locationSnapshot.displayName`,
-  a rewritten `assetReference` and a forged configured provenance are each rejected; and three new
-  client-gate cases prove the web refuses the same. All five server sub-assertions passed on first
-  run, so the authentication logic itself was already correct — it was simply unproven.
+  **(2) Configured Fan Schedule rows — RECLASSIFIED, but Terra's stated reasoning was WRONG and
+  is corrected here (Sol re-review, 2026-09-06).** The outcome stands — no guard is added, because
+  a customer with zero configured locations is intentionally supported — but the argument Terra
+  gave for it in the remediation commit message is factually wrong and must not be trusted by a
+  future reader. Terra claimed adding smoke_ventilation to `initialStructureRequiredSystemKeys`
+  would make the system "unassignable" and that "Hydrant / Hose Reel / Riser are all deliberately
+  ungated". Both are false. The truth: `initialStructureRequiredSystemKeys`
+  (`managerCustomers.ts:16`) is `{co2_fire_extinguisher, wet_chemical, dry_wet_riser}` — **Dry/Wet
+  Riser IS in it** — and its ONLY use is `managerCustomers.ts:286`, filtering the
+  `/customers/service-format-options` list used by technician-led quick customer creation. Manager
+  assignability is a different set, `locationDependentSystemKeys` (`managerCustomers.ts:12`),
+  which holds only CO2 / Wet Chemical (for those the location *is* the instance key). So the guard
+  would only have removed Smoke Ventilation from the technician initial-format picker; Manager
+  configuration revisions (`managerCustomers.ts:360`) could still assign it either way. Terra
+  conflated the two sets. The real defects Sol surfaced were (a) a doc comment in
+  `masterServiceReportV7.ts` claiming "every customer … is configured with the same 10 preset
+  rows", which nothing enforced — corrected to state the real behaviour and that pre-seeding ten
+  rows is a Phase 8H Manager concern, not a template guarantee; and (b) **zero test coverage of
+  the configured-row path** — every case used `locations: []`. Now covered on both sides: a new DB
+  case seeds real configured locations and proves retained rows accept while a dropped row, a
+  re-labelled `locationSnapshot.displayName`, a rewritten `assetReference` and a forged configured
+  provenance are each rejected (four rejection assertions plus a persistence assertion proving
+  only the clean submission was stored); three new client-gate cases prove the web refuses the
+  same. Every one passed on first run, so the authentication logic itself was already correct — it
+  was simply unproven.
   **P2s:** the `systemContractCompatibility.test.ts` filter no longer derives its exclusion from
   the production mapping it tests (an explicit `v7OnlySystemKeys` set plus a positive assertion
   that every other system's contract version really is ≤ 5). `originalCreatorSnapshot` being
