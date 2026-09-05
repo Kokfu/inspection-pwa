@@ -85,7 +85,7 @@ export const systemContractVariants: readonly SystemContractVariant[] = [
     systemKey: "fire_alarm_detector",
     contract: canonicalize(runtimeContract(masterServiceReportV6.systems.find((system) => system.key === "fire_alarm_detector")!))
   },
-  ...(["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "hydrant", "hose_reel", "automatic_sprinkler"] as const).map((systemKey) => ({
+  ...(["co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "hydrant", "hose_reel", "automatic_sprinkler", "dry_wet_riser"] as const).map((systemKey) => ({
     masterTemplateId: masterServiceReportV7.id,
     masterTemplateVersion: 7,
     systemKey,

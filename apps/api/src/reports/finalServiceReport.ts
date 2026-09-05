@@ -144,7 +144,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
-  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel") && isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
     || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)

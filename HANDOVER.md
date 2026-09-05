@@ -3,7 +3,7 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-04 — G7 root-caused + fixed (uncommitted), G9 raised
+**Last updated:** 2026-09-04 — Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP 1.3 Slice 3 complete (uncommitted)
 **Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `b64d53b`
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
@@ -16,6 +16,26 @@ browser-proven through the full offline→sync→Accepted→PDF workflow. Result
 **4-state** (Hokuden legend: `good` / `not_good` / `complete_repair` / `na`); validators are
 per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
 Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
+
+**Hydrant STEP 1.1:** Slices 1–3 are complete but uncommitted. Its seven deployed row result
+columns—including both Canvas Hose results—now use the four-state V7 definition with row+column
+evidence paths, additive migration 021, field-owned accepted photos, and Final Report/PDF output.
+The isolated browser proof covers IndexedDB reload, offline queueing, reconnect sync, and Accepted Detail.
+
+**Automatic Sprinkler STEP 1.3:** Slices 1–2 (server + web) committed (`ba1fb2a`, `eea9c5d`).
+Slice 3 (read paths + browser proof) is complete but uncommitted. **Owner decision:** V7
+Automatic Sprinkler **drops** the legacy Cut-In/Cut-Out PSI photo lifecycle — V7 carries V7
+finding evidence only; the legacy PSI lifecycle stays exactly as-is for V1–V6. The V7 input
+form no longer shows the legacy `PhotoEvidenceField` (gated on `!isV7`, proven by
+`automaticSprinklerV7PsiControl.test.tsx`). Slice 3 adds `validateAcceptedAutomaticSprinklerV7Detail`
+(separate schema-2 reader), the `automatic_sprinkler` + schema-2 branches in
+`masterSystemInspections.ts` / `finalServiceReport.ts` (`validHistoricalUnit`,
+`validatedV7SuppressionEvidence`, evidence dispatch), a schema-2 branch + V7 accepted-evidence
+fetch in the web `ServerAutomaticSprinklerView` / `serverAutomaticSprinklerApi`, and a full
+offline-round-trip browser proof (`automatic-sprinkler-v7-offline.html/.spec.ts`) that exercises
+Save Draft → reload → offline Submit → reconnect Sync → Accepted → Accepted Detail with the
+accepted photo actually loading. `stagedEvidence.ts` `/v7-evidence/accepted[/…/content]` now
+serve all six V7 systems (owner fix — Hydrant/Hose Reel accepted photos returned empty before).
 
 Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-select ·
 `7635cb3` paper-form transcription + C3 skill · `2e07ab1` C3 row model (T1) ·
@@ -227,13 +247,20 @@ manager picks them (`customer_enabled_systems` rows).
 ### STEP 1 — Upgrade existing base templates to V7 evidence  (est. ~4–5 weeks total)
 Each: add a V7 evidence-contract adapter (mirror `co2Adapter`), wire the web form to the V7
 field, add integration coverage, re-verify, Sol pass.
-- [ ] 1.1 **Hydrant** — hydrant-set table (Canvas hose@2 / Diffuser Nozzle / Landing Valve /
-      Landing V.Handle / Hose Cabinet / Key Lock), per-column Good/Poor/NR + per-Poor photo. (~1–2 d)
-- [ ] 1.2 **Hose Reel** — Water Tank + Pump House + Hose Reel Drum table (Drum/Hose/Nozzle/Valve/
-      Box). **Add "TEST RUN FIRE PUMP 30 MINUTES"** sub-section (Jockey/Duty/Standby). (~2–3 d)
-- [ ] 1.3 **Automatic Sprinkler** — Water Tank / Pump House / Main Alarm Valve / 30-min pump test.
-      **Must preserve the legacy PSI photo lifecycle** (Cut-In/Cut-Out PSI + its evidence) side by
-      side with new V7 Poor evidence. (~3–4 d)
+- [ ] 1.1 **Hydrant** — Slices 1–3 complete (uncommitted): 7-column row-scoped V7 evidence,
+      web wiring, Accepted Detail/Final Report/PDF, and integration/browser proof.
+- [ ] 1.2 **Hose Reel** — Slices 1–3 complete (uncommitted): V7 combined checklist +
+      repeatable-drum evidence adapter, forward-only migration 022, and atomic single-instance
+      acceptance; V7-only 4-state web wiring, per-finding photos/remarks, evidence-first outbox,
+      and the V7 catalog front-door resolver. Slice 3 adds a separate schema-2 Accepted Detail reader,
+      accepted evidence rendering, Final Report/PDF embedding, adversarial eight-case integration coverage,
+      and browser reload/sync/detail proof. The paper form supports only Duty / Standby in the new 30-minute test block;
+      it explicitly omits Jockey, so no Jockey row was invented.
+- [ ] 1.3 **Automatic Sprinkler** — Slices 1–3 complete (Slice 3 uncommitted): Water Tank /
+      Pump House / Main Alarm Valve / 30-min pump test on the V7 four-state model, separate
+      schema-2 Accepted Detail reader, Final Report/PDF embedding, and a full offline-round-trip
+      browser proof. **Owner decision:** V7 DROPS the legacy Cut-In/Cut-Out PSI photo lifecycle
+      (V7 carries V7 finding evidence only); the legacy PSI lifecycle is untouched for V1–V6.
 - [ ] 1.4 **Dry / Wet Riser** — Dry/Wet toggle, Riser Outlet table. **Resolve the
       measurement-definition vs deployed-response discrepancy** inside its own V7 contract. (~3–4 d)
 - [ ] 1.5 **Portable Fire Extinguisher** — summary counts + expiry; decide how little V7 it needs
@@ -287,7 +314,7 @@ then the repo is self-describing.
 | Wet Chemical | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
 | Hydrant | ✅ confirmed | ❌ | STEP 1.1 — first C3 consumer |
 | Hose Reel | ✅ confirmed | ❌ | STEP 1.2 (+ 30-min pump test) |
-| Automatic Sprinkler | ✅ confirmed | ❌ | STEP 1.3 (preserve PSI photo lifecycle) |
+| Automatic Sprinkler | ✅ confirmed | ⚠️ slices 1–3 done, Slice 3 uncommitted | STEP 1.3 — V7 drops legacy PSI lifecycle (owner decision); commit + Sol pass |
 | Dry / Wet Riser | ✅ confirmed | ❌ | STEP 1.4 (resolve measurement/response); also see G4 |
 | Portable Fire Extinguisher | ✅ confirmed | ❌ | STEP 1.5 |
 | FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — clone CO2 V7 adapter |

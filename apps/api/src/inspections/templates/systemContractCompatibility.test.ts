@@ -3,6 +3,7 @@ import test from "node:test";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
 import { masterServiceReportV1 } from "./masterServiceReportV1.js";
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
+import { masterServiceReportV7 } from "./masterServiceReportV7.js";
 import { resolveAutomaticSprinklerControls } from "./automaticSprinklerDefinitionControls.js";
 import { resolveHoseReelControls } from "./definitionControls.js";
 import { resolveCo2Controls } from "./co2DefinitionControls.js";
@@ -23,6 +24,15 @@ test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", (
   assert.equal(resolveCo2Controls(byKey("co2_fire_extinguisher"), "MFE-FSSR", 5).source.templateVersion, 1);
   assert.equal(resolveCo2Controls(byKey("wet_chemical"), "MFE-FSSR", 5).source.templateVersion, 4);
   assert.equal(resolveFireAlarmControls(byKey("fire_alarm_detector"), "MFE-FSSR", 5).source.templateVersion, 3);
+});
+
+test("V7 Hose Reel controls report templateVersion 7 and resolve the Test Run Fire Pump block", () => {
+  const v7System = masterServiceReportV7.systems.find((candidate) => candidate.key === "hose_reel")!;
+  const v7Controls = resolveHoseReelControls(v7System, "MFE-FSSR", 7);
+  assert.equal(v7Controls.source.templateVersion, 7);
+  assert.deepEqual(v7Controls.checklist.testRunFirePump.map((item) => item.key), ["trfp_duty_pump", "trfp_standby_pump"]);
+  const v5System = masterServiceReportV5.systems.find((candidate) => candidate.key === "hose_reel")!;
+  assert.deepEqual(resolveHoseReelControls(v5System, "MFE-FSSR", 5).checklist.testRunFirePump, []);
 });
 
 test("system contract compatibility fails closed for identity, status, field/control and future changes", () => {

@@ -46,7 +46,7 @@ function allowedResult(control: ResultControlDefinition, value: unknown) {
 }
 
 function validChecklist(value: unknown, controls: ResolvedHoseReelControls) {
-  const definitions = [...controls.checklist.waterTank, ...controls.checklist.pumpHouse];
+  const definitions = [...controls.checklist.waterTank, ...controls.checklist.pumpHouse, ...controls.checklist.testRunFirePump];
   const keys = definitions.map((definition) => definition.key);
   if (!isRecord(value) || !exactKeys(value, keys)) return false;
   return definitions.every((definition) => {
@@ -99,7 +99,7 @@ export function validateHoseReelSubmission(responses: UnknownRecord, controls: R
   const jockeyDefinition = controls.measurements.find((measurement) => measurement.key === "jockey_pump_pressure");
   const standbyDefinition = controls.measurements.find((measurement) => measurement.key === "standby_pump_cut_in");
   if (!jockeyDefinition || !standbyDefinition || !validMeasurement(jockey, jockeyDefinition) || !validMeasurement(standby, standbyDefinition)) return false;
-  const checklistDefinitions = [...controls.checklist.waterTank, ...controls.checklist.pumpHouse];
+  const checklistDefinitions = [...controls.checklist.waterTank, ...controls.checklist.pumpHouse, ...controls.checklist.testRunFirePump];
   const checklist = responses.checklist as UnknownRecord;
   const checklistComplete = checklistDefinitions.every((definition) => {
     const item = checklist[definition.key];

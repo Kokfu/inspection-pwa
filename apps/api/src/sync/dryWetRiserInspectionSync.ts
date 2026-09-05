@@ -4,6 +4,7 @@ import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserC
 import { canonicalDryWetRiserResponses } from "../inspections/dryWetRiserAccepted.js";
 import { isCompatibleSystemContract } from "../inspections/templates/systemContractCompatibility.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { acceptDryWetRiserV7Inspection, isDryWetRiserV7Payload } from "./dryWetRiserV7Acceptance.js";
 
 type R = Record<string, unknown>;
 type Item = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
@@ -40,6 +41,11 @@ async function classifyAfterUniqueViolation(id: string, jobId: string, fingerpri
 export async function syncDryWetRiserInspections(items: Item[], actorUserId?: number): Promise<SyncResult> {
   const result: SyncResult = { acceptedIds: [], duplicateIds: [], failed: [] };
   for (const item of items) {
+    if (isDryWetRiserV7Payload(item)) {
+      const v7 = await acceptDryWetRiserV7Inspection(item, actorUserId);
+      result.acceptedIds.push(...v7.acceptedIds); result.duplicateIds.push(...v7.duplicateIds); result.failed.push(...v7.failed);
+      continue;
+    }
     const id = typeof item.entityId === "string" ? item.entityId : "unknown";
     if (!uuid.test(id) || typeof item.operationId !== "string" || !uuid.test(item.operationId) || item.entityType !== "masterSystemInspection" || item.action !== "create" || !rec(item.payload)) { result.failed.push(failure(id, "VALIDATION_ERROR", "Dry/Wet Riser operation is invalid")); continue; }
     const payload = item.payload;

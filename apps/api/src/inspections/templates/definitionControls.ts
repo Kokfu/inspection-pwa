@@ -53,12 +53,13 @@ export type ResolvedHoseReelControls = {
   schemaVersion: 1;
   source: {
     templateCode: "MFE-FSSR";
-    templateVersion: 1;
+    templateVersion: 1 | 7;
     systemKey: "hose_reel";
   };
   checklist: {
     waterTank: ResolvedChecklistItem[];
     pumpHouse: ResolvedChecklistItem[];
+    testRunFirePump: ResolvedChecklistItem[];
   };
   measurements: ResolvedMeasurementRow[];
   repeatableRows: {
@@ -203,6 +204,7 @@ export function resolveHoseReelControls(
   const waterTank = named(sections, "water_tank", "Water Tank section");
   const pumpHouse = named(sections, "pump_house", "Pump House section");
   const hoseReelDrum = named(sections, "hose_reel_drum", "Hose Reel Drum section");
+  const testRun = templateVersion === 7 ? named(sections, "test_run_fire_pump_30_minutes", "Test Run Fire Pump section") : undefined;
   const waterChecks = named(records(waterTank.blocks, "Water Tank blocks"), "water_tank_checks", "Water Tank checklist");
   const pumpChecks = named(records(pumpHouse.blocks, "Pump House blocks"), "pump_house_checks", "Pump House checklist");
   const measurements = named(records(pumpHouse.blocks, "Pump House blocks"), "pump_pressure_measurements", "Pump House measurements");
@@ -228,10 +230,13 @@ export function resolveHoseReelControls(
 
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "hose_reel" },
+    source: { templateCode: "MFE-FSSR", templateVersion: templateVersion === 7 ? 7 : 1, systemKey: "hose_reel" },
     checklist: {
       waterTank: sorted(records(waterChecks.items, "Water Tank items").map(resolveChecklistItem)),
-      pumpHouse: sorted(records(pumpChecks.items, "Pump House items").map(resolveChecklistItem))
+      pumpHouse: sorted(records(pumpChecks.items, "Pump House items").map(resolveChecklistItem)),
+      testRunFirePump: testRun
+        ? sorted(records(named(records(testRun.blocks, "Test Run blocks"), "test_run_fire_pump_checks", "Test Run checklist").items, "Test Run items").map(resolveChecklistItem))
+        : []
     },
     measurements: sorted(records(measurements.items, "measurement rows").map(resolveMeasurementRow)),
     repeatableRows: {

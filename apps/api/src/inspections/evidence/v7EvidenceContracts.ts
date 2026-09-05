@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -456,8 +456,131 @@ const automaticSprinklerAdapter = (definition: unknown): V7EvidenceContractAdapt
   };
 };
 
+const riserChecklistFields = [
+  ["water_tank", "water_tank_checks", "saj_main_water_supply", "Water Tank - S.A.J Main Water Supply"],
+  ["water_tank", "water_tank_checks", "water_level", "Water Tank - Water Level"],
+  ["water_tank", "water_tank_checks", "automatic_refilling_facilities", "Water Tank - Automatic Refilling Facilities"],
+  ["water_tank", "water_tank_checks", "drain_and_stop_valve_positions", "Water Tank - Drain Valve In Close Position And All Stop Valve In Open Position"],
+  ["pump_house", "pump_house_checks", "pump_house_clean", "Pump House - Keep Clean In Pump House"],
+  ["pump_house", "pump_house_checks", "manual_start_pumps", "Pump House - Manual Start Jockey Pump, Duty Pump & Stand-by Pump"],
+  ["pump_house", "pump_house_checks", "standby_pump_service_items", "Pump House - Stand-By Pump Water, Oil, Fuel, Belt and etc"],
+  ["pump_house", "pump_house_checks", "battery_charging_alternator", "Pump House - Correct Operation Of Battery Charging Alternator"],
+  ["pump_house", "pump_house_checks", "battery_charger_failure_alarm", "Pump House - Battery Charger Failure Alarm"],
+  ["pump_house", "pump_house_checks", "battery_serviceable", "Pump House - Battery In Good Serviceable"],
+  ["pump_house", "pump_house_checks", "pump_phase_failure_alarm", "Pump House - Pump Run / Phase Failure Alarm Signal To Main Alarm Panel"],
+  ["pump_house", "pump_house_checks", "pumps_auto_start", "Pump House - Jockey Duty And Stand-By Pump In Auto Start Position"],
+  ["pump_house", "pump_house_checks", "test_and_gate_valve_positions", "Pump House - Test Valve In Close Position And All Gate Valve In Open Position"]
+] as const;
+const riserMeasurementFields = [
+  ["jockey_psi", "Pump House - Jockey Pump"],
+  ["duty_psi", "Pump House - Duty Pump"],
+  ["standby_psi", "Pump House - Stand-by Pump"]
+] as const;
+const riserRowFields = [
+  ["canvasHoseAt2Result", "Canvas hose@2"],
+  ["diffuserNozzleResult", "Diffuser Nozzle"],
+  ["landingValveResult", "Landing Valve"],
+  ["crandleResult", "Crandle"],
+  ["doorResult", "Door"]
+] as const;
+const riserChecklistPrefix = "dry_wet_riser_checks.";
+const riserMeasurementPrefix = "dry_wet_riser_measurements.";
+const riserRowPath = /^riser_outlet\.riser_outlet_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(canvasHoseAt2Result|diffuserNozzleResult|landingValveResult|crandleResult|doorResult)$/;
+
+/** Dry / Wet Riser is single-instance with a repeatable Riser Outlet table,
+ * the same shape as Hose Reel: flat checklist findings, flat measurement
+ * findings, and row-scoped findings all in one contract. Row response keys
+ * (e.g. `canvasHoseAt2Result`) already match the definition's column keys
+ * exactly, so no column-to-response renaming table is needed here. */
+const dryWetRiserAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const checklistValues = new Map<string, Set<string>>();
+  const captions = new Map<string, string>();
+  for (const [section, block, key, caption] of riserChecklistFields) {
+    const values = allowedValues(definition, section, block, key);
+    if (!values) return undefined;
+    checklistValues.set(key, values);
+    captions.set(`${riserChecklistPrefix}${key}`, caption);
+  }
+  const measurementValues = new Map<string, Set<string>>();
+  for (const [key, caption] of riserMeasurementFields) {
+    if (!isRecord(definition) || !Array.isArray(definition.sections)) return undefined;
+    const section = definition.sections.find((value) => isRecord(value) && value.key === "pump_house");
+    const blocks = isRecord(section) && Array.isArray(section.blocks) ? section.blocks : [];
+    const block = blocks.find((value) => isRecord(value) && value.type === "measurement" && Array.isArray(value.items) && value.items.some((item) => isRecord(item) && item.key === key));
+    const item = isRecord(block) && Array.isArray(block.items) ? block.items.find((value) => isRecord(value) && value.key === key) : undefined;
+    const result = isRecord(item) ? item.result : undefined;
+    if (!isRecord(result) || result.control !== "good_poor" || !Array.isArray(result.allowedValues) || result.allowedValues.length === 0
+      || !result.allowedValues.every((value) => typeof value === "string") || new Set(result.allowedValues as string[]).size !== result.allowedValues.length) return undefined;
+    measurementValues.set(key, new Set(result.allowedValues as string[]));
+    captions.set(`${riserMeasurementPrefix}${key}`, caption);
+  }
+  const rowValues = new Map<string, Set<string>>();
+  for (const [key] of riserRowFields) {
+    const values = allowedValues(definition, "riser_outlet", "riser_outlet_rows", key);
+    if (!values) return undefined;
+    rowValues.set(key, values);
+  }
+  const rowTarget = (response: unknown, fieldPath: string) => {
+    const match = riserRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.riserOutlets)) return undefined;
+    const row = response.riserOutlets.find((value) => isRecord(value) && value.rowUuid === match[1]);
+    return isRecord(row) ? { row, responseKey: match[2]! } : undefined;
+  };
+  return {
+    systemKey: "dry_wet_riser", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && (captions.has(fieldPath) || riserRowPath.test(fieldPath));
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !isRecord(response.checklist) || !isRecord(response.measurements) || !Array.isArray(response.riserOutlets)) return undefined;
+      const poor: string[] = [];
+      for (const [values, prefix, source] of [[checklistValues, riserChecklistPrefix, response.checklist], [measurementValues, riserMeasurementPrefix, response.measurements]] as const) {
+        for (const key of values.keys()) {
+          const value = (source as RecordValue)[key];
+          if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !values.get(key)!.has(value.result)) return undefined;
+          if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${prefix}${key}`); }
+        }
+      }
+      const rowIds = new Set<string>();
+      for (const row of response.riserOutlets) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        rowIds.add(row.rowUuid);
+        for (const [responseKey] of riserRowFields) {
+          const result = row[responseKey];
+          if (typeof result !== "string" || !rowValues.get(responseKey)?.has(result)) return undefined;
+          if (isV7EvidenceFinding(result)) {
+            const remark = row.fieldRemarks[responseKey];
+            if (typeof remark !== "string" || !remark.trim()) return undefined;
+            poor.push(`riser_outlet.riser_outlet_rows.rows.${row.rowUuid}.${responseKey}`);
+          }
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      if (!isRecord(response)) return undefined;
+      const checklistKey = fieldPath.startsWith(riserChecklistPrefix) ? fieldPath.slice(riserChecklistPrefix.length) : undefined;
+      const checklist = checklistKey && isRecord(response.checklist) ? response.checklist[checklistKey] : undefined;
+      if (isRecord(checklist) && isV7EvidenceFinding(checklist.result) && typeof checklist.remarks === "string" && checklist.remarks.trim()) return checklist.remarks.trim();
+      const measurementKey = fieldPath.startsWith(riserMeasurementPrefix) ? fieldPath.slice(riserMeasurementPrefix.length) : undefined;
+      const measurement = measurementKey && isRecord(response.measurements) ? response.measurements[measurementKey] : undefined;
+      if (isRecord(measurement) && isV7EvidenceFinding(measurement.result) && typeof measurement.remarks === "string" && measurement.remarks.trim()) return measurement.remarks.trim();
+      const target = rowTarget(response, fieldPath);
+      if (!target || !isV7EvidenceFinding(target.row[target.responseKey]) || !isRecord(target.row.fieldRemarks)) return undefined;
+      const remark = target.row.fieldRemarks[target.responseKey];
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      const caption = captions.get(fieldPath); if (caption) return caption;
+      const match = riserRowPath.exec(fieldPath);
+      const field = match && riserRowFields.find(([key]) => key === match[2]);
+      return field ? `Riser Outlet - ${field[1]}` : undefined;
+    }
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
@@ -467,6 +590,7 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   if (values.systemKey === "fire_alarm_detector") return fireAlarmAdapter(values.definition);
   if (values.systemKey === "hose_reel") return hoseReelAdapter(values.definition);
   if (values.systemKey === "automatic_sprinkler") return automaticSprinklerAdapter(values.definition);
+  if (values.systemKey === "dry_wet_riser") return dryWetRiserAdapter(values.definition);
   return repeatableRowAdapter(values.definition);
 }
 

@@ -59,6 +59,9 @@ const demoV7Co2LocationId = "00000000-0000-4000-8000-000000000906";
 const demoV7WetChemicalZoneId = "00000000-0000-4000-8000-000000000907";
 const demoV7WetChemicalLocationId = "00000000-0000-4000-8000-000000000908";
 const demoV7SiteId = "00000000-0000-4000-8000-000000000909";
+const demoV7HydrantEnabledSystemId = "00000000-0000-4000-8000-000000000910";
+const demoV7HoseReelEnabledSystemId = "00000000-0000-4000-8000-000000000911";
+const demoV7SprinklerEnabledSystemId = "00000000-0000-4000-8000-000000000912";
 const demoPortableCustomerId = "00000000-0000-4000-8000-000000000750";
 const demoPortableRevisionId = "00000000-0000-4000-8000-000000000751";
 const demoPortableEnabledSystemId = "00000000-0000-4000-8000-000000000752";
@@ -1069,6 +1072,24 @@ async function seedDemoConfigurations(client: PoolClient) {
       sortOrder: 1
     });
   }
+  // Single-instance additions to the same frozen V7 demo customer. Unlike the
+  // customer/site/co2/wet-chemical creation above, these run unconditionally on
+  // every seed pass (like every other seedEnabledSystem call in this function) —
+  // each is independently idempotent (ON CONFLICT DO NOTHING + assertFixtureFields),
+  // so this also backfills a database where the V7 customer already exists from
+  // before hydrant/hose_reel/automatic_sprinkler reached V7.
+  await seedEnabledSystem(
+    client, demoV7HydrantEnabledSystemId, demoV7RevisionId,
+    "hydrant", 4, null, masterServiceReportV7.id
+  );
+  await seedEnabledSystem(
+    client, demoV7HoseReelEnabledSystemId, demoV7RevisionId,
+    "hose_reel", 5, null, masterServiceReportV7.id
+  );
+  await seedEnabledSystem(
+    client, demoV7SprinklerEnabledSystemId, demoV7RevisionId,
+    "automatic_sprinkler", 6, null, masterServiceReportV7.id
+  );
   await seedEnabledSystem(client, demoPortableEnabledSystemId, demoPortableRevisionId, "portable_fire_extinguisher", 1, null, masterServiceReportV5.id);
 }
 

@@ -104,6 +104,38 @@ function upgradeV7AutomaticSprinkler(system: SystemDefinition): SystemDefinition
 }
 
 /**
+ * Dry / Wet Riser reaches V7 after six systems were published, from its V2
+ * catalog entry (`masterServiceReportV6.systems` already carries V2's shape
+ * forward - V1's is retained only for jobs created before V2 shipped and is
+ * never this transform's input).
+ *
+ * V2's Pump House block declares the Jockey/Duty/Standby pressure judgement
+ * twice: once as a plain good/poor checklist item (jockey_pump_pressure,
+ * duty_pump_cut_in, standby_pump_cut_in) and again as the `result` on the
+ * separate pump_measurements block's raw-PSI rows (jockey_psi, duty_psi,
+ * standby_psi). The deployed V1-V6 response schema only ever populates the
+ * checklist copy, leaving the measurement rows' own `result` permanently
+ * unset. V7 resolves that split by dropping the three duplicate checklist
+ * items and making each measurement row's own values+result+remarks the
+ * single source of truth, exactly like Automatic Sprinkler's PSI rows.
+ */
+function upgradeV7DryWetRiser(system: SystemDefinition): SystemDefinition {
+  const duplicateMeasurementChecklistKeys = new Set(["jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in"]);
+  const source = fourState(system) as SystemDefinition;
+  return {
+    ...source,
+    sections: source.sections.map((section) => section.key !== "pump_house"
+      ? section
+      : {
+        ...section,
+        blocks: section.blocks.map((block) => block.type === "checklist" && block.key === "pump_house_checks"
+          ? { ...block, items: block.items.filter((item) => !duplicateMeasurementChecklistKeys.has(item.key)) }
+          : block)
+      })
+  };
+}
+
+/**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
  * retains its independent detector-state control; Good/Poor fields use the
  * four-state Hokuden checklist legend.
@@ -119,6 +151,8 @@ export const masterServiceReportV7 = {
         ? upgradeV7HoseReel(system)
       : system.key === "automatic_sprinkler"
         ? upgradeV7AutomaticSprinkler(system)
+      : system.key === "dry_wet_riser"
+        ? upgradeV7DryWetRiser(system)
       : system
   )
 } as const satisfies MasterServiceReportDefinition;

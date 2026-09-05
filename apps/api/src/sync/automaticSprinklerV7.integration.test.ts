@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import pg from "pg";
+import sharp from "sharp";
 import { runMigrations } from "../db/migrations.js";
 import { automaticSprinklerPsiEvidencePolicyV1, automaticSprinklerPsiFieldPaths } from "../inspections/evidence/automaticSprinklerPsiEvidencePolicyV1.js";
 import { v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
 import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import { syncAutomaticSprinklerInspections } from "./automaticSprinklerInspectionSync.js";
 import { v7IntegrationDatabaseUrl } from "./v7IntegrationTestDatabase.js";
+import { loadFinalServiceReport } from "../reports/finalServiceReport.js";
 
 const databaseUrl = v7IntegrationDatabaseUrl();
 const id = () => randomUUID();
@@ -159,6 +164,39 @@ test("Automatic Sprinkler V7 closed, hidden and forbidden Jobs are idempotent an
       assert.deepEqual({ code: failure?.code, message: failure?.message }, { code: "JOB_ACCESS_DENIED", message: "This V7 inspection is unavailable" });
     }
   });
+});
+
+test("Automatic Sprinkler V7 accepted inspection completes into a Final Report", { skip: !databaseUrl }, async () => {
+  const uploadsPath = path.join(tmpdir(), `phase8g-sprinkler-report-${randomUUID()}`);
+  const previousUploadsPath = process.env.UPLOADS_PATH;
+  process.env.UPLOADS_PATH = uploadsPath;
+  try {
+    await withDatabase(async (database) => {
+      const f = await seed(database, "final-report"), job = await f.job(), client = id();
+      await f.reserve(client, job);
+      const content = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).jpeg().toBuffer();
+      const digest = createHash("sha256").update(content).digest("hex");
+      const a = await f.stage(client, job, checkPath("water_level"), digest, digest);
+      const relative = `inspections/${a.photoUuid}/evidence.jpg`, file = path.join(uploadsPath, ...relative.split("/"));
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, content);
+      await database.query("UPDATE staged_inspection_evidence SET storage_relative_path=$2 WHERE photo_uuid=$1", [a.photoUuid, relative]);
+      const body = responses();
+      (body.checklist as Record<string, Value>).water_level = { result: "not_good", remarks: "Water low" };
+      const result = await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [a])], f.actor);
+      assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result));
+      await database.query(
+        "UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Sprinkler V7 closer' WHERE id=$1",
+        [job, at, f.actor]
+      );
+      const report = await loadFinalServiceReport(job, database);
+      assert.equal(report.sections.some((section) => section.systemKey === "automatic_sprinkler"), true, JSON.stringify(report.sections.map((s) => s.systemKey)));
+      assert.equal(report.sections[0]?.evidence.length, 1, JSON.stringify(report.sections[0]));
+    });
+  } finally {
+    if (previousUploadsPath === undefined) delete process.env.UPLOADS_PATH; else process.env.UPLOADS_PATH = previousUploadsPath;
+    await rm(uploadsPath, { recursive: true, force: true });
+  }
 });
 
 test("Automatic Sprinkler V1 legacy PSI photo lifecycle is unchanged by the V7 contract", { skip: !databaseUrl }, async () => {
