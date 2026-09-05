@@ -3,7 +3,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
-import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -50,7 +50,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler", actor: { id: number; role: "admin" | "inspector" }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser", actor: { id: number; role: "admin" | "inspector" }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
@@ -173,7 +173,8 @@ masterSystemInspectionsRouter.get(
           instance.inspection_snapshot->'system' AS "systemSnapshot",
           instance.inspection_snapshot #> '{system,systemConfiguration}' AS "systemConfiguration",
           instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
-          creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername"
+          creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername",
+          instance.snapshot_schema_version AS "snapshotSchemaVersion"
         FROM master_system_form_instances instance
         INNER JOIN master_system_inspections inspection ON inspection.id = instance.inspection_group_id
         INNER JOIN inspection_jobs job ON job.id = inspection.job_id
@@ -185,10 +186,43 @@ masterSystemInspectionsRouter.get(
         [clientUuid]
       );
       const inspection = result.rows[0];
-      if (!inspection || !parseDryWetRiserSystemConfiguration(inspection.systemConfiguration) || !validStoredDryWetRiser(inspection.responses, inspection.systemSnapshot, inspection.systemConfiguration)) {
+      if (!inspection) {
         response.status(404).json({ error: "INSPECTION_NOT_FOUND" });
         return;
       }
+      if (inspection.snapshotSchemaVersion === 2) {
+        // Unlike hose-reel/hydrant/sprinkler, this route's historical wire shape predates
+        // acceptedDetailResponse() (flat customerId/customerCode/customerName, no
+        // instanceKey/zoneId/locationId/displaySequence/displayControls). The V7 branch is
+        // shaped to match that existing 19-key contract exactly rather than adopt the generic
+        // one, so the client parser needs only one exact-keys check for both template versions.
+        const v7 = await acceptedDetailRow(clientUuid, "dry_wet_riser", request.currentUser!);
+        const validated = v7 && validateAcceptedDryWetRiserV7Detail(v7);
+        if (!v7 || !validated) { response.status(v7 ? 500 : 404).json({ error: v7 ? "INVALID_STORED_INSPECTION" : "INSPECTION_NOT_FOUND" }); return; }
+        const snapshot = v7.inspectionSnapshot as Record<string, unknown>;
+        const customer = snapshot.customer as Record<string, unknown>;
+        response.json({
+          inspection: {
+            clientUuid: v7.clientUuid, serverFormInstanceId: v7.serverFormInstanceId,
+            jobId: v7.jobId, jobReference: v7.jobReference, jobTitle: v7.jobTitle,
+            customerId: customer.id, customerCode: customer.code, customerName: v7.customerName,
+            systemKey: "dry_wet_riser", systemLabel: "Dry / Wet Riser System",
+            status: v7.status, performedAt: v7.performedAt, receivedAt: v7.receivedAt,
+            template: validated.snapshot.template, configuration: validated.snapshot.configuration,
+            systemConfiguration: { riserMode: validated.riserMode },
+            responses: v7.responses,
+            deviceReportedCreatorUsername: v7.deviceReportedCreatorUsername,
+            verifiedOriginalCreatorUsername: v7.verifiedOriginalCreatorUsername,
+            syncedByUsername: v7.syncedByUsername
+          }
+        });
+        return;
+      }
+      if (!parseDryWetRiserSystemConfiguration(inspection.systemConfiguration) || !validStoredDryWetRiser(inspection.responses, inspection.systemSnapshot, inspection.systemConfiguration)) {
+        response.status(404).json({ error: "INSPECTION_NOT_FOUND" });
+        return;
+      }
+      delete inspection.snapshotSchemaVersion;
       response.json({ inspection: { ...inspection, systemLabel: "Dry / Wet Riser System" } });
     } catch (error) {
       next(error);

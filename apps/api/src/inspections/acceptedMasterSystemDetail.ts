@@ -3,6 +3,7 @@ import { resolveCo2Controls } from "./templates/co2DefinitionControls.js";
 import { validateHoseReelSubmission } from "../sync/masterSystemInspectionSync.js";
 import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "./evidence/v7EvidenceContracts.js";
+import { parseDryWetRiserSystemConfiguration } from "./dryWetRiserConfiguration.js";
 
 type R = Record<string, unknown>;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -268,4 +269,73 @@ export function validateAcceptedAutomaticSprinklerV7Detail(row: R) {
   const adapter = resolveV7EvidenceContract({ systemKey: "automatic_sprinkler", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
   if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
   return { snapshot, adapter };
+}
+
+/**
+ * Dry/Wet Riser V7 mirrors Hose Reel V7: single-instance with a repeatable
+ * Riser Outlet table, a frozen evidence manifest, and a schema-2 response the
+ * V1-V6 reader (`validStoredDryWetRiser`) must never learn to accept. Unlike
+ * Hose Reel, the frozen snapshot also carries `system.systemConfiguration`
+ * (the riser mode) and the response carries its own `mode` - both are
+ * re-derived and cross-checked here rather than trusted from the stored
+ * shape alone. Re-derive the adapter from the stored definition, then
+ * re-parse the manifest against the stored response before exposing
+ * accepted authority.
+ */
+export function validateAcceptedDryWetRiserV7Detail(row: R) {
+  if (!identity(row) || row.systemKey !== "dry_wet_riser" || row.instanceKey !== "primary"
+    || row.zoneId !== null || row.locationId !== null || row.displaySequence !== 1
+    || !rec(row.inspectionSnapshot) || !rec(row.responses)) return undefined;
+  const snapshot = row.inspectionSnapshot;
+  if (!exact(snapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "contractSha256", "instance", "evidenceManifest"])
+    || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
+    || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
+    || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
+    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
+    || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
+    || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
+    || !rec(snapshot.template) || !exact(snapshot.template, ["id", "code", "version"]) || snapshot.template.id !== row.templateId || snapshot.template.code !== "MFE-FSSR" || snapshot.template.version !== 7
+    || !rec(snapshot.system) || snapshot.system.key !== "dry_wet_riser" || snapshot.system.systemKey !== "dry_wet_riser" || snapshot.system.definitionStatus !== "confirmed" || snapshot.system.repetitionMode !== "single_with_repeatable_rows" || !rec(snapshot.system.definition)
+    || !rec(snapshot.instance) || !exact(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"]) || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+    || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
+  const riserMode = parseDryWetRiserSystemConfiguration(snapshot.system.systemConfiguration);
+  if (!riserMode) return undefined;
+  const response = row.responses;
+  const checklistKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
+  const measurementFields = [["jockey_psi", ["cut_in", "cut_out"]], ["duty_psi", ["cut_in"]], ["standby_psi", ["cut_in"]]] as const;
+  const rowResultKeys = ["canvasHoseAt2Result", "diffuserNozzleResult", "landingValveResult", "crandleResult", "doorResult"];
+  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", ...rowResultKeys, "remarks", "fieldRemarks", "sortOrder"];
+  if (!exact(response, ["schemaVersion", "mode", "checklist", "measurements", "riserOutlets", "comments"]) || response.schemaVersion !== 2
+    || response.mode !== riserMode.riserMode
+    || !rec(response.checklist) || !exact(response.checklist, checklistKeys) || !rec(response.measurements)
+    || !exact(response.measurements, measurementFields.map(([key]) => key))
+    || typeof response.comments !== "string" || response.comments.length > 4000
+    || !Array.isArray(response.riserOutlets) || response.riserOutlets.length < 1 || response.riserOutlets.length > 250) return undefined;
+  for (const key of checklistKeys) {
+    const item = response.checklist[key];
+    if (!rec(item) || !exact(item, ["result", "remarks"]) || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000) return undefined;
+  }
+  for (const [key, measurementKeys] of measurementFields) {
+    const item = response.measurements[key];
+    const values = rec(item) && rec(item.values) ? item.values : undefined;
+    if (!rec(item) || !exact(item, ["values", "unit", "result", "remarks"]) || !values || !exact(values, measurementKeys)
+      || item.unit !== "PSI" || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000
+      || measurementKeys.some((field) => values[field] !== null && (typeof values[field] !== "number" || !Number.isFinite(values[field])))) return undefined;
+  }
+  const rowIds = new Set<string>();
+  for (const [index, item] of response.riserOutlets.entries()) {
+    if (!rec(item) || !exact(item, rowKeys) || typeof item.rowUuid !== "string" || !uuid.test(item.rowUuid) || rowIds.has(item.rowUuid)
+      || item.sortOrder !== index + 1 || typeof item.locationText !== "string" || !item.locationText.trim() || item.locationText.length > 300
+      || typeof item.assetReference !== "string" || item.assetReference.length > 250
+      || typeof item.remarks !== "string" || item.remarks.length > 2000 || !rec(item.fieldRemarks)
+      || Object.keys(item.fieldRemarks).some((key) => !rowResultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
+    if (item.source === "configured") {
+      if (typeof item.configuredLocationId !== "string" || !uuid.test(item.configuredLocationId) || !Number.isSafeInteger(item.configuredRowOrdinal) || Number(item.configuredRowOrdinal) < 1) return undefined;
+    } else if (item.source !== "technician" || item.configuredLocationId !== null || item.configuredRowOrdinal !== null || item.zoneSnapshot !== null || item.locationSnapshot !== null) return undefined;
+    rowIds.add(item.rowUuid);
+  }
+  const adapter = resolveV7EvidenceContract({ systemKey: "dry_wet_riser", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+  if (!adapter || !parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response)) return undefined;
+  return { snapshot, adapter, riserMode: riserMode.riserMode };
 }
