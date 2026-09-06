@@ -594,7 +594,11 @@ export async function syncPendingRecords() {
               "JOB_CLOSED",
               "IDEMPOTENCY_CONFLICT",
               "ACTIVE_INSPECTION_EXISTS",
-              "INSTANCE_ALREADY_EXISTS"
+              "INSTANCE_ALREADY_EXISTS",
+              // Accepted V7 evidence is unique within jobId+systemKey. Once
+              // the server reports this conflict, retrying the immutable
+              // Pending manifest cannot succeed; preserve it as Needs review.
+              "EVIDENCE_CONFLICT"
             ]).has(failed.code);
             const update = { syncStatus: "Failed" as const, lastSyncError: message };
             if (item.entityType === "inspection") {

@@ -3,19 +3,28 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **P0-M1 deployed rebuild attempted: `23514` gone, but startup
-then crash-looped on the `023`/`024` legacy-source drift — now also FIXED (forward-only, not
-committed). Deployed API stays down until both are committed and the image rebuilt.** The
-drift fix re-homes V7 definition publication into `seedMasterServiceReport` (the V7 system loop
-is `ON CONFLICT DO UPDATE`, `IS DISTINCT FROM`-guarded, so the seed reconciles a stored V7 row
+**Last updated:** 2026-09-06 — **RELEASE BLOCKER P0-M1 CLOSED — committed, deployed, verified.**
+Both fixes are in: `4eee41e` (`fix(db): make V7 migration replay forward-only`) and `07a859b`
+(`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`). The
+deployed API image was rebuilt (`docker compose build api && docker compose up -d`, api
+container only — postgres / proxy untouched, no `down -v` / volume / prune, runtime DB never
+queried or mutated) and **verified healthy: `inspection_pwa-api-1` `Up`, `restarts=0`,
+`curl -k https://localhost/api/health` → `200`, migrate + seed clean on boot.** The drift fix
+re-homes V7 definition publication into `seedMasterServiceReport` (the V7 system loop is now
+`ON CONFLICT DO UPDATE`, `IS DISTINCT FROM`-guarded, so the seed reconciles a stored V7 row
 that migrations `021`–`026` left diverging from `masterServiceReportV7.ts`); V1–V6 stay
-`DO NOTHING`. No migration edited, no runtime DB touched. Previously-red
+`DO NOTHING`; no migration edited. Previously-red
 `v7DetectorStateMigration.integration.test.ts` + `seedMasterServiceReport.integration.test.ts`
-green; new `migrationReplayForwardOnly` case *"heals a drifted V7 system definition"* fails
+now green; new `migrationReplayForwardOnly` case *"heals a drifted V7 system definition"* fails
 pre-fix with the exact deployed crash signature. Full V7 set + replay cover: **83 tests, 0
-skipped**; fast gates green. Proposed message
-`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`.
-See §4 P0-M1, §5, §7. Previously: **P0-M1 FIXED, forward-only. Sol: SAFE TO COMMIT: Y (round 4;
+skipped**; fast gates green. **G5 CLOSED 2026-09-06:** a malformed successful create payload can
+no longer call the success callback, and failed creation keeps the populated form with its server
+message. Live technician verification returned canonical `201` job `SV-20260906-41`; the original
+silent failure is not present in the current deployed build. **G9 CLOSED 2026-09-06:** the
+cross-location V7 photo guard now blocks before queueing, and a server-side evidence conflict
+becomes local Needs attention rather than an infinite retry. Next: G7 4-state browser sanity,
+then the Fire Intercom Sol pass. See §4 P0-M1, §5, §7.
+Previously: **P0-M1 FIXED, forward-only. Sol: SAFE TO COMMIT: Y (round 4;
 0 P0 / 0 P1). Committed `4eee41e`.** `runMigrations` replayed migration `018` (and `021`–`026`)
 unconditionally; each re-`ADD`s a `system_key` CHECK narrowed to the systems known when it was
 written, and `ADD CONSTRAINT … CHECK` re-validates existing rows, so a deployed database
@@ -98,10 +107,11 @@ Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprin
 **10 of 12 services on the V7 evidence model** — 9 with a full evidence workflow (Fire Alarm, CO2,
 Wet Chemical, Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire
 Intercom), plus Portable Fire Extinguisher (registration-only by design, C4). All committed and
-browser-proven through the full offline→sync→Accepted→PDF workflow. **Deployed API still down:
-P0-M1 (`4eee41e`) cleared the `23514` migration loop, but the rebuild then surfaced the
-`023`/`024` legacy-source drift — now also fixed (§5, not committed). Owner commits the drift
-fix + rebuilds the image to bring the runtime up.** Result model is now
+browser-proven through the full offline→sync→Accepted→PDF workflow. **Deployed API is up and
+verified** on the drift-fix image (`07a859b`): `inspection_pwa-api-1` `Up`, health `200`,
+migrate + seed clean. Release blocker P0-M1 (`4eee41e` + `07a859b`) is fully closed — see §4 /
+§5. G5 and G9 are now closed; next: the G7 browser sanity, then the Fire Intercom Sol pass.
+Result model is now
 **4-state** (Hokuden legend: `good` / `not_good` / `complete_repair` / `na`); validators are
 per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
 Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
@@ -228,7 +238,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 - Good / Poor / Not Relevant; per-Poor own remark + own photo; Normal/Test/Isolation untouched.
 - Frozen manifest derived from the current Poor set; stale evidence (Poor→Good/NR) excluded.
 - Evidence uniqueness scoped to `jobId + systemKey`; accepted-only partial indexes; concurrent
-  race → one Accepted, loser mapped to retryable `EVIDENCE_CONFLICT`; different Job + same bytes allowed.
+  race → one Accepted, loser mapped to terminal `EVIDENCE_CONFLICT` / Needs attention; different Job + same bytes allowed.
 - Closed/hidden-job exact idempotent retry → same Accepted authority; unknown/forbidden/closed/
   hidden collapse to one response (`JOB_ACCESS_DENIED`).
 - Fire Alarm V7 Accepted Detail requires owner/admin scope (no `technician_visible` over-restriction).
@@ -255,14 +265,14 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
-| ~~P0-M1~~ | **FIXED 2026-09-06 (forward-only), committed `4eee41e`. Deployed rebuild attempted: `23514` gone, migrations replay clean — but startup then crash-looped one step later in the post-migration seed on the `023`/`024` legacy-source drift (§5), now also fixed (not committed). Deployed API down until both are committed + image rebuilt.** Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. **Operator must rebuild + recreate the API container** (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (6 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code, case 5 — the 023/024 drift heal — fails against the pre-`DO UPDATE` seed). | Deployed API restart is no longer fatal once the image is rebuilt (with the 023/024 drift fix in §5). | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/seedMasterServiceReport.ts:454-467` (drift fix); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
+| ~~P0-M1~~ | **CLOSED 2026-09-06 — committed (`4eee41e` + `07a859b`), deployed image rebuilt, API verified `Up` (`restarts=0`, health `200`, migrate + seed clean).** The forward-only replay guards cleared the `23514`; the rebuild then surfaced the `023`/`024` legacy-source drift one step later in the post-migration seed, fixed by re-homing V7 definition publication to the seed with a guarded `ON CONFLICT DO UPDATE` (§5). Postgres / proxy never touched; runtime DB never queried or mutated. Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. Recovered by rebuilding + recreating the API container (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (6 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code, case 5 — the 023/024 drift heal — fails against the pre-`DO UPDATE` seed). | Deployed API restart no longer fatal — verified `Up` on the `07a859b` image. | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/seedMasterServiceReport.ts:454-467` (drift fix); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
 | ~~G4~~ | **CLOSED** (fixed in `ba1fb2a`, confirmed 2026-09-05 — never marked done here until now). `managerCustomers.ts`'s `assertDryWetRiserAssignments` rejects an unconfigured/invalid `dry_wet_riser` assignment at write time (`RISER_MODE_REQUIRED`, no valid `riserMode`); `inspectionReference.ts`'s `usableEnabledSystems` filter additionally excludes any stored riser row that fails `parseDryWetRiserSystemConfiguration` from `GET /customers/:id/configuration`, so a bad row degrades that one system instead of 500ing the whole customer. | — | — |
-| G5 | Manager "Create Service Visit" silently reset the form without creating anything and no error (hit during 0.3 browser sanity, 2026-09-03). | Primary action fails silently. | `apps/web` new-service-visit flow |
+| ~~G5~~ | **CLOSED 2026-09-06.** The live technician flow returned `201` plus canonical job `SV-20260906-41`; its historical silent failure could not be reproduced on build `build-20260904T133127Z`. The client now rejects every non-2xx response with the server message and also rejects a malformed 2xx response missing a nonblank Job ID. `NewServiceVisit` independently refuses to call `onCreated` without that ID, preserving all selected form state and showing the existing warning. Browser regression covers both a server `409` and a `201` jobless body. | — | `apps/web/src/jobs/jobApi.ts`, `NewServiceVisit.tsx`, `tests/new-service-visit-failure.spec.ts` |
 | ~~G6~~ | **PARTLY CLOSED 2026-09-04.** `d7ecc0d` deployed; 4-state options render in all 3 forms. Bug found + fixed (`3065539`): CO2/Wet Chemical `V7EvidenceField` was gated on `result === "poor"` (unreachable) so no photo could be attached on a finding — now `not_good \|\| complete_repair`. Deployed `sha256-188fbb1857f422d5`. |
 | ~~G7~~ | **ROOT-CAUSED + FIXED 2026-09-04, awaiting browser re-verification.** Not a 4-state defect at all: the technician **attached the same photo to two findings**. Reproduced in-browser on `SV-20260904-38` (instance `10433777`), outbox `lastError` captured = `"This V7 inspection is unavailable"` (`JOB_ACCESS_DENIED`). Both staged rows carried identical `source_sha256` **and** `stored_sha256`, so `parseV7EvidenceManifest` refused the manifest, and `fireAlarmV7Acceptance.ts` folded `!manifest` into the collapsed job-access guard — reporting a payload problem as a Job problem. Confirmed the same duplicate pair in the owner's original `8b4cc663` rows. Fixes: (a) capture-time guard in `saveFireAlarmV7Photo` / `saveV7SuppressionPhoto` refuses a photo already attached to another field, naming it; (b) submit gate `duplicateV7PhotoIssues` in both `fireAlarmV7Evidence.ts` and `co2/v7Evidence.ts` — the offline-safety layer, same precedent as 0.4b; (c) server splits the manifest failure out of the collapsed guard (after it, so no job-existence leak) and names the reused image; CO2/WC get the same treatment plus a separate `EVIDENCE_NOT_STAGED` for two sources that normalize to the same stored bytes. Coverage: new `fireAlarmV7.integration.test.ts` case (first ever to submit `complete_repair`, a secondary alarm-device row finding with row-scoped evidence, and a reused photo); 3 new web submit-gate tests, the duplicate one **proven to fail against the pre-fix code**. | — | — |
-| G9 | **Duplicate photo across two *instances* of one system in the same Job** (CO2/Wet Chemical multi-location) is still only caught at acceptance, by the `acceptedHashes` pre-check (backed by the `staged_inspection_evidence_v7_accepted_*_per_job_system` indexes) → `EVIDENCE_CONFLICT`. The message is truthful, but the outbox re-attempts `Failed` items on every sync (`syncEngine.ts:193`), so it can never succeed. The G7 client guards are scoped to one `inspectionClientUuid`; attachments carry no `jobId`, so widening needs a join through `masterSystemFormInstances`. | A technician reusing one photo across two CO2 locations retries forever. | `apps/web/src/co2/v7Evidence.ts`, `apps/api/src/sync/co2FormInstanceSync.ts` |
+| ~~G9~~ | **CLOSED 2026-09-06.** The shared CO2/Wet Chemical V7 client guard joins sibling `masterSystemFormInstances` through its `groupKey` (`jobId + systemKey`) and blocks the same bytes at capture and Submit Local, including only sibling fields that are currently evidence-required. The server’s acceptance pre-check now identifies the already-bound canonical field. A server `EVIDENCE_CONFLICT` is terminal in the outbox: the form remains local as **Needs attention** (`Conflict`) and its operation is no longer dispatched on later syncs. Coverage includes cross-instance client/unit + browser harnesses, a real-Postgres CO2 acceptance conflict, and a browser outbox no-loop harness. | — | `apps/web/src/co2/v7Evidence.ts`, `co2Repository.ts`, `sync/syncEngine.ts`; `apps/api/src/sync/co2FormInstanceSync.ts` |
 | ~~G10~~ | **CLOSED 2026-09-06.** The order-independent `sameManifest()` comparison (length + fingerprint of `canonical`-ised entries, order-independent) — proven earlier on Smoke Ventilation — is now applied to the accepted-authority pre-check in all five remaining V7 acceptance handlers: `fireAlarmV7Acceptance.ts`, `hydrantV7Acceptance.ts`, `hoseReelV7Acceptance.ts`, `automaticSprinklerV7Acceptance.ts`, `dryWetRiserV7Acceptance.ts`. Comparison side only — `parseV7EvidenceManifest`'s fieldPath sort is the stored authority and is untouched. Permutation equality is the sole behaviour change: a manifest with different entries, a different length, or duplicates still returns `IDEMPOTENCY_CONFLICT`. One regression case per handler in its existing `*V7.integration.test.ts` (reverse-fieldPath manifest → accept → identical retry is duplicate success, and again after Job closure; plus dropped-entry and changed-bytes retries that both still conflict) — each proven to fail against the old positional comparison by reverting the one-line swap and observing the retry assertion fail with `IDEMPOTENCY_CONFLICT`, then restoring. **CO2 / Wet Chemical (`co2FormInstanceSync.ts`) checked and NOT affected** — it fingerprints over the `v7Manifest()`-sorted manifest on both the first-acceptance store and the retry pre-check, so an unsorted retry normalizes to the same fingerprint (the `grep` for `canonical(payload.evidenceManifest)` correctly did not match it). Full V7 integration set green: 62 tests (was 57). `hydrantV7.integration.test.ts` still sorts its happy-path manifest with a now-stale "compares … positionally" comment — harmless, left in place; a trivial follow-up can drop that workaround. | — | — |
 | G8 | Fire Alarm form auto-persists a Draft on Add/Remove row (pre-existing — technician-row helpers write immediately). Not a C1-REWORK regression. Low priority. | Minor UX surprise. | `apps/web/src/fireAlarm/fireAlarmRepository.ts` |
 | — | ~13 orphaned `staged` Fire Alarm evidence rows in runtime back to Aug 30 — abandoned drafts/test runs, **not a bug** (evidence stages before acceptance). Ignore or clean at leisure. Two more were added by the G7 repro (`10433777…`). | none | — |
@@ -516,7 +526,7 @@ field, add integration coverage, re-verify, Sol pass.
       (No. / Location / Auto Alarm Mode / Manual Mode, 45+ rows). **Needs a client-confirmed spec
       first.** + definition + V7 adapter. (~1 w incl. client input)
 
-### RELEASE BLOCKER — P0-M1 migration replay  ← FIXED, Sol SAFE TO COMMIT: Y (not yet committed)
+### RELEASE BLOCKER — P0-M1 migration replay  ← CLOSED 2026-09-06 (committed + deployed + verified)
 - [x] **`runMigrations` no longer re-applies migration `018`'s (or `021`–`026`'s) narrowing
       CHECK constraints on a database that has already advanced past them.** Implemented as the
       repo's existing per-migration `pg_constraint` guard idiom (same as `008` / `017`), so no
@@ -527,17 +537,14 @@ field, add integration coverage, re-verify, Sol pass.
       `migrationReplayForwardOnly.integration.test.ts` (5 cases). Sol review rounds 1–4:
       **SAFE TO COMMIT: Y, 0 P0 / 0 P1**, proposed message
       `fix(db): make V7 migration replay forward-only`.
-- [x] **P0-M1 deployed-image rebuild — attempted 2026-09-06.** `docker compose build api`
-      (from committed `4eee41e`) + `docker compose up -d` recreated **only** `inspection_pwa-api-1`
-      (postgres / proxy untouched, no `down -v` / volume / prune). The `23514` at `runMigrations`
-      is **gone** — migrations replay clean. Startup then crash-looped one step later, in the
-      post-migration seed, on the `023`/`024` legacy-source drift below. Deployed API stays down
-      until that fix is committed and the image rebuilt again.
-- [ ] **Owner:** manual final sanity → commit the 023/024 fix (below) → on the deployed host
-      `docker compose build api && docker compose up -d` (image rebuild + container recreate;
-      no DB migration, no manual SQL). Then confirm `docker compose logs api` shows migrations
-      + seed clean and `inspection_pwa-api-1` is `Up`.
-- [x] **Follow-up (own task, not P0) — FIXED 2026-09-06, forward-only. Not committed.**
+- [x] **P0-M1 deployed-image rebuild — DONE + verified 2026-09-06.** Rebuild #1 (from `4eee41e`)
+      cleared the `23514` but surfaced the `023`/`024` drift below in the post-migration seed.
+      Rebuild #2 (from `07a859b`, after the drift fix committed) recreated **only**
+      `inspection_pwa-api-1` (postgres / proxy untouched, no `down -v` / volume / prune) and
+      startup completed: `docker compose logs api` shows migrate + seed clean, `inspection-api
+      listening`, `inspection_pwa-api-1` `Up` `restarts=0`, `curl -k https://localhost/api/health`
+      → `200`. Runtime Postgres never queried or mutated at any point.
+- [x] **Follow-up (own task, not P0) — FIXED 2026-09-06, committed `07a859b`.**
       Migrations `021`–`026` publish the V7 system definitions with `INSERT … SELECT` from the
       `…501`/`…802` legacy rows and replay on every startup; a later TS-only edit to
       `masterServiceReportV7.ts` left the migration-computed `automatic_sprinkler` /
@@ -556,8 +563,9 @@ field, add integration coverage, re-verify, Sol pass.
       deployed crash signature). Full V7 set + replay cover: **83 tests, 0 skipped**; API +
       web typecheck/build, `test:historical-matrix` (20), `test:v6-evidence` (9),
       `test:v7-stale-evidence` (1), `managerCustomers.integration` all green.
-      `apps/api/src/db/seedMasterServiceReport.ts:454-467`. Proposed message
-      `fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`.
+      `apps/api/src/db/seedMasterServiceReport.ts:454-467`. Committed `07a859b`
+      (`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`);
+      on the deployed image since rebuild #2.
 
 ### STEP 3 — Manager administration  (Phase 8H)
 - [ ] 3.1 Manager UI to edit `customer_enabled_systems.system_configuration` per customer (the
@@ -616,13 +624,16 @@ Roller Shutter have no implementation yet.
 
 ## 7. Change log
 
-- 2026-09-06 — **P0-M1 deployed rebuild + the `023`/`024` legacy-source drift. Not committed
-  (drift fix); P0-M1 itself is `4eee41e`.**
-  - **Deployed rebuild attempted.** `docker compose build api` (from `4eee41e`) + `docker
-    compose up -d` recreated **only** `inspection_pwa-api-1` — postgres / proxy untouched, no
-    `down -v` / volume / prune, runtime DB never queried or mutated. The `23514` at
-    `runMigrations` is **gone**: the forward-only replay guards work against the deployed
-    schema. Startup then crash-looped **one step later**, in the post-migration seed:
+- 2026-09-07 — Web harness cleanup: retired the rotted CO2/Wet Chemical V7 and Fire Alarm V6 offline orphan harnesses; the consolidated cross-instance gate remains under review for restored transient-stage retry ordering.
+
+- 2026-09-06 — **RELEASE BLOCKER P0-M1 CLOSED — the `023`/`024` legacy-source drift fixed and
+  the deployed API back up.** Drift fix committed `07a859b`; P0-M1 replay fix `4eee41e`. Deployed
+  image rebuilt twice and verified `Up`.
+  - **Deployed rebuild #1 (from `4eee41e`).** `docker compose build api` + `docker compose up -d`
+    recreated **only** `inspection_pwa-api-1` — postgres / proxy untouched, no `down -v` / volume
+    / prune, runtime DB never queried or mutated. The `23514` at `runMigrations` is **gone**: the
+    forward-only replay guards work against the deployed schema. Startup then crash-looped **one
+    step later**, in the post-migration seed:
     `Published Master V7 system dry_wet_riser differs from the deterministic seed` at
     `seedMasterServiceReport` → `assertPublishedMasterServiceReportTemplate`. `curl` via proxy
     `502`; container `Restarting`. Captured, stopped, no DB surgery.
@@ -664,10 +675,15 @@ Roller Shutter have no implementation yet.
     their output is reconciled on the same boot; rewriting frozen migrations to match the TS
     exactly is unnecessary and higher-risk. If a future change wants the migrations themselves
     correct (e.g. to drop the seed dependency), that is a separate task.
-  - **Owner:** commit (proposed
-    `fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`),
-    then on the deployed host `docker compose build api && docker compose up -d` again — this
-    time migrations **and** seed should complete and `inspection_pwa-api-1` should reach `Up`.
+  - **Deployed rebuild #2 (from `07a859b`).** `docker compose build api` + `docker compose up -d`
+    (api container only; postgres / proxy untouched; no `down -v` / volume / prune; runtime DB
+    never queried or mutated). Startup completed: migrate + seed clean, `inspection-api
+    listening`, `inspection_pwa-api-1` `Up` `restarts=0`, `curl -k https://localhost/api/health`
+    → `200`. The 28 orphan-file reconciliation lines in the boot log are the pre-existing
+    abandoned-staged-evidence rows (§4, not a bug). **P0-M1 track fully closed.**
+  - **Next:** demo-hardening, not new capability. G5 and G9 closed 2026-09-06 (see §4). Remaining:
+    the §4 G7 4-state browser sanity (owner clickthrough), then the Fire Intercom Sol pass.
+    STEP 3.1 (Manager config UI) is deferred to post-demo.
 
 - 2026-09-06 — **Owner decision: the Fire Intercom per-row `remarks` column is KEPT.** Resolves
   the STEP 2.3-remediation owner-override flag below. Rationale: `remarks` is part of the frozen
