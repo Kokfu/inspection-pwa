@@ -3,9 +3,20 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **P0-M1 FIXED, forward-only. Sol: SAFE TO COMMIT: Y (round 4;
-0 P0 / 0 P1). Not yet committed — owner does git + manual final sanity, then rebuilds the
-deployed API image.** `runMigrations` replayed migration `018` (and `021`–`026`)
+**Last updated:** 2026-09-06 — **P0-M1 deployed rebuild attempted: `23514` gone, but startup
+then crash-looped on the `023`/`024` legacy-source drift — now also FIXED (forward-only, not
+committed). Deployed API stays down until both are committed and the image rebuilt.** The
+drift fix re-homes V7 definition publication into `seedMasterServiceReport` (the V7 system loop
+is `ON CONFLICT DO UPDATE`, `IS DISTINCT FROM`-guarded, so the seed reconciles a stored V7 row
+that migrations `021`–`026` left diverging from `masterServiceReportV7.ts`); V1–V6 stay
+`DO NOTHING`. No migration edited, no runtime DB touched. Previously-red
+`v7DetectorStateMigration.integration.test.ts` + `seedMasterServiceReport.integration.test.ts`
+green; new `migrationReplayForwardOnly` case *"heals a drifted V7 system definition"* fails
+pre-fix with the exact deployed crash signature. Full V7 set + replay cover: **83 tests, 0
+skipped**; fast gates green. Proposed message
+`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`.
+See §4 P0-M1, §5, §7. Previously: **P0-M1 FIXED, forward-only. Sol: SAFE TO COMMIT: Y (round 4;
+0 P0 / 0 P1). Committed `4eee41e`.** `runMigrations` replayed migration `018` (and `021`–`026`)
 unconditionally; each re-`ADD`s a `system_key` CHECK narrowed to the systems known when it was
 written, and `ADD CONSTRAINT … CHECK` re-validates existing rows, so a deployed database
 holding an evidence reservation for a later V7 system aborted startup with `23514` before a
@@ -87,8 +98,10 @@ Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprin
 **10 of 12 services on the V7 evidence model** — 9 with a full evidence workflow (Fire Alarm, CO2,
 Wet Chemical, Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire
 Intercom), plus Portable Fire Extinguisher (registration-only by design, C4). All committed and
-browser-proven through the full offline→sync→Accepted→PDF workflow. **Release blocked by P0-M1
-(§4) — the runtime API is in a migration restart loop.** Result model is now
+browser-proven through the full offline→sync→Accepted→PDF workflow. **Deployed API still down:
+P0-M1 (`4eee41e`) cleared the `23514` migration loop, but the rebuild then surfaced the
+`023`/`024` legacy-source drift — now also fixed (§5, not committed). Owner commits the drift
+fix + rebuilds the image to bring the runtime up.** Result model is now
 **4-state** (Hokuden legend: `good` / `not_good` / `complete_repair` / `na`); validators are
 per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
 Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
@@ -242,7 +255,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
-| ~~P0-M1~~ | **FIXED 2026-09-06 (forward-only). Sol review rounds 1–4: SAFE TO COMMIT: Y, 0 P0 / 0 P1. Awaiting owner commit + manual final sanity + deployed-image rebuild.** Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. **Operator must rebuild + recreate the API container** (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (5 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code). | Deployed API restart is no longer fatal once the image is rebuilt. | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
+| ~~P0-M1~~ | **FIXED 2026-09-06 (forward-only), committed `4eee41e`. Deployed rebuild attempted: `23514` gone, migrations replay clean — but startup then crash-looped one step later in the post-migration seed on the `023`/`024` legacy-source drift (§5), now also fixed (not committed). Deployed API down until both are committed + image rebuilt.** Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. **Operator must rebuild + recreate the API container** (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (6 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code, case 5 — the 023/024 drift heal — fails against the pre-`DO UPDATE` seed). | Deployed API restart is no longer fatal once the image is rebuilt (with the 023/024 drift fix in §5). | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/seedMasterServiceReport.ts:454-467` (drift fix); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
 | ~~G4~~ | **CLOSED** (fixed in `ba1fb2a`, confirmed 2026-09-05 — never marked done here until now). `managerCustomers.ts`'s `assertDryWetRiserAssignments` rejects an unconfigured/invalid `dry_wet_riser` assignment at write time (`RISER_MODE_REQUIRED`, no valid `riserMode`); `inspectionReference.ts`'s `usableEnabledSystems` filter additionally excludes any stored riser row that fails `parseDryWetRiserSystemConfiguration` from `GET /customers/:id/configuration`, so a bad row degrades that one system instead of 500ing the whole customer. | — | — |
@@ -514,18 +527,37 @@ field, add integration coverage, re-verify, Sol pass.
       `migrationReplayForwardOnly.integration.test.ts` (5 cases). Sol review rounds 1–4:
       **SAFE TO COMMIT: Y, 0 P0 / 0 P1**, proposed message
       `fix(db): make V7 migration replay forward-only`.
-- [ ] **Owner:** manual final sanity → commit → on the deployed host
+- [x] **P0-M1 deployed-image rebuild — attempted 2026-09-06.** `docker compose build api`
+      (from committed `4eee41e`) + `docker compose up -d` recreated **only** `inspection_pwa-api-1`
+      (postgres / proxy untouched, no `down -v` / volume / prune). The `23514` at `runMigrations`
+      is **gone** — migrations replay clean. Startup then crash-looped one step later, in the
+      post-migration seed, on the `023`/`024` legacy-source drift below. Deployed API stays down
+      until that fix is committed and the image rebuilt again.
+- [ ] **Owner:** manual final sanity → commit the 023/024 fix (below) → on the deployed host
       `docker compose build api && docker compose up -d` (image rebuild + container recreate;
       no DB migration, no manual SQL). Then confirm `docker compose logs api` shows migrations
       + seed clean and `inspection_pwa-api-1` is `Up`.
-- [ ] **Follow-up (own task, not P0):** migrations `023`/`024` `INSERT … SELECT` from the
-      `…501`/`…802` legacy rows now compute an `automatic_sprinkler` / `dry_wet_riser` V7
-      definition whose `sortOrder` no longer matches `masterServiceReportV7.ts` — the cause of
-      the long-red `v7DetectorStateMigration.integration.test.ts` and the
-      `seedMasterServiceReport.integration.test.ts` `dry_wet_riser` assert. Fix by correcting
-      the legacy source or re-homing V7 definition publication into `seedMasterServiceReport`
-      with `ON CONFLICT DO UPDATE`; that also restores an automatic re-heal for a drifted
-      stored V7 definition, which P0-M1 deliberately did not wire in.
+- [x] **Follow-up (own task, not P0) — FIXED 2026-09-06, forward-only. Not committed.**
+      Migrations `021`–`026` publish the V7 system definitions with `INSERT … SELECT` from the
+      `…501`/`…802` legacy rows and replay on every startup; a later TS-only edit to
+      `masterServiceReportV7.ts` left the migration-computed `automatic_sprinkler` /
+      `dry_wet_riser` definition diverging from the tracked source, and the seed's strict
+      published-template assertion then crash-looped the API (the second failure the P0-M1
+      rebuild surfaced). **Fix:** re-homed V7 definition publication into `seedMasterServiceReport`
+      — the V7 system loop is now `ON CONFLICT (template_version_id, system_key) DO UPDATE`
+      (guarded by an `IS DISTINCT FROM` `WHERE` so an in-sync reseed stays a true no-op),
+      making the seed the single source of truth and re-healing any drifted stored V7 row on
+      the next boot. V1–V6 loops stay `DO NOTHING` (never migration-written). No migration
+      edited, no runtime DB touched. Proof: previously-red
+      `v7DetectorStateMigration.integration.test.ts` and
+      `seedMasterServiceReport.integration.test.ts` now green; new
+      `migrationReplayForwardOnly.integration.test.ts` case *"heals a drifted V7 system
+      definition (023/024 legacy-source drift) on replay"* (fails pre-fix with the exact
+      deployed crash signature). Full V7 set + replay cover: **83 tests, 0 skipped**; API +
+      web typecheck/build, `test:historical-matrix` (20), `test:v6-evidence` (9),
+      `test:v7-stale-evidence` (1), `managerCustomers.integration` all green.
+      `apps/api/src/db/seedMasterServiceReport.ts:454-467`. Proposed message
+      `fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`.
 
 ### STEP 3 — Manager administration  (Phase 8H)
 - [ ] 3.1 Manager UI to edit `customer_enabled_systems.system_configuration` per customer (the
@@ -583,6 +615,59 @@ repeatable-row model; the 9 with an evidence workflow share the V7 staged-eviden
 Roller Shutter have no implementation yet.
 
 ## 7. Change log
+
+- 2026-09-06 — **P0-M1 deployed rebuild + the `023`/`024` legacy-source drift. Not committed
+  (drift fix); P0-M1 itself is `4eee41e`.**
+  - **Deployed rebuild attempted.** `docker compose build api` (from `4eee41e`) + `docker
+    compose up -d` recreated **only** `inspection_pwa-api-1` — postgres / proxy untouched, no
+    `down -v` / volume / prune, runtime DB never queried or mutated. The `23514` at
+    `runMigrations` is **gone**: the forward-only replay guards work against the deployed
+    schema. Startup then crash-looped **one step later**, in the post-migration seed:
+    `Published Master V7 system dry_wet_riser differs from the deterministic seed` at
+    `seedMasterServiceReport` → `assertPublishedMasterServiceReportTemplate`. `curl` via proxy
+    `502`; container `Restarting`. Captured, stopped, no DB surgery.
+  - **Root cause (confirmed hermetically, not re-derived).** Migrations `021`–`026` publish the
+    V7 system definitions with `INSERT … SELECT` from the `…501`/`…802` legacy V1/V2 rows and
+    `ON CONFLICT DO UPDATE`, and `runMigrations` replays them on every startup. On a database
+    where the legacy rows already exist (any deployed / already-seeded DB), each replay
+    re-computes `automatic_sprinkler` / `dry_wet_riser` from the frozen legacy source and
+    overwrites `807.<system>`. A later TS-only edit to `masterServiceReportV7.ts` (the four-state
+    result model + the sprinkler `test_run_fire_pump_checks` block) was never mirrored into a
+    migration, so the migration-computed definition diverges from the tracked source. The seed's
+    V7 loop was `ON CONFLICT DO NOTHING`, so it could not reconcile the drift, and its strict
+    published-template assertion aborted startup. A **fresh** DB was unaffected only by ordering
+    luck: migrations run before the seed, so the legacy rows do not yet exist and the
+    `INSERT … SELECT` matches nothing, leaving the seed's own correct value in place — which is
+    why `seedMasterServiceReport.integration.test.ts` passed while
+    `v7DetectorStateMigration.integration.test.ts` (which seeds an old catalog first) was long red.
+  - **Fix (`apps/api/src/db/seedMasterServiceReport.ts`).** Re-homed V7 definition publication
+    into the seed: the V7 system loop is now
+    `ON CONFLICT (template_version_id, system_key) DO UPDATE SET display_name, sort_order,
+    definition_status, definition = EXCLUDED.*`, guarded by an `IS DISTINCT FROM` `WHERE` so an
+    already-consistent reseed writes zero rows. The seed runs last in `runMigrations`, so it is
+    the single source of truth: whatever `021`–`026` leave behind, the next boot reconciles the
+    stored V7 rows to `masterServiceReportV7.ts` — the "automatic re-heal for a drifted stored
+    V7 definition" P0-M1 deliberately did not wire in. V1–V6 loops stay `DO NOTHING` (never
+    migration-written). **No migration edited**, no new table, no runtime DB touched.
+  - **Proof.** `v7DetectorStateMigration.integration.test.ts` and
+    `seedMasterServiceReport.integration.test.ts` — both previously red — now green. New
+    `migrationReplayForwardOnly.integration.test.ts` case *"heals a drifted V7 system definition
+    (023/024 legacy-source drift) on replay"*: fresh migrate → downgrade `807.automatic_sprinkler`
+    / `807.dry_wet_riser` to the pre-four-state shape → `runMigrations` again → completes clean,
+    both rows healed to the tracked definition, third run idempotent. Proven to fail against the
+    pre-`DO UPDATE` seed with the exact deployed crash message. Full V7 integration set + P0-M1
+    replay cover: **83 tests, 0 skipped** (was 81). API + web `typecheck` / `build`,
+    `test:historical-matrix` (20), `test:v6-evidence` (9), `test:v7-stale-evidence` (1),
+    `seedMasterServiceReport.integration` + `managerCustomers.integration` (2) all green.
+  - **Not addressed (deliberate).** The migration `INSERT … SELECT` transforms in `023`/`024`
+    are left as-is — with the seed now authoritative they are best-effort initial publishers and
+    their output is reconciled on the same boot; rewriting frozen migrations to match the TS
+    exactly is unnecessary and higher-risk. If a future change wants the migrations themselves
+    correct (e.g. to drop the seed dependency), that is a separate task.
+  - **Owner:** commit (proposed
+    `fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`),
+    then on the deployed host `docker compose build api && docker compose up -d` again — this
+    time migrations **and** seed should complete and `inspection_pwa-api-1` should reach `Up`.
 
 - 2026-09-06 — **Owner decision: the Fire Intercom per-row `remarks` column is KEPT.** Resolves
   the STEP 2.3-remediation owner-override flag below. Rationale: `remarks` is part of the frozen

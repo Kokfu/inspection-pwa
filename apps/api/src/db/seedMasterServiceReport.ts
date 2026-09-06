@@ -441,8 +441,27 @@ async function seedTemplate(client: PoolClient) {
 
   await insertFixture("Published Master V7 template", client.query(`INSERT INTO master_service_report_templates (id, code, name, version, selection_policy, header_definition, report_boilerplate, publication_status) VALUES ($1,$2,$3,$4,$5,$6,$7,'published') ON CONFLICT (id) DO NOTHING`, [masterServiceReportV7.id, masterServiceReportV7.code, masterServiceReportV7.name, masterServiceReportV7.version, masterServiceReportV7.selectionPolicy, JSON.stringify(masterServiceReportV7.header), JSON.stringify(masterServiceReportV7.reportBoilerplate)]));
   await assertPublishedMasterServiceReportTemplateMetadata(client, "Published Master V7", masterServiceReportV7);
+  // V7 is the one template whose published system definitions are also written
+  // by migrations (021-026 `INSERT ... SELECT` from the V1/V2 legacy rows). Those
+  // migrations replay on every startup and can leave a stored definition that no
+  // longer matches `masterServiceReportV7.ts` after a later TS-only edit (the
+  // `023`/`024` legacy-source drift). The seed is the single source of truth, so
+  // it reconciles rather than `DO NOTHING`: `DO UPDATE` re-heals a drifted row to
+  // the tracked definition on the next boot. The `WHERE` keeps an in-sync reseed a
+  // true no-op. Older templates (V1-V6) are never migration-written and stay
+  // `DO NOTHING`.
   for (const system of masterServiceReportV7.systems) await client.query(
-    `INSERT INTO master_service_report_systems (template_version_id, system_key, display_name, sort_order, definition_status, definition) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (template_version_id, system_key) DO NOTHING`,
+    `INSERT INTO master_service_report_systems (template_version_id, system_key, display_name, sort_order, definition_status, definition)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (template_version_id, system_key) DO UPDATE
+       SET display_name = EXCLUDED.display_name,
+           sort_order = EXCLUDED.sort_order,
+           definition_status = EXCLUDED.definition_status,
+           definition = EXCLUDED.definition
+     WHERE master_service_report_systems.display_name IS DISTINCT FROM EXCLUDED.display_name
+        OR master_service_report_systems.sort_order IS DISTINCT FROM EXCLUDED.sort_order
+        OR master_service_report_systems.definition_status IS DISTINCT FROM EXCLUDED.definition_status
+        OR master_service_report_systems.definition IS DISTINCT FROM EXCLUDED.definition`,
     [masterServiceReportV7.id, system.key, system.displayName, system.sortOrder, system.definitionStatus, JSON.stringify(system)]
   );
   await assertPublishedMasterServiceReportTemplate(client, "Published Master V7", masterServiceReportV7);

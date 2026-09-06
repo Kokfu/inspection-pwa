@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 import { runMigrations } from "./migrations.js";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
 
 // P0-M1 regression cover. The runner replays every migration on each startup.
 // Migrations 018 and 021-026 DROP then re-ADD the shared evidence CHECK
@@ -283,6 +284,78 @@ test(
         "SELECT system_key FROM inspection_evidence_reservations ORDER BY system_key"
       );
       assert.deepEqual(survivors.rows.map((row) => row.system_key), ["fire_intercom"]);
+    });
+  }
+);
+
+// Companion to the CHECK-constraint cases above: the 023/024 legacy-source
+// drift. Migrations 021-026 publish the V7 system definitions with
+// `INSERT ... SELECT` from the V1/V2 legacy rows and `ON CONFLICT DO UPDATE`,
+// and they replay on every startup. A later edit to `masterServiceReportV7.ts`
+// with no matching migration leaves the migration-computed `automatic_sprinkler`
+// / `dry_wet_riser` definition diverging from the tracked TS source, and the
+// seed's strict published-template assertion then crash-loops the API. The seed
+// re-homes V7 definition publication (`DO UPDATE`, not `DO NOTHING`), so the
+// canonical definition is restored on the next boot.
+const downgradeFourStateControls = (value: unknown): unknown => Array.isArray(value)
+  ? value.map(downgradeFourStateControls)
+  : value && typeof value === "object"
+    ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+      key,
+      key === "allowedValues" && (value as Record<string, unknown>).control === "good_poor"
+        ? ["good", "poor"]
+        : downgradeFourStateControls(child)
+    ]))
+    : value;
+
+test(
+  "runMigrations heals a drifted V7 system definition (023/024 legacy-source drift) on replay",
+  { skip: !databaseUrl },
+  async () => {
+    await withDisposableDatabase(async (database) => {
+      await runMigrations(database);
+
+      // Simulate the deployed precondition: an earlier TS revision published a
+      // two-state `automatic_sprinkler` / `dry_wet_riser` before the four-state
+      // model landed, and the migration `INSERT ... SELECT` replay cannot rebuild
+      // the current shape from the frozen legacy rows.
+      const drifted = ["automatic_sprinkler", "dry_wet_riser"] as const;
+      for (const key of drifted) {
+        const system = masterServiceReportV7.systems.find((candidate) => candidate.key === key);
+        assert.ok(system, `${key} is a tracked V7 system`);
+        await database.query(
+          `UPDATE master_service_report_systems SET definition = $3::jsonb
+           WHERE template_version_id = $1 AND system_key = $2`,
+          [masterServiceReportV7.id, key, JSON.stringify(downgradeFourStateControls(system))]
+        );
+      }
+
+      // Second startup on the SAME database. Pre-fix the seed's
+      // `assertPublishedMasterServiceReportTemplate` threw here (the drifted rows
+      // survived its `ON CONFLICT DO NOTHING`).
+      await runMigrations(database);
+
+      const stored = await database.query<{ system_key: string; definition: unknown }>(
+        `SELECT system_key, definition FROM master_service_report_systems
+         WHERE template_version_id = $1 AND system_key = ANY($2::text[])
+         ORDER BY system_key`,
+        [masterServiceReportV7.id, [...drifted]]
+      );
+      assert.deepEqual(
+        stored.rows.map((row) => row.system_key),
+        ["automatic_sprinkler", "dry_wet_riser"]
+      );
+      for (const row of stored.rows) {
+        const expected = masterServiceReportV7.systems.find((candidate) => candidate.key === row.system_key);
+        assert.deepEqual(
+          row.definition,
+          JSON.parse(JSON.stringify(expected)),
+          `${row.system_key} is healed back to the tracked V7 definition`
+        );
+      }
+
+      // Idempotent: a third startup on the now-consistent database is a no-op.
+      await runMigrations(database);
     });
   }
 );
