@@ -1,6 +1,7 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
+import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
 import {
   AttachmentUploadError,
   uploadInspectionAttachment,
@@ -92,6 +93,14 @@ async function v6FormReady(item: SyncOutboxItem) {
 async function v7FormReady(item: SyncOutboxItem) {
   const isV7MasterSystemInspectionOutboxItem = item.entityType === "masterSystemInspection" && typeof item.payload === "object" && item.payload !== null && (["hydrant", "hose_reel", "automatic_sprinkler", "dry_wet_riser", "smoke_ventilation", "fire_intercom"] as const).some((systemKey) => (item.payload as { systemKey?: unknown }).systemKey === systemKey);
   if ((item.entityType !== "masterSystemFormInstance" && !isFireAlarmOutboxItem(item) && !isV7MasterSystemInspectionOutboxItem) || !Array.isArray((item.payload as { evidenceManifest?: unknown }).evidenceManifest)) return true;
+  // A V6 Fire Alarm parent carries a V6 evidence manifest whose staged photos are
+  // protocolVersion 6; its readiness is v6FormReady's responsibility. It must never
+  // reach the protocolVersion-7 manifest gate below, which would hold it in Pending
+  // forever. V6-ness is read from the frozen template identity, not a version guess.
+  if (isFireAlarmOutboxItem(item)) {
+    const masterTemplate = (item.payload as { masterTemplate?: { id: string; code: string; version: number } }).masterTemplate;
+    if (masterTemplate && fireAlarmClientDispatch(masterTemplate) === "v6") return true;
+  }
   const manifest = (item.payload as { evidenceManifest: Array<{ photoUuid?: unknown; fieldPath?: unknown; sourceSha256?: unknown }> }).evidenceManifest;
   for (const entry of manifest) { if (typeof entry.photoUuid !== "string") return false; const attachment = await localDatabase.inspectionAttachments.get(entry.photoUuid); if (!attachment || attachment.protocolVersion !== 7 || attachment.syncStatus !== "Synced" || attachment.fieldPath !== entry.fieldPath || attachment.sha256 !== entry.sourceSha256) return false; }
   return true;

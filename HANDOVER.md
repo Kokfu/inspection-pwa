@@ -624,7 +624,20 @@ Roller Shutter have no implementation yet.
 
 ## 7. Change log
 
-- 2026-09-07 — Web harness cleanup: retired the rotted CO2/Wet Chemical V7 and Fire Alarm V6 offline orphan harnesses; the consolidated cross-instance gate remains under review for restored transient-stage retry ordering.
+- 2026-09-07 — Web harness cleanup + V6 Fire Alarm client-sync fix. Retired the rotted
+  CO2/Wet Chemical V7 and Fire Alarm V6 offline orphan harnesses. **Fixed:** `v7FormReady`
+  in `apps/web/src/sync/syncEngine.ts` subjected any Fire Alarm outbox item carrying an
+  `evidenceManifest` to the `protocolVersion === 7` gate — `isFireAlarmOutboxItem` matches
+  on `systemKey` only — so a V6 Fire Alarm parent with a finding (V6 staged evidence is
+  `protocolVersion: 6`) failed the gate permanently and stuck at Pending across every
+  `syncPendingRecords()`. It now reads the frozen `masterTemplate` identity via
+  `fireAlarmClientDispatch` and returns ready for a V6 parent, leaving readiness to
+  `v6FormReady`; the V7 gate is unchanged for every V7 system. **Gate added:**
+  `v6TransientRetry` in `apps/web/tests/fire-alarm-client-dispatch.html` — two Poor findings,
+  a transient TypeError on the 2nd `/api/v6-evidence/stage` call blocks acceptance and holds
+  the record Pending with the parent payload frozen; the retry stages the remaining photo
+  then POSTs the byte-identical frozen payload to `/api/sync` last, and the record reaches
+  Synced.
 
 - 2026-09-06 — **RELEASE BLOCKER P0-M1 CLOSED — the `023`/`024` legacy-source drift fixed and
   the deployed API back up.** Drift fix committed `07a859b`; P0-M1 replay fix `4eee41e`. Deployed

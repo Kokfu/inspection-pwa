@@ -7,6 +7,7 @@ import { getPublishedFireAlarmDefinition, resolveFireAlarmVisibleLabels } from "
 import { getFireAlarmInspection, getOrCreateFireAlarmInspection, saveFireAlarmDraft, submitFireAlarmLocal } from "/src/fireAlarm/fireAlarmRepository.ts";
 import { saveFireAlarmV6Photo } from "/src/fireAlarm/fireAlarmV6Evidence.ts";
 import { fireAlarmClientDispatch } from "/src/referenceData/systemContractCompatibility.ts";
+import { syncPendingRecords } from "/src/sync/syncEngine.ts";
 
 const output=document.querySelector("#result"), checks=[];
 const check=(name,passed)=>checks.push({name,passed:Boolean(passed)});
@@ -16,6 +17,73 @@ const fixture=(version)=>{const jobId=crypto.randomUUID(),systemId=crypto.random
 const complete=(record,poorBattery=false)=>{const responses=structuredClone(record.responses);responses.controlPanelLocation="Panel Room";for(const row of responses.primaryDeviceRows)Object.assign(row,{manualCallPoint:"normal",flowSwitch:"normal",heatDetector:"normal",smokeDetector:"normal"});for(const field of Object.values(responses.chargerAndBatteries))Object.assign(field,{result:"good",remarks:""});for(const field of Object.values(responses.mainFunctionKeys))Object.assign(field,{result:"good",remarks:""});if(poorBattery)responses.chargerAndBatteries.battery={result:"poor",remarks:"Battery failed"};for(const row of responses.secondaryAlarmDeviceRows)Object.assign(row,{alarmBell:"good",manualCallPoint:"good",remarks:"",...(responses.schemaVersion===2?{fieldRemarks:{}}:{})});return responses;};
 async function historical(version){const f=fixture(version),draft=await getOrCreateFireAlarmInspection(f.job,f.system,f.catalog),saved=await saveFireAlarmDraft(draft,complete(draft)),reopened=await getFireAlarmInspection(saved.jobSystemKey),notRelevant=complete(reopened);notRelevant.chargerAndBatteries.battery.result="not_relevant";let rejected=false;try{await saveFireAlarmDraft(reopened,notRelevant);}catch{rejected=true;}const submitted=await submitFireAlarmLocal(reopened,complete(reopened)),outbox=await localDatabase.syncOutbox.where("entityId").equals(submitted.clientUuid).first();check(`V${version} creates, saves and reopens the legacy Draft`,saved.responses.schemaVersion===1&&reopened?.responses.schemaVersion===1&&reopened?.responses.secondaryAlarmDeviceRows.every(row=>row.fieldRemarks===undefined));check(`V${version} rejects Not Relevant and queues the historical form payload without V6 evidence`,rejected&&submitted.syncStatus==="Pending"&&outbox?.payload?.responses?.schemaVersion===1&&!("evidenceManifest" in outbox.payload));}
 async function v6(){const f=fixture(6),labels=resolveFireAlarmVisibleLabels(f.catalog.templates[0].systems[0].definition,6),draft=await getOrCreateFireAlarmInspection(f.job,f.system,f.catalog),saved=await saveFireAlarmDraft(draft,complete(draft,true)),reopened=await getFireAlarmInspection(saved.jobSystemKey);await saveFireAlarmV6Photo({record:reopened,fieldPath:"charger_batteries.charger_battery_checks.battery",captureSource:"camera",blob:new Blob(["x"],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:"a".repeat(64)});const submitted=await submitFireAlarmLocal(reopened,complete(reopened,true)),outbox=(await localDatabase.syncOutbox.toArray()).filter(item=>item.entityId===submitted.clientUuid||item.entityType==="v6StagedEvidence"&&item.payload.inspectionClientUuid===submitted.clientUuid),form=outbox.find(item=>item.entityType==="masterSystemInspection");check("V6 renders its exact frozen labels without V3 parser fallback",labels.primaryRows==="Zone and Device Rows"&&labels.secondaryRows==="Alarm Bell and Manual Call Point Rows");check("V6 creates, saves and reopens the evidence-first Draft",saved.responses.schemaVersion===2&&reopened?.responses.schemaVersion===2&&reopened?.responses.secondaryAlarmDeviceRows.every(row=>typeof row.fieldRemarks==="object"));check("V6 queues staged evidence before the form payload",submitted.syncStatus==="Pending"&&outbox.length===2&&outbox.some(item=>item.entityType==="v6StagedEvidence")&&form?.payload?.evidenceManifest?.length===1);}
+// V6 Fire Alarm with a finding must sync end-to-end even when a stage call fails
+// transiently: v7FormReady must not subject a V6 parent to the protocolVersion-7
+// manifest gate, and the frozen parent payload must be what reaches /api/sync.
+async function v6TransientRetry(){
+  await localDatabase.syncOutbox.clear();
+  await localDatabase.masterSystemInspections.clear();
+  await localDatabase.inspectionAttachments.clear();
+  const f=fixture(6);
+  const draft=await getOrCreateFireAlarmInspection(f.job,f.system,f.catalog);
+  const draftResponses=complete(draft);
+  draftResponses.chargerAndBatteries.battery={result:"poor",remarks:"Battery bank below float voltage"};
+  draftResponses.chargerAndBatteries.main_supply={result:"poor",remarks:"Main supply breaker tripped on test"};
+  await saveFireAlarmDraft(draft,draftResponses);
+  const reopened=await getFireAlarmInspection(draft.jobSystemKey);
+  const blob=()=>new Blob(["x"],{type:"image/jpeg"});
+  await saveFireAlarmV6Photo({record:reopened,fieldPath:"charger_batteries.charger_battery_checks.battery",captureSource:"camera",blob:blob(),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:"b".repeat(64)});
+  await saveFireAlarmV6Photo({record:reopened,fieldPath:"charger_batteries.charger_battery_checks.main_supply",captureSource:"camera",blob:blob(),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:"c".repeat(64)});
+  const submitResponses=complete(reopened);
+  submitResponses.chargerAndBatteries.battery={result:"poor",remarks:"Battery bank below float voltage"};
+  submitResponses.chargerAndBatteries.main_supply={result:"poor",remarks:"Main supply breaker tripped on test"};
+  const submitted=await submitFireAlarmLocal(reopened,submitResponses);
+  const outbox=await localDatabase.syncOutbox.toArray();
+  const parentOutbox=outbox.find(item=>item.entityType==="masterSystemInspection"&&item.entityId===submitted.clientUuid);
+  const stagedItems=outbox.filter(item=>item.entityType==="v6StagedEvidence"&&item.payload.inspectionClientUuid===submitted.clientUuid);
+  check("V6 finding submit freezes Pending with two staged-evidence items and a two-entry manifest",
+    submitted.syncStatus==="Pending"&&stagedItems.length===2&&parentOutbox?.payload?.evidenceManifest?.length===2);
+  const frozenPayload=JSON.stringify(parentOutbox.payload);
+  const liveRow=await localDatabase.masterSystemInspections.get(submitted.clientUuid);
+  await localDatabase.masterSystemInspections.update(submitted.clientUuid,{responses:{...liveRow.responses,comments:"DRIFTED AFTER FREEZE"}});
+
+  const originalFetch=window.fetch;
+  let stageCalls=0,acceptCalls=0,callLog=[],lastSyncBody=null,failStage=true;
+  window.fetch=async(input,init)=>{
+    const url=typeof input==="string"?input:input.url;
+    if(url.includes("/api/v6-evidence/stage")){
+      stageCalls+=1;callLog.push("stage");
+      if(failStage&&stageCalls===2)throw new TypeError("Failed to fetch");
+      const body=init.body;
+      return new Response(JSON.stringify({outcome:"staged",photoUuid:body.get("photoUuid"),fieldPath:body.get("fieldPath"),sourceSha256:body.get("sha256"),storedSha256:"stored-"+body.get("sha256")}),{status:200,headers:{"Content-Type":"application/json"}});
+    }
+    if(url.includes("/api/sync")){
+      acceptCalls+=1;callLog.push("accept");lastSyncBody=JSON.parse(init.body);
+      return new Response(JSON.stringify({acceptedIds:lastSyncBody.items.map(item=>item.entityId),duplicateIds:[],failed:[]}),{status:200,headers:{"Content-Type":"application/json"}});
+    }
+    return originalFetch(input,init);
+  };
+  try{
+    await syncPendingRecords();
+    const afterFirst=await localDatabase.masterSystemInspections.get(submitted.clientUuid);
+    const photosAfterFirst=await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(submitted.clientUuid).toArray();
+    const parentAfterFirst=(await localDatabase.syncOutbox.toArray()).find(item=>item.entityType==="masterSystemInspection"&&item.entityId===submitted.clientUuid);
+    check("a transient V6 stage failure blocks acceptance, holds the record Pending and freezes the parent payload",
+      acceptCalls===0&&stageCalls===2&&afterFirst.syncStatus==="Pending"
+      &&photosAfterFirst.filter(photo=>photo.syncStatus==="Synced").length===1
+      &&JSON.stringify(parentAfterFirst.payload)===frozenPayload);
+
+    failStage=false;stageCalls=0;acceptCalls=0;callLog=[];
+    await syncPendingRecords();
+    await syncPendingRecords();
+    const afterRetry=await localDatabase.masterSystemInspections.get(submitted.clientUuid);
+    const syncPayloadForParent=lastSyncBody?.items.find(item=>item.entityType==="masterSystemInspection"&&item.entityId===submitted.clientUuid);
+    check("retry stages the one remaining V6 photo then accepts the frozen parent last, exactly once each",
+      stageCalls===1&&acceptCalls===1&&callLog[callLog.length-1]==="accept"
+      &&!!syncPayloadForParent&&JSON.stringify(syncPayloadForParent.payload)===frozenPayload
+      &&afterRetry.syncStatus==="Synced");
+  }finally{window.fetch=originalFetch;}
+}
 async function negative(){const v3={id:templateIds[3],code:"MFE-FSSR",version:3};check("wrong Fire Alarm code, id and version never fall back",fireAlarmClientDispatch({...v3,code:"OTHER"})===undefined&&fireAlarmClientDispatch({...v3,id:crypto.randomUUID()})===undefined&&fireAlarmClientDispatch({...v3,version:6})===undefined);check("V1 and V2 are not silently routed through the V3 client contract",fireAlarmClientDispatch({id:"00000000-0000-4000-8000-000000000501",code:"MFE-FSSR",version:1})===undefined&&fireAlarmClientDispatch({id:"00000000-0000-4000-8000-000000000802",code:"MFE-FSSR",version:2})===undefined);const f=fixture(3);f.catalog.templates[0].systems[0].definition={};let rejected=false;try{await getOrCreateFireAlarmInspection(f.job,f.system,f.catalog);}catch{rejected=true;}check("malformed Fire Alarm contract payload fails closed",rejected);}
-document.querySelector("#run").onclick=async()=>{try{await localDatabase.open();await historical(3);await historical(4);await historical(5);await v6();await negative();output.textContent=JSON.stringify({status:checks.every(check=>check.passed)?"PASS":"FAIL",checks});}catch(error){output.textContent=JSON.stringify({status:"ERROR",message:error?.stack??String(error),checks});}};
+document.querySelector("#run").onclick=async()=>{try{await localDatabase.open();await historical(3);await historical(4);await historical(5);await v6();await v6TransientRetry();await negative();output.textContent=JSON.stringify({status:checks.every(check=>check.passed)?"PASS":"FAIL",checks});}catch(error){output.textContent=JSON.stringify({status:"ERROR",message:error?.stack??String(error),checks});}};
 </script></body></html>
