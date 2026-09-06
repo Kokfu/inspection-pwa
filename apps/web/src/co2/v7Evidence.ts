@@ -73,8 +73,9 @@ const siblingFindingPhotos = (siblings: readonly V7SiblingEvidence[]) =>
 
 /** G9: server evidence uniqueness is `jobId + systemKey`, but one Job can hold
  * several location-instances of one system.  The in-instance guard above cannot
- * see them, so the same photo on two locations only failed at acceptance with a
- * retryable EVIDENCE_CONFLICT the outbox can never clear. */
+ * see them, so the same photo on two locations, before this guard, only failed
+ * at acceptance with a terminal EVIDENCE_CONFLICT / Needs attention the
+ * technician then had to clear by hand. */
 export function crossInstanceV7PhotoIssues(
   attachments: readonly (Pick<InspectionAttachmentRecord, "fieldPath" | "sha256"> & { protocolVersion?: 6 | 7 })[],
   requiredFieldPaths: readonly string[],

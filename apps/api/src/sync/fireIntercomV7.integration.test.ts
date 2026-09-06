@@ -337,7 +337,7 @@ test("Fire Intercom V7 accepts the same image bytes in a different Job", { skip:
 });
 
 // Case 5 — two concurrent acceptances competing for the same image identity in
-// one Job.  Exactly one wins; the loser is a retryable EVIDENCE_CONFLICT, never
+// one Job.  Exactly one wins; the loser is a terminal EVIDENCE_CONFLICT / Needs attention, never
 // a SERVER_ERROR and never a silent second bind.
 test("Fire Intercom V7 concurrent acceptance binds one image once and fails the loser with EVIDENCE_CONFLICT", { skip: !databaseUrl, timeout: 30_000 }, async () => {
   await withV7Database(async (database) => {

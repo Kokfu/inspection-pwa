@@ -151,7 +151,7 @@ export async function acceptFireAlarmV7Inspection(item: SyncItem, actorUserId?: 
     await client.query("COMMIT"); result.acceptedIds.push(payload.clientUuid);
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
-    if (isFireAlarmV7AcceptedEvidenceUniqueViolation(error)) result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location; retry safely"));
+    if (isFireAlarmV7AcceptedEvidenceUniqueViolation(error)) result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location and needs attention"));
     else result.failed.push(fail(payload.clientUuid, "SERVER_ERROR", "Fire Alarm V7 form could not be saved"));
   } finally { client.release(); }
   return result;

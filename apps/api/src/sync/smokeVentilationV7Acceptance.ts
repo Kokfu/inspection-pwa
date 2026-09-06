@@ -239,7 +239,7 @@ export async function acceptSmokeVentilationV7Inspection(item: SyncItem, actorUs
     result.acceptedIds.push(payload.clientUuid);
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
-    if (isSmokeVentilationV7AcceptedEvidenceUniqueViolation(error)) result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location; retry safely"));
+    if (isSmokeVentilationV7AcceptedEvidenceUniqueViolation(error)) result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location and needs attention"));
     else result.failed.push(fail(payload.clientUuid, "SERVER_ERROR", "Smoke Ventilation V7 form could not be saved"));
   } finally { client.release(); }
   return result;

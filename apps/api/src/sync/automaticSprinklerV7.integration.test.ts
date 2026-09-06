@@ -140,7 +140,7 @@ test("Automatic Sprinkler V7 accepts the same image bytes in a different Job", {
   });
 });
 
-test("Automatic Sprinkler V7 concurrent race has one Accepted and one retryable EVIDENCE_CONFLICT", { skip: !databaseUrl, timeout: 30_000 }, async () => {
+test("Automatic Sprinkler V7 concurrent race has one Accepted and one terminal EVIDENCE_CONFLICT / Needs attention", { skip: !databaseUrl, timeout: 30_000 }, async () => {
   await withDatabase(async (database) => {
     const f = await seed(database, "race"), job = await f.job(), source = hash("race-source"), stored = hash("race-stored");
     const contender = async () => {
