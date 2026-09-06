@@ -3,14 +3,12 @@
 // Job + systemKey: refused across two locations of one system in one Job, still
 // allowed for a different system key in the same Job and for a different Job.
 //
-// The checks below assert the *decision* (capture guard throw + the issue list
-// that submitLocalCo2 gates on) rather than a successful Pending submission,
-// because a separate pre-existing defect makes any V7 suppression draft
-// unsubmittable: canonicalV7DetectorStates (co2Repository.ts) returns
-// `control.options.filter(...)` — ResultOptionDefinition objects — where
-// isCanonicalDetectorStates requires a string[], so every saved V7 draft trips
-// "select at least one Normal/Test/Isolation".  That is out of scope here and is
-// asserted explicitly at the end so this harness fails loudly once it is fixed.
+// The checks assert the decision (capture guard throw + the issue list
+// submitLocalCo2 gates on) and, once a clean distinct-photo draft is prepared,
+// a real Pending submission with an evidence-first outbox.  (Until 0aae10b
+// canonicalV7DetectorStates returned option objects instead of string[], so a
+// V7 draft could not submit at all and this harness could only assert the gate;
+// that is fixed and the final check now proves the whole path.)
 import {localDatabase} from "/src/db/localDatabase.ts";
 import {initializeCo2InspectionGroup,saveCo2Draft,submitLocalCo2,getCo2SubmitIssues} from "/src/co2/co2Repository.ts";
 import {saveV7SuppressionPhoto,listV7SuppressionPhotos,collectV7SiblingEvidence,v7SubmissionIssues} from "/src/co2/v7Evidence.ts";
@@ -112,9 +110,14 @@ document.querySelector("#run").onclick=async()=>{try{
  const otherError=await threw(()=>photo(otherDraft,SHARED));
  check("the same bytes in a different Job may still be used",otherError===""&&(await evidenceIssues(otherDraft)).length===0,{otherError,issues:await evidenceIssues(otherDraft)});
 
- // Guard on the out-of-scope defect this harness routes around (see header).
- check("PRE-EXISTING (out of scope): canonicalV7DetectorStates corrupts detector states, blocking every V7 submission",
-  (await detectorIssues(b)).some(i=>/Normal\/Test\/Isolation/.test(i)),await detectorIssues(b));
+ // b now carries exactly one finding (main_supply not_good) with its own remark
+ // and one distinct photo ("b" bytes), so the full submit path must reach
+ // Pending and queue evidence-first (the parent form + its one staged photo).
+ const bPending=await submitLocalCo2(b,b.responses);
+ const bQueued=await localDatabase.syncOutbox.count();
+ check("a complete distinct-photo cross-instance draft submits to Pending with an evidence-first outbox",
+  bPending.syncStatus==="Pending"&&(await detectorIssues(b)).length===0&&bQueued>=2,
+  {syncStatus:bPending?.syncStatus,queued:bQueued,detectorIssues:await detectorIssues(b)});
 
  out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checks},null,1);
 }catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks},null,1)}};
