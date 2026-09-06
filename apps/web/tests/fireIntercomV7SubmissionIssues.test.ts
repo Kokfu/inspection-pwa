@@ -93,7 +93,7 @@ test("an empty Station Schedule is refused by the structural gate", () => {
 const configuredLocationId = "00000000-0000-4000-8000-0000000000aa";
 const configuredRecord = {
   masterTemplate: { version: 7 },
-  inspectionSnapshot: { system: { definition, locations: [{ id: configuredLocationId, presetRowCount: 2, displayName: "Grd Floor", rowPreset: { assetReference: "Grd Floor" } }] } }
+  inspectionSnapshot: { system: { definition, locations: [{ id: configuredLocationId, presetRowCount: 2, displayName: "Grd Floor", rowPreset: { assetReference: "Grd Floor" }, sortOrder: 1 }] } }
 } as unknown as FireIntercomInspectionRecord;
 const configuredRow = (ordinal: number, sortOrder: number) => ({
   rowUuid: `00000000-0000-4000-8000-000000000b0${ordinal}`, source: "configured" as const,
@@ -138,4 +138,70 @@ test("the Fire Intercom result control is four-state, under the Hokuden legend",
   const rows = resolveFireIntercomRowResultDefinitions(definition)!;
   assert.ok(rows);
   assert.deepEqual(rows.conditionResult.options.map((option) => option.value), ["good", "not_good", "complete_repair", "na"]);
+});
+
+// Sol P1 — the client gate was a strict subset of the server predicate, so the
+// browser queued records `configuredFireIntercomRowsMatch` / `validResponses`
+// refuse non-retryably. Each case below is one of the demonstrated escapes.
+const twoLocationRecord = (locations: Array<{ id: string; displayName: string; presetRowCount: number; assetReference: string; sortOrder: number }>) => ({
+  masterTemplate: { version: 7 },
+  inspectionSnapshot: { system: { definition, locations: locations.map((l) => ({ id: l.id, displayName: l.displayName, presetRowCount: l.presetRowCount, rowPreset: { assetReference: l.assetReference }, sortOrder: l.sortOrder })) } }
+} as unknown as FireIntercomInspectionRecord);
+const locA = { id: "00000000-0000-4000-8000-0000000000a1", displayName: "Grd Floor", presetRowCount: 1, assetReference: "Grd Floor", sortOrder: 1 };
+const locB = { id: "00000000-0000-4000-8000-0000000000b1", displayName: "Basement", presetRowCount: 1, assetReference: "Basement", sortOrder: 2 };
+const rowFor = (loc: typeof locA, sortOrder: number, overrides: Record<string, unknown> = {}) => ({
+  rowUuid: `00000000-0000-4000-8000-0000000000d${sortOrder}`, source: "configured" as const,
+  configuredLocationId: loc.id, configuredRowOrdinal: 1, zoneSnapshot: null,
+  locationSnapshot: { id: loc.id, displayName: loc.displayName },
+  assetReference: loc.assetReference, conditionResult: "good" as const,
+  remarks: "", fieldRemarks: {}, sortOrder, ...overrides
+}) as unknown as FireIntercomResponses["rows"][number];
+
+test("configured rows out of frozen sortOrder order are refused by the client gate", () => {
+  // The frozen snapshot arrives with B before A in array order; the server
+  // derives A(1) then B(2) from location.sortOrder. Submitting B first must fail.
+  const record = twoLocationRecord([locB, locA]);
+  const issues = submitIssues(record, responses({ rows: [rowFor(locB, 1), rowFor(locA, 2)] }), []);
+  assert.ok(issues.some((issue) => /order does not match the frozen configuration/.test(issue)), JSON.stringify(issues));
+  // …and the correctly-ordered payload passes.
+  assert.deepEqual(submitIssues(record, responses({ rows: [rowFor(locA, 1), rowFor(locB, 2)] }), []), []);
+});
+
+test("a fresh Draft is built in frozen sortOrder order even when the snapshot array is not", () => {
+  // Regression for the builder itself: configuredRows() sorted by array order
+  // before this fix, so the Draft it produced could never be submitted.
+  const record = twoLocationRecord([locB, locA]);
+  const expected = record.inspectionSnapshot.system.locations;
+  assert.deepEqual([...expected].sort((l, r) => l.sortOrder - r.sortOrder).map((l) => l.displayName), ["Grd Floor", "Basement"]);
+  assert.deepEqual(submitIssues(record, responses({ rows: [rowFor(locA, 1), rowFor(locB, 2)] }), []), []);
+});
+
+test("a rewritten configured Station label or location snapshot is refused by the client gate", () => {
+  const record = twoLocationRecord([locA]);
+  const relabelled = submitIssues(record, responses({ rows: [rowFor(locA, 1, { assetReference: "Genset" })] }), []);
+  assert.ok(relabelled.some((issue) => /Station label does not match the frozen configuration/.test(issue)), JSON.stringify(relabelled));
+  const resnapshotted = submitIssues(record, responses({ rows: [rowFor(locA, 1, { locationSnapshot: { id: locA.id, displayName: "Somewhere Else" } })] }), []);
+  assert.ok(resnapshotted.some((issue) => /location snapshot does not match the frozen configuration/.test(issue)), JSON.stringify(resnapshotted));
+});
+
+test("a configured row placed after a technician row is refused by the client gate", () => {
+  const record = twoLocationRecord([locA]);
+  const technician = { ...stationRow(rowB, 1), sortOrder: 1 };
+  const issues = submitIssues(record, responses({ rows: [technician, rowFor(locA, 2)] }), []);
+  assert.ok(issues.some((issue) => /must come before technician rows/.test(issue)), JSON.stringify(issues));
+});
+
+test("the 251st Station row is refused by the client gate, matching the server cap", () => {
+  const rows = Array.from({ length: 251 }, (_, index) => ({
+    ...stationRow(`00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, index + 1)
+  }));
+  const issues = submitIssues(record, responses({ rows }), []);
+  assert.ok(issues.some((issue) => /cannot have more than 250 Station rows/.test(issue)), JSON.stringify(issues));
+  // 250 is still fine.
+  assert.deepEqual(submitIssues(record, responses({ rows: rows.slice(0, 250) }), []), []);
+});
+
+test("a duplicate rowUuid is refused by the client gate", () => {
+  const issues = submitIssues(record, responses({ rows: [stationRow(rowA, 1), stationRow(rowA, 2)] }), []);
+  assert.ok(issues.some((issue) => /Station row identity is invalid/.test(issue)), JSON.stringify(issues));
 });

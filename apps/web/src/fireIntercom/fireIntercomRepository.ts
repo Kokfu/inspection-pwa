@@ -12,11 +12,29 @@ import type {
 import { listFireIntercomV7Photos, v7FireIntercomEvidenceOutbox, v7FireIntercomManifest, v7FireIntercomSubmissionIssues } from "./fireIntercomV7Evidence";
 
 const key = "fire_intercom" as const;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const now = () => new Date().toISOString();
+
+/** Mirrors `expectedConfiguredFireIntercomRows` in
+ * `apps/api/src/sync/fireIntercomInspectionSync.ts` exactly. The server derives
+ * the authoritative row order from `location.sortOrder`, NOT from the array
+ * order of `system.locations`, so this must sort too - otherwise a snapshot
+ * that happens to arrive out of order builds a Draft the server refuses
+ * non-retryably. */
+function expectedConfiguredRows(system: JobSystemSnapshot) {
+  const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string }> = [];
+  for (const location of [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder)) {
+    const assetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
+    for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
+      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference, displayName: location.displayName });
+    }
+  }
+  return expected;
+}
 
 function configuredRows(system: JobSystemSnapshot): FireIntercomRow[] {
   let count = 0;
-  return system.locations.flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
+  return [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder).flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
     rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
     zoneSnapshot: null,
     locationSnapshot: { id: location.id, displayName: location.displayName },
@@ -44,18 +62,46 @@ export async function getOrCreateFireIntercomInspection(job: InspectionJob, syst
   return record;
 }
 
+/** This gate must be at least as strict as the server's
+ * `configuredFireIntercomRowsMatch` + `validResponses` pair. Anything the
+ * browser lets through that the server refuses becomes a Pending record
+ * stranded behind an impossible acceptance - offline that is unrecoverable
+ * field data loss, so the checks below are deliberately duplicated rather
+ * than trusted to the server. */
 function structuralSubmitIssues(record: FireIntercomInspectionRecord, responses: FireIntercomResponses) {
   const issues: string[] = [];
-  const expected = record.inspectionSnapshot.system.locations.flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => `${location.id}:${index + 1}`));
+  const expected = expectedConfiguredRows(record.inspectionSnapshot.system);
+  const expectedByIdentity = new Map(expected.map((row) => [`${row.locationId}:${row.ordinal}`, row]));
   const seen = new Set<string>();
+  const rowUuids = new Set<string>();
+  let technicianRowsStarted = false;
   if (!responses.rows.length) issues.push("At least one Station row is required");
+  // The server caps the table at 250 rows (`validResponses`); refuse the 251st
+  // here rather than queueing a record it will reject.
+  if (responses.rows.length > 250) issues.push("A Fire Intercom inspection cannot have more than 250 Station rows");
   responses.rows.forEach((row, index) => {
-    if (!row.rowUuid || row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.remarks.length > 2000) issues.push("Station row is invalid");
+    if (!row.rowUuid || !uuid.test(row.rowUuid) || rowUuids.has(row.rowUuid)) issues.push("Station row identity is invalid");
+    rowUuids.add(row.rowUuid);
+    if (row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.remarks.length > 2000) issues.push("Station row is invalid");
+    if (Object.values(row.fieldRemarks ?? {}).some((value) => typeof value !== "string" || value.length > 2000)) issues.push("Station row field remarks are invalid");
     if (row.source === "configured") {
+      // Configured rows come before technician rows in the server's ordering.
+      if (technicianRowsStarted) issues.push("Configured Station rows must come before technician rows");
       const identity = `${row.configuredLocationId}:${row.configuredRowOrdinal}`;
-      if (!expected.includes(identity) || seen.has(identity)) issues.push("Configured Station row identity is invalid");
+      const authoritative = expectedByIdentity.get(identity);
+      if (!authoritative || seen.has(identity)) issues.push("Configured Station row identity is invalid");
+      else {
+        if (row.sortOrder !== authoritative.sortOrder) issues.push("Configured Station row order does not match the frozen configuration");
+        if (row.assetReference !== authoritative.assetReference) issues.push("Configured Station label does not match the frozen configuration");
+        if (!row.locationSnapshot || Object.keys(row.locationSnapshot).length !== 2
+          || row.locationSnapshot.id !== row.configuredLocationId
+          || row.locationSnapshot.displayName !== authoritative.displayName) issues.push("Configured Station row location snapshot does not match the frozen configuration");
+      }
       seen.add(identity);
-    } else if (row.configuredLocationId !== null || row.configuredRowOrdinal !== null) issues.push("Technician Station row provenance is invalid");
+    } else {
+      technicianRowsStarted = true;
+      if (row.source !== "technician" || row.configuredLocationId !== null || row.configuredRowOrdinal !== null || row.locationSnapshot !== null) issues.push("Technician Station row provenance is invalid");
+    }
   });
   if (seen.size !== expected.length) issues.push("Configured Station rows must be retained");
   if (responses.comments.length > 4000) issues.push("Comments exceed 4000 characters");

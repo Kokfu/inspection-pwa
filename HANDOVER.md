@@ -62,8 +62,11 @@ Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprin
 
 ## 1. One-line status
 
-**3 of 12 services on the V7 evidence model** (Fire Alarm, CO2, Wet Chemical), all committed and
-browser-proven through the full offline→sync→Accepted→PDF workflow. Result model is now
+**10 of 12 services on the V7 evidence model** — 9 with a full evidence workflow (Fire Alarm, CO2,
+Wet Chemical, Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire
+Intercom), plus Portable Fire Extinguisher (registration-only by design, C4). All committed and
+browser-proven through the full offline→sync→Accepted→PDF workflow. **Release blocked by P0-M1
+(§4) — the runtime API is in a migration restart loop.** Result model is now
 **4-state** (Hokuden legend: `good` / `not_good` / `complete_repair` / `na`); validators are
 per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
 Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
@@ -198,6 +201,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
+| **P0-M1** | **RELEASE BLOCKER — the runtime API cannot start; migration 018 is replayed and NARROWS the two evidence `system_key` CHECK constraints back to Fire Alarm / CO2 / Wet Chemical.** `runMigrations` replays every migration unconditionally, in order: `018` (3-key CHECK) runs at `migrations.ts:288`, and only then do `021`–`026` re-widen it. `ALTER TABLE … ADD CONSTRAINT … CHECK` validates existing rows, so on any database that already holds a reservation for a later V7 system (`hydrant`, `hose_reel`, `automatic_sprinkler`, `dry_wet_riser`, `smoke_ventilation`, `fire_intercom`) migration 018's own `ADD` raises `23514` and startup aborts before 021 is reached. **Pre-existing since `81db211` (STEP 1.1, migration 021 introduced `hydrant`)** — not introduced by STEP 2.3, but it makes migration 026 non-idempotent through the real startup path and it is why the deployed API is down. Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations`. Integration tests never see it because every V7 test starts from `DROP SCHEMA public CASCADE`. | Deployed API never starts. Any restart of an already-deployed runtime is fatal. No technician can sync. | `apps/api/src/db/migrations.ts:288`, `apps/api/migrations/018_v7_shared_staged_evidence.sql:4-13` |
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
 | ~~G4~~ | **CLOSED** (fixed in `ba1fb2a`, confirmed 2026-09-05 — never marked done here until now). `managerCustomers.ts`'s `assertDryWetRiserAssignments` rejects an unconfigured/invalid `dry_wet_riser` assignment at write time (`RISER_MODE_REQUIRED`, no valid `riserMode`); `inspectionReference.ts`'s `usableEnabledSystems` filter additionally excludes any stored riser row that fails `parseDryWetRiserSystemConfiguration` from `GET /customers/:id/configuration`, so a bad row degrades that one system instead of 500ing the whole customer. | — | — |
@@ -458,6 +462,15 @@ field, add integration coverage, re-verify, Sol pass.
       (No. / Location / Auto Alarm Mode / Manual Mode, 45+ rows). **Needs a client-confirmed spec
       first.** + definition + V7 adapter. (~1 w incl. client input)
 
+### RELEASE BLOCKER — P0-M1 migration replay  ← DO FIRST
+- [ ] **Stop `runMigrations` replaying migration 018's narrowing CHECK constraints.** See §4
+      P0-M1. The deployed API cannot start. Pre-existing since `81db211`; needs an owner decision
+      between (a) a migration ledger so applied migrations are skipped, (b) a deliberate one-time
+      correction of the frozen `018` file, or (c) moving the two constraint statements out of the
+      replay path. Whichever is chosen, the proof must include a replay against a database that
+      already holds a `fire_intercom` / `hydrant` reservation — no V7 integration test catches
+      this today because they all start from `DROP SCHEMA public CASCADE`.
+
 ### STEP 3 — Manager administration  (Phase 8H)
 - [ ] 3.1 Manager UI to edit `customer_enabled_systems.system_configuration` per customer (the
       "minor modification per customer" capability) + evidence-policy assignment + service tick-list.
@@ -508,9 +521,54 @@ two are the only ones with no V1–V6 lineage), plus Portable Fire Extinguisher 
 by design (C4), no evidence workflow. Base template ready: 10 / 12. Remaining: **FM200** (stub,
 `requires_confirmation`, blocked on a real client answer) and **Fire Rated Roller Shutter** (no
 template, needs a client-confirmed spec).
-All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
+All 10 implemented services share the 4-state result model, per-field `allowedValues` and the C3
+repeatable-row model; the 9 with an evidence workflow share the V7 staged-evidence authority
+(Portable FE has no Poor-capable field by C4, so it has nothing to hang evidence on). FM200 and
+Roller Shutter have no implementation yet.
 
 ## 7. Change log
+
+- 2026-09-06 — **STEP 2.3 Sol remediation: 2 of 3 P1s and both P2s closed; the P0 is logged as
+  P0-M1 and NOT fixed here.** Sol returned `SAFE TO COMMIT: N` (1 P0, 3 P1).
+  - **P0-M1 — NOT fixed, own task (see §4).** Verified independently: `runMigrations` replays
+    migration 018, whose `ADD CONSTRAINT … CHECK (system_key IN (3 keys))` validates existing
+    rows, so any database holding a later-V7 reservation aborts startup with `23514` before
+    021–026 re-widen. Confirmed live (`inspection_pwa-api-1` = `Restarting (1)`). **Pre-existing
+    since `81db211`**, not introduced by STEP 2.3. Deliberately left alone: every viable fix
+    touches either the frozen `018` file (which the standing rules forbid rewriting once applied)
+    or the runner's execution semantics, and choosing between them is an owner decision, not a
+    remediation-pass side effect.
+  - **P1 (closed) — client submit gate was a strict subset of the server predicate.** Sol's probe
+    (`clientIssues=[]; serverMatch=false`) was reproduced and is now fixed:
+    `fireIntercomRepository.ts` gained `expectedConfiguredRows()`, mirroring
+    `expectedConfiguredFireIntercomRows` exactly, and `structuralSubmitIssues` now enforces the
+    authoritative `location.sortOrder` ordering, configured-before-technician, exact configured
+    `assetReference`, exact `locationSnapshot`, the 250-row cap, and `rowUuid` shape/uniqueness.
+    **`configuredRows()` itself was also wrong** — it built a Draft in `system.locations` array
+    order rather than frozen `sortOrder` order, so an out-of-order snapshot produced a Draft that
+    could never be submitted. Six regression tests added (18 total in the file); a direct probe
+    now reports `AGREE=true` for both the reversed-order and frozen-order payloads, and the 251st
+    row is refused client-side.
+  - **P1 (closed by documentation, flagged for owner override) — the per-row `remarks` column.**
+    Sol is right that this page prints no Remarks column, so it has no source in
+    `docs/paper-forms/fire-intercom.md`. It is not an invention of this task: it was specified in
+    the task brief, and `remarks` is part of the frozen shared repeatable-row envelope every C3
+    service carries. A fourth `confirmationNote` now records exactly that, distinguishes it from
+    the field-owned per-finding remark, and states that dropping the column is safe while Fire
+    Intercom has no accepted data — at the cost of making Fire Intercom the only C3 service that
+    deviates from the shared envelope. **Owner call; the column is retained pending that.**
+  - **P1 (closed) — the standing cold command block.** Corrected, and my earlier claim was wrong:
+    the V6 fixture *does* read `SEED_INTEGRATION_DATABASE_URL`, but an ordinary invocation also
+    needs a reachable `DATABASE_URL` unless `NODE_ENV=test` makes the pool use the SEED URL. The
+    block now starts the container first and sets `NODE_ENV=test` plus both variables before
+    `test:v6-integration`, which then passes (1 test, 0 skipped) rather than skipping.
+  - **P2 (both closed)** — §1 still said "3 of 12 services on the V7 evidence model" and §6a still
+    claimed all 12 share the V7 evidence authority. Both corrected (10 / 12; 9 evidence workflows,
+    Portable FE has no Poor-capable field by C4, FM200 and Roller Shutter unimplemented).
+  - Re-verified after the changes: API typecheck/build, historical matrix 20, V6 evidence 9, Wet
+    Chemical definition 2, adapters+env+compat+accepted-detail 22, V6 integration 1 (0 skipped),
+    **full V7 integration set 76 / 0 skipped from cold with a hostile `DATABASE_URL`**, web
+    typecheck/build, stale-evidence 1, Fire Intercom submit 18, Playwright 1.
 
 - 2026-09-06 — **STEP 2.3 Fire Intercom added as a V7-only system, end to end** (on top of
   `f5ed7e3` and the separately-committed G10). Second system with no V1–V6 lineage, built
