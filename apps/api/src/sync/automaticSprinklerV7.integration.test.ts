@@ -170,6 +170,41 @@ test("Automatic Sprinkler V7 accepts a fully clean draft with zero findings and 
   await withDatabase(async (database) => { const f = await seed(database, "clean"), job = await f.job(), client = id(); const result = await syncAutomaticSprinklerInspections([f.envelope(client, job, responses(), [])], f.actor); assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result)); });
 });
 
+// G10 — the accepted snapshot stores the PARSED (fieldPath-sorted) manifest, but a
+// retry carries whatever order the client sent and the API accepts any order.  An
+// unsorted-but-identical retry must still be duplicate success, not
+// IDEMPOTENCY_CONFLICT — after Job closure that is unrecoverable for the technician.
+// Proven to fail against the old positional comparison: reverting the one-line
+// `sameManifest` swap in `automaticSprinklerV7Acceptance.ts` makes the first retry
+// assertion below fail with IDEMPOTENCY_CONFLICT.
+test("Automatic Sprinkler V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "unsorted-retry"), job = await f.job(), client = id();
+    await f.reserve(client, job);
+    const check = await f.stage(client, job, checkPath("water_level"));
+    const gauge = await f.stage(client, job, measurementPath("water_supply_gauge"));
+    // "automatic_sprinkler_checks…" sorts before "automatic_sprinkler_measurements…"; submit the reverse.
+    const unsorted = [gauge, check];
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const body = responses();
+    (body.checklist as Record<string, Value>).water_level = { result: "not_good", remarks: "Water low" };
+    body.measurements.water_supply_gauge = { values: { value: 90 }, unit: "PSI", result: "not_good", remarks: "Gauge reads low" };
+    assert.deepEqual((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, unsorted)], f.actor)).acceptedIds, [client], "first submit accepts");
+
+    const retry = await syncAutomaticSprinklerInspections([f.envelope(client, job, body, unsorted)], f.actor);
+    assert.deepEqual(retry.duplicateIds, [client], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    assert.deepEqual((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, unsorted)], f.actor)).duplicateIds, [client], "duplicate success survives Job closure");
+
+    // A genuinely different manifest is still a conflict — one entry dropped
+    // (length differs) and one entry's bytes changed (same length, different content).
+    assert.equal((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [check])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [gauge, { ...check, sourceSha256: hash("g10-different-bytes") }])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
+
 test("Automatic Sprinkler V7 accepted inspection completes into a Final Report", { skip: !databaseUrl }, async () => {
   const uploadsPath = path.join(tmpdir(), `phase8g-sprinkler-report-${randomUUID()}`);
   const previousUploadsPath = process.env.UPLOADS_PATH;

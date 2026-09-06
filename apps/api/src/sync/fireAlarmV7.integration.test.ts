@@ -128,3 +128,58 @@ test("Fire Alarm V7 accepts a fully clean draft with zero findings and no reserv
     assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); }
 });
+
+// G10 — the accepted snapshot stores the PARSED (fieldPath-sorted) manifest, but a
+// retry carries whatever order the client sent and the API accepts any order.  An
+// unsorted-but-identical retry must still be duplicate success, not
+// IDEMPOTENCY_CONFLICT — after Job closure that is unrecoverable for the technician.
+// Proven to fail against the old positional comparison: reverting the one-line
+// `sameManifest` swap in `fireAlarmV7Acceptance.ts` makes the first retry
+// assertion below fail with IDEMPOTENCY_CONFLICT (the `alarm_devices…` path sorts
+// before `main_function_key…`, so the reverse-order retry never matches positionally).
+test("Fire Alarm V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  const database = new pg.Pool({ connectionString: databaseUrl }); const isolationLock = await database.connect(); await isolationLock.query("SELECT pg_advisory_lock(819276)");
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); await runMigrations(database);
+    const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='fire_alarm_detector'")).rows[0]!;
+    const customer = id(), revision = id(), enabled = id(), job = id(), clientUuid = id(), alarmRow = id();
+    const actor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`fire-v7-unsorted-${id()}`])).rows[0]!.id;
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'Fire Alarm V7 Unsorted',false)", [customer, `FAU-${customer}`]);
+    await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
+    await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'fire_alarm_detector',1,'{}')", [enabled, revision, template.id]);
+    const system = { enabledSystemId: enabled, systemKey: "fire_alarm_detector", displayName: "Fire Alarm / Detector System", sortOrder: 5, definitionStatus: "confirmed", zones: [], locations: [] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `FAU-${customer}`, displayName: "Fire Alarm V7 Unsorted" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Fire Alarm V7 Unsorted','open',false,true,$4,$5,$6,'2026-09-05')", [job, template.id, `FAU-${job}`, customer, revision, snapshot]);
+    const contract = v7EvidenceContractSha256(template.definition);
+    await database.query("INSERT INTO inspection_evidence_reservations(inspection_client_uuid,job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256,reserved_by_user_id) VALUES($1,$2,'fire_alarm_detector',$3,7,$4,$5)", [clientUuid, job, template.id, contract, actor]);
+    // Acceptance never reads the file — a staged row with distinct hashes is enough.
+    const stage = async (fieldPath: string, bytes: string) => {
+      const photoUuid = id(), sourceSha256 = createHash("sha256").update(bytes).digest("hex");
+      await database.query("INSERT INTO staged_inspection_evidence(photo_uuid,inspection_client_uuid,job_id,system_key,field_path,master_template_version_id,master_template_version,system_contract_sha256,uploader_user_id,request_fingerprint,source_sha256,stored_sha256,mime_type,source_size_bytes,source_width,source_height,stored_size_bytes,width,height,storage_relative_path,status) VALUES($1,$2,$3,'fire_alarm_detector',$4,$5,7,$6,$7,$8,$9,$9,'image/jpeg',1,2,2,1,2,2,$10,'staged')", [photoUuid, clientUuid, job, fieldPath, template.id, contract, actor, createHash("sha256").update(`stage:${photoUuid}`).digest("hex"), sourceSha256, `fixtures/${photoUuid}.jpg`]);
+      return { photoUuid, fieldPath, sourceSha256 };
+    };
+    const repairPhoto = await stage("main_function_key.function_checks.main_alarm_reset", "A");
+    const bellPhoto = await stage(`alarm_devices.alarm_device_rows.rows.${alarmRow}.alarm_bell`, "B");
+    // "alarm_devices…" sorts before "main_function_key…"; submit the reverse.
+    const unsorted = [repairPhoto, bellPhoto];
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const secondaryRow = { rowUuid: alarmRow, source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: 1, assetReference: "", location: "Level 2 Corridor", alarmBell: "complete_repair", manualCallPoint: "na", remarks: "", fieldRemarks: { alarmBell: "Bell rewired and retested on site" } };
+    const response = { schemaVersion: 2, controlPanelLocation: "Lobby", primaryDeviceRows: [{ rowUuid: id(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, displaySequence: 1, assetReference: "", alarmZone: "Lobby", location: "Lobby", manualCallPoint: ["normal"], flowSwitch: ["normal"], heatDetector: ["normal"], smokeDetector: ["normal"], remarks: "" }], chargerAndBatteries: { main_supply: result("good"), battery: result("na"), charger: result("good") }, mainFunctionKeys: { main_alarm_reset: result("complete_repair", "Reset board replaced"), lamp_test: result("good"), evacuate: result("good"), ac_supply: result("good"), dc_supply: result("good"), spka_system: result("good"), alarm_lift_trip: result("good"), signal_gas_discharge: result("good") }, secondaryAlarmDeviceRows: [secondaryRow], comments: "" };
+    const envelope = (evidenceManifest: unknown) => ({ operationId: id(), entityType: "masterSystemInspection", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "fire_alarm_detector", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: timestamp, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" } }, responses: response, evidenceManifest, performedAt: timestamp } });
+    const manifest = unsorted.map((photo) => ({ photoUuid: photo.photoUuid, fieldPath: photo.fieldPath, sourceSha256: photo.sourceSha256 }));
+
+    assert.deepEqual((await acceptFireAlarmV7Inspection(envelope(manifest), actor)).acceptedIds, [clientUuid], "first submit accepts");
+
+    const retry = await acceptFireAlarmV7Inspection(envelope(manifest), actor);
+    assert.deepEqual(retry.duplicateIds, [clientUuid], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, timestamp, actor]);
+    assert.deepEqual((await acceptFireAlarmV7Inspection(envelope(manifest), actor)).duplicateIds, [clientUuid], "duplicate success survives Job closure");
+
+    // A genuinely different manifest is still a conflict — one entry dropped
+    // (length differs) and one entry's bytes changed (same length, different content).
+    assert.equal((await acceptFireAlarmV7Inspection(envelope([manifest[0]]), actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal((await acceptFireAlarmV7Inspection(envelope([manifest[0], { ...manifest[1]!, sourceSha256: createHash("sha256").update("g10-different-bytes").digest("hex") }]), actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  } finally { await isolationLock.query("SELECT pg_advisory_unlock(819276)").catch(() => undefined); isolationLock.release(); await database.end(); }
+});

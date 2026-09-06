@@ -188,6 +188,42 @@ test("Dry/Wet Riser V7 accepts a fully clean draft with zero findings and no res
   });
 });
 
+// G10 — the accepted snapshot stores the PARSED (fieldPath-sorted) manifest, but a
+// retry carries whatever order the client sent and the API accepts any order.  An
+// unsorted-but-identical retry must still be duplicate success, not
+// IDEMPOTENCY_CONFLICT — after Job closure that is unrecoverable for the technician.
+// Proven to fail against the old positional comparison: reverting the one-line
+// `sameManifest` swap in `dryWetRiserV7Acceptance.ts` makes the first retry
+// assertion below fail with IDEMPOTENCY_CONFLICT.
+test("Dry/Wet Riser V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "unsorted-retry"), job = await f.job(), client = id();
+    await f.reserve(client, job);
+    const row = riserRow(f.location.id, f.location.displayName);
+    const check = await f.stage(client, job, checkPath("water_level"));
+    const meas = await f.stage(client, job, measurementPath("jockey_psi"));
+    // "dry_wet_riser_checks…" sorts before "dry_wet_riser_measurements…"; submit the reverse.
+    const unsorted = [meas, check];
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const body = responses(row);
+    (body.checklist as Record<string, Value>).water_level = { result: "not_good", remarks: "Water low" };
+    body.measurements.jockey_psi = { values: { cut_in: 80, cut_out: 100 }, unit: "PSI", result: "complete_repair", remarks: "Jockey pressure repaired" };
+    assert.deepEqual((await syncDryWetRiserInspections([f.envelope(client, job, body, unsorted)], f.actor)).acceptedIds, [client], "first submit accepts");
+
+    const retry = await syncDryWetRiserInspections([f.envelope(client, job, body, unsorted)], f.actor);
+    assert.deepEqual(retry.duplicateIds, [client], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    assert.deepEqual((await syncDryWetRiserInspections([f.envelope(client, job, body, unsorted)], f.actor)).duplicateIds, [client], "duplicate success survives Job closure");
+
+    // A genuinely different manifest is still a conflict — one entry dropped
+    // (length differs) and one entry's bytes changed (same length, different content).
+    assert.equal((await syncDryWetRiserInspections([f.envelope(client, job, body, [check])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal((await syncDryWetRiserInspections([f.envelope(client, job, body, [meas, { ...check, sourceSha256: hash("g10-different-bytes") }])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
+
 test("Dry/Wet Riser V1-V6 historical path still accepts through canonicalDryWetRiserResponses", { skip: !databaseUrl }, async () => {
   await withDatabase(async (database) => {
     const v2 = (await database.query<{ id: string; definition: Value }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=2 AND system.system_key='dry_wet_riser'")).rows[0]!;

@@ -16,6 +16,17 @@ const exact = (value: Value, keys: readonly string[]) => Object.keys(value).leng
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : record(value) ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}` : JSON.stringify(value);
 const fail = (id: string, code: string, message: string): SyncFailure => ({ id, code, message });
 const unavailable = (id: string) => fail(id, "JOB_ACCESS_DENIED", "This V7 inspection is unavailable");
+/** The accepted snapshot stores the PARSED manifest, which `parseV7EvidenceManifest`
+ * returns sorted by fieldPath.  An exact retry carries whatever order the client
+ * sent, and the API accepts any order.  Comparing the two positionally therefore
+ * turned a legitimate unsorted-but-identical retry into IDEMPOTENCY_CONFLICT -
+ * and after Job closure that is unrecoverable for the technician.  Compare the
+ * two manifests order-independently instead (mirrors `smokeVentilationV7Acceptance.ts`). */
+const sameManifest = (stored: readonly unknown[], incoming: readonly unknown[]) => {
+  if (stored.length !== incoming.length) return false;
+  const fingerprint = (entries: readonly unknown[]) => entries.map(canonical).sort().join("|");
+  return fingerprint(stored) === fingerprint(incoming);
+};
 const v7AcceptedEvidenceUniqueConstraints = new Set(["staged_inspection_evidence_v7_accepted_source_per_job_system", "staged_inspection_evidence_v7_accepted_stored_per_job_system"]);
 /** 13 flat checklist fields: 4 Water Tank + 9 Pump House (the Jockey/Duty/
  * Standby pressure judgement lives solely on the paired measurement row -
@@ -152,7 +163,7 @@ export async function acceptDryWetRiserV7Inspection(item: SyncItem, actorUserId?
       const existing = committed.rows[0]!; const snapshot = existing.inspection_snapshot; const configuration = record(snapshot.configuration) ? snapshot.configuration : undefined; const template = record(snapshot.template) ? snapshot.template : undefined; const job = record(snapshot.job) ? snapshot.job : undefined; const manifest = Array.isArray(snapshot.evidenceManifest) ? snapshot.evidenceManifest : undefined;
       await client.query("ROLLBACK");
       if (existing.synced_by_user_id !== String(actorUserId)) result.failed.push(unavailable(payload.clientUuid));
-      else if (job?.id === payload.jobId && configuration?.revisionId === payload.configuration.revisionId && configuration?.revisionNumber === payload.configuration.revisionNumber && template?.id === payload.masterTemplate.id && template?.version === 7 && manifest && canonical(existing.response_payload) === canonical(payload.responses) && canonical(manifest) === canonical(payload.evidenceManifest) && existing.performed_at.toISOString() === payload.performedAt) result.duplicateIds.push(payload.clientUuid);
+      else if (job?.id === payload.jobId && configuration?.revisionId === payload.configuration.revisionId && configuration?.revisionNumber === payload.configuration.revisionNumber && template?.id === payload.masterTemplate.id && template?.version === 7 && manifest && canonical(existing.response_payload) === canonical(payload.responses) && sameManifest(manifest, payload.evidenceManifest) && existing.performed_at.toISOString() === payload.performedAt) result.duplicateIds.push(payload.clientUuid);
       else result.failed.push(fail(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This inspection UUID belongs to different accepted authority"));
       return result;
     }

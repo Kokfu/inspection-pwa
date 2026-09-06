@@ -80,6 +80,42 @@ test("Hose Reel V7 accepts a fully clean draft with zero findings and no reserva
   await withDatabase(async (database) => { const f = await seed(database, "clean"), job = await f.job(), client = id(); const result = await syncMasterSystemInspections([f.envelope(client, job, responses(), [])], f.actor); assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result)); });
 });
 
+// G10 — the accepted snapshot stores the PARSED (fieldPath-sorted) manifest, but a
+// retry carries whatever order the client sent and the API accepts any order.  An
+// unsorted-but-identical retry must still be duplicate success, not
+// IDEMPOTENCY_CONFLICT — after Job closure that is unrecoverable for the technician.
+// Proven to fail against the old positional comparison: reverting the one-line
+// `sameManifest` swap in `hoseReelV7Acceptance.ts` makes the first retry assertion
+// below fail with IDEMPOTENCY_CONFLICT.
+test("Hose Reel V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "unsorted-retry"), job = await f.job(), client = id(), row = id();
+    await f.reserve(client, job);
+    const check = await f.stage(client, job, "hose_reel_checks.water_level");
+    const drum = await f.stage(client, job, rowPath(row, "hose"));
+    // "hose_reel_checks…" sorts before "hose_reel_drum…"; submit the reverse.
+    const unsorted = [drum, check];
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const body = responses(row);
+    body.checklist.water_level = { result: "not_good", remarks: "Water low" };
+    (body.rows[0] as Value).hoseResult = "not_good";
+    (body.rows[0] as Value).fieldRemarks = { hoseResult: "Hose damaged" };
+    assert.deepEqual((await syncMasterSystemInspections([f.envelope(client, job, body, unsorted)], f.actor)).acceptedIds, [client], "first submit accepts");
+
+    const retry = await syncMasterSystemInspections([f.envelope(client, job, body, unsorted)], f.actor);
+    assert.deepEqual(retry.duplicateIds, [client], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    assert.deepEqual((await syncMasterSystemInspections([f.envelope(client, job, body, unsorted)], f.actor)).duplicateIds, [client], "duplicate success survives Job closure");
+
+    // A genuinely different manifest is still a conflict — one entry dropped
+    // (length differs) and one entry's bytes changed (same length, different content).
+    assert.equal((await syncMasterSystemInspections([f.envelope(client, job, body, [check])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal((await syncMasterSystemInspections([f.envelope(client, job, body, [drum, { ...check, sourceSha256: hash("g10-different-bytes") }])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
+
 test("Hose Reel V1 still accepts through the historical path", { skip: !databaseUrl }, async () => {
   await withDatabase(async (database) => { const v1 = (await database.query<{ id: string; definition: Value }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=1 AND system.system_key='hose_reel'")).rows[0]!; const customer = id(), revision = id(), enabled = id(), job = id(), client = id(), row = id(); const actor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`hose-v1-${id()}`])).rows[0]!.id; await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'Hose V1',false)", [customer, `HV1-${customer}`]); await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, v1.id]); await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'hose_reel',1,'{}')", [enabled, revision, v1.id]); const configuration = { revisionId: revision, revisionNumber: 1 }, template = { id: v1.id, code: "MFE-FSSR", name: "MFE", version: 1 }, system = { enabledSystemId: enabled, systemKey: "hose_reel", displayName: "Hose Reel System", sortOrder: 3, definitionStatus: "confirmed", zones: [], locations: [] }, snapshot = { schemaVersion: 1, customer: { id: customer, code: `HV1-${customer}`, displayName: "Hose V1" }, site: { id: id(), displayName: "Site" }, configuration, template, enabledSystems: [system] }; await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Hose V1','open',false,true,$4,$5,$6,'2026-09-04')", [job, v1.id, `HV1-${job}`, customer, revision, snapshot]); const legacyChecklist = Object.fromEntries(checklistKeys.slice(0, 11).map((key) => [key, { result: "good", remarks: "" }])); const body = { checklist: legacyChecklist, measurements: { jockey_pump_pressure: { values: { cut_in: 80, cut_out: 100 }, unit: "PSI", result: "good", remarks: "" }, standby_pump_cut_in: { values: { value: 70 }, unit: "PSI", result: "good", remarks: "" } }, drumTypes: { swing: true, fixed: false }, rows: [{ rowUuid: row, source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "Bank", assetReference: null, sortOrder: 1, drumResult: "good", hoseResult: "poor", nozzleResult: "good", valveResult: "good", nozzleBoxResult: "good", remarks: "" }], comments: "" }; const item = { operationId: id(), entityType: "masterSystemInspection", entityId: client, action: "create", payload: { clientUuid: client, jobId: job, systemKey: "hose_reel", originalCreatorSnapshot: null, masterTemplate: { id: v1.id, code: "MFE-FSSR", version: 1 }, configuration, inspectionSnapshot: { schemaVersion: 1, capturedAt: at, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration, template, system: { ...system, definition: v1.definition, repetitionMode: "single_with_repeatable_rows" } }, responses: body, performedAt: at } }; const result = await syncMasterSystemInspections([item], actor); assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result)); assert.equal((await database.query<{ snapshot_schema_version: number }>("SELECT snapshot_schema_version FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0]?.snapshot_schema_version, 1); });
 });

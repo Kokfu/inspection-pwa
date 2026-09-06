@@ -16,6 +16,17 @@ const exact = (value: Value, keys: readonly string[]) => Object.keys(value).leng
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : record(value) ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}` : JSON.stringify(value);
 const fail = (id: string, code: string, message: string): SyncFailure => ({ id, code, message });
 const unavailable = (id: string) => fail(id, "JOB_ACCESS_DENIED", "This V7 inspection is unavailable");
+/** The accepted snapshot stores the PARSED manifest, which `parseV7EvidenceManifest`
+ * returns sorted by fieldPath.  An exact retry carries whatever order the client
+ * sent, and the API accepts any order.  Comparing the two positionally therefore
+ * turned a legitimate unsorted-but-identical retry into IDEMPOTENCY_CONFLICT -
+ * and after Job closure that is unrecoverable for the technician.  Compare the
+ * two manifests order-independently instead (mirrors `smokeVentilationV7Acceptance.ts`). */
+const sameManifest = (stored: readonly unknown[], incoming: readonly unknown[]) => {
+  if (stored.length !== incoming.length) return false;
+  const fingerprint = (entries: readonly unknown[]) => entries.map(canonical).sort().join("|");
+  return fingerprint(stored) === fingerprint(incoming);
+};
 const v7AcceptedEvidenceUniqueConstraints = new Set(["staged_inspection_evidence_v7_accepted_source_per_job_system", "staged_inspection_evidence_v7_accepted_stored_per_job_system"]);
 
 /** Response key -> frozen definition column key.  Must stay identical to the
@@ -128,7 +139,7 @@ export async function acceptHydrantV7Inspection(item: SyncItem, actorUserId?: nu
         && snapshotConfiguration?.revisionNumber === payload.configuration.revisionNumber
         && snapshotTemplate?.id === payload.masterTemplate.id && snapshotTemplate?.version === 7
         && canonical(existing.response_payload) === canonical(payload.responses)
-        && snapshotManifest && canonical(snapshotManifest) === canonical(payload.evidenceManifest)
+        && snapshotManifest && sameManifest(snapshotManifest, payload.evidenceManifest)
         && existing.performed_at.toISOString() === payload.performedAt) result.duplicateIds.push(payload.clientUuid);
       else result.failed.push(fail(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This inspection UUID belongs to different accepted authority"));
       return result;

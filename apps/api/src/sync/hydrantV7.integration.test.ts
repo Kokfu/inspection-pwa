@@ -290,6 +290,47 @@ test("Hydrant V7 accepts a fully clean draft with zero findings and no reservati
   });
 });
 
+// G10 — the accepted snapshot stores the PARSED (fieldPath-sorted) manifest while
+// a retry carries whatever order the client sent, and the API accepts any order.
+// An unsorted-but-identical retry must still be duplicate success, not
+// IDEMPOTENCY_CONFLICT — after Job closure that would be unrecoverable for the
+// technician.  Proven to fail against the old positional comparison: reverting the
+// one-line `sameManifest` swap in `hydrantV7Acceptance.ts` makes the first retry
+// assertion below fail with IDEMPOTENCY_CONFLICT (the unsorted retry is compared
+// positionally against the sorted stored copy).
+test("Hydrant V7 exact retry with an unsorted manifest is still duplicate success", { skip: !databaseUrl }, async () => {
+  await withV7Database(async (database) => {
+    const fixture = await seedHydrantV7(database, "unsorted-retry");
+    const job = await fixture.makeJob(), clientUuid = id(), rowA = id(), rowB = id();
+    await fixture.reserve(clientUuid, job);
+    const a = await fixture.stage({ clientUuid, job, fieldPath: rowPath(rowA, "canvas_hose_1") });
+    const b = await fixture.stage({ clientUuid, job, fieldPath: rowPath(rowB, "landing_valve") });
+    // Row UUIDs are random, so derive the strictly-decreasing fieldPath order the
+    // client must not be punished for.
+    const unsorted = [a, b].sort((left, right) => right.fieldPath.localeCompare(left.fieldPath));
+    assert.ok(unsorted[0]!.fieldPath.localeCompare(unsorted[1]!.fieldPath) > 0, "fixture must actually be unsorted");
+    const responses = hydrantResponses([
+      hydrantRow(rowA, 1, { canvasHose1Result: "not_good", fieldRemarks: { canvasHose1Result: "Canvas hose damaged" } }),
+      hydrantRow(rowB, 2, { landingValveResult: "complete_repair", fieldRemarks: { landingValveResult: "Valve repaired" } })
+    ]);
+    const item = fixture.envelope({ clientUuid, job, responses, evidenceManifest: unsorted });
+    assert.deepEqual((await syncHydrantInspections([item], fixture.actor)).acceptedIds, [clientUuid], "first submit accepts");
+
+    const retry = await syncHydrantInspections([item], fixture.actor);
+    assert.deepEqual(retry.duplicateIds, [clientUuid], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
+    assert.deepEqual(retry.failed, []);
+
+    // Same again once the Job is closed — the case a technician actually hits.
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, fixture.actor]);
+    assert.deepEqual((await syncHydrantInspections([item], fixture.actor)).duplicateIds, [clientUuid], "duplicate success survives Job closure");
+
+    // A genuinely different manifest is still a conflict — one entry dropped
+    // (length differs) and one entry's bytes changed (same length, different content).
+    assert.equal((await syncHydrantInspections([fixture.envelope({ clientUuid, job, responses, evidenceManifest: [unsorted[0]] })], fixture.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+    assert.equal((await syncHydrantInspections([fixture.envelope({ clientUuid, job, responses, evidenceManifest: [unsorted[0], { ...unsorted[1]!, sourceSha256: hash("g10-different-bytes") }] })], fixture.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
+
 // Case 7 — the V7 dispatch is additive.  A V1 Hydrant record still travels the
 // historical path, keeps the 2-state result model and the schemaVersion-1
 // accepted snapshot, and never touches staged evidence.
