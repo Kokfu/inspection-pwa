@@ -3,8 +3,30 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **STEP 2.3 Fire Intercom DONE, end to end** (this commit; Sol
-review pending). The
+**Last updated:** 2026-09-06 — **P0-M1 FIXED, forward-only. Sol: SAFE TO COMMIT: Y (round 4;
+0 P0 / 0 P1). Not yet committed — owner does git + manual final sanity, then rebuilds the
+deployed API image.** `runMigrations` replayed migration `018` (and `021`–`026`)
+unconditionally; each re-`ADD`s a `system_key` CHECK narrowed to the systems known when it was
+written, and `ADD CONSTRAINT … CHECK` re-validates existing rows, so a deployed database
+holding an evidence reservation for a later V7 system aborted startup with `23514` before a
+downstream migration could re-widen it (`inspection_pwa-api-1` = `Restarting (1)`, confirmed
+in the live API log). Fix: `018` guarded on the `master_template_version` marker (the guard
+that already gates `017`); `021`–`025` run only while the schema has not reached `026` at all —
+by the `system_key` CHECK **and** by no surviving evidence row for a post-`hydrant` system;
+`026` — the only one carrying all nine systems — replays as the reconciliation step. The
+`pg_constraint` predicate `evidenceSystemKeyCheckListsKey` inspects **both** evidence CHECKs
+with a literal `position()` match (Sol round 1: the first cut used `LIKE` on one table only).
+A fresh database still runs every migration in full. `017`/`018` untouched (frozen); no DB was
+queried or mutated. `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` — 5 cases
+(replay with `fire_intercom` + `hydrant` reservations; fresh-migrate completeness; one-sided
+CHECK reconciled; both CHECKs dropped with a late reservation surviving; part-way rollout
+rolled forward). Case 1 fails pre-fix; case 3 fails against the round-1 predicate; case 4
+against the round-2 code. Full V7 set (76) + replay cover green from cold: **81 tests, 0
+skipped**. Not re-added: the `021`–`024` stored-definition self-heal (entangled with a
+pre-existing `023`/`024` legacy-source drift — see §7). Operator action to recover the deployed
+runtime: `docker compose build api && docker compose up -d` (image rebuild + container
+recreate; no DB surgery). See §4 P0-M1, §5, §7. Previously: **STEP 2.3 Fire Intercom DONE, end
+to end** (committed `44fb682`; Sol review pending). The
 second V7-only system (no V1-V6 lineage), composed fresh in `masterServiceReportV7.ts`
 (`fire_intercom`, sortOrder 11, four-state natively). Structurally the simplest page on the form:
 ONE `station_schedule` section, one `repeatable_table` (`asset_reference` "Station" /
@@ -139,14 +161,32 @@ docker compose logs api --tail=50        # confirm migrations + seed ran clean
 docker compose build api proxy ; docker compose up -d
 
 # V7 integration tests (disposable DB, never the runtime DB)
+docker rm -f phase8f-v7-verify 2>$null
 docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=inspection -e POSTGRES_USER=inspection_app `
   -e POSTGRES_PASSWORD=replace-with-a-real-secret-outside-git -p 127.0.0.1:55432:5432 postgres:16-alpine
-# wait for TCP readiness (use -h 127.0.0.1 — the unix socket races the postgres:16-alpine init/restart):
-#   do { Start-Sleep -Seconds 1 } until (docker exec phase8f-v7-verify pg_isready -h 127.0.0.1 -U inspection_app -d inspection)
+# Wait until PostgreSQL is genuinely up. postgres:16-alpine runs a socket-only
+# init server, stops it, then execs the real one — a single pg_isready hit can
+# land in that window and the first tests then fail "Connection terminated
+# unexpectedly". Require 5 consecutive TCP successes, then a real query.
+$ready = 0
+while ($ready -lt 5) {
+  Start-Sleep -Seconds 1
+  docker exec phase8f-v7-verify pg_isready -q -h 127.0.0.1 -U inspection_app -d inspection 2>$null
+  if ($LASTEXITCODE -eq 0) { $ready++ } else { $ready = 0 }
+}
+docker exec phase8f-v7-verify psql -q -U inspection_app -d inspection -c "SELECT 1" | Out-Null
 cd apps/api
 $env:NODE_ENV='test'; $env:DATABASE_URL='postgres://bogus:bogus@10.255.255.1:9999/nope'
 $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/inspection'
-node --import tsx --test --test-concurrency=1 src/sync/co2V7.integration.test.ts src/sync/wetChemicalV7.integration.test.ts src/sync/fireAlarmV7.integration.test.ts src/sync/v7EvidenceRace.integration.test.ts
+# full V7 integration set (76) + the 5-case P0-M1 migration-replay cover = 81 tests, 0 skipped:
+node --import tsx --test --test-concurrency=1 `
+  src/sync/co2V7.integration.test.ts src/sync/wetChemicalV7.integration.test.ts `
+  src/sync/fireAlarmV7.integration.test.ts src/sync/v7EvidenceRace.integration.test.ts `
+  src/sync/hydrantV7.integration.test.ts src/sync/hoseReelV7.integration.test.ts `
+  src/sync/automaticSprinklerV7.integration.test.ts src/sync/dryWetRiserV7.integration.test.ts `
+  src/sync/smokeVentilationV7.integration.test.ts src/sync/portableFireExtinguisherV7.integration.test.ts `
+  src/sync/fireIntercomV7.integration.test.ts `
+  src/db/migrationReplayForwardOnly.integration.test.ts
 # manager/catalog integration test needs its own dedicated DB (asserts path = /phase6_seed_integration):
 #   docker exec phase8f-v7-verify createdb -h 127.0.0.1 -U inspection_app phase6_seed_integration
 #   $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
@@ -154,9 +194,10 @@ node --import tsx --test --test-concurrency=1 src/sync/co2V7.integration.test.ts
 cd ../.. ; docker rm -f phase8f-v7-verify
 Remove-Item Env:DATABASE_URL,Env:NODE_ENV,Env:SEED_INTEGRATION_DATABASE_URL -ErrorAction SilentlyContinue
 
-# Fast gates
+# Fast gates  (run from the repo root)
 cd apps/api ; npm run typecheck ; npm run build ; npm run test:historical-matrix ; npm run test:v6-evidence
-cd apps/web ; npm run typecheck ; npm run build
+cd ../web ; npm run typecheck ; npm run build ; npm run test:v7-stale-evidence
+cd ../..
 ```
 
 Rules: never `docker compose down -v` / `volume rm` / `system prune`. Never point tests at the
@@ -201,7 +242,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
-| **P0-M1** | **RELEASE BLOCKER — the runtime API cannot start; migration 018 is replayed and NARROWS the two evidence `system_key` CHECK constraints back to Fire Alarm / CO2 / Wet Chemical.** `runMigrations` replays every migration unconditionally, in order: `018` (3-key CHECK) runs at `migrations.ts:288`, and only then do `021`–`026` re-widen it. `ALTER TABLE … ADD CONSTRAINT … CHECK` validates existing rows, so on any database that already holds a reservation for a later V7 system (`hydrant`, `hose_reel`, `automatic_sprinkler`, `dry_wet_riser`, `smoke_ventilation`, `fire_intercom`) migration 018's own `ADD` raises `23514` and startup aborts before 021 is reached. **Pre-existing since `81db211` (STEP 1.1, migration 021 introduced `hydrant`)** — not introduced by STEP 2.3, but it makes migration 026 non-idempotent through the real startup path and it is why the deployed API is down. Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations`. Integration tests never see it because every V7 test starts from `DROP SCHEMA public CASCADE`. | Deployed API never starts. Any restart of an already-deployed runtime is fatal. No technician can sync. | `apps/api/src/db/migrations.ts:288`, `apps/api/migrations/018_v7_shared_staged_evidence.sql:4-13` |
+| ~~P0-M1~~ | **FIXED 2026-09-06 (forward-only). Sol review rounds 1–4: SAFE TO COMMIT: Y, 0 P0 / 0 P1. Awaiting owner commit + manual final sanity + deployed-image rebuild.** Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. **Operator must rebuild + recreate the API container** (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (5 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code). | Deployed API restart is no longer fatal once the image is rebuilt. | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
 | ~~G4~~ | **CLOSED** (fixed in `ba1fb2a`, confirmed 2026-09-05 — never marked done here until now). `managerCustomers.ts`'s `assertDryWetRiserAssignments` rejects an unconfigured/invalid `dry_wet_riser` assignment at write time (`RISER_MODE_REQUIRED`, no valid `riserMode`); `inspectionReference.ts`'s `usableEnabledSystems` filter additionally excludes any stored riser row that fails `parseDryWetRiserSystemConfiguration` from `GET /customers/:id/configuration`, so a bad row degrades that one system instead of 500ing the whole customer. | — | — |
@@ -462,14 +503,29 @@ field, add integration coverage, re-verify, Sol pass.
       (No. / Location / Auto Alarm Mode / Manual Mode, 45+ rows). **Needs a client-confirmed spec
       first.** + definition + V7 adapter. (~1 w incl. client input)
 
-### RELEASE BLOCKER — P0-M1 migration replay  ← DO FIRST
-- [ ] **Stop `runMigrations` replaying migration 018's narrowing CHECK constraints.** See §4
-      P0-M1. The deployed API cannot start. Pre-existing since `81db211`; needs an owner decision
-      between (a) a migration ledger so applied migrations are skipped, (b) a deliberate one-time
-      correction of the frozen `018` file, or (c) moving the two constraint statements out of the
-      replay path. Whichever is chosen, the proof must include a replay against a database that
-      already holds a `fire_intercom` / `hydrant` reservation — no V7 integration test catches
-      this today because they all start from `DROP SCHEMA public CASCADE`.
+### RELEASE BLOCKER — P0-M1 migration replay  ← FIXED, Sol SAFE TO COMMIT: Y (not yet committed)
+- [x] **`runMigrations` no longer re-applies migration `018`'s (or `021`–`026`'s) narrowing
+      CHECK constraints on a database that has already advanced past them.** Implemented as the
+      repo's existing per-migration `pg_constraint` guard idiom (same as `008` / `017`), so no
+      new table and no edit to the frozen `018`. `018` gates on its `master_template_version`
+      marker; `021`–`025` run only while the schema has not reached `026` at all (by the
+      `system_key` CHECK **and** by no surviving evidence row for a post-`hydrant` system);
+      `026` is the reconciliation step, safe against any database. Proven by
+      `migrationReplayForwardOnly.integration.test.ts` (5 cases). Sol review rounds 1–4:
+      **SAFE TO COMMIT: Y, 0 P0 / 0 P1**, proposed message
+      `fix(db): make V7 migration replay forward-only`.
+- [ ] **Owner:** manual final sanity → commit → on the deployed host
+      `docker compose build api && docker compose up -d` (image rebuild + container recreate;
+      no DB migration, no manual SQL). Then confirm `docker compose logs api` shows migrations
+      + seed clean and `inspection_pwa-api-1` is `Up`.
+- [ ] **Follow-up (own task, not P0):** migrations `023`/`024` `INSERT … SELECT` from the
+      `…501`/`…802` legacy rows now compute an `automatic_sprinkler` / `dry_wet_riser` V7
+      definition whose `sortOrder` no longer matches `masterServiceReportV7.ts` — the cause of
+      the long-red `v7DetectorStateMigration.integration.test.ts` and the
+      `seedMasterServiceReport.integration.test.ts` `dry_wet_riser` assert. Fix by correcting
+      the legacy source or re-homing V7 definition publication into `seedMasterServiceReport`
+      with `ON CONFLICT DO UPDATE`; that also restores an automatic re-heal for a drifted
+      stored V7 definition, which P0-M1 deliberately did not wire in.
 
 ### STEP 3 — Manager administration  (Phase 8H)
 - [ ] 3.1 Manager UI to edit `customer_enabled_systems.system_configuration` per customer (the
@@ -527,6 +583,137 @@ repeatable-row model; the 9 with an evidence workflow share the V7 staged-eviden
 Roller Shutter have no implementation yet.
 
 ## 7. Change log
+
+- 2026-09-06 — **Owner decision: the Fire Intercom per-row `remarks` column is KEPT.** Resolves
+  the STEP 2.3-remediation owner-override flag below. Rationale: `remarks` is part of the frozen
+  shared C3 repeatable-row envelope every repeatable-row service carries; dropping it would make
+  Fire Intercom the only C3 service that deviates from the shared envelope, for the sake of one
+  optional column the paper form happens not to print. It stays distinct from the mandatory
+  field-owned per-finding remark. No code change (the column was retained pending this).
+
+- 2026-09-06 — **P0-M1 FIXED, forward-only. Not committed.** `runMigrations` no longer
+  re-applies a narrowing evidence CHECK on a database that has already advanced past the
+  migration that set it.
+  - **Root cause (confirmed live, not re-derived):** `runMigrations` replays every migration
+    on each start. Migration `018` — and, identically, `021`–`026` — do
+    `DROP CONSTRAINT IF EXISTS … ; ADD CONSTRAINT … CHECK (system_key IN (<systems known then>))`
+    on both `inspection_evidence_reservations` and `staged_inspection_evidence`.
+    `ADD CONSTRAINT … CHECK` re-validates existing rows, so once a reservation exists for a
+    system newer than that migration's list, its `ADD` raises `23514` and startup aborts
+    before a downstream migration re-widens. Live: `inspection_pwa-api-1` = `Restarting (1)`,
+    API log `error: check constraint "inspection_evidence_reservations_system_key_check" … is
+    violated by some row`, `code: '23514'`, at `runMigrations (dist/db/migrations.js:202)`.
+  - **Fix (`apps/api/src/db/migrations.ts`):**
+    - `018` replays only when its marker — `staged_inspection_evidence_master_template_version_check`
+      not yet mentioning `7` — is absent. This is the predicate that already gates `017`, so
+      the two are now co-guarded (Sol confirmed the binding is sound and `018` is atomic:
+      node-postgres runs an unparameterised multi-statement `query(text)` as one implicit
+      transaction).
+    - `021`–`025` replay only while the schema has **not** reached migration `026` at all,
+      detected by two independent signals: `evidenceSystemKeyCheckListsKey("fire_intercom",
+      "either")` is false **and** no evidence row exists for a `system_key` outside
+      `{fire_alarm_detector, co2_fire_extinguisher, wet_chemical, hydrant}`
+      (`evidenceRowExistsForSystemOutside`) — the second catches a database where BOTH
+      `system_key` CHECKs were dropped by hand but a later-system reservation survives. A
+      fresh install and a rollout stopped part-way still run each in order, safely; an
+      already-rolled-out database never re-runs them, because only `026` carries the full
+      nine-system list and so is the only one of the six safe to re-apply.
+    - `026` replays when `evidenceSystemKeyCheckListsKey("fire_intercom", "both")` is false. It
+      is the reconciliation step: it runs on a fresh install, to finish a part-way rollout,
+      and to bring a database whose two evidence CHECKs have drifted apart (a hand-applied
+      stop-gap, a half-restored dump) back into agreement — always widening, never narrowing.
+    - `evidenceSystemKeyCheckListsKey(key, mode)` inspects **both** `<table>_system_key_check`
+      constraints (not just the reservations one) and matches the key as a quoted literal via
+      `position(text in text)` — no `LIKE` `_`/`%` wildcards. `"both"` = fully applied;
+      `"either"` = been through at least once.
+    - No new table, no ledger, no edit to frozen `017`/`018`.
+  - **Sol review round 1 — 3 P1 + "NEW DEFECTS: Y", all addressed in this same uncommitted tree:**
+    - P1a: the first predicate used `LIKE` (so `_` matched any char) and inspected only the
+      reservations constraint (so a one-sided widening let every guard skip, leaving
+      `staged_inspection_evidence` narrow). Fixed: literal `position()` match, both
+      constraints, and the part-way vs advanced split above so a one-sided state is
+      reconciled by `026` rather than crashing on a re-narrowing `021` replay. New test
+      `…reconciles a one-sided evidence CHECK…` fails against the round-1 predicate, passes now.
+    - P1b: guarding `021`–`024` on the constraint alone dropped their
+      `INSERT … ON CONFLICT DO UPDATE SET definition` self-heal for a drifted stored V7
+      definition. **Deliberately not re-added.** Re-running `021`–`024` to heal a definition
+      also re-runs their `system_key` narrowing (23514 on the advanced database this task
+      exists for) and drags in the **pre-existing** `023`/`024` legacy-source drift (their
+      `INSERT … SELECT` from the `…501`/`…802` legacy rows yields a `dry_wet_riser` /
+      `automatic_sprinkler` definition whose top-level `sortOrder` no longer matches the TS
+      source — the same bug behind the already-red `v7DetectorStateMigration` /
+      `seedMasterServiceReport.integration.test.ts`). A corrupted stored definition is still
+      caught loudly by `seedMasterServiceReport`'s strict published-template assertion (no
+      silent bad data), exactly as before. A real definition re-assert belongs in a follow-up
+      that first fixes `023`/`024`'s legacy source (or moves V7 definition publication into
+      the seed with `ON CONFLICT DO UPDATE`).
+    - P1c: the stale HANDOVER §2 command block (readiness commented out, only four V7 files,
+      no replay test). Fixed — §2 runs all eleven V7 files plus
+      `migrationReplayForwardOnly.integration.test.ts`, with a real readiness gate.
+  - **Sol review round 2 — 2 P1, both addressed in this same uncommitted tree:**
+    - P1 (round 2): with BOTH `system_key` CHECKs dropped by hand and a `fire_intercom`
+      reservation still present, the CHECK predicate saw nothing, so `021` re-ran and its
+      four-system `ADD CONSTRAINT` hit `23514`. Fixed by the second rollout signal above
+      (`evidenceRowExistsForSystemOutside`) — such a database now reconciles via `026` only.
+      New test `…rebuilds both evidence CHECKs when both were dropped…` fails against the
+      round-2 code, passes now.
+    - P1 (round 2): §2 was still not reliable verbatim — a single `pg_isready` hit could land
+      in the `postgres:16-alpine` init-server / real-server restart window (Sol saw 76 pass /
+      4 "Connection terminated unexpectedly"), and `cd apps/web` ran from `apps/api`. Fixed —
+      the readiness gate now needs five consecutive `pg_isready` successes plus a real
+      `SELECT 1`, and the fast-gates run `cd ../web` from `apps/api` and reset to the repo
+      root. Re-run verbatim (11 V7 files + the 5-case replay cover): **81 tests, 0 skipped**.
+  - **Migration audit (this class, across every unconditional replay):** blockers found and
+    fixed — `018` (`018_v7_shared_staged_evidence.sql:4-13`) and `021`–`025` (the
+    `system_key_check` DROP+ADD pair near the top of each: `021`/`022` lines 1-13, `023`
+    lines 1-14, `024` lines 24-36, `025` lines 12-21), each an `ADD CONSTRAINT … CHECK` that
+    re-narrows `system_key`. Same shape, NOT a blocker, noted only:
+    `007_inspection_photo_evidence.sql:24-27`
+    (`master_system_form_instances_evidence_policy_consistency`) — DROP+ADD on every start, but
+    its predicate is invariant across replays so existing rows always satisfy it; nothing ever
+    widened or narrowed it. Guarded already and safe: `005` / `009` (`ADD CONSTRAINT` wrapped
+    in `IF NOT EXISTS (SELECT 1 FROM pg_constraint …)`), `008` (catalog-predicate guarded in
+    the runner), `017` (now co-guarded with `018`). `CREATE UNIQUE INDEX` occurrences are all
+    `IF NOT EXISTS`. No `ALTER COLUMN … SET NOT NULL` in the replay set.
+  - **Proof:** `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts`, 5 cases —
+    (1) migrate to completion, insert `fire_intercom` + `hydrant` reservations, migrate again
+    → completes, both rows survive, final `system_key` CHECK still lists all nine systems, a
+    fresh `smoke_ventilation` reservation still inserts, a third migrate is idempotent;
+    (2) a fresh migrate still creates both `018` tables, both partial unique indexes and the
+    `(6,7)` version checks; (3) one-sided CHECK (reservations wide, staged narrow, a
+    `fire_intercom` reservation present) is reconciled to nine-wide on both tables without a
+    re-narrowing crash; (4) both CHECKs dropped with a `fire_intercom` reservation surviving →
+    reconciled via `026`, no `23514`; (5) a part-way rollout (both CHECKs at the seven-system
+    list `024` left) rolls forward through `025`/`026`. Case (1) is proven to fail against
+    pre-fix code with the live `23514`; case (3) against the round-1 predicate; case (4)
+    against the round-2 code. Full V7 integration set (76) + the 5-case replay cover green
+    from cold with a hostile `DATABASE_URL`: **81 tests, 0 skipped**.
+    API + web typecheck/build green; `test:historical-matrix` (20), `test:v6-evidence` (9),
+    `test:wet-chemical-definition` (2), adapters/env (11), `test:v6-integration` (1),
+    `test:v7-stale-evidence` (1) all green. `git diff --check` clean.
+  - **Pre-existing failures, NOT caused by this change, NOT fixed (out of scope):**
+    `apps/api/src/db/v7DetectorStateMigration.integration.test.ts` — and, if `023`/`024` are
+    ever replayed against an already-seeded database, `seedMasterServiceReport`'s
+    `dry_wet_riser` / `automatic_sprinkler` `sortOrder` assert — are red on `44fb682` and stay
+    red, with the identical assertion, after this change (verified against both trees). Root
+    cause: `023`/`024`'s `INSERT … SELECT … ON CONFLICT DO UPDATE SET definition` sources the
+    V7 definition from the immutable `…501`/`…802` legacy rows, and the value it computes no
+    longer matches the current `masterServiceReportV7.ts` (a later hand-edit to the TS source
+    without a new migration). Neither test is in a standard gate or the 76-test set. This
+    change does not touch that path — for the actual deployed database (already past `026`)
+    `021`–`025` are skipped entirely — and a `023`/`024` replay on HEAD hits the same assert.
+    Needs a dedicated fix (correct the legacy source, or re-home V7 definition publication).
+  - **Deployed runtime:** not touched. The runtime Postgres was never queried or mutated. The
+    running API image still executes the old `dist/db/migrations.js` and will keep
+    crash-looping until the operator runs `docker compose build api && docker compose up -d`
+    on the host (image rebuild + container recreate — no DB migration, no manual SQL). On the
+    next boot with the rebuilt image, the `master_template_version` marker (present from the
+    original successful `018`) makes the runner skip `017`/`018`; the `system_key` CHECKs
+    already list `fire_intercom` on both tables, so `021`–`025` are skipped
+    (`schemaReachedNewestSystem`) and `026` is skipped (`"both"` satisfied); `019`/`020` and
+    the seed replay idempotently, and startup completes. Verified by the hermetic replay test
+    reproducing the deployed
+    precondition; not verified against the live container by design.
 
 - 2026-09-06 — **STEP 2.3 Sol remediation: 2 of 3 P1s and both P2s closed; the P0 is logged as
   P0-M1 and NOT fixed here.** Sol returned `SAFE TO COMMIT: N` (1 P0, 3 P1).

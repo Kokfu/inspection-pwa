@@ -80,6 +80,91 @@ const v7FireIntercomEvidenceMigrationUrl = new URL(
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
 
+/**
+ * Migrations 018 and 021–026 each DROP then re-ADD the shared evidence
+ * `system_key` (and, for 018, `master_template_version`) CHECK constraints,
+ * narrowed to the set of systems known when that migration was written.
+ * `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates every existing row, so
+ * replaying one of them against a database that a *later* forward migration has
+ * already widened — and which now holds an evidence reservation or staged row
+ * for a newer system — raises `23514` and aborts startup before the later
+ * migration can re-widen (the P0-M1 crash-loop). Each migration file is one
+ * implicit transaction (multi-statement simple query, no explicit
+ * BEGIN/COMMIT), so the widened constraint definition is a faithful
+ * "this migration already applied" marker: replay only when it is absent.
+ * A fresh database has none of these markers and still runs every migration in
+ * full. Only migration 026 carries the full nine-system list, so it is the only
+ * one of 021–026 that is safe to (re-)apply against an already-rolled-out
+ * database; 021–025 are gated so they run only while the schema has not yet
+ * reached 026 at all.
+ *
+ * `mode: "both"` (default) is `true` only when BOTH `<table>_system_key_check`
+ * constraints exist AND BOTH already list this exact key — the "this migration
+ * is fully applied" test. `mode: "either"` is `true` when at least one side
+ * lists the key — the "the schema has been through this migration at least
+ * once" test, used to recognise an already-rolled-out database whose two CHECKs
+ * have since drifted apart (a hand-applied stop-gap, a half-restored dump).
+ *
+ * The key is matched as a quoted literal via `position(text in text)`, which —
+ * unlike `LIKE` — has no `_` / `%` wildcards, so `'hose_reel'` cannot be
+ * satisfied by a constraint that merely lists `'hose-reel'`, and a short key
+ * cannot match a fragment of a longer token. A missing constraint contributes
+ * nothing, so `"both"` yields `false` ("not yet applied") and `"either"` falls
+ * back to whichever side still exists.
+ */
+async function evidenceSystemKeyCheckListsKey(
+  database: Pool,
+  systemKey: string,
+  mode: "both" | "either" = "both"
+): Promise<boolean> {
+  const result = await database.query<{ satisfied: boolean }>(
+    `WITH evidence_checks AS (
+       SELECT position('''' || $1 || '''' IN pg_get_constraintdef(pc.oid)) > 0 AS lists_key
+       FROM pg_constraint pc
+       WHERE pc.conname IN (
+               'inspection_evidence_reservations_system_key_check',
+               'staged_inspection_evidence_system_key_check'
+             )
+         AND pc.conrelid IN (
+               to_regclass('inspection_evidence_reservations'),
+               to_regclass('staged_inspection_evidence')
+             )
+     )
+     SELECT CASE $2
+              WHEN 'both'
+                THEN (SELECT count(*) FROM evidence_checks) = 2
+                     AND NOT EXISTS (SELECT 1 FROM evidence_checks WHERE NOT lists_key)
+              ELSE EXISTS (SELECT 1 FROM evidence_checks WHERE lists_key)
+            END AS satisfied`,
+    [systemKey, mode]
+  );
+  return result.rows[0]?.satisfied ?? false;
+}
+
+/**
+ * `true` when a row already exists in either evidence table for a `system_key`
+ * that `allowedSystemKeys` does not contain — i.e. a row that at least one of
+ * migrations 021–025 would reject with `23514` if replayed. It backs the
+ * "schema is past the incremental rollout" decision for the case the CHECK
+ * predicate cannot see: BOTH `system_key` CHECKs dropped (hand surgery, a
+ * half-restored dump) while a reservation or staged row for a later system
+ * survives. `bool_or` over an empty table is NULL, coalesced to `false`.
+ */
+async function evidenceRowExistsForSystemOutside(
+  database: Pool,
+  allowedSystemKeys: string[]
+): Promise<boolean> {
+  const result = await database.query<{ present: boolean }>(
+    `SELECT
+       COALESCE((SELECT bool_or(system_key <> ALL ($1::text[]))
+                   FROM inspection_evidence_reservations), false)
+       OR COALESCE((SELECT bool_or(system_key <> ALL ($1::text[]))
+                   FROM staged_inspection_evidence), false) AS present`,
+    [allowedSystemKeys]
+  );
+  return result.rows[0]?.present ?? false;
+}
+
 export async function runMigrations(
   database: Pool = pool,
   options: {
@@ -271,9 +356,14 @@ export async function runMigrations(
     await database.query(await readFile(serviceVisitScheduleTimeMigrationUrl, "utf8"));
   }
   await database.query(await readFile(customerCreationIdempotencyMigrationUrl, "utf8"));
-  // Migration 017 predates V7 and temporarily narrows these checks to V6
-  // while it runs. Once V7 has been applied, replaying 017 would reject valid
-  // V7 rows before migration 018 can restore the wider additive checks.
+  // Migration 017 predates V7 and temporarily narrows these checks to V6 while
+  // it runs. Once migration 018 has widened them to V6+V7, replaying either 017
+  // or 018 would re-narrow the shared evidence checks and reject valid rows
+  // that migrations 021–026 later depend on — 018's own `ADD CONSTRAINT … CHECK`
+  // raises `23514` on any database that already holds a reservation for a
+  // system newer than Fire Alarm / CO2 / Wet Chemical. The
+  // `master_template_version` check gains `7` only in 018 and only after 018
+  // completes, so it is a faithful "schema is already at ≥018" marker for both.
   const hasV7StagedEvidenceConstraint = await database.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM pg_constraint
@@ -284,16 +374,54 @@ export async function runMigrations(
   );
   if (!hasV7StagedEvidenceConstraint.rows[0]?.exists) {
     await database.query(await readFile(v6StagedEvidenceMigrationUrl, "utf8"));
+    await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
   }
-  await database.query(await readFile(v7SharedStagedEvidenceMigrationUrl, "utf8"));
   await database.query(await readFile(v7DetectorStateMultiselectMigrationUrl, "utf8"));
   await database.query(await readFile(v7FourStateResultModelMigrationUrl, "utf8"));
-  await database.query(await readFile(v7HydrantEvidenceMigrationUrl, "utf8"));
-  await database.query(await readFile(v7HoseReelEvidenceMigrationUrl, "utf8"));
-  await database.query(await readFile(v7AutomaticSprinklerEvidenceMigrationUrl, "utf8"));
-  await database.query(await readFile(v7DryWetRiserEvidenceMigrationUrl, "utf8"));
-  await database.query(await readFile(v7SmokeVentilationEvidenceMigrationUrl, "utf8"));
-  await database.query(await readFile(v7FireIntercomEvidenceMigrationUrl, "utf8"));
+  // Migrations 021–025 each re-ADD the evidence `system_key` CHECK narrowed to
+  // the systems known when they were written. Replaying one on a database that
+  // already reached a later system re-validates that system's rows against a
+  // list that excludes it → `23514`. So run 021–025 only while the schema has
+  // NOT been through migration 026 at all (fresh install, or a rollout that
+  // stopped part-way): mid-rollout each still runs once, in order, safely.
+  // Two independent signals of "already past the incremental rollout": either
+  // `system_key` CHECK still lists `fire_intercom` (normal case), or — for a
+  // database where BOTH CHECKs were dropped by hand — an evidence row survives
+  // for a system beyond `hydrant` that 021–025 would reject. Either way, only
+  // migration 026 (full nine-system list) runs below, and it is safe.
+  const rolloutSystemKeys = [
+    "fire_alarm_detector",
+    "co2_fire_extinguisher",
+    "wet_chemical",
+    "hydrant"
+  ];
+  const schemaReachedNewestSystem =
+    (await evidenceSystemKeyCheckListsKey(database, "fire_intercom", "either")) ||
+    (await evidenceRowExistsForSystemOutside(database, rolloutSystemKeys));
+  if (!schemaReachedNewestSystem) {
+    if (!(await evidenceSystemKeyCheckListsKey(database, "hydrant"))) {
+      await database.query(await readFile(v7HydrantEvidenceMigrationUrl, "utf8"));
+    }
+    if (!(await evidenceSystemKeyCheckListsKey(database, "hose_reel"))) {
+      await database.query(await readFile(v7HoseReelEvidenceMigrationUrl, "utf8"));
+    }
+    if (!(await evidenceSystemKeyCheckListsKey(database, "automatic_sprinkler"))) {
+      await database.query(await readFile(v7AutomaticSprinklerEvidenceMigrationUrl, "utf8"));
+    }
+    if (!(await evidenceSystemKeyCheckListsKey(database, "dry_wet_riser"))) {
+      await database.query(await readFile(v7DryWetRiserEvidenceMigrationUrl, "utf8"));
+    }
+    if (!(await evidenceSystemKeyCheckListsKey(database, "smoke_ventilation"))) {
+      await database.query(await readFile(v7SmokeVentilationEvidenceMigrationUrl, "utf8"));
+    }
+  }
+  // Migration 026 carries the full nine-system list on BOTH evidence tables, so
+  // it is safe to apply against any database and is also the reconciliation
+  // step: run it on a fresh install, to finish a part-way rollout, or to bring
+  // a database whose two evidence CHECKs have drifted apart back into agreement.
+  if (!(await evidenceSystemKeyCheckListsKey(database, "fire_intercom"))) {
+    await database.query(await readFile(v7FireIntercomEvidenceMigrationUrl, "utf8"));
+  }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }
