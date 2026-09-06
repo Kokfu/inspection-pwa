@@ -29,6 +29,11 @@ export function serviceAvailabilityMessage({
   return undefined;
 }
 
+function hasRealJobId(job: unknown): job is InspectionJob {
+  return typeof job === "object" && job !== null && !Array.isArray(job)
+    && typeof (job as { id?: unknown }).id === "string" && (job as { id: string }).id.trim().length > 0;
+}
+
 export function NewServiceVisit({ onCreated, onCancel }: {
   onCreated: (job: InspectionJob) => Promise<void>;
   onCancel: () => void;
@@ -131,6 +136,7 @@ export function NewServiceVisit({ onCreated, onCancel }: {
     setCreating(true); setMessage("");
     try {
       const job = await createServiceVisit({ requestId, customerId, siteId, systemKeys });
+      if (!hasRealJobId(job)) throw new Error("Service visit could not be created.");
       await onCreated(job);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Service visit could not be created.");
@@ -150,7 +156,7 @@ export function NewServiceVisit({ onCreated, onCancel }: {
       <fieldset className="system-picker" disabled={!customerId || loading || creating}><legend>Applicable Fire Systems</legend><div className="system-picker-grid">{serviceAvailability ? <p role="status">{serviceAvailability}</p> : systems.map((system) => <label key={system.id} className={`system-check-row ${systemKeys.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset>
       {configurationMatchesCustomer && systems.length ? <button type="button" className="secondary-command" disabled={creating} onClick={() => setSystemKeys(systems.map((system) => system.key))}>Reuse Previous Service Format</button> : null}
       {systemKeys.length ? <p className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"} and ready to create.</p> : null}
-      {message ? <p className="operational-message operational-message--warning">{message}</p> : null}
+      {message ? <p className="operational-message operational-message--warning" role="status">{message}</p> : null}
       <button className="setup-submit" type="button" onClick={() => void submit()} disabled={!canCreate}>{creating ? "Creating…" : "Create Service Visit"}</button>
     </div>
   </section>;

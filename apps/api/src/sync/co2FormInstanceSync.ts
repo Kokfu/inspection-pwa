@@ -346,8 +346,15 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
         // "not available to this actor", which is untrue and unactionable (G7).
         if (staged.rows.length === evidenceManifest.length && new Set(staged.rows.map((row) => row.stored_sha256)).size !== staged.rows.length) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "EVIDENCE_NOT_STAGED", "Each finding needs its own photo; two findings resolved to the same stored image")); continue; }
         if (staged.rows.length !== evidenceManifest.length || evidenceManifest.some((entry) => { const row = byPath.get(entry.fieldPath); return !row || row.photo_uuid !== entry.photoUuid || row.source_sha256 !== entry.sourceSha256 || row.job_id !== payload.jobId || row.system_key !== payload.systemKey || row.master_template_version_id !== payload.masterTemplate.id || row.master_template_version !== 7 || row.system_contract_sha256 !== contractSha256 || row.uploader_user_id !== String(actorUserId); })) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "JOB_ACCESS_DENIED", "This V7 form is not available to this actor")); continue; }
-        const acceptedHashes = await client.query<{ photo_uuid: string; source_sha256: string; stored_sha256: string }>(`SELECT photo_uuid,source_sha256,stored_sha256 FROM staged_inspection_evidence WHERE job_id=$1 AND system_key=$2 AND master_template_version=7 AND status='accepted' AND (photo_uuid=ANY($3::uuid[]) OR source_sha256=ANY($4::text[]) OR stored_sha256=ANY($5::text[])) FOR UPDATE`, [payload.jobId, payload.systemKey, staged.rows.map((row) => row.photo_uuid), staged.rows.map((row) => row.source_sha256), staged.rows.map((row) => row.stored_sha256)]);
-        if (acceptedHashes.rowCount) { await client.query("ROLLBACK"); result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence hashes are already bound to another location in this Job")); continue; }
+        const acceptedHashes = await client.query<{ photo_uuid: string; field_path: string; source_sha256: string; stored_sha256: string }>(`SELECT photo_uuid,field_path,source_sha256,stored_sha256 FROM staged_inspection_evidence WHERE job_id=$1 AND system_key=$2 AND master_template_version=7 AND status='accepted' AND (photo_uuid=ANY($3::uuid[]) OR source_sha256=ANY($4::text[]) OR stored_sha256=ANY($5::text[])) FOR UPDATE`, [payload.jobId, payload.systemKey, staged.rows.map((row) => row.photo_uuid), staged.rows.map((row) => row.source_sha256), staged.rows.map((row) => row.stored_sha256)]);
+        if (acceptedHashes.rowCount) {
+          // This is a permanent, already-committed job+system collision, not a
+          // transient upload failure. Name the bound canonical field so the
+          // technician can return the Failed form to Draft and replace it.
+          await client.query("ROLLBACK");
+          result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", `V7 evidence for ${acceptedHashes.rows[0]!.field_path} is already bound to another location in this Job`));
+          continue;
+        }
       }
       if (payload.masterTemplate.version === 7) {
         await client.query(
@@ -382,7 +389,7 @@ export async function syncCo2FormInstances(items: SyncItem[], actorUserId?: numb
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       if (isV7AcceptedEvidenceUniqueViolation(error)) {
-        result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location; retry safely"));
+        result.failed.push(fail(payload.clientUuid, "EVIDENCE_CONFLICT", "V7 evidence was accepted concurrently for another location and needs attention"));
         continue;
       }
       const group = await pool.query<{ id: string }>("SELECT id FROM master_system_inspections WHERE job_id = $1 AND system_key = $2", [payload.jobId, payload.systemKey]).catch(() => ({ rows: [] }));

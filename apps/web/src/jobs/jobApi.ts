@@ -1,5 +1,18 @@
 import type { InspectionJob, JobCompletion } from "./jobTypes";
 
+function responseMessage(data: unknown, fallback: string) {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return fallback;
+  const message = (data as { message?: unknown }).message;
+  return typeof message === "string" && message.trim() ? message : fallback;
+}
+
+function hasJobId(data: unknown): data is { job: InspectionJob } {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return false;
+  const job = (data as { job?: unknown }).job;
+  return typeof job === "object" && job !== null && !Array.isArray(job)
+    && typeof (job as { id?: unknown }).id === "string" && (job as { id: string }).id.trim().length > 0;
+}
+
 export async function loadInspectionJobs() {
   const response = await fetch("/api/inspection-jobs", {
     credentials: "same-origin",
@@ -26,12 +39,20 @@ export async function createServiceVisit(input: {
     method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
   });
-  const data = await response.json() as { job?: InspectionJob; message?: string };
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Service visit could not be created.");
+  }
   if (response.status === 401 || response.status === 403) {
     throw new Error("Connect to the server to create a new service visit.");
   }
-  if (!response.ok || !data.job) {
-    throw new Error(data.message ?? "Service visit could not be created.");
+  if (!response.ok) {
+    throw new Error(responseMessage(data, "Service visit could not be created."));
+  }
+  if (!hasJobId(data)) {
+    throw new Error(responseMessage(data, "Service visit could not be created."));
   }
   return data.job;
 }
