@@ -3,7 +3,7 @@ import test from "node:test";
 import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
 
-const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
+const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
 const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
   const definition = system(key); const value = () => ({ result, remarks });
   const section = (sectionKey: string, blockKey: string) => definition.sections.find((candidate) => candidate.key === sectionKey)!.blocks.find((candidate) => candidate.key === blockKey)!;
@@ -267,5 +267,45 @@ test("V7 Smoke Ventilation combines frozen checklist and Fan Schedule row-scoped
   const stale = structuredClone(response); stale.checklist.secondary_essential_supply_dc = { result: "good", remarks: "" }; stale.rows[0]!.autoResult = "good";
   assert.deepEqual(adapter.derivePoorFieldPaths(stale), []);
   const invalid = structuredClone(response); invalid.rows[0]!.manualResult = "poor";
+  assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen row column validates against its own allowedValues");
+});
+
+test("V7 Fire Intercom derives only current-Poor Station Schedule row findings with field-owned remarks", () => {
+  const definition = system("fire_intercom");
+  assert.equal(masterServiceReportV7.systems.some((candidate) => candidate.key === "fire_intercom"), true, "fire_intercom has no V1-V6 lineage - it is added directly to V7");
+  const adapter = resolveV7EvidenceContract({ systemKey: "fire_intercom", templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
+  assert.ok(adapter);
+  const rowA = "00000000-0000-4000-8000-000000000a01";
+  const rowB = "00000000-0000-4000-8000-000000000a02";
+  const path = (rowUuid: string) => `station_schedule.station_schedule_rows.rows.${rowUuid}.condition`;
+  const response = {
+    schemaVersion: 1,
+    rows: [
+      { rowUuid: rowA, conditionResult: "not_good", fieldRemarks: { conditionResult: "Grd Floor station is silent" } },
+      { rowUuid: rowB, conditionResult: "complete_repair", fieldRemarks: { conditionResult: "Basement handset replaced" } }
+    ],
+    comments: ""
+  };
+  assert.equal(adapter.isCanonicalFieldPath(path(rowA)), true);
+  // Fire Intercom has no checklist sections and no header fields, so nothing
+  // outside the row Condition column may ever be a canonical evidence path.
+  assert.equal(adapter.isCanonicalFieldPath(`station_schedule.station_schedule_rows.rows.${rowA}.remarks`), false);
+  assert.equal(adapter.isCanonicalFieldPath(`station_schedule.station_schedule_rows.rows.${rowA}.asset_reference`), false);
+  assert.equal(adapter.isCanonicalFieldPath("fire_intercom_checks.condition"), false);
+  assert.equal(adapter.isCanonicalFieldPath("station_schedule.station_schedule_rows.rows.not-a-uuid.condition"), false);
+  assert.deepEqual(adapter.derivePoorFieldPaths(response), [path(rowA), path(rowB)].sort());
+  assert.equal(adapter.ownPoorRemark(response, path(rowA)), "Grd Floor station is silent");
+  assert.equal(adapter.ownPoorRemark(response, path(rowB)), "Basement handset replaced");
+  assert.equal(adapter.acceptedEvidenceCaption(path(rowA)), "Station Schedule - Condition");
+  // Stale: a finding reverted to good or na is not derived, and its lingering
+  // remark cannot resurrect it.
+  const stale = structuredClone(response); stale.rows[0]!.conditionResult = "good"; stale.rows[1]!.conditionResult = "na";
+  assert.deepEqual(adapter.derivePoorFieldPaths(stale), []);
+  assert.equal(adapter.ownPoorRemark(stale, path(rowA)), undefined);
+  // A finding without its own remark is not a derivable set at all.
+  const unremarked = structuredClone(response); unremarked.rows[0]!.fieldRemarks = {} as { conditionResult: string };
+  assert.equal(adapter.derivePoorFieldPaths(unremarked), undefined);
+  // The frozen column's own allowedValues decide validity - the V1-V6 token is refused.
+  const invalid = structuredClone(response); invalid.rows[1]!.conditionResult = "poor";
   assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen row column validates against its own allowedValues");
 });

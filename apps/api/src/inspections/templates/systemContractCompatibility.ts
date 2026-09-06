@@ -16,13 +16,15 @@ export const implementedSystemKeys = [
   "co2_fire_extinguisher",
   "wet_chemical",
   "portable_fire_extinguisher",
-  "smoke_ventilation"
+  "smoke_ventilation",
+  "fire_intercom"
 ] as const;
 
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
 
-// Smoke Ventilation has no confirmed definition before V7 - there is no
-// legacy template version to point at, so its "legacy" version is 7 itself.
+// Smoke Ventilation and Fire Intercom have no confirmed definition before V7 -
+// there is no legacy template version to point at, so their "legacy" version is
+// 7 itself.
 // This is a deliberate self-reference, not a typo: it gives the system
 // exactly one contract variant (computed below from `masterServiceReportV7`)
 // instead of the two variants (legacy + V7) every STEP 1 system gets.
@@ -35,7 +37,8 @@ const legacyContractTemplateVersion: Readonly<Record<ImplementedSystemKey, numbe
   co2_fire_extinguisher: 1,
   wet_chemical: 4,
   portable_fire_extinguisher: 5,
-  smoke_ventilation: 7
+  smoke_ventilation: 7,
+  fire_intercom: 7
 };
 
 const templates = new Map<number, MasterServiceReportDefinition>([

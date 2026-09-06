@@ -289,6 +289,62 @@ const smokeVentilation: SystemDefinition = {
 };
 
 /**
+ * STEP 2.3: Fire Intercom, like Smoke Ventilation, has no V1-V6 presence at
+ * all - there is no earlier confirmed definition to upgrade, so this system is
+ * composed fresh rather than derived from `masterServiceReportV6.systems`, and
+ * carries the four-state result model natively (no `fourState`/`upgradeV7*`
+ * rewrite is needed because there is no legacy shape to preserve).
+ *
+ * Source: `docs/paper-forms/fire-intercom.md` (SERVICE REPORT SAMPLE.pdf p.10,
+ * blank master; no Revision-B example exists). Structurally this is the
+ * simplest system on the form: one grid of station rows, one result per row,
+ * one Comments area for the whole page, and no header fields at all.
+ *
+ * The station rows are pre-printed identities (`9`...`1`, `Grd Floor`,
+ * `Basement`, `Genset`, `Pump Room`, plus one blank write-in row), not
+ * customer-varying physical locations, but this template reuses the same
+ * `repeatable_table` + `customer_system_locations` machinery Hydrant / Hose
+ * Reel / Riser / Smoke Ventilation already use (`supportsLocations: true`, no
+ * zone dimension - `customer_system_locations.zone_id` is already nullable)
+ * rather than inventing a new "fixed row count, no location" mechanism.
+ */
+const fireIntercom: SystemDefinition = {
+  key: "fire_intercom",
+  displayName: "Fire Intercom System",
+  sortOrder: 11,
+  definitionStatus: "confirmed",
+  configuration: { supportsZones: false, supportsLocations: true, supportsPresetRows: true },
+  confirmationNotes: [
+    "The paper grid marks each station row with unlabelled `1` / `2` boxes under a `Condition Yes` and a `Condition No` column group; page 10 carries no legend at all, so what `1` and `2` mean is not printed anywhere (docs/paper-forms/fire-intercom.md). Per the 2026-09-04 owner decision that box grid is collapsed to ONE V7 four-state result plus that row's own remark, under the same Hokuden legend every other system on this form uses. The original four-box structure is deliberately not modelled.",
+    "The pre-printed station labels (`9`...`1`, `Grd Floor`, `Basement`, `Genset`, `Pump Room`, and one blank write-in row) are carried as preset configured rows, which is a Manager-configuration concern (STEP 3.1 / Phase 8H) rather than a template one. This definition guarantees no particular rows: a customer configured with none starts with an empty table, and technician write-in rows are always allowed.",
+    "The page has no header fields whatsoever - no Date Tested, no panel or control number, no location line. None were invented. The single `Comments :` area spans the whole grid height, so it is modelled as one section-level comments block, not a per-row note."
+  ],
+  sections: [
+    {
+      key: "station_schedule",
+      title: "Station Schedule",
+      sortOrder: 1,
+      blocks: [
+        {
+          key: "station_schedule_rows",
+          title: "Station Schedule Rows",
+          type: "repeatable_table",
+          sortOrder: 1,
+          supportsZones: false,
+          supportsLocations: true,
+          columns: [
+            v7TextField("asset_reference", "Station", 1),
+            v7GoodPoor("condition", "Condition", 2),
+            { ...v7TextField("remarks", "Remarks", 3), control: "remarks" }
+          ]
+        },
+        v7Comments(2)
+      ]
+    }
+  ]
+};
+
+/**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
  * retains its independent detector-state control; Good/Poor fields use the
  * four-state Hokuden checklist legend.
@@ -309,6 +365,7 @@ export const masterServiceReportV7 = {
           ? upgradeV7DryWetRiser(system)
         : system
     ),
-    smokeVentilation
+    smokeVentilation,
+    fireIntercom
   ]
 } as const satisfies MasterServiceReportDefinition;

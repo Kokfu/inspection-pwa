@@ -16,7 +16,7 @@ const clone = <T>(value: T): T => structuredClone(value);
  * from `systemContractVersion`.  Filtering by that production mapping would let
  * an accidental edit (e.g. flipping a legacy system's version to 7) silently
  * drop that system out of the invariant below instead of failing it. */
-const v7OnlySystemKeys = new Set<string>(["smoke_ventilation"]);
+const v7OnlySystemKeys = new Set<string>(["smoke_ventilation", "fire_intercom"]);
 
 test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", () => {
   for (const key of implementedSystemKeys.filter((candidate) => !v7OnlySystemKeys.has(candidate))) {
@@ -26,6 +26,7 @@ test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", (
     assert.equal(isCompatibleSystemContract(key, system.definitionStatus, system), true, `${key} must be V5-compatible`);
   }
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "smoke_ventilation"), false, "smoke_ventilation must not exist before V7");
+  assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fire_intercom"), false, "fire_intercom must not exist before V7");
   const byKey = (key: string) => masterServiceReportV5.systems.find((candidate) => candidate.key === key)!;
   assert.equal(resolveAutomaticSprinklerControls(byKey("automatic_sprinkler"), "MFE-FSSR", 5).source.templateVersion, 1);
   assert.equal(resolveHoseReelControls(byKey("hose_reel"), "MFE-FSSR", 5).source.templateVersion, 1);

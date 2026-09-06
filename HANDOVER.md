@@ -3,7 +3,29 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **STEP 2.2 Sol remediation committed and re-reviewed: SAFE TO
+**Last updated:** 2026-09-06 — **STEP 2.3 Fire Intercom DONE, end to end** (this commit; Sol
+review pending). The
+second V7-only system (no V1-V6 lineage), composed fresh in `masterServiceReportV7.ts`
+(`fire_intercom`, sortOrder 11, four-state natively). Structurally the simplest page on the form:
+ONE `station_schedule` section, one `repeatable_table` (`asset_reference` "Station" /
+`condition` / `remarks`), one section-level comments block, **no checklist sections and no header
+fields at all**. Per the 2026-09-04 owner decision the paper's `Condition Yes`/`Condition No` x
+`1`/`2` box grid is collapsed to one four-state result + own remark per station row; the original
+four-box structure is not modelled, and the three interpretive calls are recorded in the
+definition's own `confirmationNotes`. Full stack: migration `026` (evidence CHECK widening only),
+contract adapter, `fireIntercomV7Acceptance.ts` (with G10's `sameManifest()` from day one),
+`fireIntercomInspectionSync.ts`, sync/staged-evidence/job-completion wiring, Accepted Detail
+reader + route branch, Final Report + PDF, and a new `apps/web/src/fireIntercom/` module.
+Proofs: `fireIntercomV7.integration.test.ts` (12 cases incl. G10 reverse-order retry),
+`acceptedMasterSystemDetail.fireIntercomV7.test.ts` (6), `fireIntercomV7SubmissionIssues.test.ts`
+(12, both gates proven to fail against perturbed code), `fire-intercom-v7-offline.html/.spec.ts`
+(browser round trip, 2 findings on distinct rows each loading its own accepted photo). Full V7
+integration set green from cold: **76 tests** (was 62 with G10). G10 was committed on its own
+first and is untouched by this task. Also in this change: §1/§3/§5/§6a corrected — STEP 0.2,
+Hydrant 1.1, Hose Reel 1.2, Automatic Sprinkler 1.3 and Smoke Ventilation 2.2 were all still
+labelled "uncommitted" here long after they were committed, and §6a still showed Hydrant / Hose
+Reel / Automatic Sprinkler as not on V7. Real count is **10 / 12**. See §5 2.3, §6a and §7.
+Previously: **STEP 2.2 Sol remediation committed and re-reviewed: SAFE TO
 COMMIT: Y, 0 P0 / 0 P1.** Sol's first pass returned N with 2 P1s; both are now closed. (1) Manifest
 ordering broke idempotent retry — fixed, and Sol's re-review confirmed Terra's dispute: the bug is
 **INHERITED**, present in all six V7 acceptance handlers. **The other five are still wrong** and
@@ -24,16 +46,16 @@ harness + 10 client submit-gate tests (drift guard proven to fail against a deli
 perturbed client path). **STEP 2.1 FM200 remains BLOCKED** — the roadmap's "client says same
 structure as CO2" line has no dated record and is contradicted by the stub's own
 `confirmationNotes` and by `docs/paper-forms/fm200.md`; see §7.
-Previously: STEP 1.5 Portable Fire Extinguisher closed (uncommitted): hypothesis
+Previously: STEP 1.5 Portable Fire Extinguisher closed (`7cba8fb`): hypothesis
 confirmed — a V7-templated job's Portable Fire Extinguisher system already resolved, opened,
 saved a Draft, submitted, and synced correctly with **zero code changes**, purely via the
 structural (non-version-gated) match in `isCompatibleSystemContract`. Proved with a real browser
 round trip and a real-Postgres integration test; no production file touched. Dry/Wet Riser STEP
 1.4 offline-round-trip browser proof committed (`a1cb7bf`), two independent Sol review passes both
 SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here).
-Hydrant STEP 1.1 + Hose Reel STEP 1.2 Slices 1–3 complete (uncommitted); Automatic Sprinkler STEP
-1.3 Slice 3 complete (uncommitted)
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `a1cb7bf`
+Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprinkler STEP 1.3
+(`7e2a7e6`) all committed and complete.
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `f5ed7e3` (+ G10 and STEP 2.3 committed on top)
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
@@ -46,25 +68,25 @@ browser-proven through the full offline→sync→Accepted→PDF workflow. Result
 per-field `allowedValues`-driven so a 2-state page can declare its own set. Detector
 Normal/Test/Isolation is multi-select. Shared repeatable-row model (C3) extracted, unconsumed.
 
-**Hydrant STEP 1.1:** Slices 1–3 are complete but uncommitted. Its seven deployed row result
-columns—including both Canvas Hose results—now use the four-state V7 definition with row+column
-evidence paths, additive migration 021, field-owned accepted photos, and Final Report/PDF output.
-The isolated browser proof covers IndexedDB reload, offline queueing, reconnect sync, and Accepted Detail.
+**Hydrant STEP 1.1 — DONE, committed `81db211`.** Its seven deployed row result columns—including
+both Canvas Hose results—use the four-state V7 definition with row+column evidence paths, additive
+migration 021, field-owned accepted photos, and Final Report/PDF output. The isolated browser proof
+covers IndexedDB reload, offline queueing, reconnect sync, and Accepted Detail.
 
-**Automatic Sprinkler STEP 1.3:** Slices 1–2 (server + web) committed (`ba1fb2a`, `eea9c5d`).
-Slice 3 (read paths + browser proof) is complete but uncommitted. **Owner decision:** V7
-Automatic Sprinkler **drops** the legacy Cut-In/Cut-Out PSI photo lifecycle — V7 carries V7
-finding evidence only; the legacy PSI lifecycle stays exactly as-is for V1–V6. The V7 input
-form no longer shows the legacy `PhotoEvidenceField` (gated on `!isV7`, proven by
-`automaticSprinklerV7PsiControl.test.tsx`). Slice 3 adds `validateAcceptedAutomaticSprinklerV7Detail`
-(separate schema-2 reader), the `automatic_sprinkler` + schema-2 branches in
-`masterSystemInspections.ts` / `finalServiceReport.ts` (`validHistoricalUnit`,
-`validatedV7SuppressionEvidence`, evidence dispatch), a schema-2 branch + V7 accepted-evidence
-fetch in the web `ServerAutomaticSprinklerView` / `serverAutomaticSprinklerApi`, and a full
-offline-round-trip browser proof (`automatic-sprinkler-v7-offline.html/.spec.ts`) that exercises
-Save Draft → reload → offline Submit → reconnect Sync → Accepted → Accepted Detail with the
-accepted photo actually loading. `stagedEvidence.ts` `/v7-evidence/accepted[/…/content]` now
-serve all six V7 systems (owner fix — Hydrant/Hose Reel accepted photos returned empty before).
+**Hose Reel STEP 1.2 — DONE, committed `efef275`** (server slice landed with Hydrant in `81db211`).
+
+**Automatic Sprinkler STEP 1.3 — DONE, committed `7e2a7e6`** (server + web slices `ba1fb2a`,
+`eea9c5d`). **Owner decision:** V7 Automatic Sprinkler **drops** the legacy Cut-In/Cut-Out PSI photo
+lifecycle — V7 carries V7 finding evidence only; the legacy PSI lifecycle stays exactly as-is for
+V1–V6. The V7 input form no longer shows the legacy `PhotoEvidenceField` (gated on `!isV7`, proven
+by `automaticSprinklerV7PsiControl.test.tsx`). Slice 3 added
+`validateAcceptedAutomaticSprinklerV7Detail` (separate schema-2 reader), the `automatic_sprinkler`
++ schema-2 branches in `masterSystemInspections.ts` / `finalServiceReport.ts`
+(`validHistoricalUnit`, `validatedV7SuppressionEvidence`, evidence dispatch), a schema-2 branch +
+V7 accepted-evidence fetch in the web `ServerAutomaticSprinklerView` / `serverAutomaticSprinklerApi`,
+and a full offline-round-trip browser proof (`automatic-sprinkler-v7-offline.html/.spec.ts`).
+`stagedEvidence.ts` `/v7-evidence/accepted[/…/content]` now serve every V7 system (owner fix —
+Hydrant/Hose Reel accepted photos returned empty before).
 
 **Dry/Wet Riser STEP 1.4 — DONE, committed `a1cb7bf`.** The V7 web module (form, evidence
 adapter, Accepted Detail, sync wiring) already existed from earlier work; this pass added the
@@ -83,16 +105,23 @@ Committed chain (all verified): `5bc968d` V7 foundation · `0e04a64` NTI multi-s
 `7635cb3` paper-form transcription + C3 skill · `2e07ab1` C3 row model (T1) ·
 `d7ecc0d` **C1-REWORK 4-state**. Safety branches: `phase-8f2b2a…d-final-accepted`, `phase-8f2c-final-accepted`.
 
-**Deployed:** runtime rebuilt + recreated 2026-09-04 on the uncommitted G7 fix
+**Deployed:** runtime rebuilt + recreated 2026-09-04 on the G7 fix, which was uncommitted at
+that time
 (`build-20260903T174358Z`); migration 020 applied, API booted clean, stored V7 defs are 4-state.
 `SV-20260903-36` is already `technician_visible=false`. **Still owed: the 4-state browser sanity
 pass** (checklist in §4) — it is the only thing between here and "3/12 fully proven".
 
-**Next:** STEP 2.3 **Fire Intercom** — already unblocked by the 2026-09-04 owner decision (collapse
-the paper Yes/No `1`/`2` grid into one four-state result + remark per floor row); it is the only
-remaining STEP 2 service that is ready to build. STEP 2.4 Roller Shutter still needs a
-client-confirmed spec, and STEP 2.1 FM200 is blocked on a real client answer (see §7). All
-STEP 1/2 services inherit 4-state + C3. C2 (remarks pick-list) remains deferred to last.
+**Fire Intercom STEP 2.3 — DONE.** The second system with **no V1-V6 lineage**,
+built by mirroring Smoke Ventilation (STEP 2.2, `ade85f6`) and trimming: Fire Intercom is a strict
+subset — one repeatable table, one four-state result per station row, one section-level comments
+box, no checklist sections and no header fields. Its "legacy" contract version is 7 itself, the
+same deliberate self-reference Smoke Ventilation introduced, so it also gets a single contract
+variant rather than the legacy+V7 pair every STEP 1 system has.
+
+**Next:** STEP 2.4 **Fire Rated Roller Shutter** still needs a client-confirmed spec, and STEP 2.1
+FM200 remains blocked on a real client answer (see §5). With Fire Intercom done, every STEP 2
+service that was *ready to build* is built. All STEP 1/2 services inherit 4-state + C3. C2
+(remarks pick-list) remains deferred to last.
 
 ---
 
@@ -154,14 +183,14 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
   backend-api-security / indexeddb-data-model / AGENTS.md.
 - Review: 4 independent (Sol) passes; final verdict **SAFE TO COMMIT: Y**.
 
-**STEP 0.2 — uncommitted (6 modified files), re-verified 2026-09-03:**
+**STEP 0.2 — DONE, committed `0e04a64`** (re-verified 2026-09-03):
 
 - `INSPECTION_CUSTOMER_CATALOG_VERSION` config key (`env.ts`, default 7); `managerCustomers.ts`
   consumes it for every customer/config-revision/service-visit insert; `inspectionReference.ts`
   lists + resolves v7 (Fire Alarm v7 → `resolveFireAlarmV6Controls(def, 7)`).
 - New coverage: `env.test.ts` (unset→7, `"6"`→6); `managerCustomers.integration.test.ts`
   (catalog `[1..7]`, v7 Fire Alarm `templateVersion:7`, new customer + visit freeze v7).
-- All standard gates + both new tests green on owner re-run. DO-NOT-MODIFY list clean.
+- All standard gates + both new tests green. DO-NOT-MODIFY list clean.
 
 ---
 
@@ -176,7 +205,7 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 | ~~G6~~ | **PARTLY CLOSED 2026-09-04.** `d7ecc0d` deployed; 4-state options render in all 3 forms. Bug found + fixed (`3065539`): CO2/Wet Chemical `V7EvidenceField` was gated on `result === "poor"` (unreachable) so no photo could be attached on a finding — now `not_good \|\| complete_repair`. Deployed `sha256-188fbb1857f422d5`. |
 | ~~G7~~ | **ROOT-CAUSED + FIXED 2026-09-04, awaiting browser re-verification.** Not a 4-state defect at all: the technician **attached the same photo to two findings**. Reproduced in-browser on `SV-20260904-38` (instance `10433777`), outbox `lastError` captured = `"This V7 inspection is unavailable"` (`JOB_ACCESS_DENIED`). Both staged rows carried identical `source_sha256` **and** `stored_sha256`, so `parseV7EvidenceManifest` refused the manifest, and `fireAlarmV7Acceptance.ts` folded `!manifest` into the collapsed job-access guard — reporting a payload problem as a Job problem. Confirmed the same duplicate pair in the owner's original `8b4cc663` rows. Fixes: (a) capture-time guard in `saveFireAlarmV7Photo` / `saveV7SuppressionPhoto` refuses a photo already attached to another field, naming it; (b) submit gate `duplicateV7PhotoIssues` in both `fireAlarmV7Evidence.ts` and `co2/v7Evidence.ts` — the offline-safety layer, same precedent as 0.4b; (c) server splits the manifest failure out of the collapsed guard (after it, so no job-existence leak) and names the reused image; CO2/WC get the same treatment plus a separate `EVIDENCE_NOT_STAGED` for two sources that normalize to the same stored bytes. Coverage: new `fireAlarmV7.integration.test.ts` case (first ever to submit `complete_repair`, a secondary alarm-device row finding with row-scoped evidence, and a reused photo); 3 new web submit-gate tests, the duplicate one **proven to fail against the pre-fix code**. | — | — |
 | G9 | **Duplicate photo across two *instances* of one system in the same Job** (CO2/Wet Chemical multi-location) is still only caught at acceptance, by the `acceptedHashes` pre-check (backed by the `staged_inspection_evidence_v7_accepted_*_per_job_system` indexes) → `EVIDENCE_CONFLICT`. The message is truthful, but the outbox re-attempts `Failed` items on every sync (`syncEngine.ts:193`), so it can never succeed. The G7 client guards are scoped to one `inspectionClientUuid`; attachments carry no `jobId`, so widening needs a join through `masterSystemFormInstances`. | A technician reusing one photo across two CO2 locations retries forever. | `apps/web/src/co2/v7Evidence.ts`, `apps/api/src/sync/co2FormInstanceSync.ts` |
-| **G10** | **Unsorted evidence manifest breaks exact idempotent retry in FIVE V7 acceptance handlers.** `parseV7EvidenceManifest` returns the manifest fieldPath-sorted and acceptance stores that sorted copy, but the accepted-authority pre-check compares it **positionally** against the raw retry payload, which the API accepts in any order. A valid but unsorted retry therefore returns `IDEMPOTENCY_CONFLICT` instead of duplicate success. Found by Sol on Smoke Ventilation and **fixed there only** (`sameManifest()` in `smokeVentilationV7Acceptance.ts`, with a regression case proven to fail against the old comparison). The other five were deliberately left alone (no scope widening) and are still wrong. Today's web clients happen to emit sorted manifests, so it is latent — but nothing in the API enforces that, and `hydrantV7.integration.test.ts:33` documents the sorting workaround instead of fixing it. | A technician whose client submits an unsorted-but-identical manifest is stuck on "Sync needs attention" forever; after the Job closes there is no recovery path. | `fireAlarmV7Acceptance.ts:102`, `hydrantV7Acceptance.ts:131`, `hoseReelV7Acceptance.ts:101`, `automaticSprinklerV7Acceptance.ts:91`, `dryWetRiserV7Acceptance.ts:155` |
+| ~~G10~~ | **CLOSED 2026-09-06.** The order-independent `sameManifest()` comparison (length + fingerprint of `canonical`-ised entries, order-independent) — proven earlier on Smoke Ventilation — is now applied to the accepted-authority pre-check in all five remaining V7 acceptance handlers: `fireAlarmV7Acceptance.ts`, `hydrantV7Acceptance.ts`, `hoseReelV7Acceptance.ts`, `automaticSprinklerV7Acceptance.ts`, `dryWetRiserV7Acceptance.ts`. Comparison side only — `parseV7EvidenceManifest`'s fieldPath sort is the stored authority and is untouched. Permutation equality is the sole behaviour change: a manifest with different entries, a different length, or duplicates still returns `IDEMPOTENCY_CONFLICT`. One regression case per handler in its existing `*V7.integration.test.ts` (reverse-fieldPath manifest → accept → identical retry is duplicate success, and again after Job closure; plus dropped-entry and changed-bytes retries that both still conflict) — each proven to fail against the old positional comparison by reverting the one-line swap and observing the retry assertion fail with `IDEMPOTENCY_CONFLICT`, then restoring. **CO2 / Wet Chemical (`co2FormInstanceSync.ts`) checked and NOT affected** — it fingerprints over the `v7Manifest()`-sorted manifest on both the first-acceptance store and the retry pre-check, so an unsorted retry normalizes to the same fingerprint (the `grep` for `canonical(payload.evidenceManifest)` correctly did not match it). Full V7 integration set green: 62 tests (was 57). `hydrantV7.integration.test.ts` still sorts its happy-path manifest with a now-stale "compares … positionally" comment — harmless, left in place; a trivial follow-up can drop that workaround. | — | — |
 | G8 | Fire Alarm form auto-persists a Draft on Add/Remove row (pre-existing — technician-row helpers write immediately). Not a C1-REWORK regression. Low priority. | Minor UX surprise. | `apps/web/src/fireAlarm/fireAlarmRepository.ts` |
 | — | ~13 orphaned `staged` Fire Alarm evidence rows in runtime back to Aug 30 — abandoned drafts/test runs, **not a bug** (evidence stages before acceptance). Ignore or clean at leisure. Two more were added by the G7 repro (`10433777…`). | none | — |
 
@@ -297,16 +326,17 @@ manager picks them (`customer_enabled_systems` rows).
 ### STEP 1 — Upgrade existing base templates to V7 evidence  (est. ~4–5 weeks total)
 Each: add a V7 evidence-contract adapter (mirror `co2Adapter`), wire the web form to the V7
 field, add integration coverage, re-verify, Sol pass.
-- [ ] 1.1 **Hydrant** — Slices 1–3 complete (uncommitted): 7-column row-scoped V7 evidence,
+- [x] 1.1 **Hydrant — DONE, committed `81db211`.** 7-column row-scoped V7 evidence,
       web wiring, Accepted Detail/Final Report/PDF, and integration/browser proof.
-- [ ] 1.2 **Hose Reel** — Slices 1–3 complete (uncommitted): V7 combined checklist +
+- [x] 1.2 **Hose Reel — DONE, committed `efef275`** (server slice landed with Hydrant in
+      `81db211`). V7 combined checklist +
       repeatable-drum evidence adapter, forward-only migration 022, and atomic single-instance
       acceptance; V7-only 4-state web wiring, per-finding photos/remarks, evidence-first outbox,
       and the V7 catalog front-door resolver. Slice 3 adds a separate schema-2 Accepted Detail reader,
       accepted evidence rendering, Final Report/PDF embedding, adversarial eight-case integration coverage,
       and browser reload/sync/detail proof. The paper form supports only Duty / Standby in the new 30-minute test block;
       it explicitly omits Jockey, so no Jockey row was invented.
-- [ ] 1.3 **Automatic Sprinkler** — Slices 1–3 complete (Slice 3 uncommitted): Water Tank /
+- [x] 1.3 **Automatic Sprinkler — DONE, committed `7e2a7e6`.** Water Tank /
       Pump House / Main Alarm Valve / 30-min pump test on the V7 four-state model, separate
       schema-2 Accepted Detail reader, Final Report/PDF embedding, and a full offline-round-trip
       browser proof. **Owner decision:** V7 DROPS the legacy Cut-In/Cut-Out PSI photo lifecycle
@@ -318,7 +348,7 @@ field, add integration coverage, re-verify, Sol pass.
       Accepted → Accepted Detail, 3 distinct findings across checklist/measurement/row scopes,
       each with its own remark + photo). Two Sol review passes, both **SAFE TO COMMIT: Y**.
       Historical V1–V6 riser (`dryWetRiserAccepted.test.ts`) unaffected. See also G4 (closed).
-- [x] 1.5 **Portable Fire Extinguisher — DONE, uncommitted.** No V7 evidence at all (owner
+- [x] 1.5 **Portable Fire Extinguisher — DONE, committed `7cba8fb`.** No V7 evidence at all (owner
       decision C4): `docs/paper-forms/portable-fire-extinguisher.md` has no result ovals for this
       section (count fields only — Total / 9KG Dry Powder / 2KG CO2 / free-text Others +
       Comments), so there is no Poor-capable field to hang a photo/remark on and none was
@@ -358,7 +388,7 @@ field, add integration coverage, re-verify, Sol pass.
       (b) an explicit owner override of the stub's own prohibition, with reasoning. Do not
       resolve by inference. *(original note, unverified: clone the CO2 V7 adapter with FM200
       labels; flip `requires_confirmation` → `confirmed`. ~2 d)*
-- [x] 2.2 **Smoke Ventilation — DONE (uncommitted), Slices 1–3.** First system with **no V1–V6
+- [x] 2.2 **Smoke Ventilation — DONE, committed `ade85f6`, Slices 1–3.** First system with **no V1–V6
       lineage at all**: composed fresh in `masterServiceReportV7.ts` (sortOrder 10, four-state
       natively, no `upgradeV7*`/`fourState` rewrite because there is no legacy shape to
       preserve). That required one real, small extension in both `systemContractCompatibility.ts`
@@ -386,8 +416,44 @@ field, add integration coverage, re-verify, Sol pass.
       reconnect Sync → Accepted → Accepted Detail with 3 photos across both evidence scopes),
       `smokeVentilationV7SubmissionIssues.test.ts` (10 client-gate tests incl. the 0.4b
       client/server path-drift guard, proven to fail against a deliberately perturbed path).
-- [ ] 2.3 **Fire Intercom** — new definition; paper form is a Yes/No matrix per handset location —
-      confirm the exact control model with the client. + V7 adapter. (~2–3 d)
+- [x] 2.3 **Fire Intercom — DONE, end to end.** The **second** system with no
+      V1–V6 lineage, composed fresh in `masterServiceReportV7.ts` (`fire_intercom`, sortOrder 11,
+      four-state natively, no `upgradeV7*`/`fourState` rewrite). Built by mirroring Smoke
+      Ventilation (2.2, `ade85f6`) and **trimming** — Fire Intercom is a strict subset of it, not
+      a new mechanism: one `station_schedule` section → one `repeatable_table`
+      (`station_schedule_rows`: `asset_reference` labelled "Station" / `condition` / `remarks`)
+      plus one section-level comments block, and that is the whole page. Its "legacy" contract
+      version is 7 itself (same self-reference 2.2 introduced), so it gets a single contract
+      variant in both `systemContractCompatibility.ts` files. Source
+      `docs/paper-forms/fire-intercom.md`. **Spec was fixed by the 2026-09-04 owner decision, not
+      by client input:** the paper's `Condition Yes` / `Condition No` × unlabelled `1`/`2` box
+      grid is collapsed into ONE V7 four-state result (`good`/`not_good`/`complete_repair`/`na`)
+      plus that row's own remark; the original four-box structure is **not modelled**. Three
+      interpretive calls are recorded in the definition's own `confirmationNotes`: (i) the box
+      collapse and the fact that page 10 carries no legend at all; (ii) the pre-printed station
+      labels (`9`…`1`, `Grd Floor`, `Basement`, `Genset`, `Pump Room`, + one blank write-in row)
+      are preset configured rows and therefore a Manager-configuration concern (STEP 3.1 /
+      Phase 8H) — the definition guarantees no particular rows, a customer with none starts with
+      an empty table, and technician write-in rows are always allowed; (iii) the page has **no
+      header fields whatsoever** (no Date Tested, no panel/control number, no location line) and
+      none were invented, and the single `Comments :` area spans the whole grid so it is one
+      section-level block, not a per-row note. Migration `026` widens the two evidence CHECK
+      constraints only — the system row itself is brand new, so the ordinary seed
+      `INSERT … ON CONFLICT DO NOTHING` inserts it; 017/018 untouched. Row evidence uses the C3
+      shape `station_schedule.station_schedule_rows.rows.<rowUuid>.condition`, and the per-row
+      `condition` result is the **only** Poor-capable field on the page. Proofs:
+      `fireIntercomV7.integration.test.ts` (12 cases — the Smoke Ventilation adversarial set plus
+      the **G10 reverse-fieldPath retry from day one**: unsorted-but-identical retry is duplicate
+      success, again after Job closure, while a dropped entry and a changed `sourceSha256` are
+      still `IDEMPOTENCY_CONFLICT`), `acceptedMasterSystemDetail.fireIntercomV7.test.ts` (6),
+      `fireIntercomV7SubmissionIssues.test.ts` (12 client-gate tests — both the 0.4b
+      client/server path-drift guard and the duplicate-photo-across-two-findings gate proven to
+      fail against deliberately perturbed / pre-fix code), and
+      `fire-intercom-v7-offline.html/.spec.ts` (Draft → reload → offline Submit → reconnect Sync
+      → Accepted → Accepted Detail, 2 findings on distinct station rows each loading its own
+      accepted photo). Browser-verified: the form shows exactly two fieldsets (Station Schedule +
+      Comments), a four-state control per station row, a working write-in row, and no Date
+      Tested / panel / location field.
 - [ ] 2.4 **Fire Rated Roller Shutter** — NOT in the paper master; only in real Hokuden reports
       (No. / Location / Auto Alarm Mode / Manual Mode, 45+ rows). **Needs a client-confirmed spec
       first.** + definition + V7 adapter. (~1 w incl. client input)
@@ -426,23 +492,106 @@ then the repo is self-describing.
 | Fire Alarm / Detector | ✅ confirmed | ✅ **done** (4-state, NTI multi-select, browser-proven) | deploy `d7ecc0d` + re-check 4-state |
 | CO2 Fire Extinguisher | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
 | Wet Chemical | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
-| Hydrant | ✅ confirmed | ❌ | STEP 1.1 — first C3 consumer |
-| Hose Reel | ✅ confirmed | ❌ | STEP 1.2 (+ 30-min pump test) |
-| Automatic Sprinkler | ✅ confirmed | ⚠️ slices 1–3 done, Slice 3 uncommitted | STEP 1.3 — V7 drops legacy PSI lifecycle (owner decision); commit + Sol pass |
+| Hydrant | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `81db211`) | — (first C3 consumer) |
+| Hose Reel | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `efef275`) | — |
+| Automatic Sprinkler | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `7e2a7e6`) | — (V7 drops legacy PSI lifecycle, owner decision) |
 | Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
 | Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
 | FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — **BLOCKED on a real client answer**, see roadmap |
-| Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, uncommitted) | commit + Sol pass |
-| Fire Intercom | ❌ none | ❌ | STEP 2.3 — needs client answer on Yes/No `1`/`2` columns |
+| Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, committed `ade85f6`) | — |
+| Fire Intercom | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 12-case DB proven) | Sol pass |
 | Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
 
-Done: **6 / 12 on V7** (5 with a full V7 evidence workflow — Smoke Ventilation is the newest and
-the only one with no V1–V6 lineage — plus Portable Fire Extinguisher, registration-only by
-design, C4, no evidence workflow).  Base template ready: 9 / 12.  New services still without a
-template: Fire Intercom, Roller Shutter + the FM200 stub (blocked).
+Done: **10 / 12 on V7** — 9 with a full V7 evidence workflow (Fire Alarm, CO2, Wet Chemical,
+Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire Intercom; the last
+two are the only ones with no V1–V6 lineage), plus Portable Fire Extinguisher — registration-only
+by design (C4), no evidence workflow. Base template ready: 10 / 12. Remaining: **FM200** (stub,
+`requires_confirmation`, blocked on a real client answer) and **Fire Rated Roller Shutter** (no
+template, needs a client-confirmed spec).
 All 12 now share: 4-state result model, per-field `allowedValues`, C3 repeatable-row model, shared V7 evidence authority.
 
 ## 7. Change log
+
+- 2026-09-06 — **STEP 2.3 Fire Intercom added as a V7-only system, end to end** (on top of
+  `f5ed7e3` and the separately-committed G10). Second system with no V1–V6 lineage, built
+  by mirroring Smoke Ventilation (`ade85f6`) and trimming rather than inventing anything: one
+  `station_schedule` section → one `repeatable_table` (`asset_reference` "Station" / `condition` /
+  `remarks`) + one section-level comments block; no checklist sections, no header fields. Spec
+  fixed by the **2026-09-04 owner decision** (collapse the paper's `Condition Yes`/`Condition No`
+  × unlabelled `1`/`2` box grid into one four-state result + own remark per station row); the
+  original four-box structure is deliberately **not** modelled and the reasoning is recorded in
+  the definition's `confirmationNotes`, together with the preset-station-label note (a Manager
+  configuration concern for STEP 3.1) and the explicit "this page has no header fields, none were
+  invented" note. Changes: `masterServiceReportV7.ts` (`fireIntercom`, sortOrder 11, appended to
+  `systems`, not routed through any `upgradeV7*` mapper); `v7EvidenceContracts.ts`
+  (`fire_intercom` key + `fireIntercomAdapter` — the per-row `condition` result is the only
+  Poor-capable field, with row-UUID `fieldPath`s); `v7StagedEvidence.ts`; migration
+  `026_v7_fire_intercom_evidence.sql` (widens the two evidence CHECK constraints only — 017/018
+  untouched, no data backfill, the system row is inserted by the ordinary seed) + its
+  `migrations.ts` registration; `systemContractCompatibility.ts` (API + web) with
+  `fire_intercom: 7` — the same deliberate "legacy version is 7" self-reference Smoke Ventilation
+  introduced; new `fireIntercomV7Acceptance.ts` (carrying G10's order-independent
+  `sameManifest()` from day one, never the positional comparison) and
+  `fireIntercomInspectionSync.ts`; `sync.ts` / `stagedEvidence.ts` / `jobCompletion.ts` wiring;
+  `acceptedMasterSystemDetail.ts` schema-2 reader + `masterSystemInspections.ts` route branch;
+  `finalServiceReport.ts` (all four registration points) so the PDF embeds the accepted photo
+  bytes; and a new `apps/web/src/fireIntercom/` module (form, evidence field, repository,
+  resolution, server API, Accepted Detail view) plus registrations in `App.tsx`,
+  `localDatabase.ts`, `TechnicianHome.tsx`, `attachmentApi/Types.ts`, `syncEngine.ts`,
+  `serverMasterSystemInspectionApi.ts`. Proofs: `fireIntercomV7.integration.test.ts` (12 cases —
+  the Smoke Ventilation adversarial set plus the G10 reverse-order retry case from day one),
+  `acceptedMasterSystemDetail.fireIntercomV7.test.ts` (6),
+  `fireIntercomV7SubmissionIssues.test.ts` (12 — the 0.4b path-drift guard proven to fail against
+  a client path perturbed to `…station_schedule_rows.row.…`, and the duplicate-photo gate proven
+  to fail with the gate removed), `fire-intercom-v7-offline.html/.spec.ts`. Full V7 integration
+  set green from a cold disposable Postgres with a hostile `DATABASE_URL`: **76 tests, 0 skipped**
+  (was 62). DO-NOT-MODIFY list clean; the ten G10 files are untouched by this task.
+- 2026-09-06 — **Status-doc correction (same change as STEP 2.3).** §1, §3, §5 and §6a still
+  labelled STEP 0.2 (`0e04a64`), Hydrant 1.1 (`81db211`), Hose Reel 1.2 (`efef275`), Automatic
+  Sprinkler 1.3 (`7e2a7e6`) and Smoke Ventilation 2.2 (`ade85f6`) as "complete but uncommitted"
+  long after each was committed, and §6a's table still showed Hydrant / Hose Reel / Automatic
+  Sprinkler with **no** V7 evidence workflow while their V7 acceptance handlers, schema-2 Accepted
+  Detail readers, Final Report branches and offline browser proofs were all committed and green in
+  the standing V7 integration set. Every label now carries its commit hash, and the §6a count is
+  corrected from "6 / 12" to **10 / 12** (9 full evidence workflows + Portable FE by C4). No code
+  changed for this correction — it is a doc-accuracy fix only, found while verifying this task's
+  own claims against `git log`.
+
+- 2026-09-06 — **G10 closed: order-independent manifest comparison in the five remaining V7
+  acceptance handlers** (committed on its own, ahead of STEP 2.3). `parseV7EvidenceManifest` returns the
+  manifest fieldPath-sorted and acceptance persists that sorted copy into the accepted snapshot,
+  but the accepted-authority pre-check in `fireAlarmV7Acceptance.ts`, `hydrantV7Acceptance.ts`,
+  `hoseReelV7Acceptance.ts`, `automaticSprinklerV7Acceptance.ts` and `dryWetRiserV7Acceptance.ts`
+  compared it **positionally** (`canonical(storedManifest) === canonical(payload.evidenceManifest)`)
+  against the raw retry payload — which the API accepts in any order — so a valid *unsorted* retry
+  returned `IDEMPOTENCY_CONFLICT` instead of duplicate success, unrecoverable once the Job closes
+  (`syncEngine.ts:193` re-attempts a Failed outbox item forever). Fixed by mirroring Smoke
+  Ventilation's `sameManifest()` (length check + order-independent fingerprint: each entry
+  `canonical`-ised, the strings sorted and joined) into each handler and swapping the one
+  comparison. **Comparison side only** — `parseV7EvidenceManifest`'s sort is the stored authority
+  and is deliberately left alone (changing it would alter already-accepted snapshots).
+  **Permutation equality is the only behaviour change**: a manifest with different entries, a
+  different length, or duplicate entries still returns `IDEMPOTENCY_CONFLICT`. One regression case
+  per handler in its existing integration test file (reverse-fieldPath manifest → accept →
+  identical envelope retried is duplicate success, then again after the Job is closed; plus a
+  dropped-entry retry and a changed-`sourceSha256` retry that both still return
+  `IDEMPOTENCY_CONFLICT`). Each proven to fail against the old comparison: reverting the one-line
+  `sameManifest` swap in all five handlers and running the five new cases makes every "unsorted
+  retry must be duplicate success" assertion fail with `IDEMPOTENCY_CONFLICT` (0 pass / 5 fail);
+  restoring the swap returns them to green. **CO2 / Wet Chemical (`co2FormInstanceSync.ts`) was
+  checked and is NOT affected** — the same raw-vs-sorted shape does not exist there. It computes
+  `requestFingerprint` over `v7Manifest(payload.evidenceManifest)` (which sorts by fieldPath) on
+  the retry pre-check, and the stored `request_fingerprint` was likewise computed over the
+  `parseV7EvidenceManifest`-sorted manifest at first acceptance, so an unsorted retry normalizes to
+  the identical fingerprint and is duplicate success; the manifest-vs-staged check is keyed by
+  `field_path` via a `Map`, not positional. The `grep` for `canonical(payload.evidenceManifest)`
+  correctly did not match it. `hydrantV7.integration.test.ts` still `.sort()`s its happy-path
+  manifest under a comment claiming "acceptance compares the retry manifest positionally" — now
+  stale but harmless; left untouched (pre-existing test, out of this task's scope). A trivial
+  follow-up can delete that `.sort()` and comment. Full V7 integration set green from a cold
+  disposable Postgres: **62 tests** (was 57). Additive only — no V1–V6 template, migration, Fire
+  Alarm V6 file, `parseV7EvidenceManifest`, frozen manifest, outbox or web client touched;
+  DO-NOT-MODIFY list clean.
 
 - 2026-09-06 — **STEP 2.2 Sol re-review remediation (uncommitted, on top of `ade85f6`).** Sol
   returned `SAFE TO COMMIT: N` with 2 P1s. Both investigated; one confirmed, one reclassified.

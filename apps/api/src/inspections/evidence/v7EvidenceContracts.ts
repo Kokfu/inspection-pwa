@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -671,8 +671,58 @@ const smokeVentilationAdapter = (definition: unknown): V7EvidenceContractAdapter
   };
 };
 
+const fireIntercomRowPath = /^station_schedule\.station_schedule_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.condition$/i;
+
+/** Fire Intercom is the simplest V7 system on this template: single-instance
+ * (no zone dimension), no checklist sections and no header fields, so the ONLY
+ * Poor-capable field is the per-row `condition` result. Row evidence follows
+ * the same `<section>.<block>.rows.<rowUuid>.<column_key>` shape Smoke
+ * Ventilation's Fan Schedule and the Hydrant/Hose Reel row model already use. */
+const fireIntercomAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const conditionValues = allowedValues(definition, "station_schedule", "station_schedule_rows", "condition");
+  if (!conditionValues) return undefined;
+  const rowTarget = (response: unknown, fieldPath: string) => {
+    const match = fireIntercomRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.rows)) return undefined;
+    const row = response.rows.find((value) => isRecord(value) && value.rowUuid === match[1]);
+    return isRecord(row) ? row : undefined;
+  };
+  return {
+    systemKey: "fire_intercom", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
+      return typeof fieldPath === "string" && fireIntercomRowPath.test(fieldPath);
+    },
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
+      const poor: string[] = [];
+      const rowIds = new Set<string>();
+      for (const row of response.rows) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        rowIds.add(row.rowUuid);
+        const result = row.conditionResult;
+        if (typeof result !== "string" || !conditionValues.has(result)) return undefined;
+        if (isV7EvidenceFinding(result)) {
+          const remark = row.fieldRemarks.conditionResult;
+          if (typeof remark !== "string" || !remark.trim()) return undefined;
+          poor.push(`station_schedule.station_schedule_rows.rows.${row.rowUuid}.condition`);
+        }
+      }
+      return poor.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      const row = rowTarget(response, fieldPath);
+      if (!row || !isV7EvidenceFinding(row.conditionResult) || !isRecord(row.fieldRemarks)) return undefined;
+      const remark = row.fieldRemarks.conditionResult;
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      return fireIntercomRowPath.test(fieldPath) ? "Station Schedule - Condition" : undefined;
+    }
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation" && values.systemKey !== "fire_intercom")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
@@ -684,6 +734,7 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   if (values.systemKey === "automatic_sprinkler") return automaticSprinklerAdapter(values.definition);
   if (values.systemKey === "dry_wet_riser") return dryWetRiserAdapter(values.definition);
   if (values.systemKey === "smoke_ventilation") return smokeVentilationAdapter(values.definition);
+  if (values.systemKey === "fire_intercom") return fireIntercomAdapter(values.definition);
   return repeatableRowAdapter(values.definition);
 }
 

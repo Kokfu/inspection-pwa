@@ -10,6 +10,7 @@ import { syncDryWetRiserInspections } from "../sync/dryWetRiserInspectionSync.js
 import { syncFireAlarmInspections } from "../sync/fireAlarmInspectionSync.js";
 import { syncHydrantInspections } from "../sync/hydrantInspectionSync.js";
 import { syncSmokeVentilationInspections } from "../sync/smokeVentilationV7Acceptance.js";
+import { syncFireIntercomInspections } from "../sync/fireIntercomV7Acceptance.js";
 import { syncPortableFireExtinguishers } from "../sync/portableFireExtinguisherSync.js";
 import { guardCompletedJobSyncItems } from "../sync/jobStateGuard.js";
 
@@ -94,6 +95,7 @@ syncRouter.post(
       const fireAlarmItems = dispatchableItems.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "fire_alarm_detector");
       const hydrantItems = dispatchableItems.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "hydrant");
       const smokeVentilationItems = dispatchableItems.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "smoke_ventilation");
+      const fireIntercomItems = dispatchableItems.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "fire_intercom");
       const portableFireExtinguisherItems = dispatchableItems.filter((item) => typeof item === "object" && item !== null && (item as { entityType?: unknown }).entityType === "masterSystemInspection" && typeof (item as { payload?: unknown }).payload === "object" && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "portable_fire_extinguisher");
       const masterSystemFormInstanceItems = dispatchableItems.filter(
         (item) => typeof item === "object" && item !== null &&
@@ -101,10 +103,10 @@ syncRouter.post(
       );
       const unsupportedItems = dispatchableItems.filter(
         (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
-          && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item) && !dryWetRiserItems.includes(item) && !fireAlarmItems.includes(item) && !hydrantItems.includes(item) && !smokeVentilationItems.includes(item) && !portableFireExtinguisherItems.includes(item)
+          && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item) && !dryWetRiserItems.includes(item) && !fireAlarmItems.includes(item) && !hydrantItems.includes(item) && !smokeVentilationItems.includes(item) && !fireIntercomItems.includes(item) && !portableFireExtinguisherItems.includes(item)
           && !masterSystemFormInstanceItems.includes(item)
       );
-      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, hydrantResult, smokeVentilationResult, portableFireExtinguisherResult, masterSystemFormInstanceResult] = await Promise.all([
+      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, hydrantResult, smokeVentilationResult, fireIntercomResult, portableFireExtinguisherResult, masterSystemFormInstanceResult] = await Promise.all([
         syncTestRecords(testRecordItems),
         syncInspections(inspectionItems, request.currentUser?.id),
         syncMasterSystemInspections(hoseReelItems, request.currentUser?.id),
@@ -113,6 +115,7 @@ syncRouter.post(
         syncFireAlarmInspections(fireAlarmItems, request.currentUser?.id),
         syncHydrantInspections(hydrantItems, request.currentUser?.id),
         syncSmokeVentilationInspections(smokeVentilationItems, request.currentUser?.id),
+        syncFireIntercomInspections(fireIntercomItems, request.currentUser?.id),
         syncPortableFireExtinguishers(portableFireExtinguisherItems, request.currentUser?.id),
         syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id)
       ]);
@@ -125,6 +128,7 @@ syncRouter.post(
         ...fireAlarmResult.failed,
         ...hydrantResult.failed,
         ...smokeVentilationResult.failed,
+        ...fireIntercomResult.failed,
         ...portableFireExtinguisherResult.failed,
         ...masterSystemFormInstanceResult.failed
       ];
@@ -141,8 +145,8 @@ syncRouter.post(
         ...closeRaceGuard.failed.map((failure) => failure.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...smokeVentilationResult.acceptedIds, ...portableFireExtinguisherResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
-        duplicateIds: [...guarded.duplicateIds, ...closeRaceGuard.duplicateIds, ...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...smokeVentilationResult.duplicateIds, ...portableFireExtinguisherResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...smokeVentilationResult.acceptedIds, ...fireIntercomResult.acceptedIds, ...portableFireExtinguisherResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
+        duplicateIds: [...guarded.duplicateIds, ...closeRaceGuard.duplicateIds, ...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...smokeVentilationResult.duplicateIds, ...fireIntercomResult.duplicateIds, ...portableFireExtinguisherResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
         failed: [
           ...guarded.failed,
           ...closeRaceGuard.failed,

@@ -1,0 +1,72 @@
+<!doctype html><html><body><button id="run">Run Fire Intercom V7</button><pre id="result">Ready</pre><div id="form"></div><div id="accepted"></div><script type="module">
+import * as React from "react";import * as ReactDomClient from "react-dom/client";import{localDatabase}from"/src/db/localDatabase.ts";import{getOrCreateFireIntercomInspection,saveFireIntercomDraft,submitLocalFireIntercom}from"/src/fireIntercom/fireIntercomRepository.ts";import{saveFireIntercomV7Photo}from"/src/fireIntercom/fireIntercomV7Evidence.ts";import{syncPendingRecords}from"/src/sync/syncEngine.ts";import{FireIntercomInspectionForm}from"/src/fireIntercom/FireIntercomInspectionForm.tsx";import{ServerFireIntercomView}from"/src/fireIntercom/ServerFireIntercomView.tsx";
+const id=n=>`83000000-0000-4000-8000-${String(n).padStart(12,"0")}`,out=document.querySelector("#result"),checks=[],check=(name,passed)=>checks.push({name,passed:!!passed}),h="a".repeat(64),k="b".repeat(64),templateId="00000000-0000-4000-8000-000000000807",noop=async()=>{};
+const state4=["good","not_good","complete_repair","na"];
+const field=(key,label,sortOrder)=>({key,label,control:"good_poor",required:false,sortOrder,allowedValues:state4,remarksPolicy:"optional"});
+const textField=(key,label,sortOrder)=>({key,label,control:"text",required:false,sortOrder});
+const comments=sortOrder=>({key:"comments",title:"Comments",type:"comments",sortOrder,field:{key:"comments",label:"Comments",control:"remarks",required:false,sortOrder:1}});
+const rowA=id(5),rowB=id(6);
+// Mirrors `fireIntercom` in masterServiceReportV7.ts exactly, including the
+// system-level sortOrder 11 and `supportsZones:false` (Fire Intercom has no
+// zone dimension) - a drift here would make the harness prove the wrong
+// contract. Note there is exactly ONE section and NO header fields.
+const definition={key:"fire_intercom",displayName:"Fire Intercom System",sortOrder:11,definitionStatus:"confirmed",configuration:{supportsZones:false,supportsLocations:true,supportsPresetRows:true},sections:[
+  {key:"station_schedule",title:"Station Schedule",sortOrder:1,blocks:[
+    {key:"station_schedule_rows",title:"Station Schedule Rows",type:"repeatable_table",sortOrder:1,supportsZones:false,supportsLocations:true,columns:[textField("asset_reference","Station",1),field("condition","Condition",2),{key:"remarks",label:"Remarks",control:"remarks",required:false,sortOrder:3}]},
+    comments(2)]}]};
+const fixture=()=>{const ids={job:id(1),customer:id(2),revision:id(3),system:id(4)};const system={enabledSystemId:ids.system,systemKey:"fire_intercom",displayName:"Fire Intercom System",sortOrder:11,definitionStatus:"confirmed",zones:[],locations:[]};const template={id:templateId,code:"MFE-FSSR",name:"MFE",version:7,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:"fire_intercom",displayName:"Fire Intercom System",sortOrder:11,definitionStatus:"confirmed",definition}]};return{ids,system,catalog:{template:{...template,id:id(9),version:1,systems:[]},templates:[template]},job:{id:ids.job,reference:"FI-V7-BROWSER",title:"Fire Intercom V7 Browser",status:"open",createdAt:new Date().toISOString(),configurationSnapshot:{schemaVersion:1,customer:{id:ids.customer,code:"FI",displayName:"Intercom Customer"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:templateId,code:"MFE-FSSR",name:"MFE",version:7},enabledSystems:[system]}}}};
+// Two findings on two DISTINCT station rows, plus one clean row - Fire
+// Intercom's only evidence scope is the per-row Condition column.
+const complete=draft=>{const x=structuredClone(draft.responses);x.rows=[
+  {rowUuid:rowA,source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,assetReference:"Grd Floor",conditionResult:"not_good",remarks:"",fieldRemarks:{conditionResult:"Grd Floor station is silent"},sortOrder:1},
+  {rowUuid:rowB,source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,assetReference:"Basement",conditionResult:"complete_repair",remarks:"",fieldRemarks:{conditionResult:"Basement handset replaced on site"},sortOrder:2},
+  {rowUuid:id(7),source:"technician",configuredLocationId:null,configuredRowOrdinal:null,zoneSnapshot:null,locationSnapshot:null,assetReference:"Pump Room",conditionResult:"good",remarks:"",fieldRemarks:{},sortOrder:3}];x.comments="One handset replaced";return x};
+const snapshot=async clientUuid=>{const record=await localDatabase.masterSystemInspections.get(clientUuid),photos=await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(clientUuid).toArray(),outbox=await localDatabase.syncOutbox.toArray();return{record,photos:photos.filter(x=>x.systemKey==="fire_intercom"),outbox:outbox.filter(x=>x.entityId===clientUuid||photos.some(p=>p.photoUuid===x.entityId))}};
+const paths={a:`station_schedule.station_schedule_rows.rows.${rowA}.condition`,b:`station_schedule.station_schedule_rows.rows.${rowB}.condition`,clean:`station_schedule.station_schedule_rows.rows.${id(7)}.condition`};
+document.querySelector("#run").onclick=async()=>{try{checks.length=0;const f=fixture();await localDatabase.open();await localDatabase.masterSystemInspections.where("jobId").equals(f.ids.job).delete();
+  const draft=await getOrCreateFireIntercomInspection(f.job,f.system,f.catalog,{id:1,username:"browser-tech",role:"inspector"});
+  const responses=complete(draft);
+  check("V7-only job opens with the four-state definition and no header fields",draft.masterTemplate.version===7&&responses.schemaVersion===1&&Object.keys(responses).length===3&&responses.rows[0].conditionResult==="not_good"&&responses.rows[1].conditionResult==="complete_repair");
+  // Render the V7 input form to prove the station rows exist, the write-in row
+  // works, there is exactly one comments box and no Date Tested / panel /
+  // location field anywhere.
+  const formRoot=ReactDomClient.createRoot(document.querySelector("#form"));
+  await new Promise(res=>{formRoot.render(React.createElement(FireIntercomInspectionForm,{record:{...draft,responses},onBack:()=>{},onSaveDraft:noop,onSubmitLocal:noop,onEditFailed:noop}));setTimeout(res,80)});
+  const formEl=document.querySelector("#form");
+  check("V7 form renders one card per station row",formEl.querySelectorAll(".hose-row-card").length===3);
+  check("V7 form renders a four-state control per station row",formEl.querySelectorAll('[aria-label="Condition result"]').length===3);
+  check("V7 form has NO checklist rows (Fire Intercom has no checklist sections)",formEl.querySelectorAll(".hose-check-row").length===0);
+  check("V7 form has exactly one Comments box and no Date Tested / panel / location field",formEl.textContent.includes("Comments")&&!formEl.textContent.includes("Date Tested")&&!formEl.textContent.includes("Control Panel")&&formEl.querySelectorAll("fieldset").length===2);
+  check("the write-in Station label is editable on a technician row",[...formEl.querySelectorAll("input")].some(i=>i.value==="Pump Room"&&!i.disabled));
+  check("V7 finding reveals the photo widget on findings only",formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.a}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.b}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.clean}"]`).length===0);
+  formRoot.unmount();
+  for(const[fieldPath,sha]of[[paths.a,h],[paths.b,k]])await saveFireIntercomV7Photo({record:draft,fieldPath,captureSource:"gallery",blob:new Blob(["A"],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:sha});
+  check("one photo per finding is saved on this device on two distinct rows",(await snapshot(draft.clientUuid)).photos.length===2);
+  const saved=await saveFireIntercomDraft(draft,responses);
+  const pending=await submitLocalFireIntercom(saved,responses);
+  const st=await snapshot(pending.clientUuid);
+  check("offline Submit queues evidence before parent",st.record.syncStatus==="Pending"&&st.outbox.filter(x=>x.entityType==="v7StagedEvidence").length===2&&st.outbox.filter(x=>x.entityType==="masterSystemInspection").length===1);
+  localStorage.setItem("fi-v7-client",pending.clientUuid);
+  out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"READY_RELOAD":"FAIL",checks})}catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks})}};
+window.runAfterReload=async()=>{try{checks.length=0;const clientUuid=localStorage.getItem("fi-v7-client"),st=await snapshot(clientUuid),r=st.record;
+  check("reload rehydrates four-state results and own remarks",r.syncStatus==="Pending"&&r.responses.rows[0].conditionResult==="not_good"&&r.responses.rows[0].fieldRemarks.conditionResult==="Grd Floor station is silent"&&r.responses.rows[1].conditionResult==="complete_repair"&&r.responses.rows[1].fieldRemarks.conditionResult==="Basement handset replaced on site"&&r.responses.rows[2].conditionResult==="good"&&r.responses.comments==="One handset replaced");
+  check("reload rehydrates photo Blobs",st.photos.length===2&&st.photos.every(p=>p.blob.type==="image/jpeg"));
+  const original=globalThis.fetch;
+  globalThis.fetch=async(input,init={})=>{const url=String(input);if(url.includes("/v7-evidence/stage")){const body=init.body;return new Response(JSON.stringify({outcome:"staged",photoUuid:body.get("photoUuid"),fieldPath:body.get("fieldPath"),sourceSha256:body.get("sha256"),storedSha256:"d".repeat(64)}),{status:201})}return new Response(JSON.stringify({acceptedIds:[clientUuid],duplicateIds:[],failed:[]}),{status:200})};
+  try{await syncPendingRecords()}finally{globalThis.fetch=original}
+  const synced=await snapshot(clientUuid);
+  check("reconnect Sync reaches Accepted",synced.record.syncStatus==="Synced"&&synced.outbox.every(x=>x.status==="Completed"));
+  const ev=synced.photos.slice().sort((a,b)=>a.fieldPath.localeCompare(b.fieldPath)).map((p,i)=>({photoUuid:p.photoUuid,systemKey:"fire_intercom",fieldPath:p.fieldPath,sourceSha256:p.sha256,storedSha256:["d","e"][i].repeat(64),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,formInstanceId:id(8)}));
+  globalThis.fetch=async input=>String(input).includes("/v7-evidence/accepted?")?new Response(JSON.stringify({evidence:ev}),{status:200}):new Response("jpeg-bytes",{status:200,headers:{"Content-Type":"image/jpeg"}});
+  const root=ReactDomClient.createRoot(document.querySelector("#accepted"));
+  root.render(React.createElement(ServerFireIntercomView,{inspection:{clientUuid,serverFormInstanceId:id(8),jobId:r.jobId,jobReference:"FI-V7-BROWSER",jobTitle:"Fire Intercom V7 Browser",customerName:"Intercom Customer",systemKey:"fire_intercom",systemLabel:"Fire Intercom System",instanceKey:"primary",status:"submitted",performedAt:"2026-09-06T00:00:00.000000Z",receivedAt:"2026-09-06T00:00:00.000000Z",templateVersion:7,responses:r.responses,deviceReportedCreatorUsername:null,verifiedOriginalCreatorUsername:null,syncedByUsername:"browser-tech"},onBack:()=>{}}));
+  await new Promise(res=>setTimeout(res,120));
+  const acc=document.querySelector("#accepted"),textContent=acc.textContent;
+  check("Accepted Detail shows each finding's own remark",textContent.includes("Grd Floor station is silent")&&textContent.includes("Basement handset replaced on site"));
+  check("Accepted Detail renders one accepted photo per finding, on distinct rows",acc.querySelectorAll('a[href*="/api/v7-evidence/accepted/"]').length===2&&acc.querySelectorAll("img").length===2);
+  const firstUrl=acc.querySelector('img').getAttribute("src");
+  const bytes=await (await fetch(firstUrl)).text();
+  check("accepted photo bytes load non-empty",typeof bytes==="string"&&bytes.length>0);
+  globalThis.fetch=original;
+  out.textContent=JSON.stringify({status:checks.every(x=>x.passed)?"PASS":"FAIL",checks})}catch(e){out.textContent=JSON.stringify({status:"ERROR",message:e?.stack??String(e),checks})}};
+</script></body></html>
