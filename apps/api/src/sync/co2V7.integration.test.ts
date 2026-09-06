@@ -75,6 +75,19 @@ test("CO2 V7 stages distinct multipart evidence and atomically binds it to its o
       assert.equal((await syncCo2FormInstances([item], foreignActor)).failed[0]?.code, "JOB_ACCESS_DENIED");
       assert.equal((await stage(clientUuid, "main_function_key.function_checks.lamp_test", "blue", { actor: "foreign" })).http.status, 409);
 
+      // G9: the same bytes on another configured CO2 location are a permanent
+      // job+system conflict. The response must identify the accepted finding so
+      // the device can surface a correction path instead of retrying forever.
+      const conflictingClient = id();
+      const conflictingA = await stage(conflictingClient, "charger_batteries.charger_battery_checks.main_supply", "white");
+      const conflictingB = await stage(conflictingClient, "physical_outlook.physical_outlook_checks.co2_cylinder", "orange");
+      const conflictingItem = structuredClone(item); conflictingItem.operationId = id(); conflictingItem.entityId = conflictingClient; conflictingItem.payload.clientUuid = conflictingClient; conflictingItem.payload.instanceKey = `location:${locationB}`; conflictingItem.payload.configuredLocationId = locationB; conflictingItem.payload.displaySequence = 2; conflictingItem.payload.inspectionSnapshot.instance = { instanceKey: `location:${locationB}`, displaySequence: 2 }; conflictingItem.payload.evidenceManifest = manifest(conflictingA, conflictingB);
+      assert.deepEqual(
+        { ...(await syncCo2FormInstances([conflictingItem], actor)).failed[0], id: undefined },
+        { id: undefined, code: "EVIDENCE_CONFLICT", message: "V7 evidence for charger_batteries.charger_battery_checks.main_supply is already bound to another location in this Job" },
+        "cross-location reuse is a truthful terminal evidence conflict (G9)"
+      );
+
       const clientB = id(); const bA = await stage(clientB, "charger_batteries.charger_battery_checks.main_supply", "red"); const bB = await stage(clientB, "physical_outlook.physical_outlook_checks.co2_cylinder", "green"); assert.equal(bA.http.status, 201); assert.equal(bB.http.status, 201);
       const itemB = structuredClone(item); itemB.operationId = id(); itemB.entityId = clientB; itemB.payload.clientUuid = clientB; itemB.payload.instanceKey = `location:${locationB}`; itemB.payload.configuredLocationId = locationB; itemB.payload.displaySequence = 2; itemB.payload.inspectionSnapshot.instance = { instanceKey: `location:${locationB}`, displaySequence: 2 }; itemB.payload.evidenceManifest = manifest(bA, bB);
       const invalid = structuredClone(itemB); (invalid.payload.responses.physicalOutlook as Record<string, { result: string; remarks: string }>).co2_cylinder.remarks = "";
