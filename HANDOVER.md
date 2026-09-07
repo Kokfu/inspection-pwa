@@ -3,21 +3,19 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **HEAD `28d7b55`. Three commits landed this session:** `f7decfd`
+**Last updated:** 2026-09-07 — **HEAD `f6aab25`; working tree clean.** This session: `f7decfd`
 (4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom + Smoke Ventilation
 submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response schema 2 → 3,
-multi-drum). **Working tree now carries an UNCOMMITTED Terra remediation of Sol's two P1s on
-`28d7b55`** — `apps/web` only: `hoseReel/hoseReelRepository.ts`,
-`hoseReel/HoseReelInspectionForm.tsx`, `tests/hoseReelV7SubmissionIssues.test.ts` (+ this file).
-Awaiting Sol re-review before commit. Detail below.
+multi-drum), then `25e3768` + **`f6aab25`** — Terra remediation of Sol's two P1s on `28d7b55`
+(client exact-key discipline for schema 2/3 in `getHoseReelSubmitIssues`; drum-count decrease no
+longer silently drops started technician drum sections). `apps/web`-only, additive, no server /
+migration / template change. **Sol re-reviewed `f6aab25`: 0 P0 / 0 P1, NEW DEFECTS: N, SAFE TO
+COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
 
 **OPEN — carried to the next session:**
-1. **Sol review pass owed on `0e17c74` and `28d7b55`.** Neither has had one. `28d7b55` is a
-   14-file response-schema change and must get a Sol pass before STEP 1.2 is re-closed. Prompt
-   for it is in the session that produced this update; re-issue from `.agents/skills/codex-task-brief`.
-   **Sol has since reviewed `28d7b55` and found 2 P1s; Terra's remediation is staged uncommitted
-   (see "Last updated"). A Sol re-review of that working tree is now the immediate next step
-   before commit.**
+1. **Sol review pass still owed on `0e17c74`** (Fire Intercom + Smoke Ventilation submit-gate
+   parity). `28d7b55` + its `f6aab25` remediation have had their Sol pass and are closed.
+   Re-issue the `0e17c74` prompt from `.agents/skills/codex-task-brief`. (Overlaps OPEN item 3.)
 2. **G7 4-state browser sanity — still owed by the owner** (manual, on the live runtime). Blocks
    closing G7. Checklist in §4 "Outstanding owner check".
 3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
@@ -771,6 +769,23 @@ Roller Shutter have no implementation yet.
 
 ## 7. Change log
 
+- 2026-09-07 — **Hose Reel schema-3 Sol P1 remediation — client exact-key discipline + drum-count
+  data-loss guard. Committed `25e3768` + `f6aab25`; Sol re-reviewed `f6aab25`: 0 P0 / 0 P1, SAFE
+  TO COMMIT: Y.** `apps/web`-only, additive, no server / migration / template change
+  (`git diff 28d7b55..f6aab25 -- apps/api` empty). (P1-a) `getHoseReelSubmitIssues` now runs a
+  genuine `exactKeys` gate over the response envelope and every row for schema 2 **and** schema 3,
+  literals copied from `hoseReelV7Acceptance.ts` `validResponses()` — closes the escape where an
+  extra envelope/row key queued a Pending record the server rejects non-retryably. (P1-b)
+  `setHoseReelDrumCount` trims only trailing *empty* technician drum sections on a bare decrease;
+  `HoseReelInspectionForm.tsx` runs a `window.confirm` (mirroring the per-row "Remove Drum"
+  confirm, treating an attached V7 photo as started data) before discarding a started section,
+  then passes the new `allowDroppingEnteredRows` opt-in. Configured rows stay unconditionally
+  protected. Exported `hoseReelTechnicianRowHasEnteredData`. Gates: `test:v7-hose-reel-submit`
+  8 → 16 (P1-a negative-shape regressions + P1-b repo unit tests, clean schema-3 draft = []),
+  full V7 integration set 83/83 + `migrationReplayForwardOnly` 0 skipped, `hose-reel-v7-offline` +
+  `technician-offline-regression` specs, apps/api + apps/web `typecheck`/`build`, `git diff
+  --check` clean, DO-NOT-MODIFY byte-identical.
+
 - 2026-09-07 — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema 2 → 3. Committed `28d7b55`.**
   Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Closes the
   `drumTypeCardinality: "pending_confirmation"` question with an owner decision: a customer may
@@ -817,9 +832,28 @@ Roller Shutter have no implementation yet.
     `migrationReplayForwardOnly.integration.test.ts` (0 skipped), `test:historical-matrix` (20),
     `test:v6-evidence` (9), `finalServiceReport.test.ts`/`.integration.test.ts` (8 + 1), apps/api +
     apps/web `typecheck`/`build`, `git diff --check` clean, DO-NOT-MODIFY list byte-identical.
-  - **Sol pass:** NOT yet done — owed before STEP 1.2 is re-closed.
-  - **Out of scope (noted):** Manager-side per-customer drum configuration (owner: technician
-    free-form field, not a `customer_system_locations` concern); PDF visual layout.
+  - **Sol pass:** DONE. Sol found 2 P1s on `28d7b55` — (P1-a) the client `getHoseReelSubmitIssues`
+    schema-3 block validated only known keys, so it did NOT actually mirror the server's exact-key
+    discipline: an extra envelope key (e.g. a leftover schema-2 `drumTypes` beside `drumCount`),
+    an extra own property on a row, or a schema-2-shaped row inside a schema-3 envelope all passed
+    the client gate yet are rejected non-retryably by `validResponses()`, stranding the queued
+    Pending record offline; (P1-b) a drum-count *decrease* silently discarded trailing technician
+    drum sections the technician had already filled in. **Remediated in `25e3768` + `f6aab25`**
+    (`apps/web`-only, additive): a real `exactKeys` helper + per-schema envelope/row key literals
+    copied from `hoseReelV7Acceptance.ts` covering schema 2 **and** 3; `setHoseReelDrumCount` now
+    trims only trailing *empty* technician rows on a bare decrease (stops at the first started
+    one) and the form's drum-count input runs a `window.confirm` — mirroring the per-row "Remove
+    Drum" confirm, and counting an attached V7 photo as started data — before passing
+    `allowDroppingEnteredRows`; configured rows stay unconditionally protected. Regressions in
+    `hoseReelV7SubmissionIssues.test.ts` (`test:v7-hose-reel-submit` 8 → 16). Sol re-review of
+    `f6aab25`: **0 P0 / 0 P1, NEW DEFECTS: N, HISTORICAL IMMUTABILITY INTACT: Y, SAFE TO
+    COMMIT: Y.** STEP 1.2 re-closed.
+  - **Out of scope (noted, still open):** Manager-side per-customer drum configuration (owner:
+    technician free-form field, not a `customer_system_locations` concern); PDF visual layout;
+    the FI/SV/HR client key whitelists have no compile-time link to the server arrays (drift
+    risk, not a defect); the same missing exact-key discipline in the Hydrant / Automatic
+    Sprinkler / Dry-Wet Riser client submit gates, and SV's missing rowUuid
+    format/uniqueness + technician `locationSnapshot===null` checks.
 
 - 2026-09-07 — **Smoke Ventilation submit-gate Sol P1 closed — client parity with `validResponses()`. Committed `0e17c74`** (with the Fire Intercom parity fix below).
   Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Parallel to the Fire Intercom P1 below —
