@@ -3,15 +3,21 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **HEAD `28d7b55`; working tree clean. Three commits landed this
-session:** `f7decfd` (4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom +
-Smoke Ventilation submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response
-schema 2 → 3, multi-drum).
+**Last updated:** 2026-09-07 — **HEAD `28d7b55`. Three commits landed this session:** `f7decfd`
+(4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom + Smoke Ventilation
+submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response schema 2 → 3,
+multi-drum). **Working tree now carries an UNCOMMITTED Terra remediation of Sol's two P1s on
+`28d7b55`** — `apps/web` only: `hoseReel/hoseReelRepository.ts`,
+`hoseReel/HoseReelInspectionForm.tsx`, `tests/hoseReelV7SubmissionIssues.test.ts` (+ this file).
+Awaiting Sol re-review before commit. Detail below.
 
 **OPEN — carried to the next session:**
 1. **Sol review pass owed on `0e17c74` and `28d7b55`.** Neither has had one. `28d7b55` is a
    14-file response-schema change and must get a Sol pass before STEP 1.2 is re-closed. Prompt
    for it is in the session that produced this update; re-issue from `.agents/skills/codex-task-brief`.
+   **Sol has since reviewed `28d7b55` and found 2 P1s; Terra's remediation is staged uncommitted
+   (see "Last updated"). A Sol re-review of that working tree is now the immediate next step
+   before commit.**
 2. **G7 4-state browser sanity — still owed by the owner** (manual, on the live runtime). Blocks
    closing G7. Checklist in §4 "Outstanding owner check".
 3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
@@ -54,7 +60,22 @@ exact-key discipline. Gates green: `hoseReelV7.integration.test.ts` 10 → 13 (m
 `technician-offline-regression.spec.ts` (legacy V1 harness), `hoseReelV7PdfEvidence.test.ts`,
 full V7 integration set + `migrationReplayForwardOnly.integration.test.ts` (0 skipped), apps/api +
 apps/web `typecheck`/`build`, `git diff --check` clean (CRLF only), DO-NOT-MODIFY list clean.
-**Committed `28d7b55`.** Previously: **Smoke Ventilation submit-gate Sol P1 closed — client parity
+**Committed `28d7b55`.**
+
+**Sol's two P1s on `28d7b55` — fix staged, UNCOMMITTED in the working tree (client-only, no
+server change, no migration).** (P1-a) `getHoseReelSubmitIssues` did *not* actually mirror the
+server's exact-key discipline — it checked only known keys, so an extra envelope key (e.g. a
+leftover schema-2 `drumTypes` beside `drumCount`), an extra own property on a row, or a row
+missing `drumType` all passed the client gate yet are rejected non-retryably by
+`validResponses()`, stranding the queued Pending record offline. Added an `exactKeys` helper
+(same shape as `0e17c74`'s FI/SV fix) + per-schema envelope/row key literals covering **both**
+schema 2 and schema 3. (P1-b) a drum-count *decrease* silently discarded trailing technician
+drum sections the technician had already filled in. `setHoseReelDrumCount` now trims only
+trailing *empty* technician rows on a bare decrease (stops at the first started one); the form's
+number input runs a `window.confirm` — mirroring the per-row "Remove Drum" confirm — before
+passing `allowDroppingEnteredRows`; configured rows stay unconditionally protected. Regressions
+in `hoseReelV7SubmissionIssues.test.ts` (`test:v7-hose-reel-submit` 8 → 16). Previously:
+**Smoke Ventilation submit-gate Sol P1 closed — client parity
 with `validResponses()`, no server change.** Same 0.4b class Terra just closed on Fire Intercom:
 `structuralSubmitIssues()` in `apps/web/src/smokeVentilation/smokeVentilationRepository.ts` was a
 strict subset of `smokeVentilationV7Acceptance.ts` `validResponses()`, so malformed shapes passed

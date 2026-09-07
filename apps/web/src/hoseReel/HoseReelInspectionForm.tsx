@@ -6,6 +6,7 @@ import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
   addHoseReelRow,
   getHoseReelSubmitIssues,
+  hoseReelTechnicianRowHasEnteredData,
   latestHoseReelReferenceForCustomer,
   setHoseReelDrumCount
 } from "./hoseReelRepository";
@@ -13,6 +14,7 @@ import {
   type GoodPoor,
   type HoseReelDrumType,
   type HoseReelResponses,
+  type HoseReelRow,
   type MasterSystemInspectionRecord
 } from "./hoseReelTypes";
 import { inspectionSyncMessage } from "../uiPresentation";
@@ -40,6 +42,16 @@ const rowResultFields = {
 } as const;
 
 const drumTypeLabel = (type: HoseReelDrumType) => (type === "swing" ? "Swing" : "Fixed");
+
+/** A technician drum section is "started" — and so must survive a drum-count
+ * decrease untouched unless the technician confirms — when it carries entered
+ * data (see `hoseReelTechnicianRowHasEnteredData`) or has a V7 photo attached to
+ * one of its result columns. */
+const technicianDrumSectionHasWork = (
+  row: HoseReelRow,
+  photos: ReadonlyArray<{ fieldPath: string }>
+) => hoseReelTechnicianRowHasEnteredData(row)
+  || photos.some((photo) => photo.fieldPath.includes(`.rows.${row.rowUuid}.`));
 
 export function HoseReelInspectionForm({
   record,
@@ -473,8 +485,19 @@ export function HoseReelInspectionForm({
               inputMode="numeric"
               value={responses.drumCount ?? 0}
               onChange={(event) => {
-                const next = Number.parseInt(event.target.value, 10);
-                setResponses((current) => setHoseReelDrumCount(current, Number.isNaN(next) ? 0 : next));
+                const parsed = Number.parseInt(event.target.value, 10);
+                const requested = Number.isNaN(parsed) ? 0 : parsed;
+                const next = setHoseReelDrumCount(responses, requested, { allowDroppingEnteredRows: true });
+                const droppingWork = responses.rows.some(
+                  (row) => !next.rows.some((keep) => keep.rowUuid === row.rowUuid)
+                    && technicianDrumSectionHasWork(row, photos)
+                );
+                if (droppingWork && !window.confirm(
+                  "Reducing the number of drums will delete the drum section(s) you have already filled in below. Continue?"
+                )) {
+                  return;
+                }
+                setResponses(next);
               }}
             />
           </label>

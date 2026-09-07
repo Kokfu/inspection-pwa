@@ -30,6 +30,40 @@ const rowResultFields = {
   valve: "valveResult",
   nozzle_box: "nozzleBoxResult"
 } as const;
+const hoseReelRowResultColumns = ["drumResult", "hoseResult", "nozzleResult", "valveResult", "nozzleBoxResult"] as const;
+
+/** Mirrors the server's `exact` helper in
+ * `apps/api/src/sync/hoseReelV7Acceptance.ts`: the object must carry exactly
+ * `keys` - no missing, no extra, no unknown own property. Same shape 0e17c74
+ * added to `fireIntercomRepository.ts` / `smokeVentilationRepository.ts`. */
+const exactKeys = (value: object, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((name) => name in value);
+/** The response-envelope and row key sets `validResponses()` in
+ * `apps/api/src/sync/hoseReelV7Acceptance.ts` enforces verbatim. Kept as literals
+ * here (per schema) so a drift from the server surfaces as a failing parity test
+ * rather than a stranded Pending record the technician can never sync. */
+const hoseReelResponseEnvelopeKeys = {
+  2: ["schemaVersion", "checklist", "measurements", "drumTypes", "rows", "comments"],
+  3: ["schemaVersion", "checklist", "measurements", "drumCount", "rows", "comments"]
+} as const;
+const hoseReelRowKeys = {
+  2: ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", ...hoseReelRowResultColumns, "remarks", "fieldRemarks"],
+  3: ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", ...hoseReelRowResultColumns, "remarks", "fieldRemarks", "drumType"]
+} as const;
+
+/** A technician-added drum section counts as "entered" (and so must not be
+ * silently discarded by a drum-count decrease) when the technician has put
+ * anything into it: a drum type, any result column, any field remark, the row
+ * remark. The form layer additionally treats an attached V7 photo as entered
+ * data. Configured rows are never subject to this - they are protected
+ * unconditionally by the repeatable-row model. */
+export function hoseReelTechnicianRowHasEnteredData(row: HoseReelRow): boolean {
+  return row.source === "technician" && (
+    row.drumType === "swing" || row.drumType === "fixed"
+    || hoseReelRowResultColumns.some((column) => row[column] != null)
+    || Object.values(row.fieldRemarks ?? {}).some((value) => typeof value === "string" && value.trim() !== "")
+    || row.remarks.trim() !== ""
+  );
+}
 function definitionFor(catalog: InspectionCatalogInput, job: InspectionJob) {
   const resolved = "templates" in catalog
     ? compatibleCatalogSystem(catalog, job.configurationSnapshot.template, key)
@@ -188,6 +222,25 @@ export function getHoseReelSubmitIssues(responses: HoseReelResponses, snapshot: 
   }
 
   if (responses.comments.length > controls.comments.maxLength) issues.push({ section: "Comments", message: `Comments exceed ${controls.comments.maxLength} characters`, targetId: "hose-reel-comments" });
+
+  // Exact-key discipline mirroring `validResponses()` in
+  // `apps/api/src/sync/hoseReelV7Acceptance.ts`. The server runs `exact()` over
+  // the response envelope and over every row; an extra / missing / unknown own
+  // property is a non-retryable VALIDATION_ERROR that offline strands the queued
+  // Pending record. Historical (schema-less) envelopes go down the legacy sync
+  // path and are not governed by this gate.
+  if (responses.schemaVersion === 2 || responses.schemaVersion === 3) {
+    const schema = responses.schemaVersion;
+    if (!exactKeys(responses, hoseReelResponseEnvelopeKeys[schema])) {
+      issues.push({ section: "V7 Evidence", message: "Hose Reel response envelope shape is invalid", targetId: "hose-reel-locations" });
+    }
+    responses.rows.forEach((row, index) => {
+      if (!exactKeys(row, hoseReelRowKeys[schema])) {
+        issues.push({ section: "V7 Evidence", message: `${schema === 3 ? "Drum" : "Location"} ${index + 1}: row shape is invalid`, targetId: `hose-row-${row.rowUuid}` });
+      }
+    });
+  }
+
   if (record) issues.push(...v7HoseReelSubmissionIssues(record, responses, attachments).map((message) => ({ section: "V7 Evidence", message, targetId: "hose-reel-locations" })));
   return issues;
 }
@@ -209,8 +262,18 @@ export function addHoseReelRow(responses: HoseReelResponses): HoseReelResponses 
 /** Schema 3 (V7): the technician's declared drum count drives how many per-drum
  * sections the form renders. Reconcile the row list to `count`, appending blank
  * technician sections or trimming trailing technician sections — configured rows
- * are never dropped (repeatable-row-model invariant 1). */
-export function setHoseReelDrumCount(responses: HoseReelResponses, count: number): HoseReelResponses {
+ * are never dropped (repeatable-row-model invariant 1).
+ *
+ * A bare decrease only trims trailing technician sections that are still EMPTY;
+ * it stops at the first section the technician has entered data into rather than
+ * silently discarding that work (P1-b). Removing an entered section is then only
+ * possible through the per-row "Remove Drum" control (which confirms first), or
+ * by the form passing `allowDroppingEnteredRows` after its own `window.confirm`. */
+export function setHoseReelDrumCount(
+  responses: HoseReelResponses,
+  count: number,
+  options: { allowDroppingEnteredRows?: boolean } = {}
+): HoseReelResponses {
   if (responses.schemaVersion !== 3) return responses;
   const configured = responses.rows.filter((item) => item.source === "configured");
   const technician = responses.rows.filter((item) => item.source === "technician");
@@ -224,7 +287,16 @@ export function setHoseReelDrumCount(responses: HoseReelResponses, count: number
       ...Array.from({ length: technicianTarget - technician.length }, () => newTechnicianRow(3, 0))
     ];
   } else if (technicianTarget < technician.length) {
-    nextTechnician = technician.slice(0, technicianTarget);
+    if (options.allowDroppingEnteredRows) {
+      nextTechnician = technician.slice(0, technicianTarget);
+    } else {
+      // Pop trailing technician sections one at a time, but never past a section
+      // the technician has already filled in.
+      nextTechnician = technician.slice();
+      while (nextTechnician.length > technicianTarget && !hoseReelTechnicianRowHasEnteredData(nextTechnician[nextTechnician.length - 1]!)) {
+        nextTechnician.pop();
+      }
+    }
   }
   const rows: HoseReelRow[] = [...configured, ...nextTechnician].map((item, index) => ({ ...item, sortOrder: index + 1 }));
   return { ...responses, rows, drumCount: rows.length };
