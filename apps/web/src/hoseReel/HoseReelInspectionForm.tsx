@@ -5,10 +5,13 @@ import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
   addHoseReelRow,
-  getHoseReelSubmitIssues
+  getHoseReelSubmitIssues,
+  latestHoseReelReferenceForCustomer,
+  setHoseReelDrumCount
 } from "./hoseReelRepository";
 import {
   type GoodPoor,
+  type HoseReelDrumType,
   type HoseReelResponses,
   type MasterSystemInspectionRecord
 } from "./hoseReelTypes";
@@ -36,6 +39,8 @@ const rowResultFields = {
   nozzle_box: "nozzleBoxResult"
 } as const;
 
+const drumTypeLabel = (type: HoseReelDrumType) => (type === "swing" ? "Swing" : "Fixed");
+
 export function HoseReelInspectionForm({
   record,
   onSaveDraft,
@@ -47,7 +52,9 @@ export function HoseReelInspectionForm({
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listHoseReelV7Photos>>>([]);
+  const [priorReference, setPriorReference] = useState<Awaited<ReturnType<typeof latestHoseReelReferenceForCustomer>>>(undefined);
   const isV7 = record.masterTemplate.version === 7;
+  const isSchema3 = responses.schemaVersion === 3;
   const controlResolution = useMemo(() => {
     try {
       return { controls: controlsForHoseReelSnapshot(record.inspectionSnapshot) };
@@ -92,6 +99,15 @@ export function HoseReelInspectionForm({
     if (isV7) void listHoseReelV7Photos(record.clientUuid).then(setPhotos);
     else setPhotos([]);
   }, [isV7, record.clientUuid, record.localUpdatedAt]);
+
+  useEffect(() => {
+    if (isV7 && record.syncStatus === "Draft") {
+      void latestHoseReelReferenceForCustomer(record.inspectionSnapshot.customer.id, record.clientUuid)
+        .then(setPriorReference, () => setPriorReference(undefined));
+    } else {
+      setPriorReference(undefined);
+    }
+  }, [isV7, record.clientUuid, record.inspectionSnapshot.customer.id, record.syncStatus]);
 
   const readOnly = record.syncStatus !== "Draft";
   const evidenceFor = (fieldPath: HoseReelV7FieldPath) => photos.find((photo) => photo.fieldPath === fieldPath);
@@ -442,37 +458,73 @@ export function HoseReelInspectionForm({
         </fieldset>
       ) : null}
 
-      <fieldset disabled={readOnly}>
-        <legend>Hose Reel Drum</legend>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={responses.drumTypes.swing}
-            onChange={(event) => setResponses((current) => ({
-              ...current,
-              drumTypes: { ...current.drumTypes, swing: event.target.checked }
-            }))}
-          />
-          Swing Type
-        </label>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={responses.drumTypes.fixed}
-            onChange={(event) => setResponses((current) => ({
-              ...current,
-              drumTypes: { ...current.drumTypes, fixed: event.target.checked }
-            }))}
-          />
-          Fixed Type
-        </label>
-        <p className="form-message">
-          Select all applicable drum types.
-        </p>
-      </fieldset>
+      {isSchema3 ? (
+        <fieldset
+          className={invalidTargets.has("hose-reel-drum-count") ? "field-invalid" : ""}
+          id="hose-reel-drum-count"
+          disabled={readOnly}
+        >
+          <legend>Hose Reel Drums</legend>
+          <label>
+            Number of hose reel drums inspected
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={responses.drumCount ?? 0}
+              onChange={(event) => {
+                const next = Number.parseInt(event.target.value, 10);
+                setResponses((current) => setHoseReelDrumCount(current, Number.isNaN(next) ? 0 : next));
+              }}
+            />
+          </label>
+          <p className="form-message">
+            Each drum below is entered separately and picks its own type (Swing or Fixed).
+          </p>
+          {priorReference ? (
+            <aside className="form-hint">
+              <strong>Previous visit for this customer{priorReference.jobReference ? ` (${priorReference.jobReference})` : ""}:</strong>{" "}
+              {priorReference.drumCount} drum{priorReference.drumCount === 1 ? "" : "s"}
+              {priorReference.drumTypes.length > 0
+                ? ` — ${priorReference.drumTypes.map((type, index) => `Drum ${index + 1}: ${type ? drumTypeLabel(type) : "Not recorded"}`).join(", ")}`
+                : ""}
+              . Reference only — not applied automatically.
+            </aside>
+          ) : null}
+        </fieldset>
+      ) : responses.drumTypes ? (
+        <fieldset disabled={readOnly}>
+          <legend>Hose Reel Drum</legend>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={responses.drumTypes.swing}
+              onChange={(event) => setResponses((current) => ({
+                ...current,
+                drumTypes: { ...(current.drumTypes ?? { swing: false, fixed: false }), swing: event.target.checked }
+              }))}
+            />
+            Swing Type
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={responses.drumTypes.fixed}
+              onChange={(event) => setResponses((current) => ({
+                ...current,
+                drumTypes: { ...(current.drumTypes ?? { swing: false, fixed: false }), fixed: event.target.checked }
+              }))}
+            />
+            Fixed Type
+          </label>
+          <p className="form-message">
+            Select all applicable drum types.
+          </p>
+        </fieldset>
+      ) : null}
 
       <fieldset id="hose-reel-locations" disabled={readOnly}>
-        <legend>Hose Reel Locations</legend>
+        <legend>{isSchema3 ? "Hose Reel Drums" : "Hose Reel Locations"}</legend>
         {responses.rows
           .slice()
           .sort((left, right) => left.sortOrder - right.sortOrder)
@@ -482,7 +534,25 @@ export function HoseReelInspectionForm({
               id={`hose-row-${row.rowUuid}`}
               key={row.rowUuid}
             >
-              <h4>Location {index + 1} {row.source === "configured" ? "(configured)" : "(inspection-only)"}</h4>
+              <h4>{isSchema3 ? "Drum" : "Location"} {index + 1} {row.source === "configured" ? "(configured)" : "(inspection-only)"}</h4>
+              {isSchema3 ? (
+                <fieldset className="drum-type-selector">
+                  <legend>Drum Type *</legend>
+                  {(["swing", "fixed"] as const).map((type) => (
+                    <label className="radio-label" key={type}>
+                      <input
+                        type="radio"
+                        name={`drum-type-${row.rowUuid}`}
+                        value={type}
+                        checked={row.drumType === type}
+                        disabled={readOnly}
+                        onChange={() => updateRow(row.rowUuid, { drumType: type })}
+                      />
+                      {drumTypeLabel(type)}
+                    </label>
+                  ))}
+                </fieldset>
+              ) : null}
               <label>
                 Location
                 <input
@@ -546,22 +616,26 @@ export function HoseReelInspectionForm({
                   type="button"
                   className="secondary-command"
                   onClick={() => {
-                    if (window.confirm("Remove this Draft location row?")) {
-                      setResponses((current) => ({
-                        ...current,
-                        rows: current.rows.filter((item) => item.rowUuid !== row.rowUuid)
-                      }));
+                    if (window.confirm(isSchema3 ? "Remove this Draft drum section?" : "Remove this Draft location row?")) {
+                      setResponses((current) => {
+                        const rows = current.rows.filter((item) => item.rowUuid !== row.rowUuid);
+                        return {
+                          ...current,
+                          rows,
+                          ...(current.schemaVersion === 3 ? { drumCount: rows.length } : {})
+                        };
+                      });
                     }
                   }}
                 >
-                  Remove Row
+                  {isSchema3 ? "Remove Drum" : "Remove Row"}
                 </button>
               ) : null}
             </section>
           ))}
         {!readOnly ? (
           <button type="button" className="secondary-command" onClick={() => setResponses(addHoseReelRow)}>
-            Add Row
+            {isSchema3 ? "Add Drum" : "Add Row"}
           </button>
         ) : null}
       </fieldset>

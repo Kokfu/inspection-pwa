@@ -185,13 +185,22 @@ export function validateAcceptedHoseReelV7Detail(row: R) {
     || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
   const response = row.responses;
   const checklistKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "standby_pump_service_items", "charger_power_failure_alarm", "battery_serviceable", "pump_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions", "trfp_duty_pump", "trfp_standby_pump"];
-  const rowKeys = ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", "drumResult", "hoseResult", "nozzleResult", "valveResult", "nozzleBoxResult", "remarks", "fieldRemarks"];
   const rowResultKeys = ["drumResult", "hoseResult", "nozzleResult", "valveResult", "nozzleBoxResult"];
-  if (!exact(response, ["schemaVersion", "checklist", "measurements", "drumTypes", "rows", "comments"]) || response.schemaVersion !== 2
+  // Schema 2 kept a global `drumTypes`; schema 3 replaces it with a
+  // technician-declared `drumCount` plus a per-row `drumType` label. Both remain
+  // readable so every existing schema-2 Accepted record still opens.
+  const responseSchema = response.schemaVersion;
+  const rowKeys = ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", "drumResult", "hoseResult", "nozzleResult", "valveResult", "nozzleBoxResult", "remarks", "fieldRemarks", ...(responseSchema === 3 ? ["drumType"] : [])];
+  const shellKeys = responseSchema === 3
+    ? ["schemaVersion", "checklist", "measurements", "drumCount", "rows", "comments"]
+    : ["schemaVersion", "checklist", "measurements", "drumTypes", "rows", "comments"];
+  if ((responseSchema !== 2 && responseSchema !== 3) || !exact(response, shellKeys)
     || !rec(response.checklist) || !exact(response.checklist, checklistKeys) || !rec(response.measurements)
-    || !exact(response.measurements, ["jockey_pump_pressure", "standby_pump_cut_in"]) || !rec(response.drumTypes)
-    || !exact(response.drumTypes, ["swing", "fixed"]) || typeof response.drumTypes.swing !== "boolean" || typeof response.drumTypes.fixed !== "boolean"
+    || !exact(response.measurements, ["jockey_pump_pressure", "standby_pump_cut_in"])
     || typeof response.comments !== "string" || response.comments.length > 4000 || !Array.isArray(response.rows) || response.rows.length < 1 || response.rows.length > 250) return undefined;
+  if (responseSchema === 3) {
+    if (typeof response.drumCount !== "number" || !Number.isInteger(response.drumCount) || response.drumCount !== response.rows.length) return undefined;
+  } else if (!rec(response.drumTypes) || !exact(response.drumTypes, ["swing", "fixed"]) || typeof response.drumTypes.swing !== "boolean" || typeof response.drumTypes.fixed !== "boolean") return undefined;
   for (const key of checklistKeys) {
     const item = response.checklist[key];
     if (!rec(item) || !exact(item, ["result", "remarks"]) || typeof item.result !== "string" || typeof item.remarks !== "string" || item.remarks.length > 2000) return undefined;
@@ -210,6 +219,7 @@ export function validateAcceptedHoseReelV7Detail(row: R) {
       || !(item.assetReference === null || typeof item.assetReference === "string" && item.assetReference.length <= 200)
       || typeof item.remarks !== "string" || item.remarks.length > 2000 || !rec(item.fieldRemarks)
       || Object.keys(item.fieldRemarks).some((key) => !rowResultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
+    if (responseSchema === 3 && item.drumType !== "swing" && item.drumType !== "fixed") return undefined;
     if (item.source === "configured") {
       if (typeof item.configuredLocationId !== "string" || !uuid.test(item.configuredLocationId)) return undefined;
     } else if (item.source !== "technician" || item.configuredLocationId !== null || item.zoneSnapshot !== null || item.locationSnapshot !== null) return undefined;

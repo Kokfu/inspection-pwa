@@ -3,11 +3,69 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **Four red Manager / riser browser harnesses fixed — test-hygiene
-only, no app change.** The HANDOVER note that claimed two were already fixed by a test-hygiene
-pass was wrong; the pass had never been applied. Verdicts: all four are stale-harness, not an
-`App.tsx` regression (the Manager Operations list→detail path is byte-identical to `e30c649`;
-`git diff e30c649..HEAD -- apps/web/src/manager/` is empty). (1) `manager-app-auth-transitions.html`
+**Last updated:** 2026-09-07 — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema
+2 → 3, per-drum `drumType` label + technician-declared `drumCount`.** Owner confirmed the
+`drumTypeCardinality: "pending_confirmation"` question: a customer may have >1 hose reel drum;
+the technician enters the drum count up front (free-form integer, per visit) and the form renders
+that many per-drum sections, each choosing its own type (`swing` | `fixed`) as a LABEL ONLY — the
+per-drum result columns (drum/hose/nozzle/valve/nozzleBox) and the shared Water Tank / Pump House
+header are unchanged. Schema 3 removes the global `drumTypes` multi-select, adds
+`drumCount` to the response and `drumType` to every `HoseReelRow`. **Additive:** the schema-2
+read path is kept everywhere (`parseV7Responses`, `validResponses`, `validateAcceptedHoseReelV7Detail`
+all branch on `response.schemaVersion`), so every existing schema-2 Draft/Pending/Accepted record
+opens, submits and accepts byte-identical; V1–V6 legacy (`drumTypes`, no `schemaVersion`) untouched.
+**No V7 template change and no migration:** the published `masterServiceReportV7` hose_reel
+definition already carries a (now-unused) global `drum_type` select from V1; changing it would
+break every schema-2 accepted record's `contractSha256`. `drumType` is a fixed `{swing,fixed}`
+enum validated by hardcoded lists client + server (exactly like `row.source`), bears no evidence,
+and lives entirely in the JSON `response_payload` — no DDL, 017/018/026 untouched, DB
+`response_schema_version` column stays `2` (matches how hydrant/fire-intercom/smoke-ventilation V7
+already decouple it). Client form: drum-count entry → N per-drum sections with a swing/fixed
+radio each, plus a non-binding "previous visit for this customer" reference
+(`latestHoseReelReferenceForCustomer`) showing the prior drum count + per-drum types read-only.
+Client `getHoseReelSubmitIssues` gains a schema-3 block (count is a positive integer,
+`count === rows.length`, every `drumType ∈ {swing,fixed}`) mirroring the server `validResponses`
+exact-key discipline. Gates green: `hoseReelV7.integration.test.ts` 10 → 13 (multi-drum schema-3
++ closed-job idempotent retry + schema-3 negatives + schema-2 regression, cold disposable PG),
+`test:v7-hose-reel-submit` 8, `hose-reel-v7-offline.spec.ts` (2-drum swing/fixed round trip),
+`technician-offline-regression.spec.ts` (legacy V1 harness), `hoseReelV7PdfEvidence.test.ts`,
+full V7 integration set + `migrationReplayForwardOnly.integration.test.ts` (0 skipped), apps/api +
+apps/web `typecheck`/`build`, `git diff --check` clean (CRLF only), DO-NOT-MODIFY list clean.
+Not committed. Previously: **Smoke Ventilation submit-gate Sol P1 closed — client parity
+with `validResponses()`, no server change.** Same 0.4b class Terra just closed on Fire Intercom:
+`structuralSubmitIssues()` in `apps/web/src/smokeVentilation/smokeVentilationRepository.ts` was a
+strict subset of `smokeVentilationV7Acceptance.ts` `validResponses()`, so malformed shapes passed
+the browser gate, got written Pending + queued, then hit a non-retryable server `VALIDATION_ERROR`
+— offline that strands the technician's work. Fix mirrors the Fire Intercom mechanism exactly:
+`exactKeys()` (a copy of the server's `exact()`) over the response envelope key set, the checklist
+envelope + each checklist entry key set, and each Fan Schedule row's key set; `zoneSnapshot === null`
+per row; `fieldRemarks` keys whitelisted against `smokeVentilationRowColumns`; all issues pushed
+into the existing shared `submitIssues()` array — no new validation path. Client gate only; server
+and `validResponses()` untouched. `smokeVentilationV7SubmissionIssues.test.ts` 13 → 20 (six new
+malformed-shape regressions + a client/server parity table). Gates green:
+`test:v7-smoke-ventilation-submit` (20), `test:v7-smoke-ventilation-browser` (1),
+`smokeVentilationV7.integration.test.ts` (12, cold disposable PG), apps/web + apps/api
+`typecheck`/`build`, `git diff --check` clean, apps/api diff empty. Not committed. Previously:
+**Fire Intercom STEP 2.3 Sol P1 closed — client submit-gate
+parity, no server change.** Sol's re-review of `8f755af`+`44fb682` returned SAFE TO COMMIT: N
+with one P1 (0.4b class): `submitIssues()` in `fireIntercomRepository.ts` did not mirror the
+exact-envelope parity `fireIntercomV7Acceptance.ts` `validResponses()` enforces, so four
+malformed shapes (a `fieldRemarks` key other than `conditionResult`, `zoneSnapshot !== null`,
+an extra own property on a row, an extra own property on the response envelope) passed the
+browser gate but are rejected non-retryably by the server — an offline Pending record stranded
+behind an impossible acceptance. Fix: `structuralSubmitIssues()` now runs the server's
+`exact()` check on the envelope key set and each row's key set, requires `zoneSnapshot === null`,
+and whitelists `fieldRemarks` keys against `fireIntercomRowColumns`. Client gate only; server
+and `validResponses()` untouched. `fireIntercomV7SubmissionIssues.test.ts` 18 → 23 (five new
+client/server parity regressions). Gates green: `test:v7-fire-intercom-submit` (23),
+`test:v7-fire-intercom-browser` (1), `fireIntercomV7.integration.test.ts` (12),
+`acceptedMasterSystemDetail.fireIntercomV7.test.ts` (6), `test:v7-stale-evidence` (1),
+apps/web + apps/api `typecheck`/`build`. Not committed. Previously: **Four red Manager / riser
+browser harnesses fixed — test-hygiene only, no app change.** The HANDOVER note that claimed two
+were already fixed by a test-hygiene pass was wrong; the pass had never been applied. Verdicts:
+all four are stale-harness, not an `App.tsx` regression (the Manager Operations list→detail path
+is byte-identical to `e30c649`; `git diff e30c649..HEAD -- apps/web/src/manager/` is empty).
+(1) `manager-app-auth-transitions.html`
 — `openCustomerDetail()` settled on `"Current settings" && "Sites"`, both of which the customer
 *list card* renders ([`ManagerCustomerConfiguration.tsx:20`](apps/web/src/manager/ManagerCustomerConfiguration.tsx:20)),
 so the wait no-op'd and the next `click("+ Add Site")` threw for the 5 Add-Site cases; now waits
@@ -145,6 +203,15 @@ migration 021, field-owned accepted photos, and Final Report/PDF output. The iso
 covers IndexedDB reload, offline queueing, reconnect sync, and Accepted Detail.
 
 **Hose Reel STEP 1.2 — DONE, committed `efef275`** (server slice landed with Hydrant in `81db211`).
+**Follow-up (uncommitted): multi-drum response schema 3.** Owner resolved
+`drumTypeCardinality: "pending_confirmation"` → per-drum. Schema 3 replaces the global `drumTypes`
+multi-select with a technician-declared `drumCount` + a per-row `drumType` label (`swing`|`fixed`,
+label only, no evidence). Schema-2 read path kept everywhere (all validators branch on
+`response.schemaVersion`); V1–V6 untouched. No V7 template change, no migration — `drumType` is a
+hardcoded enum in the JSON `response_payload` and the pre-existing `drum_type` template block stays
+unused (changing it would break schema-2 `contractSha256`). Client form: count entry → N per-drum
+sections with swing/fixed radios + a non-binding previous-visit reference for the same customer.
+See the "Last updated" note for the full gate list.
 
 **Automatic Sprinkler STEP 1.3 — DONE, committed `7e2a7e6`** (server + web slices `ba1fb2a`,
 `eea9c5d`). **Owner decision:** V7 Automatic Sprinkler **drops** the legacy Cut-In/Cut-Out PSI photo
@@ -646,6 +713,70 @@ repeatable-row model; the 9 with an evidence workflow share the V7 staged-eviden
 Roller Shutter have no implementation yet.
 
 ## 7. Change log
+
+- 2026-09-07 — **Smoke Ventilation submit-gate Sol P1 closed — client parity with `validResponses()`, not committed.**
+  Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Parallel to the Fire Intercom P1 below —
+  Terra's report flagged the identical gap in Smoke Ventilation.
+  - **P1 (0.4b class).** `structuralSubmitIssues()` in
+    `apps/web/src/smokeVentilation/smokeVentilationRepository.ts` was a strict subset of
+    `apps/api/src/sync/smokeVentilationV7Acceptance.ts` `validResponses()`. Malformed shapes
+    returned `submitIssues=[]` on the client yet the server rejects them non-retryably
+    (`VALIDATION_ERROR`), stranding a Pending record in the outbox — offline, unrecoverable
+    field-data loss: (a) an extra own property on the response envelope beyond
+    `schemaVersion`/`controlPanelNo`/`location`/`dateTested`/`checklist`/`rows`/`comments`;
+    (b) an extra key on the `checklist` envelope; (c) an extra key on a checklist entry beyond
+    `result`/`remarks`; (d) an extra own property on a Fan Schedule row object; (e)
+    `row.zoneSnapshot !== null` (server requires `=== null`); (f) a `row.fieldRemarks` key other
+    than `autoResult`/`manualResult`.
+  - **Fix (client only).** `structuralSubmitIssues()` now mirrors `validResponses()` for exactly
+    those rules: `exactKeys()` (a copy of the server's `exact()`) over `responseEnvelopeKeys`, the
+    checklist envelope key set (derived from `smokeVentilationChecklistFields`), `checklistEntryKeys`,
+    and `rowKeys`; `zoneSnapshot === null` per row; a `fieldRemarks` key whitelist driven by
+    `smokeVentilationRowColumns`. Same mechanism Fire Intercom uses (issues pushed into the shared
+    `submitIssues()` array) — no new validation path. Server, `validResponses()` and
+    `masterServiceReportV7.ts` untouched.
+  - **Tests.** `apps/web/tests/smokeVentilationV7SubmissionIssues.test.ts` 13 → 20: one regression
+    per malformed shape plus a client/server parity table, each asserting the V7 evidence gate is
+    blind to the shape (the pre-fix escape route), that the server predicate fragment rejects it,
+    and that `submitIssues()` now returns a non-empty issue list. Four-shape reproduction re-run
+    against a pre-fix copy of the gate (`git show HEAD:…`): all six shapes returned `[]` pre-fix,
+    a non-empty list post-fix; a clean draft returns `[]` on both.
+  - **Gates.** `test:v7-smoke-ventilation-submit` (20), `test:v7-smoke-ventilation-browser` (1),
+    `smokeVentilationV7.integration.test.ts` (12, cold disposable PG on `127.0.0.1:55432`),
+    `acceptedMasterSystemDetail.{fireIntercom,dryWetRiser,automaticSprinkler}V7.test.ts` (15, shared
+    module unchanged), apps/web + apps/api `typecheck`/`build`, `git diff --check` clean (CRLF only),
+    apps/api diff empty, DO-NOT-MODIFY list clean. Files: `smokeVentilationRepository.ts`,
+    `smokeVentilationV7SubmissionIssues.test.ts`, this file.
+
+- 2026-09-07 — **Fire Intercom STEP 2.3 Sol P1 closed — client submit-gate parity, not committed.**
+  Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Sol's re-review of `8f755af`+`44fb682`
+  passed everything else (row-remarks provenance, order-independent `sameManifest`, evidence scope,
+  migration 026 scope, forward-only replay, historical immutability) and returned SAFE TO COMMIT: N
+  on one P1.
+  - **P1 (0.4b class).** `submitIssues()` in `apps/web/src/fireIntercom/fireIntercomRepository.ts`
+    was a strict subset of the server's `configuredFireIntercomRowsMatch` + `validResponses()`
+    pair. Four demonstrated escapes returned `submitIssues=[]` on the client yet the server rejects
+    them non-retryably (`VALIDATION_ERROR`), stranding a Pending record in the outbox — offline,
+    unrecoverable field-data loss: (a) `row.fieldRemarks` with any key other than `conditionResult`;
+    (b) `row.zoneSnapshot !== null` (server requires `=== null`); (c) an extra own property on a
+    row object (server enforces exact row keys); (d) an extra own property on the response
+    envelope beyond `schemaVersion`/`rows`/`comments`.
+  - **Fix (client only).** `structuralSubmitIssues()` now mirrors `validResponses()` for exactly
+    those four rules: `exactKeys()` (a copy of the server's `exact()`) over `responseEnvelopeKeys`
+    and `rowKeys`, `zoneSnapshot === null` per row, and a `fieldRemarks` key whitelist driven by
+    `fireIntercomRowColumns`. Same mechanism Smoke Ventilation uses (issues pushed into the shared
+    `submitIssues()` array) — no new validation path. Server and `validResponses()` untouched;
+    `masterServiceReportV7.ts` untouched.
+  - **Tests.** `apps/web/tests/fireIntercomV7SubmissionIssues.test.ts` 18 → 23: one regression per
+    malformed shape plus a client/server parity table, each asserting the V7 evidence gate is
+    blind to the shape (the pre-fix escape route), that the server predicate fragment rejects it,
+    and that `submitIssues()` now returns a non-empty issue list. Sol's reproduction re-run: all
+    four shapes now return a non-empty list; a clean draft still returns `[]`.
+  - **Gates.** `test:v7-fire-intercom-submit` (23), `test:v7-fire-intercom-browser` (1),
+    `fireIntercomV7.integration.test.ts` (12, cold disposable PG), `acceptedMasterSystemDetail.fireIntercomV7.test.ts`
+    (6), `test:v7-stale-evidence` (1), apps/web + apps/api `typecheck`/`build`, `git diff --check`
+    clean (CRLF only), DO-NOT-MODIFY list clean. Files: `fireIntercomRepository.ts`,
+    `fireIntercomV7SubmissionIssues.test.ts`, this file.
 
 - 2026-09-07 — **Four red Manager / riser browser harnesses fixed (test-hygiene only).**
   Baseline `e30c649`, branch `phase-8e-client-demo-polish`. All four were stale harnesses, not an

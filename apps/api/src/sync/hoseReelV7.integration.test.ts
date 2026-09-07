@@ -21,6 +21,21 @@ function responses(rowUuid = id(), change: Value = {}) {
   return { schemaVersion: 2, checklist, measurements: { jockey_pump_pressure: { values: { cut_in: 80, cut_out: 100 }, unit: "PSI", result: "good", remarks: "" }, standby_pump_cut_in: { values: { value: 70 }, unit: "PSI", result: "na", remarks: "" } }, drumTypes: { swing: true, fixed: false }, rows: [{ rowUuid, source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "Bank", assetReference: null, sortOrder: 1, drumResult: "good", hoseResult: "good", nozzleResult: "good", valveResult: "na", nozzleBoxResult: "good", remarks: "", fieldRemarks: {} }], comments: "", ...change };
 }
 
+// STEP 1.2 schema 3: the technician declares `drumCount` and every drum row
+// carries its own `drumType` label ("swing" | "fixed"). The global `drumTypes`
+// multi-select is gone.
+function responsesV3(drums: Array<{ rowUuid: string; drumType: "swing" | "fixed"; change?: Value }>) {
+  const checklist = Object.fromEntries(checklistKeys.map((key) => [key, { result: "good", remarks: "" }])) as Record<string, Value>;
+  return {
+    schemaVersion: 3,
+    checklist,
+    measurements: { jockey_pump_pressure: { values: { cut_in: 80, cut_out: 100 }, unit: "PSI", result: "good", remarks: "" }, standby_pump_cut_in: { values: { value: 70 }, unit: "PSI", result: "na", remarks: "" } },
+    drumCount: drums.length,
+    rows: drums.map((drum, index) => ({ rowUuid: drum.rowUuid, source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: `Drum ${index + 1}`, assetReference: null, sortOrder: index + 1, drumResult: "good", hoseResult: "good", nozzleResult: "good", valveResult: "na", nozzleBoxResult: "good", remarks: "", fieldRemarks: {}, drumType: drum.drumType, ...drum.change })),
+    comments: ""
+  } as Value;
+}
+
 async function withDatabase(run: (database: pg.Pool) => Promise<void>) {
   const database = new pg.Pool({ connectionString: databaseUrl });
   const lock = await database.connect();
@@ -113,6 +128,56 @@ test("Hose Reel V7 exact retry with an unsorted manifest is still duplicate succ
     // (length differs) and one entry's bytes changed (same length, different content).
     assert.equal((await syncMasterSystemInspections([f.envelope(client, job, body, [check])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
     assert.equal((await syncMasterSystemInspections([f.envelope(client, job, body, [drum, { ...check, sourceSha256: hash("g10-different-bytes") }])], f.actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+  });
+});
+
+test("Hose Reel V7 schema 3 accepts >=2 drums with mixed swing/fixed, a drum-2 finding, and idempotent retry after Job closure", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "multi-drum"), job = await f.job(), client = id(), drum1 = id(), drum2 = id();
+    await f.reserve(client, job);
+    const photo = await f.stage(client, job, rowPath(drum2, "hose"));
+    const body = responsesV3([
+      { rowUuid: drum1, drumType: "swing" },
+      { rowUuid: drum2, drumType: "fixed", change: { hoseResult: "not_good", fieldRemarks: { hoseResult: "Drum 2 hose split" } } }
+    ]);
+    const first = await syncMasterSystemInspections([f.envelope(client, job, body, [photo])], f.actor);
+    assert.deepEqual(first.acceptedIds, [client], JSON.stringify(first));
+    assert.deepEqual(await f.statuses(client), ["accepted"]);
+    const stored = (await database.query<{ response_payload: Value }>("SELECT response_payload FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0]!.response_payload;
+    assert.equal(stored.schemaVersion, 3);
+    assert.equal(stored.drumCount, 2);
+    assert.deepEqual((stored.rows as Value[]).map((row) => row.drumType), ["swing", "fixed"]);
+    assert.equal("drumTypes" in stored, false);
+    // Job closes; the exact same envelope is a duplicate success, never JOB_CLOSED.
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    const retry = await syncMasterSystemInspections([f.envelope(client, job, body, [photo])], f.actor);
+    assert.deepEqual(retry.duplicateIds, [client], JSON.stringify(retry));
+    assert.deepEqual(retry.failed, []);
+  });
+});
+
+test("Hose Reel V7 schema 3 rejects a drum row missing its swing/fixed label and a mismatched drumCount", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "schema3-invalid"), job = await f.job();
+    const missingLabel = responsesV3([{ rowUuid: id(), drumType: "swing" }, { rowUuid: id(), drumType: "fixed" }]);
+    delete (missingLabel.rows as Value[])[1]!.drumType;
+    assert.equal((await syncMasterSystemInspections([f.envelope(id(), job, missingLabel, [])], f.actor)).failed[0]?.code, "VALIDATION_ERROR");
+    const badCount = responsesV3([{ rowUuid: id(), drumType: "swing" }, { rowUuid: id(), drumType: "fixed" }]);
+    badCount.drumCount = 5;
+    assert.equal((await syncMasterSystemInspections([f.envelope(id(), job, badCount, [])], f.actor)).failed[0]?.code, "VALIDATION_ERROR");
+  });
+});
+
+test("Hose Reel V7 schema 2 records still accept byte-for-byte after the schema-3 rollout", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "schema2-regression"), job = await f.job(), client = id(), row = id();
+    const body = responses(row);
+    const result = await syncMasterSystemInspections([f.envelope(client, job, body, [])], f.actor);
+    assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result));
+    const stored = (await database.query<{ response_payload: Value }>("SELECT response_payload FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0]!.response_payload;
+    assert.equal(stored.schemaVersion, 2);
+    assert.deepEqual(stored.drumTypes, { swing: true, fixed: false });
+    assert.equal("drumCount" in stored, false);
   });
 });
 

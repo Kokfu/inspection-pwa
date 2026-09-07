@@ -17,7 +17,7 @@ import { compatibleCatalogSystem } from "../referenceData/systemContractCompatib
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import { listHoseReelV7Photos, v7HoseReelEvidenceOutbox, v7HoseReelManifest, v7HoseReelSubmissionIssues } from "./hoseReelV7Evidence";
-import { hoseReelLimits, type DeviceReportedCreator, type GoodPoor, type HoseReelInspectionSnapshot, type HoseReelResponses, type MasterSystemInspectionRecord } from "./hoseReelTypes";
+import { hoseReelLimits, type DeviceReportedCreator, type GoodPoor, type HoseReelDrumType, type HoseReelInspectionSnapshot, type HoseReelResponses, type HoseReelRow, type MasterSystemInspectionRecord } from "./hoseReelTypes";
 
 const key = "hose_reel";
 const now = () => new Date().toISOString();
@@ -41,7 +41,11 @@ function definitionFor(catalog: InspectionCatalogInput, job: InspectionJob) {
     ?? resolvePublishedHoseReelControls(system.definition, template.code, template.version);
   return { definition: system.definition, resolvedControls };
 }
-function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number, isV7: boolean) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(isV7 ? { fieldRemarks: {} } : {}) }; }
+function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number, isV7: boolean) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(isV7 ? { fieldRemarks: {}, drumType: null } : {}) }; }
+/** A blank technician drum section. Schema 3 (V7) carries the per-drum `drumType`
+ * label; schema 2 kept the finding-only `fieldRemarks`; historical rows carry
+ * neither. */
+function newTechnicianRow(schemaVersion: HoseReelResponses["schemaVersion"], sortOrder: number): HoseReelRow { return { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "", assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(schemaVersion === 2 || schemaVersion === 3 ? { fieldRemarks: {} } : {}), ...(schemaVersion === 3 ? { drumType: null } : {}) }; }
 function measurement(controls: ResolvedHoseReelControls, measurementKey: string): ResolvedMeasurementRow {
   const value = controls.measurements.find((item) => item.key === measurementKey);
   if (!value) throw new Error(`Hose Reel definition is missing ${measurementKey}`);
@@ -76,14 +80,15 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
         remarks: ""
       }
     },
-    drumTypes: { swing: false, fixed: false },
     rows: system.locations.flatMap((location) =>
       Array.from({ length: location.presetRowCount }, () =>
         row(location, zones.get(location.zoneId ?? ""), ++order, controls.source.templateVersion === 7)
       )
     ),
     comments: "",
-    ...(controls.source.templateVersion === 7 ? { schemaVersion: 2 } : {})
+    // Schema 3 (V7): technician declares the drum count per visit and each drum
+    // section carries its own `drumType`. Legacy keeps the global multi-select.
+    ...(controls.source.templateVersion === 7 ? { schemaVersion: 3, drumCount: order } : { drumTypes: { swing: false, fixed: false } })
   };
 }
 function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput): HoseReelInspectionSnapshot {
@@ -100,7 +105,7 @@ function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: 
       definition,
       resolvedControls,
       repetitionMode: "single_with_repeatable_rows",
-      drumTypeCardinality: "pending_confirmation"
+      drumTypeCardinality: job.configurationSnapshot.template.version === 7 ? "per_drum_technician_declared" : "pending_confirmation"
     }
   };
 }
@@ -168,6 +173,20 @@ export function getHoseReelSubmitIssues(responses: HoseReelResponses, snapshot: 
     if (row.remarks.length > controls.repeatableRows.remarks.maxLength) issues.push({ section: "Hose Reel Locations", message: `${name}: Remarks exceed ${controls.repeatableRows.remarks.maxLength} characters`, targetId });
   });
 
+  if (responses.schemaVersion === 3) {
+    const count = responses.drumCount;
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+      issues.push({ section: "Hose Reel Drums", message: "Enter how many hose reel drums were inspected", targetId: "hose-reel-drum-count" });
+    } else if (count !== responses.rows.length) {
+      issues.push({ section: "Hose Reel Drums", message: `Drum count (${count}) must match the ${responses.rows.length} drum section(s) below`, targetId: "hose-reel-drum-count" });
+    }
+    responses.rows.forEach((row, index) => {
+      if (row.drumType !== "swing" && row.drumType !== "fixed") {
+        issues.push({ section: "Hose Reel Drums", message: `Drum ${index + 1}: choose Swing or Fixed`, targetId: `hose-row-${row.rowUuid}` });
+      }
+    });
+  }
+
   if (responses.comments.length > controls.comments.maxLength) issues.push({ section: "Comments", message: `Comments exceed ${controls.comments.maxLength} characters`, targetId: "hose-reel-comments" });
   if (record) issues.push(...v7HoseReelSubmissionIssues(record, responses, attachments).map((message) => ({ section: "V7 Evidence", message, targetId: "hose-reel-locations" })));
   return issues;
@@ -181,4 +200,51 @@ function validateSubmit(record: MasterSystemInspectionRecord, responses: HoseRee
 function payload(record: MasterSystemInspectionRecord, evidenceManifest?: ReturnType<typeof v7HoseReelManifest>) { return { clientUuid: record.clientUuid, jobId: record.jobId, systemKey: record.systemKey, ...(record.masterTemplate.version === 7 ? { instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1 } : {}), originalCreatorSnapshot: record.originalCreatorSnapshot ?? null, masterTemplate: record.masterTemplate, configuration: record.configuration, inspectionSnapshot: record.inspectionSnapshot, responses: record.responses, performedAt: record.performedAt, ...(evidenceManifest ? { evidenceManifest } : {}) }; }
 export async function submitLocalHoseReel(record: MasterSystemInspectionRecord, responses: HoseReelResponses) { let next: MasterSystemInspectionRecord | undefined; const activeKey = `masterSystemInspection:create:${record.clientUuid}`; await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { const live = await localDatabase.masterSystemInspections.get(record.clientUuid); if (!live || live.systemKey !== key || live.localUpdatedAt !== record.localUpdatedAt || live.syncStatus !== "Draft") throw new Error("This Hose Reel record changed elsewhere. Reload before submitting."); const current = live as MasterSystemInspectionRecord; const merged = preserveConfiguredRows(current.responses, responses); const photos = current.masterTemplate.version === 7 ? await listHoseReelV7Photos(current.clientUuid) : []; validateSubmit(current, merged, photos); next = update(current, merged, "Pending"); const manifest = current.masterTemplate.version === 7 ? v7HoseReelManifest(photos, merged) : undefined; const existing = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first(); const outbox: SyncOutboxItem = { operationId: existing?.operationId ?? crypto.randomUUID(), entityType: "masterSystemInspection", entityId: current.clientUuid, action: "create", payload: payload(next, manifest), createdAt: next.localCreatedAt, attempts: existing?.attempts ?? 0, status: "Pending", activeKey }; await localDatabase.masterSystemInspections.put(next); if (existing) await localDatabase.syncOutbox.put(outbox); else await localDatabase.syncOutbox.add(outbox); for (const photo of photos.filter((photo) => manifest?.some((entry) => entry.photoUuid === photo.photoUuid))) { await localDatabase.inspectionAttachments.update(photo.photoUuid, { syncStatus: "Pending", localUpdatedAt: next.localUpdatedAt }); const evidenceKey = `v7StagedEvidence:create:${photo.photoUuid}`; if (!await localDatabase.syncOutbox.where("activeKey").equals(evidenceKey).first()) await localDatabase.syncOutbox.add(v7HoseReelEvidenceOutbox(photo)); } }); if (!next) throw new Error("Hose Reel inspection was not submitted"); return next; }
 export async function editFailedHoseReel(record: MasterSystemInspectionRecord) { let next: MasterSystemInspectionRecord | undefined; const activeKey = `masterSystemInspection:create:${record.clientUuid}`; await localDatabase.transaction("rw", localDatabase.masterSystemInspections, localDatabase.syncOutbox, async () => { const live = await localDatabase.masterSystemInspections.get(record.clientUuid); if (!live || live.systemKey !== key || live.localUpdatedAt !== record.localUpdatedAt || (live.syncStatus !== "Failed" && live.syncStatus !== "Conflict")) throw new Error("This Hose Reel record changed elsewhere. Reload before correcting it."); next = { ...(live as MasterSystemInspectionRecord), syncStatus: "Draft", localUpdatedAt: now(), lastSyncError: undefined }; const item = await localDatabase.syncOutbox.where("activeKey").equals(activeKey).first(); if (item) await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: now(), lastError: "Superseded by technician correction" }); await localDatabase.masterSystemInspections.put(next); }); if (!next) throw new Error("Hose Reel inspection was not corrected"); return next; }
-export function addHoseReelRow(responses: HoseReelResponses): HoseReelResponses { const sortOrder = Math.max(0, ...responses.rows.map((item) => item.sortOrder)) + 1; return { ...responses, rows: [...responses.rows, { rowUuid: crypto.randomUUID(), source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "", assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(responses.schemaVersion === 2 ? { fieldRemarks: {} } : {}) }] }; }
+export function addHoseReelRow(responses: HoseReelResponses): HoseReelResponses {
+  const sortOrder = Math.max(0, ...responses.rows.map((item) => item.sortOrder)) + 1;
+  const rows = [...responses.rows, newTechnicianRow(responses.schemaVersion, sortOrder)];
+  return { ...responses, rows, ...(responses.schemaVersion === 3 ? { drumCount: rows.length } : {}) };
+}
+
+/** Schema 3 (V7): the technician's declared drum count drives how many per-drum
+ * sections the form renders. Reconcile the row list to `count`, appending blank
+ * technician sections or trimming trailing technician sections — configured rows
+ * are never dropped (repeatable-row-model invariant 1). */
+export function setHoseReelDrumCount(responses: HoseReelResponses, count: number): HoseReelResponses {
+  if (responses.schemaVersion !== 3) return responses;
+  const configured = responses.rows.filter((item) => item.source === "configured");
+  const technician = responses.rows.filter((item) => item.source === "technician");
+  const requested = Number.isFinite(count) ? Math.floor(count) : 0;
+  const target = Math.max(configured.length, Math.min(Math.max(requested, 0), hoseReelLimits.rows));
+  const technicianTarget = target - configured.length;
+  let nextTechnician = technician;
+  if (technicianTarget > technician.length) {
+    nextTechnician = [
+      ...technician,
+      ...Array.from({ length: technicianTarget - technician.length }, () => newTechnicianRow(3, 0))
+    ];
+  } else if (technicianTarget < technician.length) {
+    nextTechnician = technician.slice(0, technicianTarget);
+  }
+  const rows: HoseReelRow[] = [...configured, ...nextTechnician].map((item, index) => ({ ...item, sortOrder: index + 1 }));
+  return { ...responses, rows, drumCount: rows.length };
+}
+
+/** Non-binding reference: the technician's most recent local Hose Reel record for
+ * the SAME customer. Surfaced read-only so the form can hint the previous drum
+ * count + per-drum types without auto-applying them. */
+export async function latestHoseReelReferenceForCustomer(customerId: string, excludeClientUuid: string): Promise<{ drumCount: number; drumTypes: Array<HoseReelDrumType | null>; jobReference: string; localUpdatedAt: string } | undefined> {
+  if (!customerId) return undefined;
+  const stored = await localDatabase.masterSystemInspections.where("systemKey").equals(key).toArray();
+  const candidates = stored.filter((item): item is MasterSystemInspectionRecord =>
+    item.systemKey === key && item.clientUuid !== excludeClientUuid
+    && item.inspectionSnapshot?.customer?.id === customerId && Array.isArray(item.responses?.rows));
+  const latest = candidates.sort((left, right) => right.localUpdatedAt.localeCompare(left.localUpdatedAt))[0];
+  if (!latest) return undefined;
+  return {
+    drumCount: typeof latest.responses.drumCount === "number" ? latest.responses.drumCount : latest.responses.rows.length,
+    drumTypes: latest.responses.rows.map((item) => item.drumType ?? null),
+    jobReference: latest.inspectionSnapshot?.job?.reference ?? "",
+    localUpdatedAt: latest.localUpdatedAt
+  };
+}

@@ -76,8 +76,19 @@ function fieldAllowedValues(definition: unknown) {
   return values;
 }
 
+/** Schema 2 carried a global `drumTypes` multi-select; schema 3 (STEP 1.2 owner
+ * confirmation) replaces it with a technician-declared `drumCount` plus a
+ * per-drum `drumType` label ("swing" | "fixed") on every row. The label never
+ * touches the per-drum result columns. Schema-2 acceptance stays unchanged. */
 function validResponses(responses: Value, values: Map<string, Set<string>>) {
-  if (!exact(responses, ["schemaVersion", "checklist", "measurements", "drumTypes", "rows", "comments"]) || responses.schemaVersion !== 2 || !record(responses.checklist) || !exact(responses.checklist, checklistFields) || !record(responses.measurements) || !exact(responses.measurements, ["jockey_pump_pressure", "standby_pump_cut_in"]) || !record(responses.drumTypes) || !exact(responses.drumTypes, ["swing", "fixed"]) || typeof responses.drumTypes.swing !== "boolean" || typeof responses.drumTypes.fixed !== "boolean" || typeof responses.comments !== "string" || responses.comments.length > 4000 || !Array.isArray(responses.rows) || responses.rows.length < 1 || responses.rows.length > 250) return false;
+  const schema = responses.schemaVersion;
+  const shellKeys = schema === 3
+    ? ["schemaVersion", "checklist", "measurements", "drumCount", "rows", "comments"]
+    : ["schemaVersion", "checklist", "measurements", "drumTypes", "rows", "comments"];
+  if ((schema !== 2 && schema !== 3) || !exact(responses, shellKeys) || !record(responses.checklist) || !exact(responses.checklist, checklistFields) || !record(responses.measurements) || !exact(responses.measurements, ["jockey_pump_pressure", "standby_pump_cut_in"]) || typeof responses.comments !== "string" || responses.comments.length > 4000 || !Array.isArray(responses.rows) || responses.rows.length < 1 || responses.rows.length > 250) return false;
+  if (schema === 3) {
+    if (typeof responses.drumCount !== "number" || !Number.isInteger(responses.drumCount) || responses.drumCount !== responses.rows.length) return false;
+  } else if (!record(responses.drumTypes) || !exact(responses.drumTypes, ["swing", "fixed"]) || typeof responses.drumTypes.swing !== "boolean" || typeof responses.drumTypes.fixed !== "boolean") return false;
   for (const key of checklistFields) {
     const value = responses.checklist[key];
     if (!record(value) || !exact(value, ["result", "remarks"]) || typeof value.result !== "string" || !values.get(key)?.has(value.result) || typeof value.remarks !== "string" || value.remarks.length > 2000 || isV7EvidenceFinding(value.result) && !value.remarks.trim()) return false;
@@ -90,8 +101,9 @@ function validResponses(responses: Value, values: Map<string, Set<string>>) {
   }
   const ids = new Set<string>();
   for (let index = 0; index < responses.rows.length; index += 1) {
-    const row = responses.rows[index]; const keys = ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", ...rowFields, "remarks", "fieldRemarks"];
+    const row = responses.rows[index]; const keys = ["rowUuid", "source", "configuredLocationId", "zoneSnapshot", "locationSnapshot", "locationText", "assetReference", "sortOrder", ...rowFields, "remarks", "fieldRemarks", ...(schema === 3 ? ["drumType"] : [])];
     if (!record(row) || !exact(row, keys) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || ids.has(row.rowUuid) || row.sortOrder !== index + 1 || (row.source !== "configured" && row.source !== "technician") || row.source === "configured" && (typeof row.configuredLocationId !== "string" || !uuid.test(row.configuredLocationId)) || row.source === "technician" && row.configuredLocationId !== null || typeof row.locationText !== "string" || !row.locationText.trim() || row.locationText.length > 300 || !(row.assetReference === null || typeof row.assetReference === "string" && row.assetReference.length <= 200) || typeof row.remarks !== "string" || row.remarks.length > 2000 || !record(row.fieldRemarks) || Object.keys(row.fieldRemarks).some((key) => !rowFields.includes(key as typeof rowFields[number])) || Object.values(row.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return false;
+    if (schema === 3 && row.drumType !== "swing" && row.drumType !== "fixed") return false;
     for (const key of rowFields) if (typeof row[key] !== "string" || !values.get(key)?.has(row[key]) || isV7EvidenceFinding(row[key]) && !String(row.fieldRemarks[key] ?? "").trim()) return false;
     ids.add(row.rowUuid);
   }

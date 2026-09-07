@@ -34,7 +34,7 @@ function completeResponses(version = 7): HoseReelResponses {
     version
   );
   return {
-    ...(version === 7 ? { schemaVersion: 2 } : {}),
+    ...(version === 7 ? { schemaVersion: 3 } : {}),
     checklist: Object.fromEntries(
       [...controls.checklist.waterTank, ...controls.checklist.pumpHouse, ...(controls.checklist.testRunFirePump ?? [])]
         .map((item) => [item.key, { result: "good", remarks: "" }])
@@ -43,12 +43,12 @@ function completeResponses(version = 7): HoseReelResponses {
       jockey_pump_pressure: { values: { cut_in: 1, cut_out: 2 }, unit: "PSI", result: "good", remarks: "" },
       standby_pump_cut_in: { values: { value: 1 }, unit: "PSI", result: "good", remarks: "" }
     },
-    drumTypes: { swing: true, fixed: false },
+    ...(version === 7 ? { drumCount: 1 } : { drumTypes: { swing: true, fixed: false } }),
     rows: [{
       rowUuid: uuid, source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null,
       locationText: "Pump room", assetReference: "HR-1", sortOrder: 1, drumResult: "good", hoseResult: "good",
       nozzleResult: "good", valveResult: "good", nozzleBoxResult: "good", remarks: "",
-      ...(version === 7 ? { fieldRemarks: {} } : {})
+      ...(version === 7 ? { fieldRemarks: {}, drumType: "swing" as const } : {})
     }],
     comments: ""
   };
