@@ -14,7 +14,7 @@ test("Automatic Sprinkler V7 final-report evidence is physically embedded as JPE
   const pdf = await renderFinalServiceReportPdf({
     customer: "Sprinkler Customer", site: "Sprinkler Site", serviceDate: "2026-09-04",
     jobReference: "ASP-V7-PDF", completedAt: "2026-09-04T00:00:00.000Z", completedBy: "browser-tech",
-    systems: [{ systemKey: "automatic_sprinkler", label: "Automatic Sprinkler System", status: "Accepted", locations: ["Primary inspection"] }],
+    systems: [{ systemKey: "automatic_sprinkler", label: "Automatic Sprinkler System", status: "Accepted", condition: "FAILED", conditionDetail: "Water Tank - S.A.J Main Water Supply: Not Good", locations: ["Primary inspection"] }],
     sections: [{
       systemKey: "automatic_sprinkler", label: "Automatic Sprinkler System",
       fields: [

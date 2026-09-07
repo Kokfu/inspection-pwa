@@ -31,9 +31,22 @@ export type FinalReportField = { label: string; value: string; depth: number };
 export type FinalReportEvidence = { field: string; caption?: string; content: Buffer; width: number; height: number };
 export type FinalReportLocation = { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string };
 export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[] };
+/**
+ * Derived, report-output-only per-system roll-up after the client's "Summary of
+ * Testing" (docs/client-format-request/asiamost-sample-report-format.md §1,
+ * Option 1 of docs/client-format-request/format-adoption-options.md). It is NOT a
+ * stored field, NOT a template/contract field, and is a different axis from the
+ * per-field result model (4-state good/not_good/complete_repair/na since d7ecc0d;
+ * legacy 3-state good/poor/not_relevant). The 4->3 mapping below is PROVISIONAL,
+ * pending client confirmation:
+ *   any field "Not Good" / "Poor"        -> FAILED
+ *   else any field "Complete Repair"     -> REFER DETAIL PAGE
+ *   else (Good / N.A. / Not Relevant)    -> GOOD CONDITIONS
+ */
+export type FinalReportSystemCondition = "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED";
 export type FinalServiceReport = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
-  systems: Array<{ systemKey: string; label: string; status: "Accepted"; locations: string[] }>;
+  systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: FinalReportSystemCondition; conditionDetail: string; locations: string[] }>;
   sections: FinalReportSection[];
 };
 
@@ -261,6 +274,31 @@ function v6Result(value: unknown) {
   if (value === "complete_repair") return "Complete Repair";
   if (value === "na") return "No Need Checking / N.A.";
   return undefined;
+}
+
+/**
+ * Roll a system up to the client's 3-state "Summary of Testing" condition
+ * (see FinalReportSystemCondition) by scanning every accepted section for that
+ * system — all location units, in submitted order — over each field value.
+ * The matched strings ("Not Good" / "Poor" / "Complete Repair") are the exact
+ * display values emitted by scalar() and v6Result() in this file; keep this in
+ * lock-step with those two functions. Exported only so the report unit tests
+ * can exercise the 4->3 mapping without a database. "No Need Checking / N.A." and
+ * "Not Relevant" are never findings. conditionDetail is the first finding
+ * encountered, "`label: value`", hard-capped at 200 chars ("" when none).
+ */
+export function deriveSystemCondition(systemSections: FinalReportSection[]): { condition: FinalReportSystemCondition; conditionDetail: string } {
+  let condition: FinalReportSystemCondition = "GOOD CONDITIONS";
+  let conditionDetail = "";
+  for (const section of systemSections) {
+    for (const field of section.fields) {
+      if (field.value !== "Not Good" && field.value !== "Poor" && field.value !== "Complete Repair") continue;
+      if (conditionDetail === "") conditionDetail = `${field.label}: ${field.value}`.slice(0, 200);
+      if (field.value === "Not Good" || field.value === "Poor") condition = "FAILED";
+      else if (condition !== "FAILED") condition = "REFER DETAIL PAGE";
+    }
+  }
+  return { condition, conditionDetail };
 }
 
 type FireAlarmV6ReportResponse = RecordValue & {
@@ -510,7 +548,10 @@ export async function loadFinalServiceReport(
   }
   return { customer, site, serviceDate, jobReference: reference,
     completedAt: job.completed_at instanceof Date ? job.completed_at.toISOString() : job.completed_at!, completedBy: job.completed_by_display_name!,
-    systems: completion.systems.map((item) => ({ systemKey: item.systemKey, label: item.systemLabel, status: "Accepted" as const, locations: item.units.map((unit) => unit.label) })), sections };
+    systems: completion.systems.map((item) => {
+      const { condition, conditionDetail } = deriveSystemCondition(sections.filter((section) => section.systemKey === item.systemKey));
+      return { systemKey: item.systemKey, label: item.systemLabel, status: "Accepted" as const, condition, conditionDetail, locations: item.units.map((unit) => unit.label) };
+    }), sections };
 }
 
 /**
@@ -532,11 +573,26 @@ export async function renderFinalServiceReportPdf(report: FinalServiceReport): P
   const paragraph = (value: string, options: PDFKit.Mixins.TextOptions = {}) => { const height = document.heightOfString(value, { width: document.page.width - document.page.margins.left - document.page.margins.right, ...options }); pageBreakFor(height); document.text(value, options); };
   header();
   for (const [key, value] of [["Customer", report.customer], ["Site", report.site], ["Service Date", report.serviceDate], ["Job Reference", report.jobReference], ["Service Status", "Completed"], ["Completed Date", report.completedAt], ["Completed By", report.completedBy]]) paragraph(`${key}: ${value}`);
-  document.moveDown(0.5); paragraph("Service Summary", { underline: true });
-  report.systems.forEach((system) => paragraph(`• ${system.label}: Accepted${system.locations.length > 1 ? ` (${system.locations.join(", ")})` : ""}`, { indent: 10 }));
+  document.moveDown(0.5); paragraph("Summary of Testing", { underline: true });
+  report.systems.forEach((system, index) => {
+    paragraph(`${index + 1}. ${system.label} — ${system.condition}`, { indent: 10 });
+    if (system.conditionDetail !== "") paragraph(system.conditionDetail, { indent: 14 });
+  });
   for (const section of report.sections) {
     document.moveDown(0.7); paragraph(`${section.label}${section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}`, { underline: true });
     for (const field of section.fields) paragraph(`${field.label}: ${field.value}`, { indent: Math.min(field.depth, 3) * 14 });
+    // Numbered defect list under a section that has >=1 finding field; a trailing
+    // adjacent "... Remark(s)" field is folded onto the same line.
+    const findings = section.fields
+      .map((field, index) => ({ field, next: section.fields[index + 1] }))
+      .filter(({ field }) => field.value === "Not Good" || field.value === "Poor" || field.value === "Complete Repair");
+    if (findings.length > 0) {
+      document.moveDown(0.3); paragraph("Remarks:", { underline: true });
+      findings.forEach(({ field, next }, ordinal) => {
+        const remark = next && /Remarks?$/.test(next.label) ? ` — ${next.value}` : "";
+        paragraph(`${ordinal + 1}. ${field.label}: ${field.value}${remark}`, { indent: 10 });
+      });
+    }
     for (const evidence of section.evidence) { paragraph(`Final evidence included: ${evidence.caption ?? labelFor(evidence.field)}`); pageBreakFor(330); document.image(evidence.content, { fit: [500, 300], align: "center" }); document.moveDown(0.5); }
   }
   document.end(); return done;

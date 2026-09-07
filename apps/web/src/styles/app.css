@@ -918,6 +918,13 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
 .service-summary-table tbody tr:last-child th, .service-summary-table tbody tr:last-child td { border-bottom: 0; }
 .service-summary-table tbody tr:nth-child(even) th, .service-summary-table tbody tr:nth-child(even) td { background: #f6fafb; }
 .service-summary-table__status { color: var(--brand-dark); font-weight: 750; white-space: nowrap; }
+.service-summary-table__no { color: var(--muted); font-weight: 750; white-space: nowrap; }
+/* Derived 3-state "Summary of Testing" condition; colours reuse the status-badge tokens. */
+.service-summary-table__condition { font-weight: 750; }
+.service-summary-table__condition--good { color: #256442; }
+.service-summary-table__condition--refer { color: #795818; }
+.service-summary-table__condition--failed { color: #953838; }
+.service-summary-table__detail { display: block; margin-top: 3px; color: var(--muted); font-size: .82rem; font-weight: 600; }
 .manager-service-picker { display: grid; gap: 9px; min-width: 0; margin: 0; border: 0; padding: 0; }
 .manager-service-picker legend { margin-bottom: 2px; padding: 0; color: var(--ink); font-weight: 800; }
 .manager-service-option { display: flex; width: 100%; box-sizing: border-box; align-items: flex-start; gap: 12px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: #fbfcfd; cursor: pointer; }

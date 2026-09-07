@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { createFinalReportPdfHandler } from "../routes/inspectionJobs.js";
 import { requireRole } from "../middleware/requireRole.js";
-import { finalReportFontAssetPath, FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf } from "./finalServiceReport.js";
+import { deriveSystemCondition, finalReportFontAssetPath, FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf, type FinalReportSection, type FinalServiceReport } from "./finalServiceReport.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
 import { fireAlarmDetectorV3, masterServiceReportV3 } from "../inspections/templates/masterServiceReportV3.js";
@@ -65,6 +65,9 @@ test("completed service visit report uses accepted server history, preserves per
   assert.equal(report.sections.length, 1);
   assert.equal(report.sections.find((section) => section.systemKey === "co2_fire_extinguisher")?.location?.locationLabel, "CO2 Room");
   assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /Historical accepted response/);
+  // Derived "Summary of Testing" roll-up (DoD case c): an all-good/na system.
+  assert.equal(report.systems[0]?.condition, "GOOD CONDITIONS");
+  assert.equal(report.systems[0]?.conditionDetail, "");
   const pdf = await renderFinalServiceReportPdf(report);
   assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
   assert.ok(pdf.length > 900);
@@ -80,7 +83,11 @@ test("historical Fire Alarm V3/V4/V5 accepted authority remains readable through
 });
 
 test("historical V2 Dry/Wet Riser accepted authority remains readable through the final-report and PDF path", async () => {
-  const definition = masterServiceReportV2.systems.find((system) => system.key === "dry_wet_riser")!; const locationId = ids[21]!, rowId = ids[22]!; const checks = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, { result: "good", remarks: "" }])); const system = { enabledSystemId: ids[3]!, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser System", definitionStatus: "confirmed", sortOrder: 1, definition, systemConfiguration: { riserMode: "dry" }, zones: [], locations: [{ id: locationId, zoneId: null, key: "outlet-a", displayName: "Outlet A", presetRowCount: 1, rowPreset: { assetReference: "DW-01" }, sortOrder: 1 }] }; const configuration = { schemaVersion: 1, customer: configurationSnapshot.customer, site: configurationSnapshot.site, configuration: { revisionId: ids[25]!, revisionNumber: 1 }, template: { id: masterServiceReportV2.id, code: "MFE-FSSR", name: "Master", version: 2 }, enabledSystems: [system] }; const responses = { schemaVersion: 1, mode: "dry", waterTank: checks(["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"]), pumpHouse: checks(["pump_house_clean", "manual_start_pumps", "jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"]), measurements: { jockeyCutIn: 10, jockeyCutOut: 11, dutyCutIn: 12, standbyCutIn: 13, unit: "PSI" }, riserOutlets: [{ rowUuid: rowId, source: "configured", configuredLocationId: locationId, configuredRowOrdinal: 1, zoneSnapshot: null, locationSnapshot: { id: locationId, displayName: "Outlet A" }, assetReference: "DW-01", locationText: "Outlet A", canvasHoseAt2Result: "poor", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good", remarks: "Historical V2 poor outlet", sortOrder: 1 }], comments: "Historical V2 comments" }; const snapshot = { schemaVersion: 1, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV2.id, code: "MFE-FSSR", version: 2 }, system: { ...system, repetitionMode: "single_with_repeatable_rows" }, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null } }; const row = { ...primary("dry_wet_riser", ids[10]!), master_template_version_id: masterServiceReportV2.id, customer_configuration_revision_id: ids[25]!, inspection_snapshot: snapshot, response_payload: responses, stored_sha256: null, storage_relative_path: null, width: null, height: null }; const database = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] }; throw new Error(`Unexpected query: ${sql}`); } }; const report = await loadFinalServiceReport(jobId, database as never); assert.equal(report.sections[0]?.systemKey, "dry_wet_riser"); assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /poor/i); const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+  const definition = masterServiceReportV2.systems.find((system) => system.key === "dry_wet_riser")!; const locationId = ids[21]!, rowId = ids[22]!; const checks = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, { result: "good", remarks: "" }])); const system = { enabledSystemId: ids[3]!, systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser System", definitionStatus: "confirmed", sortOrder: 1, definition, systemConfiguration: { riserMode: "dry" }, zones: [], locations: [{ id: locationId, zoneId: null, key: "outlet-a", displayName: "Outlet A", presetRowCount: 1, rowPreset: { assetReference: "DW-01" }, sortOrder: 1 }] }; const configuration = { schemaVersion: 1, customer: configurationSnapshot.customer, site: configurationSnapshot.site, configuration: { revisionId: ids[25]!, revisionNumber: 1 }, template: { id: masterServiceReportV2.id, code: "MFE-FSSR", name: "Master", version: 2 }, enabledSystems: [system] }; const responses = { schemaVersion: 1, mode: "dry", waterTank: checks(["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"]), pumpHouse: checks(["pump_house_clean", "manual_start_pumps", "jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"]), measurements: { jockeyCutIn: 10, jockeyCutOut: 11, dutyCutIn: 12, standbyCutIn: 13, unit: "PSI" }, riserOutlets: [{ rowUuid: rowId, source: "configured", configuredLocationId: locationId, configuredRowOrdinal: 1, zoneSnapshot: null, locationSnapshot: { id: locationId, displayName: "Outlet A" }, assetReference: "DW-01", locationText: "Outlet A", canvasHoseAt2Result: "poor", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good", remarks: "Historical V2 poor outlet", sortOrder: 1 }], comments: "Historical V2 comments" }; const snapshot = { schemaVersion: 1, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV2.id, code: "MFE-FSSR", version: 2 }, system: { ...system, repetitionMode: "single_with_repeatable_rows" }, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null } }; const row = { ...primary("dry_wet_riser", ids[10]!), master_template_version_id: masterServiceReportV2.id, customer_configuration_revision_id: ids[25]!, inspection_snapshot: snapshot, response_payload: responses, stored_sha256: null, storage_relative_path: null, width: null, height: null }; const database = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] }; throw new Error(`Unexpected query: ${sql}`); } }; const report = await loadFinalServiceReport(jobId, database as never); assert.equal(report.sections[0]?.systemKey, "dry_wet_riser"); assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /poor/i);
+  // Derived "Summary of Testing" roll-up (DoD case d): a legacy schemaVersion-1 `poor` field -> FAILED.
+  assert.equal(report.systems[0]?.condition, "FAILED");
+  assert.match(report.systems[0]!.conditionDetail, /^.+: Poor$/);
+  const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
 });
 
 test("open service visits and missing accepted results fail closed", async () => {
@@ -162,4 +169,71 @@ test("final-report PDF route requires authentication and returns a safe PDF down
     assert.match(authenticated.headers.get("content-disposition") ?? "", /^attachment; filename="Service-Report_SV-2026-08_2026-08-19\.pdf"$/);
     assert.equal((await authenticated.arrayBuffer()).byteLength > 900, true);
   } finally { await new Promise<void>((resolve, reject) => (server as Server).close((error) => error ? reject(error) : resolve())); }
+});
+
+const conditionSection = (fields: Array<{ label: string; value: string }>): FinalReportSection =>
+  ({ systemKey: "system", label: "System", fields: fields.map((field) => ({ ...field, depth: 0 })), evidence: [] });
+
+test("derived Summary of Testing condition maps the 4-state and legacy result models onto the client 3-state roll-up", () => {
+  // (a) any not_good -> FAILED; conditionDetail is the FIRST finding string encountered, in order.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Cabinet", value: "Good" }, { label: "Hose", value: "Not Good" }, { label: "Nozzle", value: "Complete Repair" }])]),
+    { condition: "FAILED", conditionDetail: "Hose: Not Good" }
+  );
+  // (b) only complete_repair (no not_good/poor) -> REFER DETAIL PAGE.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Valve", value: "Good" }, { label: "Gauge", value: "Complete Repair" }])]),
+    { condition: "REFER DETAIL PAGE", conditionDetail: "Gauge: Complete Repair" }
+  );
+  // (c) only good / N.A. / Not Relevant -> GOOD CONDITIONS, empty detail, no finding.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Cylinder", value: "Good" }, { label: "Seal", value: "No Need Checking / N.A." }, { label: "Label", value: "Not Relevant" }])]),
+    { condition: "GOOD CONDITIONS", conditionDetail: "" }
+  );
+  // (d) legacy schemaVersion-1 `poor` -> FAILED.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Canvas Hose", value: "Poor" }])]),
+    { condition: "FAILED", conditionDetail: "Canvas Hose: Poor" }
+  );
+  // Every section (all location units) is scanned in order: a later not_good still escalates a
+  // REFER to FAILED, but the detail stays the first finding seen.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Unit A Gauge", value: "Complete Repair" }]), conditionSection([{ label: "Unit B Hose", value: "Not Good" }])]),
+    { condition: "FAILED", conditionDetail: "Unit A Gauge: Complete Repair" }
+  );
+  // conditionDetail is hard-capped at 200 chars; a system with no sections is GOOD CONDITIONS.
+  assert.equal(deriveSystemCondition([conditionSection([{ label: "L".repeat(500), value: "Not Good" }])]).conditionDetail.length, 200);
+  assert.deepEqual(deriveSystemCondition([]), { condition: "GOOD CONDITIONS", conditionDetail: "" });
+});
+
+test("Summary of Testing PDF block renders numbered per-system conditions and per-section Remarks", async () => {
+  const report: FinalServiceReport = {
+    customer: "Cond Customer", site: "Cond Site", serviceDate: "2026-09-07", jobReference: "SV-COND-1",
+    completedAt: "2026-09-07T00:00:00.000Z", completedBy: "inspector-one",
+    systems: [
+      { systemKey: "hydrant", label: "Hydrant System", status: "Accepted", condition: "FAILED", conditionDetail: "Hose: Not Good", locations: ["Gate A"] },
+      { systemKey: "hose_reel", label: "Hose Reel System", status: "Accepted", condition: "REFER DETAIL PAGE", conditionDetail: "Pump: Complete Repair", locations: ["Primary inspection"] },
+      { systemKey: "co2_fire_extinguisher", label: "CO2 System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["CO2 Room"] }
+    ],
+    sections: [
+      { systemKey: "hydrant", label: "Hydrant System", fields: [{ label: "Cabinet", value: "Good", depth: 0 }, { label: "Hose", value: "Not Good", depth: 0 }, { label: "Hose Remark", value: "Perished", depth: 1 }], evidence: [] },
+      { systemKey: "hose_reel", label: "Hose Reel System", fields: [{ label: "Duty Pump", value: "Complete Repair", depth: 0 }], evidence: [] },
+      { systemKey: "co2_fire_extinguisher", label: "CO2 System", fields: [{ label: "Cylinder", value: "Good", depth: 0 }], evidence: [] }
+    ]
+  };
+  const pdf = await renderFinalServiceReportPdf(report);
+  assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
+  assert.ok(pdf.length > 900);
+  // PDFKit kerns and Flate-compresses embedded-font text, so — like every other assertion in
+  // this file — we prove the new "Summary of Testing" / "Remarks:" paths by structure, not by
+  // grepping the glyph run: an otherwise-identical clean report (no findings) renders a
+  // strictly smaller PDF because it emits neither Remarks block nor a conditionDetail line.
+  const clean: FinalServiceReport = {
+    ...report,
+    systems: report.systems.map((system) => ({ ...system, condition: "GOOD CONDITIONS" as const, conditionDetail: "" })),
+    sections: report.sections.map((section) => ({ ...section, fields: section.fields.map((field) => ({ ...field, value: field.value === "Not Good" || field.value === "Complete Repair" ? "Good" : field.value })) }))
+  };
+  const cleanPdf = await renderFinalServiceReportPdf(clean);
+  assert.equal(cleanPdf.subarray(0, 5).toString("binary"), "%PDF-");
+  assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
 });

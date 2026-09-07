@@ -1,6 +1,6 @@
 export type FinalReportPreview = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
-  systems: Array<{ systemKey: string; label: string; status: "Accepted"; locations: string[] }>;
+  systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED"; conditionDetail: string; locations: string[] }>;
   sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }> }>;
 };
 

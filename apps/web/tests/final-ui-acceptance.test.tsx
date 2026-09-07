@@ -168,13 +168,14 @@ test("Manager Operations presents truthful Open, Completed, and Total summary co
 
 const detailedFinalReport: FinalReportPreview = {
   customer: "Report Customer", site: "Report Site", serviceDate: "2026-08-21", jobReference: "SV-REPORT-1", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
-  systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
+  systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["Zone North", "Gate A"] }],
   sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
 };
 
 test("shared final report presentation retains Phase 7 sections, location headings, fields, and evidence", () => {
   const html = renderToStaticMarkup(<FinalReportPresentation report={detailedFinalReport} />);
-  assert.match(html, /Service Summary/);
+  assert.match(html, /Summary of Testing/);
+  assert.match(html, /GOOD CONDITIONS/);
   assert.match(html, /Hydrant System - Zone North \/ Gate A/);
   assert.match(html, /report-field--depth-2/);
   assert.match(html, /Canvas Hose/);

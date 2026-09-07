@@ -3,14 +3,47 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **HEAD `0b4b1e6`; working tree carries an UNCOMMITTED 8e-P1
-presentation pass** (`apps/web/src/jobs/FinalReportPresentation.tsx`, `apps/web/src/styles/app.css`
-+ this file) — shared Final Report body reworked for readability (key-value job-facts header,
-Service Summary index table with `system.status` verbatim, grouped per-section field lists). No
-data-shape / API / PDF change. `final-ui-acceptance` (16/16), `manager-final-report-failure-matrix`
-+ `-navigation` Playwright specs, web typecheck + build all green. `git diff -- apps/api` empty.
-Owner visual sign-off on `SV-20260906-41` still pending; 8e-P2 PDF pass unchanged (deferred).
-Earlier this session: `f7decfd`
+**Last updated:** 2026-09-07 — **uncommitted working tree on top of `d9ea404`.** Applied the
+client's "Summary of Testing" presentation (Option 1 of
+`docs/client-format-request/format-adoption-options.md` — derived roll-up only; the full
+cosmetic reskin is still a later task, NOT started). New DERIVED, report-output-only
+per-system condition on `FinalServiceReport.systems[]` / `FinalReportPreview.systems[]`
+(`condition` = `GOOD CONDITIONS | REFER DETAIL PAGE | FAILED`, `conditionDetail` string) —
+not stored, not a template/contract field, a different axis from the 4-state per-field
+result model. PROVISIONAL 4→3 mapping pending client confirmation (any `Not Good`/`Poor` →
+FAILED; else any `Complete Repair` → REFER DETAIL PAGE; else GOOD CONDITIONS), noted in a
+`finalServiceReport.ts` code comment. Final Report PDF "Service Summary" bullet list → a
+numbered "Summary of Testing" block + per-section "Remarks:" list for finding fields; web
+`FinalReportPresentation` service-summary table gains `No.` + `Condition` columns
+(`--failed`/`--refer`/`--good`). No handler edit — `createFinalReportHandler` /
+`managerServiceVisits` both `...report`-spread `systems` untouched. No template / migration /
+schema / submit-gate change; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical.
+Gates green: api typecheck+build, historical-matrix/v6-evidence/wet-chemical-definition,
+`finalServiceReport.test.ts` (10 — +2 new `deriveSystemCondition`/PDF cases, +2 existing tests
+extended for the roll-up), the 3 final-report integration tests
+against a cold `phase6_seed_integration` DB, web typecheck+build, `final-ui-acceptance` 16/16,
+both `manager-final-report` Playwright specs `--workers=1` (no expectation shifted). Files
+changed beyond the brief's 6: `hoseReelV7PdfEvidence.test.ts` / `hydrantV7PdfEvidence.test.ts`
+/ `automaticSprinklerV7PdfEvidence.test.ts` (2 keys each — they build `FinalServiceReport`
+literals and the now-required fields must typecheck under `npm run build`) and
+`final-ui-acceptance.test.tsx` (`/Service Summary/` → `/Summary of Testing/`, 2 fixture keys).
+Not committed — owner does git.
+
+<details><summary>Previous — 2026-09-07 <code>d9ea404</code></summary>
+
+`d9ea404` (`refactor(web): implement task 8e-P1 …`) landed the 8e-P1 presentation pass — shared Final
+Report body reworked for readability (key-value job-facts header, Service Summary index table
+with `system.status` verbatim, grouped per-section field lists in `FinalReportPresentation.tsx`
++ `app.css`). No data-shape / API / PDF change. **Sol reviewed `d9ea404`: 0 P0 / 0 P1, NEW
+DEFECTS: N, HISTORICAL IMMUTABILITY INTACT: Y, SAFE FOR MANUAL FINAL SANITY: Y, SAFE TO COMMIT:
+Y** — one P2 observation (the `.report-summary`/`h3` restyle at `app.css:899-900` also lands on
+New Service Visit "Add Customer" + Manager Customer Configuration headings; cosmetic, in-design,
+no test/functional impact — scope to `.final-report` later if unwanted). Gates green:
+`final-ui-acceptance` 16/16, `manager-final-report` failure-matrix + navigation Playwright specs
+(run `--workers=1`; navigation harness is IndexedDB-block flaky under parallel cold start),
+web typecheck + build, api historical-matrix/v6-evidence/wet-chemical-definition; `git diff
+d9ea404^..d9ea404 -- apps/api` empty. **Only OWNER visual sign-off on `SV-20260906-41` remains
+to fully close 8e-P1.** 8e-P2 PDF pass unchanged (deferred). Earlier this session: `f7decfd`
 (4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom + Smoke Ventilation
 submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response schema 2 → 3,
 multi-drum), then `25e3768` + **`f6aab25`** — Terra remediation of Sol's two P1s on `28d7b55`
@@ -18,6 +51,8 @@ multi-drum), then `25e3768` + **`f6aab25`** — Terra remediation of Sol's two P
 longer silently drops started technician drum sections). `apps/web`-only, additive, no server /
 migration / template change. **Sol re-reviewed `f6aab25`: 0 P0 / 0 P1, NEW DEFECTS: N, SAFE TO
 COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
+
+</details>
 
 **OPEN — carried to the next session:**
 1. **Sol review pass still owed on `0e17c74`** (Fire Intercom + Smoke Ventilation submit-gate
@@ -27,12 +62,18 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    closing G7. Checklist in §4 "Outstanding owner check".
 3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
    confirmation pass closes §6a's "Sol pass" line for Fire Intercom.
-4. **8e-P1 — Final Report summary readability.** **Code side DONE (uncommitted 2026-09-07):**
-   shared `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` reworked
-   — key-value job-facts header, Service Summary index table (status verbatim), grouped per-section
-   field lists. Presentation only, no data/API/PDF change; both Technician + Manager views verified;
-   `final-ui-acceptance` + the two manager-final-report Playwright specs + web typecheck/build green.
-   **Owner visual sign-off on `SV-20260906-41` still pending** before this is fully closed. See §4.
+4. **8e-P1 — Final Report summary readability.** **Code committed `d9ea404`, Sol-passed
+   2026-09-07** (0 P0 / 0 P1, 1 P2 observation — `.report-summary` h3 restyle also touches New
+   Service Visit / Manager Customer Configuration headings; cosmetic). Shared
+   `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` — key-value
+   job-facts header, Service Summary index table (status verbatim), grouped per-section field
+   lists. Presentation only, no data/API/PDF change; both Technician + Manager views verified.
+   **ONLY the owner visual sign-off on `SV-20260906-41` remains** before this is fully closed —
+   see §4. (Run the two manager-final-report Playwright specs `--workers=1`.) **Uncommitted
+   follow-up 2026-09-07:** derived per-system "Summary of Testing" `Condition` verdict + `No.`
+   column + PDF "Summary of Testing"/"Remarks:" now applied (`deriveSystemCondition`,
+   `condition`/`conditionDetail` on `systems[]`); provisional 4→3 mapping needs client
+   confirmation; needs a Sol pass. Full cosmetic reskin still NOT started.
 5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
    PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
    not per-system. The photo embedding is fine as-is. This is a sequencing decision, not a gap.
@@ -401,6 +442,14 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
   (catalog `[1..7]`, v7 Fire Alarm `templateVersion:7`, new customer + visit freeze v7).
 - All standard gates + both new tests green. DO-NOT-MODIFY list clean.
 
+**Derived "Summary of Testing" (uncommitted, 2026-09-07)** — `FinalServiceReport.systems[]` /
+`FinalReportPreview.systems[]` now carry a report-output-only `condition`
+(`GOOD CONDITIONS`/`REFER DETAIL PAGE`/`FAILED`) + `conditionDetail`, rolled up in
+`loadFinalServiceReport` from the accepted section fields (`deriveSystemCondition`); PDF
+"Summary of Testing" block + per-section "Remarks:" list; web summary table `No.`+`Condition`
+columns. Derived only — no stored/template/contract/submit-gate change; PROVISIONAL 4→3
+mapping flagged for client confirmation. Closes 8e-P1 (see §4).
+
 ---
 
 ## 4. Known gaps / blockers
@@ -439,7 +488,7 @@ per system on a V7 job (`SV-20260903-37` is open and untouched):
 
 | # | Item | Notes |
 |---|------|-------|
-| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **CODE SIDE DONE (uncommitted) 2026-09-07** — reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **Owner visual sign-off still pending.** 8e-P2 PDF pass unchanged (deferred). |
+| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **COMMITTED `d9ea404`, Sol-passed 2026-09-07 (0 P0 / 0 P1; 1 P2: `.report-summary` h3 restyle also touches New Service Visit + Manager Customer Configuration headings — cosmetic, in-design).** Reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **ONLY owner visual sign-off on `SV-20260906-41` remains.** 8e-P2 PDF pass unchanged (deferred). **FOLLOW-UP applied (uncommitted, 2026-09-07):** the client's actual "Summary of Testing" ask — a per-system `Condition` verdict, `No.` column, PDF "Summary of Testing" + per-section "Remarks:" — is now built as a DERIVED roll-up (`deriveSystemCondition` in `finalServiceReport.ts`; `condition`/`conditionDetail` on `systems[]`), Option 1 of `docs/client-format-request/format-adoption-options.md`. Provisional 4→3 mapping — client must confirm. Still derived/presentation only; no data/template/contract change. `system.status` ("Accepted") is retained on the type but no longer shown in the summary table. Awaiting Sol re-review + the original owner visual sign-off. |
 | 8e-P2 | **Final Report PDF layout.** Photo embedding is fine — leave it. | `apps/api/src/reports/finalServiceReport.ts`. **DEFERRED by owner decision** to ONE pass *after* the last buildable system (Fire Rated Roller Shutter), so it isn't re-touched per system. Not a gap — a sequencing decision. |
 
 ---

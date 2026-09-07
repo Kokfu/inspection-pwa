@@ -1,19 +1,11 @@
 # Filled sample page — "FIRE RATED ROLLER SHUTTER" (photo)
 
-> **Owner uploaded this on 2026-09-07 and labelled it "FM200 sample."** The page itself is
-> titled **`FIRE RATED ROLLER SHUTTER`**, not FM200. Its contents (title, columns, the
-> "1 lot motor Roller Shutter spoilt for no.11" comment, and the yellow *"Harga"* sticky note over
-> rows 13–14) match **Hokuden Zone 1, page 13** exactly — see
+> **Owner uploaded this on 2026-09-07, first labelled "FM200 sample" — confirmed a mis-label
+> (2026-09-07). This is a filled Fire Rated Roller Shutter page, STEP 2.4.** Its contents (title,
+> columns, the "1 lot motor Roller Shutter spoilt for no.11" comment, and the yellow *"Harga"*
+> sticky note over rows 13–14) match **Hokuden Zone 1, page 13** exactly — see
 > [`../paper-forms/fire-rated-roller-shutter.md`](../paper-forms/fire-rated-roller-shutter.md).
->
-> Two ways to read the "FM200 sample" label — resolve with the owner before building:
-> 1. **It was a mis-label** and this is simply a filled Fire Rated Roller Shutter example
->    (STEP 2.4), useful as the concrete data shape for that still-blocked system.
-> 2. **The owner wants FM200 (STEP 2.1) built with this same minimal table shape** — pre-printed
->    `No. / Location` rows + two hand-marked result columns under a Good/Poor legend — as the
->    client's answer to the FM200 "no paper page exists" problem. If so, that is a *new* client
->    instruction and needs a dated, attributed note (STEP 2.1 is explicitly blocked pending exactly
->    that; the FM200 stub's `confirmationNotes` forbids inferring fields from other systems).
+> Nothing here bears on FM200 (STEP 2.1); that remains blocked on its own client-input gate.
 
 ## Transcription
 

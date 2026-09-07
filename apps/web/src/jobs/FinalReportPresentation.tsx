@@ -1,5 +1,9 @@
 import type { FinalReportPreview } from "./finalReportApi";
 
+/** --failed / --refer / --good modifier for the derived "Summary of Testing" condition cell. */
+const conditionModifier = (condition: FinalReportPreview["systems"][number]["condition"]) =>
+  condition === "FAILED" ? "failed" : condition === "REFER DETAIL PAGE" ? "refer" : "good";
+
 /** Shared read-only Phase 7 report body for both Technician and Manager views. */
 export function FinalReportPresentation({ report }: { report: FinalReportPreview }) {
   const jobFacts: Array<{ label: string; value: string }> = [
@@ -18,15 +22,19 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
       </dl>
     </section>
     <section className="report-summary report-summary--index">
-      <h3>Service Summary</h3>
+      <h3>Summary of Testing</h3>
       <div className="report-table-scroll">
         <table className="service-summary-table">
-          <thead><tr><th scope="col">System</th><th scope="col">Location(s)</th><th scope="col">Status</th></tr></thead>
+          <thead><tr><th scope="col">No.</th><th scope="col">System</th><th scope="col">Location(s)</th><th scope="col">Condition</th></tr></thead>
           <tbody>
-            {report.systems.map((system) => <tr key={system.systemKey}>
+            {report.systems.map((system, index) => <tr key={system.systemKey}>
+              <td className="service-summary-table__no">{index + 1}</td>
               <th scope="row">{system.label}</th>
               <td>{system.locations.length > 0 ? system.locations.join(", ") : "—"}</td>
-              <td className="service-summary-table__status">{system.status}</td>
+              <td className={`service-summary-table__condition service-summary-table__condition--${conditionModifier(system.condition)}`}>
+                {system.condition}
+                {system.conditionDetail ? <span className="service-summary-table__detail">{system.conditionDetail}</span> : null}
+              </td>
             </tr>)}
           </tbody>
         </table>
