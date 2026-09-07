@@ -3,31 +3,45 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **uncommitted working tree on top of `d9ea404`.** Applied the
-client's "Summary of Testing" presentation (Option 1 of
+**Last updated:** 2026-09-07 — **8e-P1 "Summary of Testing" derived roll-up committed `97a6437`;
+Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED in the working tree
+(`apps/api/src/reports/finalServiceReport.ts`, `finalServiceReport.test.ts`, `HANDOVER.md` only).**
+`97a6437` applied the client's "Summary of Testing" presentation (Option 1 of
 `docs/client-format-request/format-adoption-options.md` — derived roll-up only; the full
-cosmetic reskin is still a later task, NOT started). New DERIVED, report-output-only
-per-system condition on `FinalServiceReport.systems[]` / `FinalReportPreview.systems[]`
-(`condition` = `GOOD CONDITIONS | REFER DETAIL PAGE | FAILED`, `conditionDetail` string) —
-not stored, not a template/contract field, a different axis from the 4-state per-field
-result model. PROVISIONAL 4→3 mapping pending client confirmation (any `Not Good`/`Poor` →
-FAILED; else any `Complete Repair` → REFER DETAIL PAGE; else GOOD CONDITIONS), noted in a
-`finalServiceReport.ts` code comment. Final Report PDF "Service Summary" bullet list → a
-numbered "Summary of Testing" block + per-section "Remarks:" list for finding fields; web
-`FinalReportPresentation` service-summary table gains `No.` + `Condition` columns
-(`--failed`/`--refer`/`--good`). No handler edit — `createFinalReportHandler` /
-`managerServiceVisits` both `...report`-spread `systems` untouched. No template / migration /
-schema / submit-gate change; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical.
-Gates green: api typecheck+build, historical-matrix/v6-evidence/wet-chemical-definition,
-`finalServiceReport.test.ts` (10 — +2 new `deriveSystemCondition`/PDF cases, +2 existing tests
-extended for the roll-up), the 3 final-report integration tests
-against a cold `phase6_seed_integration` DB, web typecheck+build, `final-ui-acceptance` 16/16,
-both `manager-final-report` Playwright specs `--workers=1` (no expectation shifted). Files
-changed beyond the brief's 6: `hoseReelV7PdfEvidence.test.ts` / `hydrantV7PdfEvidence.test.ts`
-/ `automaticSprinklerV7PdfEvidence.test.ts` (2 keys each — they build `FinalServiceReport`
-literals and the now-required fields must typecheck under `npm run build`) and
-`final-ui-acceptance.test.tsx` (`/Service Summary/` → `/Summary of Testing/`, 2 fixture keys).
-Not committed — owner does git.
+cosmetic reskin is still a later task, NOT started): a DERIVED, report-output-only per-system
+`condition` (`GOOD CONDITIONS | REFER DETAIL PAGE | FAILED`) + `conditionDetail` on
+`FinalServiceReport.systems[]` / `FinalReportPreview.systems[]` — not stored, not a
+template/contract field, a different axis from the 4-state per-field result model. PROVISIONAL
+4→3 mapping pending client confirmation (any `Not Good`/`Poor` → FAILED; else any
+`Complete Repair` → REFER DETAIL PAGE; else GOOD CONDITIONS), noted in a `finalServiceReport.ts`
+comment. PDF "Service Summary" bullet list → a numbered "Summary of Testing" block + per-section
+"Remarks:" list; web `FinalReportPresentation` summary table gained `No.` + `Condition` columns.
+No handler / template / migration / schema / submit-gate change; V1–V5 / Fire Alarm V6 / CO2 V1
+/ Wet Chemical V4 byte-identical. `97a6437` also carried 3 pre-existing
+`docs/client-format-request/*` files (owner-included, unrelated to the type change) — recorded,
+no action. **Sol's 4 P1s on `97a6437`, now fixed (still report-output-only, unstaged):**
+(P1-1) `deriveSystemCondition` froze `conditionDetail` on the first finding while `condition`
+escalated — now it tracks the FIRST `Not Good`/`Poor` and the FIRST `Complete Repair` separately
+and picks the one matching the final condition, so a FAILED system always shows a real failure
+line. (P1-2) the PDF "Remarks:" list folded the *adjacent* next field — for flatten-based V7
+systems (hydrant/hose_reel/dry_wet_riser/smoke_ventilation/fire_intercom) that omitted the
+finding's OWN `fieldRemarks` entry (emitted many fields later) and folded a row-level `remarks`
+instead. Extracted a pure `sectionRemarkLines(section)` helper that locates each finding's own
+remark by LABEL STRUCTURE (Fire Alarm `${L} Remark(s)`; V7 flat `… - Result`/`… - Remarks`
+siblings; V7 row `${head} - Field Remarks - ${tail}`), never by adjacency. (P1-3) the PDF test
+asserted only signature/size, so P1-2 passed it — added an `extractPdfText()` test helper
+(inflates streams, parses the `/ToUnicode` bfchar/bfrange CMap, maps the `<hex>` glyph runs) and
+the render test now PROVES "Summary of Testing", the exact `1. … — FAILED` line, "Remarks:" and
+the owned remark text in the rendered bytes, and asserts "Remarks:" is absent for a clean system.
+(P1-4) HANDOVER §2's cold-start block was not hermetic — replaced with a single
+`POSTGRES_DB=phase6_seed_integration` disposable DB + a `Confirm-Exit` gate after every step, the
+v6 acceptance integration test folded into the guarded `node --import tsx --test` batch so it
+cannot silently skip. Gates green: api typecheck+build, historical-matrix / v6-evidence /
+wet-chemical-definition, `v7EvidenceContracts` + `env`, `finalServiceReport.test.ts` (11 — +1
+`sectionRemarkLines` unit test, `deriveSystemCondition` + PDF cases extended), the full V7
+integration set + `finalServiceReport.integration` / `.sprinkler.integration` /
+`fireAlarmV6FinalReport.integration` / v6 acceptance integration against a cold
+`phase6_seed_integration` DB (0 skips). Not committed — owner does git.
 
 <details><summary>Previous — 2026-09-07 <code>d9ea404</code></summary>
 
@@ -62,18 +76,18 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    closing G7. Checklist in §4 "Outstanding owner check".
 3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
    confirmation pass closes §6a's "Sol pass" line for Fire Intercom.
-4. **8e-P1 — Final Report summary readability.** **Code committed `d9ea404`, Sol-passed
-   2026-09-07** (0 P0 / 0 P1, 1 P2 observation — `.report-summary` h3 restyle also touches New
-   Service Visit / Manager Customer Configuration headings; cosmetic). Shared
-   `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` — key-value
-   job-facts header, Service Summary index table (status verbatim), grouped per-section field
-   lists. Presentation only, no data/API/PDF change; both Technician + Manager views verified.
-   **ONLY the owner visual sign-off on `SV-20260906-41` remains** before this is fully closed —
-   see §4. (Run the two manager-final-report Playwright specs `--workers=1`.) **Uncommitted
-   follow-up 2026-09-07:** derived per-system "Summary of Testing" `Condition` verdict + `No.`
-   column + PDF "Summary of Testing"/"Remarks:" now applied (`deriveSystemCondition`,
+4. **8e-P1 — Final Report summary readability.** **Presentation pass committed `d9ea404`
+   (Sol-passed 2026-09-07, 0 P0 / 0 P1, 1 cosmetic P2); derived "Summary of Testing" roll-up
+   committed `97a6437`.** Shared `apps/web/src/jobs/FinalReportPresentation.tsx` +
+   `apps/web/src/styles/app.css` — key-value job-facts header, Service Summary index table,
+   grouped per-section field lists. `97a6437` added the DERIVED per-system `condition` verdict +
+   `No.` column + PDF "Summary of Testing"/"Remarks:" (`deriveSystemCondition`,
    `condition`/`conditionDetail` on `systems[]`); provisional 4→3 mapping needs client
-   confirmation; needs a Sol pass. Full cosmetic reskin still NOT started.
+   confirmation. **Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED**
+   (`finalServiceReport.ts` + its test + this file only; report-output-only) — awaiting Sol
+   re-review. **Owner visual sign-off on `SV-20260906-41` still remains** before 8e-P1 is fully
+   closed. (Run the two manager-final-report Playwright specs `--workers=1`.) Full cosmetic
+   reskin still NOT started.
 5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
    PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
    not per-system. The photo embedding is fine as-is. This is a sequencing decision, not a gap.
@@ -366,10 +380,21 @@ docker compose logs api --tail=50        # confirm migrations + seed ran clean
 # Rebuild after code changes (images bake source at build time — no hot reload)
 docker compose build api proxy ; docker compose up -d
 
-# V7 integration tests (disposable DB, never the runtime DB)
+# ---------------------------------------------------------------------------
+# Cold, hermetic integration run. ONE disposable DB, named phase6_seed_integration
+# so it satisfies both the port-55432 assertions (V6 acceptance / V6 final report)
+# AND the pathname = /phase6_seed_integration assertions (final-report + sprinkler +
+# manager/catalog). Every gate is followed by Confirm-Exit so a non-zero exit — or
+# a SKIP that leaves node --test with a non-zero status — throws instead of being
+# scrolled past. "A SKIP is not a PASS."
+# ---------------------------------------------------------------------------
+function Confirm-Exit($what) { if ($LASTEXITCODE -ne 0) { throw "$what FAILED (exit $LASTEXITCODE)" } }
+
 docker rm -f phase8f-v7-verify 2>$null
-docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=inspection -e POSTGRES_USER=inspection_app `
+docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=phase6_seed_integration -e POSTGRES_USER=inspection_app `
   -e POSTGRES_PASSWORD=replace-with-a-real-secret-outside-git -p 127.0.0.1:55432:5432 postgres:16-alpine
+Confirm-Exit "docker run"
+
 # Wait until PostgreSQL is genuinely up. postgres:16-alpine runs a socket-only
 # init server, stops it, then execs the real one — a single pg_isready hit can
 # land in that window and the first tests then fail "Connection terminated
@@ -377,14 +402,20 @@ docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=inspection -e POSTGRE
 $ready = 0
 while ($ready -lt 5) {
   Start-Sleep -Seconds 1
-  docker exec phase8f-v7-verify pg_isready -q -h 127.0.0.1 -U inspection_app -d inspection 2>$null
+  docker exec phase8f-v7-verify pg_isready -q -h 127.0.0.1 -U inspection_app -d phase6_seed_integration 2>$null
   if ($LASTEXITCODE -eq 0) { $ready++ } else { $ready = 0 }
 }
-docker exec phase8f-v7-verify psql -q -U inspection_app -d inspection -c "SELECT 1" | Out-Null
+docker exec phase8f-v7-verify psql -q -U inspection_app -d phase6_seed_integration -c "SELECT 1" | Out-Null
+Confirm-Exit "postgres readiness"
+
 cd apps/api
-$env:NODE_ENV='test'; $env:DATABASE_URL='postgres://bogus:bogus@10.255.255.1:9999/nope'
-$env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/inspection'
-# full V7 integration set (76) + the 5-case P0-M1 migration-replay cover = 81 tests, 0 skipped:
+$env:NODE_ENV='test'
+$env:DATABASE_URL='postgres://bogus:bogus@10.255.255.1:9999/nope'
+$env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
+
+# Full V7 integration set + migration-replay cover + the final-report / V6 acceptance
+# integration tests, ALL in one guarded batch so none can silently skip (each test
+# self-manages its schema: DROP SCHEMA public CASCADE; CREATE SCHEMA public; runMigrations).
 node --import tsx --test --test-concurrency=1 `
   src/sync/co2V7.integration.test.ts src/sync/wetChemicalV7.integration.test.ts `
   src/sync/fireAlarmV7.integration.test.ts src/sync/v7EvidenceRace.integration.test.ts `
@@ -392,17 +423,29 @@ node --import tsx --test --test-concurrency=1 `
   src/sync/automaticSprinklerV7.integration.test.ts src/sync/dryWetRiserV7.integration.test.ts `
   src/sync/smokeVentilationV7.integration.test.ts src/sync/portableFireExtinguisherV7.integration.test.ts `
   src/sync/fireIntercomV7.integration.test.ts `
-  src/db/migrationReplayForwardOnly.integration.test.ts
-# manager/catalog integration test needs its own dedicated DB (asserts path = /phase6_seed_integration):
-#   docker exec phase8f-v7-verify createdb -h 127.0.0.1 -U inspection_app phase6_seed_integration
-#   $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
-#   npx tsx --test src/routes/managerCustomers.integration.test.ts
+  src/db/migrationReplayForwardOnly.integration.test.ts `
+  src/sync/fireAlarmV6Acceptance.integration.test.ts `
+  src/reports/finalServiceReport.integration.test.ts `
+  src/reports/finalServiceReport.sprinkler.integration.test.ts `
+  src/reports/fireAlarmV6FinalReport.integration.test.ts `
+  src/routes/managerCustomers.integration.test.ts
+Confirm-Exit "integration batch"
+
 cd ../.. ; docker rm -f phase8f-v7-verify
 Remove-Item Env:DATABASE_URL,Env:NODE_ENV,Env:SEED_INTEGRATION_DATABASE_URL -ErrorAction SilentlyContinue
 
 # Fast gates  (run from the repo root)
-cd apps/api ; npm run typecheck ; npm run build ; npm run test:historical-matrix ; npm run test:v6-evidence
-cd ../web ; npm run typecheck ; npm run build ; npm run test:v7-stale-evidence
+cd apps/api
+npm run typecheck ; Confirm-Exit "api typecheck"
+npm run build ; Confirm-Exit "api build"
+npm run test:historical-matrix ; Confirm-Exit "historical-matrix"
+npm run test:v6-evidence ; Confirm-Exit "v6-evidence"
+npm run test:wet-chemical-definition ; Confirm-Exit "wet-chemical-definition"
+npm run test:final-report ; Confirm-Exit "final-report unit"
+cd ../web
+npm run typecheck ; Confirm-Exit "web typecheck"
+npm run build ; Confirm-Exit "web build"
+npm run test:v7-stale-evidence ; Confirm-Exit "v7-stale-evidence"
 cd ../..
 ```
 
@@ -442,13 +485,17 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
   (catalog `[1..7]`, v7 Fire Alarm `templateVersion:7`, new customer + visit freeze v7).
 - All standard gates + both new tests green. DO-NOT-MODIFY list clean.
 
-**Derived "Summary of Testing" (uncommitted, 2026-09-07)** — `FinalServiceReport.systems[]` /
-`FinalReportPreview.systems[]` now carry a report-output-only `condition`
+**Derived "Summary of Testing" — committed `97a6437`** — `FinalServiceReport.systems[]` /
+`FinalReportPreview.systems[]` carry a report-output-only `condition`
 (`GOOD CONDITIONS`/`REFER DETAIL PAGE`/`FAILED`) + `conditionDetail`, rolled up in
 `loadFinalServiceReport` from the accepted section fields (`deriveSystemCondition`); PDF
-"Summary of Testing" block + per-section "Remarks:" list; web summary table `No.`+`Condition`
-columns. Derived only — no stored/template/contract/submit-gate change; PROVISIONAL 4→3
-mapping flagged for client confirmation. Closes 8e-P1 (see §4).
+"Summary of Testing" block + per-section "Remarks:" list (`sectionRemarkLines`); web summary
+table `No.`+`Condition` columns. Derived only — no stored/template/contract/submit-gate change;
+PROVISIONAL 4→3 mapping flagged for client confirmation. Closes 8e-P1 (see §4). **Terra
+remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED** (`finalServiceReport.ts` worst-
+severity `conditionDetail`; label-structure `sectionRemarkLines` instead of adjacency;
+`extractPdfText` proof helper; HANDOVER §2 cold-start block) — still report-output-only; see the
+"Last updated" note.
 
 ---
 
@@ -488,7 +535,7 @@ per system on a V7 job (`SV-20260903-37` is open and untouched):
 
 | # | Item | Notes |
 |---|------|-------|
-| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **COMMITTED `d9ea404`, Sol-passed 2026-09-07 (0 P0 / 0 P1; 1 P2: `.report-summary` h3 restyle also touches New Service Visit + Manager Customer Configuration headings — cosmetic, in-design).** Reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **ONLY owner visual sign-off on `SV-20260906-41` remains.** 8e-P2 PDF pass unchanged (deferred). **FOLLOW-UP applied (uncommitted, 2026-09-07):** the client's actual "Summary of Testing" ask — a per-system `Condition` verdict, `No.` column, PDF "Summary of Testing" + per-section "Remarks:" — is now built as a DERIVED roll-up (`deriveSystemCondition` in `finalServiceReport.ts`; `condition`/`conditionDetail` on `systems[]`), Option 1 of `docs/client-format-request/format-adoption-options.md`. Provisional 4→3 mapping — client must confirm. Still derived/presentation only; no data/template/contract change. `system.status` ("Accepted") is retained on the type but no longer shown in the summary table. Awaiting Sol re-review + the original owner visual sign-off. |
+| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **COMMITTED `d9ea404`, Sol-passed 2026-09-07 (0 P0 / 0 P1; 1 P2: `.report-summary` h3 restyle also touches New Service Visit + Manager Customer Configuration headings — cosmetic, in-design).** Reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **ONLY owner visual sign-off on `SV-20260906-41` remains.** 8e-P2 PDF pass unchanged (deferred). **FOLLOW-UP committed `97a6437`:** the client's actual "Summary of Testing" ask — a per-system `Condition` verdict, `No.` column, PDF "Summary of Testing" + per-section "Remarks:" — built as a DERIVED roll-up (`deriveSystemCondition` + `sectionRemarkLines` in `finalServiceReport.ts`; `condition`/`conditionDetail` on `systems[]`), Option 1 of `docs/client-format-request/format-adoption-options.md`. Provisional 4→3 mapping — client must confirm. Still derived/presentation only; no data/template/contract change. `system.status` ("Accepted") retained on the type but no longer shown in the summary table. `97a6437` also carried 3 pre-existing `docs/client-format-request/*` files (owner-included, unrelated) — recorded, no action. **Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED** (`finalServiceReport.ts` worst-severity `conditionDetail`; `sectionRemarkLines` locates each finding's own remark by label structure not adjacency; `extractPdfText` proof helper; HANDOVER §2 cold-start block) — report-output-only, awaiting Sol re-review, then the original owner visual sign-off. |
 | 8e-P2 | **Final Report PDF layout.** Photo embedding is fine — leave it. | `apps/api/src/reports/finalServiceReport.ts`. **DEFERRED by owner decision** to ONE pass *after* the last buildable system (Fire Rated Roller Shutter), so it isn't re-touched per system. Not a gap — a sequencing decision. |
 
 ---

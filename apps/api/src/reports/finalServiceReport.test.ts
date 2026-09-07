@@ -3,10 +3,11 @@ import test from "node:test";
 import express from "express";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import zlib from "node:zlib";
 import type { Server } from "node:http";
 import { createFinalReportPdfHandler } from "../routes/inspectionJobs.js";
 import { requireRole } from "../middleware/requireRole.js";
-import { deriveSystemCondition, finalReportFontAssetPath, FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf, type FinalReportSection, type FinalServiceReport } from "./finalServiceReport.js";
+import { deriveSystemCondition, finalReportFontAssetPath, FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf, sectionRemarkLines, type FinalReportSection, type FinalServiceReport } from "./finalServiceReport.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 import { masterServiceReportV2 } from "../inspections/templates/masterServiceReportV2.js";
 import { fireAlarmDetectorV3, masterServiceReportV3 } from "../inspections/templates/masterServiceReportV3.js";
@@ -175,7 +176,7 @@ const conditionSection = (fields: Array<{ label: string; value: string }>): Fina
   ({ systemKey: "system", label: "System", fields: fields.map((field) => ({ ...field, depth: 0 })), evidence: [] });
 
 test("derived Summary of Testing condition maps the 4-state and legacy result models onto the client 3-state roll-up", () => {
-  // (a) any not_good -> FAILED; conditionDetail is the FIRST finding string encountered, in order.
+  // (a) any not_good -> FAILED; conditionDetail is the first Not Good/Poor finding.
   assert.deepEqual(
     deriveSystemCondition([conditionSection([{ label: "Cabinet", value: "Good" }, { label: "Hose", value: "Not Good" }, { label: "Nozzle", value: "Complete Repair" }])]),
     { condition: "FAILED", conditionDetail: "Hose: Not Good" }
@@ -195,16 +196,148 @@ test("derived Summary of Testing condition maps the 4-state and legacy result mo
     deriveSystemCondition([conditionSection([{ label: "Canvas Hose", value: "Poor" }])]),
     { condition: "FAILED", conditionDetail: "Canvas Hose: Poor" }
   );
-  // Every section (all location units) is scanned in order: a later not_good still escalates a
-  // REFER to FAILED, but the detail stays the first finding seen.
+  // Sol P1-1: the detail tracks the FINAL condition's worst severity, not the first finding seen.
+  // A "Not Good" in a LATER section escalates REFER -> FAILED and the detail becomes that Not Good,
+  // not the earlier Complete Repair.
   assert.deepEqual(
     deriveSystemCondition([conditionSection([{ label: "Unit A Gauge", value: "Complete Repair" }]), conditionSection([{ label: "Unit B Hose", value: "Not Good" }])]),
-    { condition: "FAILED", conditionDetail: "Unit A Gauge: Complete Repair" }
+    { condition: "FAILED", conditionDetail: "Unit B Hose: Not Good" }
   );
-  // conditionDetail is hard-capped at 200 chars; a system with no sections is GOOD CONDITIONS.
+  // A "Not Good" BEFORE a "Complete Repair" -> the detail is the Not Good either way (worst wins).
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Hose", value: "Not Good" }, { label: "Gauge", value: "Complete Repair" }])]),
+    { condition: "FAILED", conditionDetail: "Hose: Not Good" }
+  );
+  // The failed detail is the FIRST Not Good/Poor across all sections, in scan order.
+  assert.deepEqual(
+    deriveSystemCondition([conditionSection([{ label: "Unit A Hose", value: "Not Good" }]), conditionSection([{ label: "Unit B Hose", value: "Not Good" }])]),
+    { condition: "FAILED", conditionDetail: "Unit A Hose: Not Good" }
+  );
+  // conditionDetail is hard-capped at 200 chars; a system with no sections is GOOD CONDITIONS,
+  // and so is a section that carries no fields (Sol noted this has no direct regression).
   assert.equal(deriveSystemCondition([conditionSection([{ label: "L".repeat(500), value: "Not Good" }])]).conditionDetail.length, 200);
   assert.deepEqual(deriveSystemCondition([]), { condition: "GOOD CONDITIONS", conditionDetail: "" });
+  assert.deepEqual(deriveSystemCondition([conditionSection([])]), { condition: "GOOD CONDITIONS", conditionDetail: "" });
 });
+
+test("sectionRemarkLines folds each finding's OWN remark by label structure, never by adjacency", () => {
+  // Rule 1 — Fire Alarm: `${label} Remark` sibling.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([
+      { label: "Charger & Batteries - Main Supply", value: "Not Good" },
+      { label: "Charger & Batteries - Main Supply Remark", value: "Supply dead" }
+    ])),
+    ["1. Charger & Batteries - Main Supply: Not Good — Supply dead"]
+  );
+  // Rule 2 — V7 flat checklist: `<x> - Result` pairs with `<x> - Remarks` sibling.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([
+      { label: "Water Tank - Saj Main Water Supply - Result", value: "Not Good" },
+      { label: "Water Tank - Saj Main Water Supply - Remarks", value: "Valve seized" }
+    ])),
+    ["1. Water Tank - Saj Main Water Supply - Result: Not Good — Valve seized"]
+  );
+  // Rule 3 — V7 repeatable row: the finding's own `fieldRemarks` entry flattens NON-ADJACENTLY as
+  // "<head> - Field Remarks - <tail>". A non-empty ROW-LEVEL "Rows 1 - Remarks" sitting between the
+  // finding and its owned remark must NOT be folded; the owned one MUST be.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([
+      { label: "Rows 1 - Canvas Hose1Result", value: "Not Good" },
+      { label: "Rows 1 - Canvas Hose2Result", value: "Good" },
+      { label: "Rows 1 - Key Lock Result", value: "Good" },
+      { label: "Rows 1 - Remarks", value: "row-level free text" },
+      { label: "Rows 1 - Field Remarks - Canvas Hose1Result", value: "Canvas hose damaged" },
+      { label: "Rows 1 - Sort Order", value: "1" }
+    ])),
+    ["1. Rows 1 - Canvas Hose1Result: Not Good — Canvas hose damaged"]
+  );
+  // Two consecutive findings each get their OWN remark.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([
+      { label: "Rows 1 - Canvas Hose1Result", value: "Not Good" },
+      { label: "Rows 1 - Landing Valve Result", value: "Complete Repair" },
+      { label: "Rows 1 - Field Remarks - Canvas Hose1Result", value: "Hose split" },
+      { label: "Rows 1 - Field Remarks - Landing Valve Result", value: "Valve repaired on site" }
+    ])),
+    [
+      "1. Rows 1 - Canvas Hose1Result: Not Good — Hose split",
+      "2. Rows 1 - Landing Valve Result: Complete Repair — Valve repaired on site"
+    ]
+  );
+  // A finding with no remark field anywhere -> no " — remark" suffix.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([{ label: "Duty Pump", value: "Complete Repair" }])),
+    ["1. Duty Pump: Complete Repair"]
+  );
+  // An empty-string remark sibling does not count -> no suffix.
+  assert.deepEqual(
+    sectionRemarkLines(conditionSection([
+      { label: "Rows 1 - Auto Result", value: "Not Good" },
+      { label: "Rows 1 - Field Remarks - Auto Result", value: "   " }
+    ])),
+    ["1. Rows 1 - Auto Result: Not Good"]
+  );
+  // No finding -> no lines (caller renders no "Remarks:" heading).
+  assert.deepEqual(sectionRemarkLines(conditionSection([{ label: "Cabinet", value: "Good" }])), []);
+});
+
+/**
+ * Recovers the human-readable text from a PDFKit-rendered report. PDFKit 0.17
+ * writes embedded-subset-font text as `<hex>` glyph-id runs inside Tj/TJ, which
+ * is why a raw grep of the PDF never finds "Summary of Testing". This reverses
+ * it: inflate every FlateDecode stream, parse the `/ToUnicode` CMap
+ * (beginbfchar / beginbfrange) into glyph-id -> string, then map every `<hex>`
+ * run in the content streams back through it.
+ */
+function extractPdfText(pdf: Buffer): string {
+  const latin1 = pdf.toString("latin1");
+  const streams: string[] = [];
+  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRe.exec(latin1)) !== null) {
+    const preamble = latin1.slice(Math.max(0, match.index - 400), match.index);
+    let body = Buffer.from(match[1]!, "latin1");
+    if (/\/FlateDecode/.test(preamble)) { try { body = zlib.inflateSync(body); } catch { continue; } }
+    streams.push(body.toString("latin1"));
+  }
+  const utf16 = (hex: string) => { let out = ""; for (let i = 0; i + 4 <= hex.length; i += 4) out += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16)); return out; };
+  const key = (code: number) => code.toString(16).toLowerCase().padStart(4, "0");
+  const toUnicode = new Map<string, string>();
+  const contentStreams: string[] = [];
+  for (const stream of streams) {
+    if (/beginbfchar|beginbfrange/.test(stream)) {
+      for (const block of stream.match(/beginbfchar([\s\S]*?)endbfchar/g) ?? []) {
+        for (const pair of block.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+          toUnicode.set(pair[1]!.toLowerCase().padStart(4, "0"), utf16(pair[2]!));
+        }
+      }
+      for (const block of stream.match(/beginbfrange([\s\S]*?)endbfrange/g) ?? []) {
+        // Array form:  <start> <end> [ <d0> <d1> ... ]  (one destination per code)
+        for (const row of block.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([\s\S]*?)\]/g)) {
+          const start = parseInt(row[1]!, 16);
+          const entries = [...row[3]!.matchAll(/<([0-9A-Fa-f]+)>/g)].map((entry) => utf16(entry[1]!));
+          entries.forEach((value, offset) => toUnicode.set(key(start + offset), value));
+        }
+        // Range form:  <start> <end> <dstStart>  (contiguous destinations). Strip the array-form
+        // `[ ... ]` payloads first so their inner <hex> entries are not misread as range triples.
+        for (const row of block.replace(/\[[\s\S]*?\]/g, " ").matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
+          const start = parseInt(row[1]!, 16), end = parseInt(row[2]!, 16), dst = parseInt(row[3]!, 16);
+          for (let code = start; code <= end && code - start < 0x10000; code += 1) toUnicode.set(key(code), String.fromCodePoint(dst + (code - start)));
+        }
+      }
+    } else if (/\bTj\b|\bTJ\b/.test(stream)) {
+      contentStreams.push(stream);
+    }
+  }
+  let text = "";
+  for (const stream of contentStreams) {
+    for (const run of stream.matchAll(/<([0-9A-Fa-f]+)>/g)) {
+      const hex = run[1]!;
+      for (let i = 0; i + 4 <= hex.length; i += 4) text += toUnicode.get(hex.slice(i, i + 4).toLowerCase()) ?? "";
+    }
+  }
+  return text;
+}
 
 test("Summary of Testing PDF block renders numbered per-system conditions and per-section Remarks", async () => {
   const report: FinalServiceReport = {
@@ -224,10 +357,15 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   const pdf = await renderFinalServiceReportPdf(report);
   assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
   assert.ok(pdf.length > 900);
-  // PDFKit kerns and Flate-compresses embedded-font text, so — like every other assertion in
-  // this file — we prove the new "Summary of Testing" / "Remarks:" paths by structure, not by
-  // grepping the glyph run: an otherwise-identical clean report (no findings) renders a
-  // strictly smaller PDF because it emits neither Remarks block nor a conditionDetail line.
+  // DoD case (a): the Summary-of-Testing line and the finding's owned "Remarks:" block are
+  // PROVEN in the rendered PDF, decoded back through the embedded font's /ToUnicode CMap.
+  const rendered = extractPdfText(pdf);
+  assert.ok(rendered.includes("Summary of Testing"), "PDF carries the Summary of Testing heading");
+  assert.ok(rendered.includes("1. Hydrant System — FAILED"), "numbered per-system FAILED line");
+  assert.ok(rendered.includes("Remarks:"), "per-section Remarks block heading");
+  assert.ok(rendered.includes("Perished"), "the Hydrant finding's OWN remark text is folded into the Remarks line");
+  assert.ok(rendered.includes("1. Hose: Not Good — Perished"), "Remarks line = finding + its own remark");
+  // DoD case (c): a clean (no-finding) system emits no "Remarks:" block at all.
   const clean: FinalServiceReport = {
     ...report,
     systems: report.systems.map((system) => ({ ...system, condition: "GOOD CONDITIONS" as const, conditionDetail: "" })),
@@ -235,5 +373,7 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   };
   const cleanPdf = await renderFinalServiceReportPdf(clean);
   assert.equal(cleanPdf.subarray(0, 5).toString("binary"), "%PDF-");
+  assert.ok(!extractPdfText(cleanPdf).includes("Remarks:"), "no finding anywhere -> no Remarks block");
+  // Secondary: the findings + conditionDetail lines still add measurable rendered content.
   assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
 });

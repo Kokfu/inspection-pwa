@@ -284,21 +284,77 @@ function v6Result(value: unknown) {
  * display values emitted by scalar() and v6Result() in this file; keep this in
  * lock-step with those two functions. Exported only so the report unit tests
  * can exercise the 4->3 mapping without a database. "No Need Checking / N.A." and
- * "Not Relevant" are never findings. conditionDetail is the first finding
- * encountered, "`label: value`", hard-capped at 200 chars ("" when none).
+ * "Not Relevant" are never findings.
+ *
+ * The detail must track the condition's worst severity, not freeze on whichever
+ * finding was seen first (Sol P1-1): scan once, remember the FIRST "Not Good" /
+ * "Poor" (`failedDetail`) and, separately, the FIRST "Complete Repair"
+ * (`referDetail`); then after the whole scan pick the detail that matches the
+ * final condition. So a FAILED system always shows a real failure line even when
+ * an earlier section only had a "Complete Repair". Each detail is
+ * "`label: value`", hard-capped at 200 chars ("" when the system is GOOD).
  */
 export function deriveSystemCondition(systemSections: FinalReportSection[]): { condition: FinalReportSystemCondition; conditionDetail: string } {
-  let condition: FinalReportSystemCondition = "GOOD CONDITIONS";
-  let conditionDetail = "";
+  let failedDetail = "";
+  let referDetail = "";
   for (const section of systemSections) {
     for (const field of section.fields) {
-      if (field.value !== "Not Good" && field.value !== "Poor" && field.value !== "Complete Repair") continue;
-      if (conditionDetail === "") conditionDetail = `${field.label}: ${field.value}`.slice(0, 200);
-      if (field.value === "Not Good" || field.value === "Poor") condition = "FAILED";
-      else if (condition !== "FAILED") condition = "REFER DETAIL PAGE";
+      if (failedDetail === "" && (field.value === "Not Good" || field.value === "Poor")) failedDetail = `${field.label}: ${field.value}`.slice(0, 200);
+      if (referDetail === "" && field.value === "Complete Repair") referDetail = `${field.label}: ${field.value}`.slice(0, 200);
     }
   }
-  return { condition, conditionDetail };
+  if (failedDetail !== "") return { condition: "FAILED", conditionDetail: failedDetail };
+  if (referDetail !== "") return { condition: "REFER DETAIL PAGE", conditionDetail: referDetail };
+  return { condition: "GOOD CONDITIONS", conditionDetail: "" };
+}
+
+/**
+ * The numbered lines of the per-section "Remarks:" block in the PDF: one line per
+ * finding field (value "Not Good" / "Poor" / "Complete Repair"), each carrying
+ * that finding's OWN remark when one can be located by LABEL STRUCTURE — never by
+ * adjacency (Sol P1-2: the old code folded on whatever field happened to sit next
+ * to the result, which for the flatten-based V7 systems is a row-level `remarks`,
+ * not the finding's own `fieldRemarks` entry emitted many fields later).
+ *
+ * Returns [] when the section has no finding, so renderFinalServiceReportPdf
+ * emits no "Remarks:" heading. Line format (unchanged):
+ *   `${i}. ${field.label}: ${field.value}`  + ` — ${ownRemark}` when found.
+ *
+ * A finding's own remark is the first of these label shapes that exists with a
+ * non-empty trimmed value (else the line is rendered with no " — remark" suffix):
+ *   1. Fire Alarm (`fireAlarmV6Fields`): a field `${L} Remark` / `${L} Remarks`
+ *      (that helper emits the finding immediately followed by its remark with
+ *      exactly that suffix).
+ *   2. V7 flat {result,remarks} checklist / measurement: `L` ends " - Result"
+ *      and a field exists with " - Result" replaced by " - Remarks".
+ *   3. V7 repeatable-row `fieldRemarks`: split `L` at its LAST " - " into
+ *      head + tail; a field `${head} - Field Remarks - ${tail}` exists. Verified
+ *      against a real flattened hydrant row: "Rows 1 - Canvas Hose1Result" pairs
+ *      with "Rows 1 - Field Remarks - Canvas Hose1Result".
+ * A bare `<prefix> - Remarks` (a row-level remark) is folded only when rule 1 or
+ * 2 produced exactly that label; rule 3 never targets it.
+ */
+export function sectionRemarkLines(section: FinalReportSection): string[] {
+  const isFinding = (value: string) => value === "Not Good" || value === "Poor" || value === "Complete Repair";
+  const valueByLabel = new Map(section.fields.map((field) => [field.label, field.value] as const));
+  const ownRemark = (label: string): string => {
+    const candidates = [`${label} Remark`, `${label} Remarks`];
+    if (label.endsWith(" - Result")) candidates.push(`${label.slice(0, -" - Result".length)} - Remarks`);
+    const cut = label.lastIndexOf(" - ");
+    if (cut > 0) candidates.push(`${label.slice(0, cut)} - Field Remarks - ${label.slice(cut + 3)}`);
+    for (const candidate of candidates) {
+      const value = valueByLabel.get(candidate);
+      if (typeof value === "string" && value.trim() !== "") return value;
+    }
+    return "";
+  };
+  const lines: string[] = [];
+  for (const field of section.fields) {
+    if (!isFinding(field.value)) continue;
+    const remark = ownRemark(field.label);
+    lines.push(`${lines.length + 1}. ${field.label}: ${field.value}${remark ? ` — ${remark}` : ""}`);
+  }
+  return lines;
 }
 
 type FireAlarmV6ReportResponse = RecordValue & {
@@ -581,17 +637,13 @@ export async function renderFinalServiceReportPdf(report: FinalServiceReport): P
   for (const section of report.sections) {
     document.moveDown(0.7); paragraph(`${section.label}${section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}`, { underline: true });
     for (const field of section.fields) paragraph(`${field.label}: ${field.value}`, { indent: Math.min(field.depth, 3) * 14 });
-    // Numbered defect list under a section that has >=1 finding field; a trailing
-    // adjacent "... Remark(s)" field is folded onto the same line.
-    const findings = section.fields
-      .map((field, index) => ({ field, next: section.fields[index + 1] }))
-      .filter(({ field }) => field.value === "Not Good" || field.value === "Poor" || field.value === "Complete Repair");
-    if (findings.length > 0) {
+    // Numbered defect list under a section that has >=1 finding field. Each
+    // finding's own remark is located by label structure, not adjacency
+    // (sectionRemarkLines / Sol P1-2).
+    const remarkLines = sectionRemarkLines(section);
+    if (remarkLines.length > 0) {
       document.moveDown(0.3); paragraph("Remarks:", { underline: true });
-      findings.forEach(({ field, next }, ordinal) => {
-        const remark = next && /Remarks?$/.test(next.label) ? ` — ${next.value}` : "";
-        paragraph(`${ordinal + 1}. ${field.label}: ${field.value}${remark}`, { indent: 10 });
-      });
+      for (const line of remarkLines) paragraph(line, { indent: 10 });
     }
     for (const evidence of section.evidence) { paragraph(`Final evidence included: ${evidence.caption ?? labelFor(evidence.field)}`); pageBreakFor(330); document.image(evidence.content, { fit: [500, 300], align: "center" }); document.moveDown(0.5); }
   }
