@@ -1,0 +1,69 @@
+<!doctype html>
+<html><body>
+  <button id="run">Run New Service Visit failure checks</button>
+  <pre id="result">Ready</pre><div id="mount"></div>
+  <script type="module">
+    import * as React from "react";
+    import * as ReactDom from "react-dom/client";
+    import { NewServiceVisit } from "/src/jobs/NewServiceVisit.tsx";
+
+    const customer = { id: "customer-a", code: "A", displayName: "Customer A", isDemo: false };
+    const site = { id: "site-a", customerId: customer.id, code: "PRIMARY", displayName: "Site A" };
+    const configuration = { customer, configuration: { configurationId: "config", revision: 1, templateId: "template", templateCode: "MFE", templateName: "Master", templateVersion: 1, selectionPolicy: "preset_only", enabledSystems: [{ id: "system-a", key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", zones: [], locations: [] }] } };
+    const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const mount = document.querySelector("#mount"), checks = [];
+    const check = (name, pass) => checks.push({ name, pass: Boolean(pass) });
+    const waitFor = async (predicate, label) => { for (let i = 0; i < 160; i += 1) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 15)); } throw new Error(`Timed out: ${label}`); };
+    const setValue = (selector, value) => { const element = mount.querySelector(selector); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(element, value); element.dispatchEvent(new Event("input", { bubbles: true })); element.dispatchEvent(new Event("change", { bubbles: true })); };
+
+    async function withComponent(createReply, scenario) {
+      let onCreatedCalls = 0;
+      const transport = async (input) => {
+        const url = String(input);
+        if (url === "/api/customers") return json({ customers: [customer] });
+        if (url.endsWith("/sites")) return json({ sites: [site] });
+        if (url.endsWith("/configuration")) return json(configuration);
+        if (url === "/api/inspection-jobs/service-visits") return createReply;
+        return json({ message: "Unexpected request" }, 503);
+      };
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = transport;
+      const root = ReactDom.createRoot(mount);
+      try {
+        root.render(React.createElement(NewServiceVisit, { onCreated: async () => { onCreatedCalls += 1; }, onCancel: () => undefined }));
+        await waitFor(() => mount.querySelector("#service-customer")?.options.length === 2, "customers");
+        setValue("#service-customer", customer.id);
+        await waitFor(() => mount.querySelector("#service-site")?.options.length === 2, "sites");
+        setValue("#service-site", site.id);
+        mount.querySelector(".system-picker input[type=checkbox]").click();
+        await waitFor(() => !mount.querySelector(".setup-submit").disabled, "enabled create button");
+        await scenario(() => onCreatedCalls);
+      } finally {
+        root.unmount(); globalThis.fetch = originalFetch; mount.replaceChildren();
+      }
+    }
+
+    async function expectFailure(createReply, expectedMessage, label) {
+      await withComponent(createReply, async getOnCreatedCalls => {
+        mount.querySelector(".setup-submit").click();
+        await waitFor(() => mount.textContent.includes(expectedMessage), `${label} message`);
+        check(`${label} does not call onCreated`, getOnCreatedCalls() === 0);
+        check(`${label} keeps the selected customer`, mount.querySelector("#service-customer").value === customer.id);
+        check(`${label} keeps the selected site`, mount.querySelector("#service-site").value === site.id);
+        check(`${label} keeps the selected system`, mount.querySelector(".system-picker input[type=checkbox]").checked);
+        check(`${label} keeps the form mounted`, mount.textContent.includes("New Service Visit"));
+      });
+    }
+
+    document.querySelector("#run").onclick = async () => {
+      checks.length = 0;
+      try {
+        await expectFailure(json({ message: "Wet Chemical requires configured locations." }, 409), "Wet Chemical requires configured locations.", "server failure");
+        await expectFailure(json({ job: {} }, 201), "Service visit could not be created.", "jobless success response");
+        result.textContent = JSON.stringify({ status: checks.every(item => item.pass) ? "PASS" : "FAIL", checks }, null, 2);
+      } catch (error) {
+        result.textContent = JSON.stringify({ status: "FAIL", error: String(error), visibleText: mount.textContent, checks }, null, 2);
+      }
+    };
+  </script>
+</body></html>

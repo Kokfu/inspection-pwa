@@ -6,6 +6,7 @@ import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import {
   smokeVentilationChecklistFields,
+  smokeVentilationRowColumns,
   type SmokeVentilationInspectionRecord,
   type SmokeVentilationResponses,
   type SmokeVentilationRow
@@ -14,6 +15,19 @@ import { listSmokeVentilationV7Photos, v7SmokeVentilationEvidenceOutbox, v7Smoke
 
 const key = "smoke_ventilation" as const;
 const now = () => new Date().toISOString();
+
+/** Mirrors the server's `exact` helper in
+ * `apps/api/src/sync/smokeVentilationV7Acceptance.ts`: the object must carry
+ * exactly `keys` - no missing, no extra, no unknown. */
+const exactKeys = (value: object, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((name) => name in value);
+/** The response-envelope, checklist-entry and row key sets `validResponses()`
+ * enforces verbatim. Kept as literals here so a drift from the server shows up
+ * as a failing parity test rather than a stranded Pending record. The checklist
+ * envelope key set and the fieldRemarks whitelist are derived from the same
+ * column sources the server's `checklistColumns` / `rowColumns` come from. */
+const responseEnvelopeKeys = ["schemaVersion", "controlPanelNo", "location", "dateTested", "checklist", "rows", "comments"] as const;
+const checklistEntryKeys = ["result", "remarks"] as const;
+const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "autoResult", "manualResult", "remarks", "fieldRemarks", "sortOrder"] as const;
 
 function configuredRows(system: JobSystemSnapshot): SmokeVentilationRow[] {
   let count = 0;
@@ -51,6 +65,17 @@ export async function getOrCreateSmokeVentilationInspection(job: InspectionJob, 
 
 function structuralSubmitIssues(record: SmokeVentilationInspectionRecord, responses: SmokeVentilationResponses) {
   const issues: string[] = [];
+  // Envelope parity with the server's `validResponses()`: exactly
+  // schemaVersion / controlPanelNo / location / dateTested / checklist / rows /
+  // comments. An extra or unknown top-level key is rejected non-retryably
+  // server-side, which offline strands the queued Pending record.
+  if (!exactKeys(responses, responseEnvelopeKeys)) issues.push("Smoke Ventilation response envelope shape is invalid");
+  // The server also runs `exact()` over the checklist envelope (its key set is
+  // the checklist column source) and over every checklist entry.
+  if (!exactKeys(responses.checklist ?? {}, smokeVentilationChecklistFields.map(([checklistKey]) => checklistKey))) issues.push("Smoke Ventilation checklist shape is invalid");
+  else for (const [checklistKey] of smokeVentilationChecklistFields) {
+    if (!exactKeys(responses.checklist[checklistKey] ?? {}, checklistEntryKeys)) issues.push("Smoke Ventilation checklist entry shape is invalid");
+  }
   if (responses.controlPanelNo.length > 200) issues.push("Smoke Ventilation Control Panel No. is too long");
   if (responses.location.length > 300) issues.push("Smoke Ventilation Location is too long");
   if (responses.dateTested.length > 200) issues.push("Smoke Ventilation Date Tested is too long");
@@ -59,6 +84,15 @@ function structuralSubmitIssues(record: SmokeVentilationInspectionRecord, respon
   if (!responses.rows.length) issues.push("At least one Fan Schedule row is required");
   responses.rows.forEach((row, index) => {
     if (!row.rowUuid || row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.remarks.length > 2000) issues.push("Fan Schedule row is invalid");
+    // Exact row-key parity with the server (`exact(row, rowKeys)`): an extra own
+    // property strands the record behind a non-retryable acceptance.
+    if (!exactKeys(row, rowKeys)) issues.push("Fan Schedule row shape is invalid");
+    // The server requires every Fan Schedule row's `zoneSnapshot` to be null.
+    if ((row as unknown as Record<string, unknown>).zoneSnapshot !== null) issues.push("Fan Schedule row zone snapshot must be null");
+    // fieldRemarks parity: values are strings <= 2000, and every key is one of
+    // the row result columns (`rowColumns` server-side).
+    if (Object.values(row.fieldRemarks ?? {}).some((value) => typeof value !== "string" || value.length > 2000)
+      || Object.keys(row.fieldRemarks ?? {}).some((remarkKey) => !smokeVentilationRowColumns.some(([responseKey]) => responseKey === remarkKey))) issues.push("Fan Schedule row field remarks are invalid");
     if (row.source === "configured") {
       const identity = `${row.configuredLocationId}:${row.configuredRowOrdinal}`;
       if (!expected.includes(identity) || seen.has(identity)) issues.push("Configured Fan Schedule row identity is invalid");

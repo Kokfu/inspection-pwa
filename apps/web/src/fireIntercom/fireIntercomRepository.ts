@@ -9,11 +9,22 @@ import type {
   FireIntercomResponses,
   FireIntercomRow
 } from "./fireIntercomTypes";
+import { fireIntercomRowColumns } from "./fireIntercomTypes";
 import { listFireIntercomV7Photos, v7FireIntercomEvidenceOutbox, v7FireIntercomManifest, v7FireIntercomSubmissionIssues } from "./fireIntercomV7Evidence";
 
 const key = "fire_intercom" as const;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const now = () => new Date().toISOString();
+
+/** Mirrors the server's `exact` helper in
+ * `apps/api/src/sync/fireIntercomV7Acceptance.ts`: the object must carry exactly
+ * `keys` - no missing, no extra, no unknown. */
+const exactKeys = (value: object, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((name) => name in value);
+/** The response-envelope and row key sets `validResponses()` enforces verbatim.
+ * Kept as literals here so a drift from the server shows up as a failing parity
+ * test rather than a stranded Pending record. */
+const responseEnvelopeKeys = ["schemaVersion", "rows", "comments"] as const;
+const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "conditionResult", "remarks", "fieldRemarks", "sortOrder"] as const;
 
 /** Mirrors `expectedConfiguredFireIntercomRows` in
  * `apps/api/src/sync/fireIntercomInspectionSync.ts` exactly. The server derives
@@ -70,6 +81,10 @@ export async function getOrCreateFireIntercomInspection(job: InspectionJob, syst
  * than trusted to the server. */
 function structuralSubmitIssues(record: FireIntercomInspectionRecord, responses: FireIntercomResponses) {
   const issues: string[] = [];
+  // Envelope parity with the server's `validResponses()`: exactly
+  // schemaVersion / rows / comments. An extra or unknown top-level key is
+  // rejected non-retryably server-side.
+  if (!exactKeys(responses, responseEnvelopeKeys)) issues.push("Fire Intercom response envelope shape is invalid");
   const expected = expectedConfiguredRows(record.inspectionSnapshot.system);
   const expectedByIdentity = new Map(expected.map((row) => [`${row.locationId}:${row.ordinal}`, row]));
   const seen = new Set<string>();
@@ -83,7 +98,13 @@ function structuralSubmitIssues(record: FireIntercomInspectionRecord, responses:
     if (!row.rowUuid || !uuid.test(row.rowUuid) || rowUuids.has(row.rowUuid)) issues.push("Station row identity is invalid");
     rowUuids.add(row.rowUuid);
     if (row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.remarks.length > 2000) issues.push("Station row is invalid");
-    if (Object.values(row.fieldRemarks ?? {}).some((value) => typeof value !== "string" || value.length > 2000)) issues.push("Station row field remarks are invalid");
+    // Exact row-key parity with the server (`exact(row, rowKeys)`): an extra own
+    // property strands the record behind a non-retryable acceptance.
+    if (!exactKeys(row, rowKeys)) issues.push("Station row shape is invalid");
+    // The server requires every Fire Intercom row's `zoneSnapshot` to be null.
+    if ((row as unknown as Record<string, unknown>).zoneSnapshot !== null) issues.push("Station row zone snapshot must be null");
+    if (Object.values(row.fieldRemarks ?? {}).some((value) => typeof value !== "string" || value.length > 2000)
+      || Object.keys(row.fieldRemarks ?? {}).some((remarkKey) => !fireIntercomRowColumns.some(([responseKey]) => responseKey === remarkKey))) issues.push("Station row field remarks are invalid");
     if (row.source === "configured") {
       // Configured rows come before technician rows in the server's ordering.
       if (technicianRowsStarted) issues.push("Configured Station rows must come before technician rows");

@@ -205,3 +205,83 @@ test("a duplicate rowUuid is refused by the client gate", () => {
   const issues = submitIssues(record, responses({ rows: [stationRow(rowA, 1), stationRow(rowA, 2)] }), []);
   assert.ok(issues.some((issue) => /Station row identity is invalid/.test(issue)), JSON.stringify(issues));
 });
+
+// Sol P1 (0.4b class) — `submitIssues()` did not mirror the exact-envelope
+// parity `validResponses()` in apps/api/src/sync/fireIntercomV7Acceptance.ts
+// enforces. Each shape below returned `submitIssues=[]` on the client yet is
+// rejected non-retryably by the server, stranding a Pending record in the
+// outbox. The fragments below are copied verbatim from `validResponses()` /
+// `exact()` so a server drift breaks this file rather than the field.
+const serverExact = (value: object, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((name) => name in value);
+const SERVER_ENVELOPE_KEYS = ["schemaVersion", "rows", "comments"];
+const SERVER_ROW_KEYS = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "conditionResult", "remarks", "fieldRemarks", "sortOrder"];
+type Loose = Record<string, unknown>;
+
+test("Sol P1: a fieldRemarks key other than conditionResult is refused, matching the server whitelist", () => {
+  const clean = responses();
+  assert.deepEqual(submitIssues(record, clean, []), [], "control: the un-mutated draft passes");
+
+  const draft = responses();
+  draft.rows[0]!.fieldRemarks = { invented: "x" } as unknown as FireIntercomResponses["rows"][number]["fieldRemarks"];
+  // Pre-fix escape route: the evidence gate never inspects fieldRemarks keys…
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, []), [], "the V7 evidence gate is blind to this shape");
+  // …and the server's `validResponses()` row-key fragment rejects it.
+  assert.ok((Object.keys(draft.rows[0]!.fieldRemarks) as string[]).some((k) => !["conditionResult"].includes(k)), "server: fieldRemarks whitelist rejects it");
+  // Fixed: the structural gate now returns a non-empty issue list.
+  const issues = submitIssues(record, draft, []);
+  assert.ok(issues.some((issue) => /Station row field remarks are invalid/.test(issue)), JSON.stringify(issues));
+});
+
+test("Sol P1: a row whose zoneSnapshot is not null is refused, matching validResponses()", () => {
+  assert.deepEqual(submitIssues(record, responses(), []), [], "control: the un-mutated draft passes");
+
+  const draft = responses();
+  (draft.rows[0]! as unknown as Loose).zoneSnapshot = {};
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, []), [], "the V7 evidence gate is blind to this shape");
+  assert.notEqual((draft.rows[0]! as unknown as Loose).zoneSnapshot, null, "server: validResponses() requires zoneSnapshot === null");
+  const issues = submitIssues(record, draft, []);
+  assert.ok(issues.some((issue) => /Station row zone snapshot must be null/.test(issue)), JSON.stringify(issues));
+});
+
+test("Sol P1: an extra own property on a row object is refused, matching exact(row, rowKeys)", () => {
+  assert.deepEqual(submitIssues(record, responses(), []), [], "control: the un-mutated draft passes");
+
+  const draft = responses();
+  (draft.rows[0]! as unknown as Loose).unexpected = "x";
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, []), [], "the V7 evidence gate is blind to this shape");
+  assert.equal(serverExact(draft.rows[0]! as object, SERVER_ROW_KEYS), false, "server: exact(row, rowKeys) rejects the extra key");
+  const issues = submitIssues(record, draft, []);
+  assert.ok(issues.some((issue) => /Station row shape is invalid/.test(issue)), JSON.stringify(issues));
+});
+
+test("Sol P1: an extra own property on the response envelope is refused, matching exact(responses, ...)", () => {
+  assert.deepEqual(submitIssues(record, responses(), []), [], "control: the un-mutated draft passes");
+
+  const draft = responses();
+  (draft as unknown as Loose).unexpected = "x";
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, []), [], "the V7 evidence gate is blind to this shape");
+  assert.equal(serverExact(draft as object, SERVER_ENVELOPE_KEYS), false, "server: exact(responses, [schemaVersion, rows, comments]) rejects it");
+  const issues = submitIssues(record, draft, []);
+  assert.ok(issues.some((issue) => /Fire Intercom response envelope shape is invalid/.test(issue)), JSON.stringify(issues));
+});
+
+test("Sol P1: client submit gate now rejects every shape the server's validResponses() rejects", () => {
+  // Direct client/server parity table for the four demonstrated escapes.
+  const envelopeExtra = responses();
+  (envelopeExtra as unknown as Loose).extra = 1;
+  const rowExtra = responses();
+  (rowExtra.rows[0]! as unknown as Loose).extra = 1;
+  const badZone = responses();
+  (badZone.rows[0]! as unknown as Loose).zoneSnapshot = { id: "z" };
+  const badRemarkKey = responses();
+  badRemarkKey.rows[0]!.fieldRemarks = { nope: "y" } as unknown as FireIntercomResponses["rows"][number]["fieldRemarks"];
+
+  for (const draft of [envelopeExtra, rowExtra, badZone, badRemarkKey]) {
+    const serverRejects = !serverExact(draft as object, SERVER_ENVELOPE_KEYS)
+      || draft.rows.some((row) => !serverExact(row as object, SERVER_ROW_KEYS)
+        || (row as unknown as Loose).zoneSnapshot !== null
+        || Object.keys((row as unknown as Loose).fieldRemarks as object).some((k) => k !== "conditionResult"));
+    assert.equal(serverRejects, true, `server must reject ${JSON.stringify(draft)}`);
+    assert.ok(submitIssues(record, draft, []).length > 0, `client must reject ${JSON.stringify(draft)}`);
+  }
+});

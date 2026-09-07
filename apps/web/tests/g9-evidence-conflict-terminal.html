@@ -1,0 +1,54 @@
+<!doctype html>
+<html><body><button id="run">Run G9 outbox conflict check</button><pre id="result">Ready</pre><script type="module">
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { syncPendingRecords } from "/src/sync/syncEngine.ts";
+
+const clientUuid = "79000000-0000-4000-8000-000000009001";
+const operationId = "79000000-0000-4000-8000-000000009002";
+const now = new Date().toISOString();
+const out = document.querySelector("#result");
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const check = (name, passed, detail) => checks.push({ name, passed: Boolean(passed), detail });
+  const originalFetch = globalThis.fetch;
+  let syncCalls = 0;
+  try {
+    await localDatabase.open();
+    await localDatabase.masterSystemFormInstances.put({
+      clientUuid, syncStatus: "Pending", systemKey: "co2_fire_extinguisher"
+    });
+    await localDatabase.syncOutbox.put({
+      operationId, entityType: "masterSystemFormInstance", entityId: clientUuid,
+      action: "create", payload: { clientUuid, systemKey: "co2_fire_extinguisher", evidenceManifest: [] },
+      createdAt: now, attempts: 0, status: "Pending",
+      activeKey: `masterSystemFormInstance:create:${clientUuid}`
+    });
+    globalThis.fetch = async (input) => {
+      if (String(input) !== "/api/sync") return new Response("not found", { status: 404 });
+      syncCalls += 1;
+      return new Response(JSON.stringify({
+        acceptedIds: [], duplicateIds: [],
+        failed: [{ id: clientUuid, code: "EVIDENCE_CONFLICT", message: "V7 evidence for charger_batteries.charger_battery_checks.main_supply is already bound to another location in this Job" }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    await syncPendingRecords();
+    const firstRecord = await localDatabase.masterSystemFormInstances.get(clientUuid);
+    const firstOutbox = await localDatabase.syncOutbox.get(operationId);
+    check("server EVIDENCE_CONFLICT leaves the immutable form in Needs attention", firstRecord?.syncStatus === "Conflict", firstRecord);
+    check("terminal conflict keeps its outbox history but retires automatic dispatch", firstOutbox?.status === "Failed" && firstOutbox.attempts === 1, firstOutbox);
+
+    await syncPendingRecords();
+    const secondOutbox = await localDatabase.syncOutbox.get(operationId);
+    check("a second sync does not retry a permanent EVIDENCE_CONFLICT", syncCalls === 1 && secondOutbox?.attempts === 1, { syncCalls, secondOutbox });
+  } catch (error) {
+    checks.push({ name: "harness completed", passed: false, detail: error instanceof Error ? error.stack : String(error) });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await localDatabase.syncOutbox.delete(operationId);
+    await localDatabase.masterSystemFormInstances.delete(clientUuid);
+  }
+  out.textContent = JSON.stringify({ status: checks.every((item) => item.passed) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>
