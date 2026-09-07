@@ -3,9 +3,12 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **8e-P1 "Summary of Testing" derived roll-up committed `97a6437`;
-Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED in the working tree
-(`apps/api/src/reports/finalServiceReport.ts`, `finalServiceReport.test.ts`, `HANDOVER.md` only).**
+**Last updated:** 2026-09-08 — **8e-P1 "Summary of Testing" derived roll-up committed `97a6437`,
+then Terra remediation of Sol's 4 P1s on it committed `ecc3e34`
+(`apps/api/src/reports/finalServiceReport.ts`, `finalServiceReport.test.ts`, `HANDOVER.md` only).
+Sol re-reviewed `ecc3e34`: 0 P0 / 0 P1 on behaviour, 154 tests / 0 fail / 0 skip, protected
+files byte-identical to `e30c649`; the only follow-up was this HANDOVER wording correction.
+Nothing in the working tree is uncommitted any more.**
 `97a6437` applied the client's "Summary of Testing" presentation (Option 1 of
 `docs/client-format-request/format-adoption-options.md` — derived roll-up only; the full
 cosmetic reskin is still a later task, NOT started): a DERIVED, report-output-only per-system
@@ -19,7 +22,7 @@ comment. PDF "Service Summary" bullet list → a numbered "Summary of Testing" b
 No handler / template / migration / schema / submit-gate change; V1–V5 / Fire Alarm V6 / CO2 V1
 / Wet Chemical V4 byte-identical. `97a6437` also carried 3 pre-existing
 `docs/client-format-request/*` files (owner-included, unrelated to the type change) — recorded,
-no action. **Sol's 4 P1s on `97a6437`, now fixed (still report-output-only, unstaged):**
+no action. **Sol's 4 P1s on `97a6437`, fixed in `ecc3e34` (still report-output-only):**
 (P1-1) `deriveSystemCondition` froze `conditionDetail` on the first finding while `condition`
 escalated — now it tracks the FIRST `Not Good`/`Poor` and the FIRST `Complete Repair` separately
 and picks the one matching the final condition, so a FAILED system always shows a real failure
@@ -41,7 +44,9 @@ wet-chemical-definition, `v7EvidenceContracts` + `env`, `finalServiceReport.test
 `sectionRemarkLines` unit test, `deriveSystemCondition` + PDF cases extended), the full V7
 integration set + `finalServiceReport.integration` / `.sprinkler.integration` /
 `fireAlarmV6FinalReport.integration` / v6 acceptance integration against a cold
-`phase6_seed_integration` DB (0 skips). Not committed — owner does git.
+`phase6_seed_integration` DB (0 skips). Committed `ecc3e34`; Sol re-reviewed `ecc3e34` — 0 P0 /
+0 P1 on behaviour, 154 tests / 0 fail / 0 skip, protected files byte-identical to `e30c649`. The
+only follow-up was this HANDOVER wording correction.
 
 <details><summary>Previous — 2026-09-07 <code>d9ea404</code></summary>
 
@@ -83,10 +88,11 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    grouped per-section field lists. `97a6437` added the DERIVED per-system `condition` verdict +
    `No.` column + PDF "Summary of Testing"/"Remarks:" (`deriveSystemCondition`,
    `condition`/`conditionDetail` on `systems[]`); provisional 4→3 mapping needs client
-   confirmation. **Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED**
-   (`finalServiceReport.ts` + its test + this file only; report-output-only) — awaiting Sol
-   re-review. **Owner visual sign-off on `SV-20260906-41` still remains** before 8e-P1 is fully
-   closed. (Run the two manager-final-report Playwright specs `--workers=1`.) Full cosmetic
+   confirmation. **Terra remediation of Sol's 4 P1s on `97a6437` committed `ecc3e34`**
+   (`finalServiceReport.ts` + its test + this file only; report-output-only), Sol-re-reviewed
+   2026-09-08 — behaviour PASS (0 P0 / 0 P1; 154 tests, 0 skip); the one doc-only P1 (this
+   HANDOVER wording) is now closed. **Owner visual sign-off on `SV-20260906-41` still remains**
+   before 8e-P1 is fully closed. (Run the two manager-final-report Playwright specs `--workers=1`.) Full cosmetic
    reskin still NOT started.
 5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
    PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
@@ -285,7 +291,7 @@ round trip and a real-Postgres integration test; no production file touched. Dry
 SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here).
 Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprinkler STEP 1.3
 (`7e2a7e6`) all committed and complete.
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `28d7b55` (2026-09-07: `f7decfd` harness fix → `0e17c74` FI+SV submit-gate parity → `28d7b55` Hose Reel schema-3 multi-drum)
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `ecc3e34` (2026-09-08: `97a6437` 8e-P1 "Summary of Testing" derived roll-up → `ecc3e34` 4-P1 remediation — both committed, Sol-passed on behaviour)
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
@@ -492,9 +498,10 @@ runtime Postgres. Git is done manually by the owner (agents never stage/commit/p
 "Summary of Testing" block + per-section "Remarks:" list (`sectionRemarkLines`); web summary
 table `No.`+`Condition` columns. Derived only — no stored/template/contract/submit-gate change;
 PROVISIONAL 4→3 mapping flagged for client confirmation. Closes 8e-P1 (see §4). **Terra
-remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED** (`finalServiceReport.ts` worst-
+remediation of Sol's 4 P1s on `97a6437` committed `ecc3e34`** (`finalServiceReport.ts` worst-
 severity `conditionDetail`; label-structure `sectionRemarkLines` instead of adjacency;
-`extractPdfText` proof helper; HANDOVER §2 cold-start block) — still report-output-only; see the
+`extractPdfText` proof helper; HANDOVER §2 cold-start block) — still report-output-only;
+Sol-re-reviewed on `ecc3e34`, behaviour PASS (0 P0 / 0 P1; 154 tests, 0 skip); see the
 "Last updated" note.
 
 ---
@@ -535,7 +542,7 @@ per system on a V7 job (`SV-20260903-37` is open and untouched):
 
 | # | Item | Notes |
 |---|------|-------|
-| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **COMMITTED `d9ea404`, Sol-passed 2026-09-07 (0 P0 / 0 P1; 1 P2: `.report-summary` h3 restyle also touches New Service Visit + Manager Customer Configuration headings — cosmetic, in-design).** Reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **ONLY owner visual sign-off on `SV-20260906-41` remains.** 8e-P2 PDF pass unchanged (deferred). **FOLLOW-UP committed `97a6437`:** the client's actual "Summary of Testing" ask — a per-system `Condition` verdict, `No.` column, PDF "Summary of Testing" + per-section "Remarks:" — built as a DERIVED roll-up (`deriveSystemCondition` + `sectionRemarkLines` in `finalServiceReport.ts`; `condition`/`conditionDetail` on `systems[]`), Option 1 of `docs/client-format-request/format-adoption-options.md`. Provisional 4→3 mapping — client must confirm. Still derived/presentation only; no data/template/contract change. `system.status` ("Accepted") retained on the type but no longer shown in the summary table. `97a6437` also carried 3 pre-existing `docs/client-format-request/*` files (owner-included, unrelated) — recorded, no action. **Terra remediation of Sol's 4 P1s on `97a6437` staged UNCOMMITTED** (`finalServiceReport.ts` worst-severity `conditionDetail`; `sectionRemarkLines` locates each finding's own remark by label structure not adjacency; `extractPdfText` proof helper; HANDOVER §2 cold-start block) — report-output-only, awaiting Sol re-review, then the original owner visual sign-off. |
+| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **COMMITTED `d9ea404`, Sol-passed 2026-09-07 (0 P0 / 0 P1; 1 P2: `.report-summary` h3 restyle also touches New Service Visit + Manager Customer Configuration headings — cosmetic, in-design).** Reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **ONLY owner visual sign-off on `SV-20260906-41` remains.** 8e-P2 PDF pass unchanged (deferred). **FOLLOW-UP committed `97a6437`:** the client's actual "Summary of Testing" ask — a per-system `Condition` verdict, `No.` column, PDF "Summary of Testing" + per-section "Remarks:" — built as a DERIVED roll-up (`deriveSystemCondition` + `sectionRemarkLines` in `finalServiceReport.ts`; `condition`/`conditionDetail` on `systems[]`), Option 1 of `docs/client-format-request/format-adoption-options.md`. Provisional 4→3 mapping — client must confirm. Still derived/presentation only; no data/template/contract change. `system.status` ("Accepted") retained on the type but no longer shown in the summary table. `97a6437` also carried 3 pre-existing `docs/client-format-request/*` files (owner-included, unrelated) — recorded, no action. **Terra remediation of Sol's 4 P1s on `97a6437` committed `ecc3e34`** (`finalServiceReport.ts` worst-severity `conditionDetail`; `sectionRemarkLines` locates each finding's own remark by label structure not adjacency; `extractPdfText` proof helper; HANDOVER §2 cold-start block) — report-output-only; Sol re-review 2026-09-08 behaviour-PASS (0 P0 / 0 P1; 154 tests, 0 skip), the one doc-only P1 (this HANDOVER wording) closed here. Then the original owner visual sign-off. |
 | 8e-P2 | **Final Report PDF layout.** Photo embedding is fine — leave it. | `apps/api/src/reports/finalServiceReport.ts`. **DEFERRED by owner decision** to ONE pass *after* the last buildable system (Fire Rated Roller Shutter), so it isn't re-touched per system. Not a gap — a sequencing decision. |
 
 ---
