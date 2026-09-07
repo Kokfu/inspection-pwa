@@ -3,7 +3,30 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema
+**Last updated:** 2026-09-07 — **HEAD `28d7b55`; working tree clean. Three commits landed this
+session:** `f7decfd` (4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom +
+Smoke Ventilation submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response
+schema 2 → 3, multi-drum).
+
+**OPEN — carried to the next session:**
+1. **Sol review pass owed on `0e17c74` and `28d7b55`.** Neither has had one. `28d7b55` is a
+   14-file response-schema change and must get a Sol pass before STEP 1.2 is re-closed. Prompt
+   for it is in the session that produced this update; re-issue from `.agents/skills/codex-task-brief`.
+2. **G7 4-state browser sanity — still owed by the owner** (manual, on the live runtime). Blocks
+   closing G7. Checklist in §4 "Outstanding owner check".
+3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
+   confirmation pass closes §6a's "Sol pass" line for Fire Intercom.
+4. **8e-P1 — Final Report summary readability.** Owner: the Manager Final Report summary view
+   (`apps/web/src/manager/ManagerFinalReportView.tsx`, 74 lines) is "too ugly / not clear".
+   Reference job `SV-20260906-41`. Layout / grouping / typography only, no data change. Belongs in
+   this branch (`phase-8e-client-demo-polish`). Not started. See §4.
+5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
+   PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
+   not per-system. The photo embedding is fine as-is. This is a sequencing decision, not a gap.
+6. **FM200 (STEP 2.1) + Fire Rated Roller Shutter (STEP 2.4)** — both still blocked on client
+   input (see §5).
+
+Detail on `28d7b55` — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema
 2 → 3, per-drum `drumType` label + technician-declared `drumCount`.** Owner confirmed the
 `drumTypeCardinality: "pending_confirmation"` question: a customer may have >1 hose reel drum;
 the technician enters the drum count up front (free-form integer, per visit) and the form renders
@@ -31,7 +54,7 @@ exact-key discipline. Gates green: `hoseReelV7.integration.test.ts` 10 → 13 (m
 `technician-offline-regression.spec.ts` (legacy V1 harness), `hoseReelV7PdfEvidence.test.ts`,
 full V7 integration set + `migrationReplayForwardOnly.integration.test.ts` (0 skipped), apps/api +
 apps/web `typecheck`/`build`, `git diff --check` clean (CRLF only), DO-NOT-MODIFY list clean.
-Not committed. Previously: **Smoke Ventilation submit-gate Sol P1 closed — client parity
+**Committed `28d7b55`.** Previously: **Smoke Ventilation submit-gate Sol P1 closed — client parity
 with `validResponses()`, no server change.** Same 0.4b class Terra just closed on Fire Intercom:
 `structuralSubmitIssues()` in `apps/web/src/smokeVentilation/smokeVentilationRepository.ts` was a
 strict subset of `smokeVentilationV7Acceptance.ts` `validResponses()`, so malformed shapes passed
@@ -45,7 +68,8 @@ and `validResponses()` untouched. `smokeVentilationV7SubmissionIssues.test.ts` 1
 malformed-shape regressions + a client/server parity table). Gates green:
 `test:v7-smoke-ventilation-submit` (20), `test:v7-smoke-ventilation-browser` (1),
 `smokeVentilationV7.integration.test.ts` (12, cold disposable PG), apps/web + apps/api
-`typecheck`/`build`, `git diff --check` clean, apps/api diff empty. Not committed. Previously:
+`typecheck`/`build`, `git diff --check` clean, apps/api diff empty. **Committed `0e17c74`**
+(same commit as the Fire Intercom parity fix below). Previously:
 **Fire Intercom STEP 2.3 Sol P1 closed — client submit-gate
 parity, no server change.** Sol's re-review of `8f755af`+`44fb682` returned SAFE TO COMMIT: N
 with one P1 (0.4b class): `submitIssues()` in `fireIntercomRepository.ts` did not mirror the
@@ -60,7 +84,7 @@ and `validResponses()` untouched. `fireIntercomV7SubmissionIssues.test.ts` 18 �
 client/server parity regressions). Gates green: `test:v7-fire-intercom-submit` (23),
 `test:v7-fire-intercom-browser` (1), `fireIntercomV7.integration.test.ts` (12),
 `acceptedMasterSystemDetail.fireIntercomV7.test.ts` (6), `test:v7-stale-evidence` (1),
-apps/web + apps/api `typecheck`/`build`. Not committed. Previously: **Four red Manager / riser
+apps/web + apps/api `typecheck`/`build`. **Committed `0e17c74`.** Previously: **Four red Manager / riser
 browser harnesses fixed — test-hygiene only, no app change.** The HANDOVER note that claimed two
 were already fixed by a test-hygiene pass was wrong; the pass had never been applied. Verdicts:
 all four are stale-harness, not an `App.tsx` regression (the Manager Operations list→detail path
@@ -83,7 +107,7 @@ bare `JSON.parse(#result)` that threw on the initial `"Ready"` text and propagat
 `expect.poll` as a hard fail; wrapped in `try/catch → "RUNNING"` to match the sibling specs.
 Files: the three `.html` harnesses + the one `.spec.ts`. `npm run typecheck` / `npm run build`
 (apps/web), `test:fire-alarm-dispatch`, `test:v7-cross-instance-browser` all green; `git diff
---check` clean. Not staged.
+--check` clean. **Committed `f7decfd`; Sol reviewed 0 P0 / 0 P1.**
 Previously: **RELEASE BLOCKER P0-M1 CLOSED — committed, deployed, verified.**
 Both fixes are in: `4eee41e` (`fix(db): make V7 migration replay forward-only`) and `07a859b`
 (`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`). The
@@ -178,7 +202,7 @@ round trip and a real-Postgres integration test; no production file touched. Dry
 SAFE TO COMMIT: Y; G4 closed (was already fixed in `ba1fb2a`, just never marked done here).
 Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprinkler STEP 1.3
 (`7e2a7e6`) all committed and complete.
-**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `f5ed7e3` (+ G10 and STEP 2.3 committed on top)
+**Repo:** `C:\PWA_OfflineRecordWebApp`  ·  **Branch:** `phase-8e-client-demo-polish`  ·  **HEAD:** `28d7b55` (2026-09-07: `f7decfd` harness fix → `0e17c74` FI+SV submit-gate parity → `28d7b55` Hose Reel schema-3 multi-drum)
 **Local runtime:** https://localhost/  ·  **Demo accounts:** Manager `mobiletest` / Technician `technician-demo` (passwords held by owner, never committed — created manually via `create-admin`, not seeded)
 
 ---
@@ -383,6 +407,13 @@ per system on a V7 job (`SV-20260903-37` is open and untouched):
 4. Complete Service → Final Report → **PDF** with one embedded image per finding.
 5. Additive: historical CO2 (V1) and Wet Chemical (V4) still render 2-state.
 
+### phase-8e client-demo polish backlog (owner-raised 2026-09-07, not started)
+
+| # | Item | Notes |
+|---|------|-------|
+| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | `apps/web/src/manager/ManagerFinalReportView.tsx` (74 lines). Layout / grouping / typography only — **no data change**. Isolated component, low churn, safe to do now in this branch. |
+| 8e-P2 | **Final Report PDF layout.** Photo embedding is fine — leave it. | `apps/api/src/reports/finalServiceReport.ts`. **DEFERRED by owner decision** to ONE pass *after* the last buildable system (Fire Rated Roller Shutter), so it isn't re-touched per system. Not a gap — a sequencing decision. |
+
 ---
 
 ## 5. Roadmap
@@ -494,6 +525,11 @@ field, add integration coverage, re-verify, Sol pass.
       accepted evidence rendering, Final Report/PDF embedding, adversarial eight-case integration coverage,
       and browser reload/sync/detail proof. The paper form supports only Duty / Standby in the new 30-minute test block;
       it explicitly omits Jockey, so no Jockey row was invented.
+      **Follow-up committed `28d7b55` (2026-09-07): multi-drum.** Response schema `2 → 3` —
+      technician-declared `drumCount` + per-drum `drumType` (`swing`|`fixed`, label only), global
+      `drumTypes` multi-select removed, prior-visit reference surfaced. Additive (schema-2 path
+      kept everywhere), no template change, no migration. **Sol pass still owed** before this
+      follow-up is re-closed — see §1 open item 1 and §7.
 - [x] 1.3 **Automatic Sprinkler — DONE, committed `7e2a7e6`.** Water Tank /
       Pump House / Main Alarm Valve / 30-min pump test on the V7 four-state model, separate
       schema-2 Accepted Detail reader, Final Report/PDF embedding, and a full offline-round-trip
@@ -692,7 +728,7 @@ then the repo is self-describing.
 | CO2 Fire Extinguisher | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
 | Wet Chemical | ✅ confirmed | ✅ **done** (4-state, browser-proven) | ″ |
 | Hydrant | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `81db211`) | — (first C3 consumer) |
-| Hose Reel | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `efef275`) | — |
+| Hose Reel | ✅ confirmed | ✅ **done** (4-state, browser-proven, `efef275`; multi-drum schema-3 follow-up `28d7b55`) | Sol pass owed on `28d7b55` |
 | Automatic Sprinkler | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `7e2a7e6`) | — (V7 drops legacy PSI lifecycle, owner decision) |
 | Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
 | Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
@@ -714,7 +750,57 @@ Roller Shutter have no implementation yet.
 
 ## 7. Change log
 
-- 2026-09-07 — **Smoke Ventilation submit-gate Sol P1 closed — client parity with `validResponses()`, not committed.**
+- 2026-09-07 — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema 2 → 3. Committed `28d7b55`.**
+  Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Closes the
+  `drumTypeCardinality: "pending_confirmation"` question with an owner decision: a customer may
+  have >1 hose reel drum; the technician enters `drumCount` up front (free-form positive integer,
+  per visit) and the form renders that many per-drum sections, each picking its own `drumType`
+  (`swing` | `fixed`) as a **label only** — the per-drum result columns
+  (drum/hose/nozzle/valve/nozzleBox) and the single shared Water Tank / Pump House header are
+  unchanged. The form also surfaces the technician's previous Hose Reel visit for the same
+  customer (`latestHoseReelReferenceForCustomer`) as a **non-binding** read-only reference.
+  - **Schema.** JSON `response_payload.schemaVersion` `2 → 3`: drops the global
+    `drumTypes: {swing,fixed}` multi-select, adds `drumCount` to the response and `drumType` to
+    every `HoseReelRow`. The DB `response_schema_version` column stays `2` (same JSON-vs-column
+    decoupling hydrant / fire-intercom / smoke-ventilation V7 already use), so **no migration** and
+    the shared evidence CHECK constraints are untouched (017/018/026 frozen;
+    `migrationReplayForwardOnly.integration.test.ts` unaffected).
+  - **No V7 template change.** The published `masterServiceReportV7` `hose_reel` definition already
+    carries a now-unused global `drum_type` select inherited from V1; editing it would change
+    every existing schema-2 accepted record's `contractSha256` (frozen-manifest re-parse +
+    evidence reservation match). `drumType` is a hardcoded `{swing,fixed}` enum validated by
+    literal lists on both client and server (exactly like `row.source`), carries no evidence, and
+    lives entirely in the JSON payload.
+  - **Additive.** `parseV7Responses`, `validResponses`, `validateAcceptedHoseReelV7Detail` all
+    branch on `response.schemaVersion`, keeping the schema-2 read/accept path byte-identical; every
+    existing schema-2 Draft / Pending / Accepted still opens, submits and accepts. V1–V6 legacy
+    (`drumTypes`, no `schemaVersion`) untouched.
+  - **Client gate.** `getHoseReelSubmitIssues` gains a schema-3 block — `drumCount` a positive
+    integer, `drumCount === rows.length`, every row `drumType ∈ {swing,fixed}` — mirroring the
+    server `validResponses` exact-key discipline (the 0.4b class fixed twice this week).
+  - **14 files.** `hoseReelTypes.ts`, `hoseReelRepository.ts` (`setHoseReelDrumCount` row
+    reconciliation keeping configured rows, `latestHoseReelReferenceForCustomer`),
+    `hoseReelV7Evidence.ts`, `HoseReelInspectionForm.tsx`, `serverHoseReelApi.ts`,
+    `ServerHoseReelView.tsx`, `apps/api/src/sync/hoseReelV7Acceptance.ts`,
+    `apps/api/src/inspections/acceptedMasterSystemDetail.ts`,
+    `apps/api/src/reports/hoseReelV7PdfEvidence.test.ts`, `hoseReelV7.integration.test.ts`,
+    `hoseReelV7SubmissionIssues.test.ts`, `hose-reel-v7-offline.html/.spec.ts`, `HANDOVER.md`.
+    **`finalServiceReport.ts` deliberately unchanged** — its V7 `hose_reel` branch reads the frozen
+    snapshot + manifest adapter (neither touches `drumType`/`drumCount`) and `flatten()` already
+    renders both from `response_payload`; PDF *visual layout* is the separate deferred pass.
+  - **Gates.** `hoseReelV7.integration.test.ts` 10 → 13 (multi-drum schema-3 with drum-2
+    row-scoped evidence + closed-job idempotent retry; schema-3 negatives; schema-2 byte-for-byte
+    regression), `test:v7-hose-reel-submit` (8), `hose-reel-v7-offline.spec.ts` (2-drum
+    swing/fixed round trip), `technician-offline-regression.spec.ts` (legacy V1 harness),
+    `hoseReelV7PdfEvidence.test.ts`, full V7 integration set (87 tests) +
+    `migrationReplayForwardOnly.integration.test.ts` (0 skipped), `test:historical-matrix` (20),
+    `test:v6-evidence` (9), `finalServiceReport.test.ts`/`.integration.test.ts` (8 + 1), apps/api +
+    apps/web `typecheck`/`build`, `git diff --check` clean, DO-NOT-MODIFY list byte-identical.
+  - **Sol pass:** NOT yet done — owed before STEP 1.2 is re-closed.
+  - **Out of scope (noted):** Manager-side per-customer drum configuration (owner: technician
+    free-form field, not a `customer_system_locations` concern); PDF visual layout.
+
+- 2026-09-07 — **Smoke Ventilation submit-gate Sol P1 closed — client parity with `validResponses()`. Committed `0e17c74`** (with the Fire Intercom parity fix below).
   Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Parallel to the Fire Intercom P1 below —
   Terra's report flagged the identical gap in Smoke Ventilation.
   - **P1 (0.4b class).** `structuralSubmitIssues()` in
@@ -748,7 +834,7 @@ Roller Shutter have no implementation yet.
     apps/api diff empty, DO-NOT-MODIFY list clean. Files: `smokeVentilationRepository.ts`,
     `smokeVentilationV7SubmissionIssues.test.ts`, this file.
 
-- 2026-09-07 — **Fire Intercom STEP 2.3 Sol P1 closed — client submit-gate parity, not committed.**
+- 2026-09-07 — **Fire Intercom STEP 2.3 Sol P1 closed — client submit-gate parity. Committed `0e17c74`.**
   Baseline `e30c649`, branch `phase-8e-client-demo-polish`. Sol's re-review of `8f755af`+`44fb682`
   passed everything else (row-remarks provenance, order-independent `sameManifest`, evidence scope,
   migration 026 scope, forward-only replay, historical immutability) and returned SAFE TO COMMIT: N
