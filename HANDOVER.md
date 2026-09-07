@@ -3,7 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-07 — **HEAD `f6aab25`; working tree clean.** This session: `f7decfd`
+**Last updated:** 2026-09-07 — **HEAD `0b4b1e6`; working tree carries an UNCOMMITTED 8e-P1
+presentation pass** (`apps/web/src/jobs/FinalReportPresentation.tsx`, `apps/web/src/styles/app.css`
++ this file) — shared Final Report body reworked for readability (key-value job-facts header,
+Service Summary index table with `system.status` verbatim, grouped per-section field lists). No
+data-shape / API / PDF change. `final-ui-acceptance` (16/16), `manager-final-report-failure-matrix`
++ `-navigation` Playwright specs, web typecheck + build all green. `git diff -- apps/api` empty.
+Owner visual sign-off on `SV-20260906-41` still pending; 8e-P2 PDF pass unchanged (deferred).
+Earlier this session: `f7decfd`
 (4 stale Manager/riser test harnesses fixed), `0e17c74` (Fire Intercom + Smoke Ventilation
 submit-gate client/server parity, 0.4b class), `28d7b55` (Hose Reel response schema 2 → 3,
 multi-drum), then `25e3768` + **`f6aab25`** — Terra remediation of Sol's two P1s on `28d7b55`
@@ -20,10 +27,12 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    closing G7. Checklist in §4 "Outstanding owner check".
 3. **Fire Intercom STEP 2.3 final Sol verdict.** The `44fb682` P1 is fixed in `0e17c74`; a
    confirmation pass closes §6a's "Sol pass" line for Fire Intercom.
-4. **8e-P1 — Final Report summary readability.** Owner: the Manager Final Report summary view
-   (`apps/web/src/manager/ManagerFinalReportView.tsx`, 74 lines) is "too ugly / not clear".
-   Reference job `SV-20260906-41`. Layout / grouping / typography only, no data change. Belongs in
-   this branch (`phase-8e-client-demo-polish`). Not started. See §4.
+4. **8e-P1 — Final Report summary readability.** **Code side DONE (uncommitted 2026-09-07):**
+   shared `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` reworked
+   — key-value job-facts header, Service Summary index table (status verbatim), grouped per-section
+   field lists. Presentation only, no data/API/PDF change; both Technician + Manager views verified;
+   `final-ui-acceptance` + the two manager-final-report Playwright specs + web typecheck/build green.
+   **Owner visual sign-off on `SV-20260906-41` still pending** before this is fully closed. See §4.
 5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
    PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
    not per-system. The photo embedding is fine as-is. This is a sequencing decision, not a gap.
@@ -430,7 +439,7 @@ per system on a V7 job (`SV-20260903-37` is open and untouched):
 
 | # | Item | Notes |
 |---|------|-------|
-| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | `apps/web/src/manager/ManagerFinalReportView.tsx` (74 lines). Layout / grouping / typography only — **no data change**. Isolated component, low churn, safe to do now in this branch. |
+| 8e-P1 | **Final Report summary view is unclear / "too ugly".** Reference job `SV-20260906-41`. | **CODE SIDE DONE (uncommitted) 2026-09-07** — reworked the SHARED `apps/web/src/jobs/FinalReportPresentation.tsx` + `apps/web/src/styles/app.css` report rules: job-facts is now a clean labelled key-value header (was a cramped 3-col dl), Service Summary is a scannable per-system index table after Asiamost's "SUMMARY OF TESTING" (`system.status` shown verbatim — no invented 3-state verdict), per-section field lists stack vertically with clearer label/value hierarchy and visible nested-depth grouping. Presentation only: no data-shape / API / PDF change. Both Technician + Manager views verified. **Owner visual sign-off still pending.** 8e-P2 PDF pass unchanged (deferred). |
 | 8e-P2 | **Final Report PDF layout.** Photo embedding is fine — leave it. | `apps/api/src/reports/finalServiceReport.ts`. **DEFERRED by owner decision** to ONE pass *after* the last buildable system (Fire Rated Roller Shutter), so it isn't re-touched per system. Not a gap — a sequencing decision. |
 
 ---

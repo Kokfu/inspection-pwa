@@ -2,14 +2,36 @@ import type { FinalReportPreview } from "./finalReportApi";
 
 /** Shared read-only Phase 7 report body for both Technician and Manager views. */
 export function FinalReportPresentation({ report }: { report: FinalReportPreview }) {
+  const jobFacts: Array<{ label: string; value: string }> = [
+    { label: "Customer", value: report.customer },
+    { label: "Site", value: report.site },
+    { label: "Service Date", value: report.serviceDate },
+    { label: "Job Reference", value: report.jobReference },
+    { label: "Completed Date", value: report.completedAt },
+    { label: "Completed By", value: report.completedBy },
+  ];
   return <>
     <section className="accepted-record-notice"><strong>Accepted inspection record</strong><p>This report shows the recorded field conditions accepted for this completed service visit.</p></section>
-    <section className="report-summary"><dl className="job-facts">
-      <div><dt>Customer</dt><dd>{report.customer}</dd></div><div><dt>Site</dt><dd>{report.site}</dd></div>
-      <div><dt>Service Date</dt><dd>{report.serviceDate}</dd></div><div><dt>Job Reference</dt><dd>{report.jobReference}</dd></div>
-      <div><dt>Completed Date</dt><dd>{report.completedAt}</dd></div><div><dt>Completed By</dt><dd>{report.completedBy}</dd></div>
-    </dl></section>
-    <section className="report-summary"><h3>Service Summary</h3><ul>{report.systems.map((system) => <li key={system.systemKey}><strong>{system.label}</strong>: {system.status}{system.locations.length > 1 ? ` - ${system.locations.join(", ")}` : ""}</li>)}</ul></section>
+    <section className="report-summary report-summary--facts" aria-label="Service visit details">
+      <dl className="job-facts">
+        {jobFacts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value || "—"}</dd></div>)}
+      </dl>
+    </section>
+    <section className="report-summary report-summary--index">
+      <h3>Service Summary</h3>
+      <div className="report-table-scroll">
+        <table className="service-summary-table">
+          <thead><tr><th scope="col">System</th><th scope="col">Location(s)</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            {report.systems.map((system) => <tr key={system.systemKey}>
+              <th scope="row">{system.label}</th>
+              <td>{system.locations.length > 0 ? system.locations.join(", ") : "—"}</td>
+              <td className="service-summary-table__status">{system.status}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </section>
     {report.sections.map((section, index) => <section className="report-section" key={`${section.systemKey}:${section.location?.instanceKey ?? index}`}>
       <h3>{section.label}{section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}</h3>
       <dl>{section.fields.map((field, fieldIndex) => <div className={`report-field report-field--depth-${Math.min(field.depth, 3)}`} key={`${field.label}:${fieldIndex}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
