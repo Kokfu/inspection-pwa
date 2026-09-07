@@ -59,6 +59,7 @@
         const url = String(input);
         if (url === "/api/auth/me") return auth.promise;
         if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
+        if (url === "/api/manager/customers") return json({ customers: [] });
         if (url === "/api/manager/service-visits/" + visit.id) {
           detailRequests += 1;
           const signal = init?.signal;

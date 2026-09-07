@@ -70,6 +70,7 @@
         const url = String(input); calls.push(url);
         if (url === "/api/auth/me") return auth.promise;
         if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
+        if (url === "/api/manager/customers") return json({ customers: [] });
         if (url === "/api/manager/service-visits/" + visit.id + "/final-report") return json({ report });
         if (url === "/api/manager/service-visits/" + visit.id) { detailRequests += 1; return json({ serviceVisit: visit }); }
         if (url === "/api/inspection-jobs") return json({ jobs: [] });

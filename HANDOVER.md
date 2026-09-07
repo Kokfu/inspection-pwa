@@ -3,7 +3,30 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-06 — **RELEASE BLOCKER P0-M1 CLOSED — committed, deployed, verified.**
+**Last updated:** 2026-09-07 — **Four red Manager / riser browser harnesses fixed — test-hygiene
+only, no app change.** The HANDOVER note that claimed two were already fixed by a test-hygiene
+pass was wrong; the pass had never been applied. Verdicts: all four are stale-harness, not an
+`App.tsx` regression (the Manager Operations list→detail path is byte-identical to `e30c649`;
+`git diff e30c649..HEAD -- apps/web/src/manager/` is empty). (1) `manager-app-auth-transitions.html`
+— `openCustomerDetail()` settled on `"Current settings" && "Sites"`, both of which the customer
+*list card* renders ([`ManagerCustomerConfiguration.tsx:20`](apps/web/src/manager/ManagerCustomerConfiguration.tsx:20)),
+so the wait no-op'd and the next `click("+ Add Site")` threw for the 5 Add-Site cases; now waits
+on the detail-only `#customer-configuration-title` + the `+ Add Site` control. 24/24 cases green;
+the `MANAGER_APP_AUTH_FORCE_FAILURE` switch still drives Playwright to exit 1. (2)
+`manager-navigation-request-count.html` and (3) `manager-final-report-navigation.html` — the fetch
+stubs never handled `/api/manager/customers`, which the Manager home loads via
+`Promise.all([loadManagerServiceVisits, loadManagerCustomers])` ([`App.tsx:992`](apps/web/src/App.tsx:992),
+identical at `e30c649:932`); the unstubbed call fell through to `503` → `ManagerApiError`
+"unavailable" → fail-closed back to role selection, so the "Manager Operations" / "direct
+Operations navigation" waits timed out. Added the one-line stub to each; the hard assertions
+(`detailRequests === 1`; click/aborted/hashchange counts `1 / 0 / 2`) are unchanged and pass. (4)
+`dry-wet-riser-v2-historical.spec.ts` — not a mounted-App harness; its `state()` poll helper did a
+bare `JSON.parse(#result)` that threw on the initial `"Ready"` text and propagated out of
+`expect.poll` as a hard fail; wrapped in `try/catch → "RUNNING"` to match the sibling specs.
+Files: the three `.html` harnesses + the one `.spec.ts`. `npm run typecheck` / `npm run build`
+(apps/web), `test:fire-alarm-dispatch`, `test:v7-cross-instance-browser` all green; `git diff
+--check` clean. Not staged.
+Previously: **RELEASE BLOCKER P0-M1 CLOSED — committed, deployed, verified.**
 Both fixes are in: `4eee41e` (`fix(db): make V7 migration replay forward-only`) and `07a859b`
 (`fix(db): re-home V7 definition publication to the seed (023/024 legacy-source drift)`). The
 deployed API image was rebuilt (`docker compose build api && docker compose up -d`, api
@@ -623,6 +646,51 @@ repeatable-row model; the 9 with an evidence workflow share the V7 staged-eviden
 Roller Shutter have no implementation yet.
 
 ## 7. Change log
+
+- 2026-09-07 — **Four red Manager / riser browser harnesses fixed (test-hygiene only).**
+  Baseline `e30c649`, branch `phase-8e-client-demo-polish`. All four were stale harnesses, not an
+  `App.tsx` regression — the Manager Operations list→detail navigation path is byte-identical to
+  `e30c649` (`git diff e30c649..HEAD -- apps/web/src/manager/` empty; the only `App.tsx` change
+  since baseline is the additive smoke-ventilation / fire-intercom form routes). The earlier
+  HANDOVER claim that a test-hygiene pass had already fixed two of them was false; nothing had
+  been applied.
+  - `apps/web/tests/manager-app-auth-transitions.html` — **harness-timing.** `openCustomerDetail()`
+    settled on `mount.textContent.includes("Current settings") && …("Sites")`, but the customer
+    *list card* already renders both strings
+    ([`ManagerCustomerConfiguration.tsx:20`](apps/web/src/manager/ManagerCustomerConfiguration.tsx:20):
+    a `Current settings` status badge and a `Sites` label per card), so the wait returned before
+    `manage.click()`'s detail render committed and the next `click("+ Add Site")` threw
+    `Missing actual App button: + Add Site` for the 5 Add-Site cases. Now waits on the detail-only
+    `mount.querySelector("#customer-configuration-title")`
+    ([`ManagerCustomerConfiguration.tsx:28`](apps/web/src/manager/ManagerCustomerConfiguration.tsx:28))
+    plus `"Current settings"` and the `+ Add Site` control. 19/24 → 24/24. The
+    `MANAGER_APP_AUTH_FORCE_FAILURE` verification switch still forces Playwright exit 1 (checked).
+  - `apps/web/tests/manager-navigation-request-count.html`,
+    `apps/web/tests/manager-final-report-navigation.html` — **harness-timing / missing fetch stub.**
+    The mounted Manager home loads
+    `Promise.all([loadManagerServiceVisits(), loadManagerCustomers()])`
+    ([`App.tsx:992`](apps/web/src/App.tsx:992), identical at `e30c649:932`). Neither stub had a
+    `/api/manager/customers` branch, so it fell through to `new Response("", {status:503})` →
+    `readResponse` JSON-parse throw → `ManagerApiError(kind:"unavailable")` →
+    `failClosedManagerOperations` bounced to role selection (`"Manager server data is currently
+    unavailable."`), and the `"Manager Operations"` / `"direct Operations navigation"` waits timed
+    out. Added `if (url === "/api/manager/customers") return json({ customers: [] });` to each.
+    The specs' hard assertions are untouched and pass: `detailRequests === 1`;
+    `clickDetailRequests / clickAbortedDetailRequests / hashchangeDetailRequests === 1 / 0 / 2`
+    — so no App regression in detail-request counting or abort handling.
+  - `apps/web/tests/dry-wet-riser-v2-historical.spec.ts` — **spec-timing** (not a mounted-App
+    harness — a repository-level `getOrCreateDryWetRiserInspection` / `saveDryWetRiserDraft` /
+    `submitLocalDryWetRiser` reload test). The one-line spec's `state()` poll helper did a bare
+    `JSON.parse(await page.locator("#result").innerText()).status`; on the first poll `#result` is
+    still `"Ready"`, `JSON.parse` throws, and the exception propagates out of `expect.poll` as an
+    immediate hard failure instead of retrying. The other three specs already guard this with
+    `try { … } catch { return "RUNNING"; }`; applied the same guard here. Harness body unchanged
+    and passing (V2 Draft survives reload, legacy Pending outbox, `schemaVersion:1`, no
+    `evidenceManifest`).
+  - Gates: `npm run test:manager-app-auth`, the three raw `npx playwright test` specs,
+    `npm run typecheck` + `npm run build` (apps/web), `npm run test:fire-alarm-dispatch`,
+    `npm run test:v7-cross-instance-browser` — all green. `git diff --check` clean (CRLF warnings
+    only). P0 remaining: 0. P1 remaining: 0. Not staged (owner does git).
 
 - 2026-09-07 — Web harness cleanup + V6 Fire Alarm client-sync fix. Retired the rotted
   CO2/Wet Chemical V7 and Fire Alarm V6 offline orphan harnesses. **Fixed:** `v7FormReady`

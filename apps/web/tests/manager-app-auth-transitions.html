@@ -57,7 +57,7 @@
       const manage = [...mount.querySelectorAll("button")].find(button => button.textContent.includes("Manage configuration"));
       if (!manage) throw new Error("Missing Manage configuration control");
       manage.click();
-      await waitFor(() => mount.textContent.includes("Current settings") && mount.textContent.includes("Sites"), "customer detail");
+      await waitFor(() => mount.querySelector("#customer-configuration-title") && mount.textContent.includes("Current settings") && mount.textContent.includes("+ Add Site"), "customer detail");
     }
     async function triggerOnlineRevalidation(calls) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
