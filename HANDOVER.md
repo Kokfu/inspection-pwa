@@ -3,7 +3,60 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-08 — **8e-P1 "Summary of Testing" derived roll-up committed `97a6437`,
+**Last updated:** 2026-09-08 — **Task 8e label-overrides slice 1a-i (per-customer display-label
+overrides) implemented in the working tree, NOT committed.** New capability: a Manager renames
+existing field labels per customer (e.g. `dry_wet_riser` `pumps_auto_start` → "Pumps Start
+Automatically") without a code deploy. **Display strings ONLY** — field keys, response shape,
+evidence `fieldPath`s, `validResponses()` lists, the frozen manifest and above all
+`contractSha256 = sha256(canonical(definition))` are never touched (proven byte-identical for
+all 9 V7 systems with and without an override). Additive + reversible: a missing/blank override
+falls back to the definition label. This slice is backend + data model + job-freeze +
+Accepted-Detail-side rendering only — **the technician web form + Manager UI are a later slice,
+NOT built here.**
+
+Shape: new column `customer_enabled_systems.label_overrides jsonb NOT NULL DEFAULT '{}'` (fwd
+migration `027_customer_label_overrides.sql`, object CHECK mirroring 008's `system_configuration`
+CHECK, gated in `migrations.ts` on the constraint's presence). Canonical path grammar = the
+**resolved-controls tree's own dotted object path** (`checklist.pumpHouse.pumps_auto_start`,
+`measurements.jockey_pump_pressure.values.cut_in`, `repeatableRows.resultColumns.drumResult`) —
+see `apps/api/src/inspections/labelOverrides.ts` (`applyLabelOverrides` — pure, clones, no-ops on
+an empty/undefined map, applied AFTER the frozen `resolvedControls` equality gate;
+`collectResolvedLabelPaths` / `resolvedLabelPathSet`). Overrides are per-customer, versioned via
+the existing `customer_configuration_revisions` bump (`copySelectedConfiguration` forward-copies
+`label_overrides` alongside `system_configuration` / zones / locations; a label-only edit keeps
+the customer's current enabled-system order) and frozen into
+`configuration_snapshot.enabledSystems[].labelOverrides` at job creation (`serviceVisits.ts`) —
+**emitted only when a non-empty map exists** (like `systemConfiguration`), so a customer with no
+override produces a snapshot byte-identical to `e30c649` and the strict `exact(system, …)`
+historical acceptors (Fire Alarm V3–V5 `fireAlarmAccepted.ts`, Portable
+`portableFireExtinguisherSync.ts`) do not regress (Sol P1-1 fix).
+Manager route (`managerCustomers.ts`, `requireRole("admin")`): `GET` / `PUT`
+`/manager/customers/:id/systems/:systemKey/label-overrides` — GET returns the resolved label
+tree (path + definitionLabel + effectiveLabel + overridden) for the customer's frozen template
+version; PUT server-validates every key resolves to a real label node in that system's published
+definition (unknown path → 400 `UNKNOWN_LABEL_PATH`), each value a non-empty string ≤ 200 chars
+(trimmed), map ≤ 300 entries, then supersedes the active revision and creates N+1 carrying the
+edited map. **Bounded to the 5 systems with a server-side resolved-controls tree** (`hose_reel`,
+`co2_fire_extinguisher`, `wet_chemical`, `fire_alarm_detector`, `automatic_sprinkler`) — other
+systems 404 `LABEL_OVERRIDES_UNSUPPORTED_SYSTEM`; the storage/freeze/copy layer is
+system-agnostic so this set can widen later without a data migration. **DEVIATION from the brief
+file list:** the render change also lives in `routes/masterSystemInspections.ts` (not just
+`acceptedMasterSystemDetail.ts`) — that route is where `displayControls` is serialized;
+`acceptedDetailResponse` now takes an optional frozen override map (fetched by a new
+`frozenLabelOverrides(jobId, systemKey)` reading the job's `configuration_snapshot`, NOT the
+exact-key-checked `inspection_snapshot`) and applies `applyLabelOverrides` to
+`system.resolvedControls`. V7 Accepted-Detail branches return `displayControls: null` as before
+(no server controls tree ships for them) — the frozen map still rides `configuration_snapshot`
+for the later web slice. Gates green from a cold `phase6_seed_integration` DB: api
+typecheck + build, historical-matrix / v6-evidence / wet-chemical-definition / final-report unit,
+new `test:label-overrides` (8), the full HANDOVER §2 cold integration batch + new
+`managerLabelOverrides.integration.test.ts` (0 skips), web typecheck + build + v7-stale-evidence.
+DO-NOT-MODIFY list clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to
+`e30c649`. `P0 remaining: 0` `P1 remaining: 0`. Not committed — owner does git.
+
+<details><summary>Previous — 2026-09-08 <code>ecc3e34</code> (8e-P1 "Summary of Testing")</summary>
+
+**8e-P1 "Summary of Testing" derived roll-up committed `97a6437`,
 then Terra remediation of Sol's 4 P1s on it committed `ecc3e34`
 (`apps/api/src/reports/finalServiceReport.ts`, `finalServiceReport.test.ts`, `HANDOVER.md` only).
 Sol re-reviewed `ecc3e34`: 0 P0 / 0 P1 on behaviour, 154 tests / 0 fail / 0 skip, protected
@@ -47,6 +100,8 @@ integration set + `finalServiceReport.integration` / `.sprinkler.integration` /
 `phase6_seed_integration` DB (0 skips). Committed `ecc3e34`; Sol re-reviewed `ecc3e34` — 0 P0 /
 0 P1 on behaviour, 154 tests / 0 fail / 0 skip, protected files byte-identical to `e30c649`. The
 only follow-up was this HANDOVER wording correction.
+
+</details>
 
 <details><summary>Previous — 2026-09-07 <code>d9ea404</code></summary>
 
@@ -434,7 +489,8 @@ node --import tsx --test --test-concurrency=1 `
   src/reports/finalServiceReport.integration.test.ts `
   src/reports/finalServiceReport.sprinkler.integration.test.ts `
   src/reports/fireAlarmV6FinalReport.integration.test.ts `
-  src/routes/managerCustomers.integration.test.ts
+  src/routes/managerCustomers.integration.test.ts `
+  src/routes/managerLabelOverrides.integration.test.ts
 Confirm-Exit "integration batch"
 
 cd ../.. ; docker rm -f phase8f-v7-verify
@@ -447,6 +503,7 @@ npm run build ; Confirm-Exit "api build"
 npm run test:historical-matrix ; Confirm-Exit "historical-matrix"
 npm run test:v6-evidence ; Confirm-Exit "v6-evidence"
 npm run test:wet-chemical-definition ; Confirm-Exit "wet-chemical-definition"
+npm run test:label-overrides ; Confirm-Exit "label-overrides"
 npm run test:final-report ; Confirm-Exit "final-report unit"
 cd ../web
 npm run typecheck ; Confirm-Exit "web typecheck"
