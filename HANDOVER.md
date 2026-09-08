@@ -3,16 +3,112 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-08 — **Task 8e label-overrides slice 1a-i (per-customer display-label
-overrides) implemented in the working tree, NOT committed.** New capability: a Manager renames
+**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-ii (WEB + Sol P0/P1/P2
+remediation, round 3) in the working tree, NOT committed.** Consumes the 1a-i backend (`eadb12b`):
+technician form + Manager UI for **3 systems** — `co2_fire_extinguisher`, `wet_chemical`,
+`hose_reel` — plus owner-approved hardening of 1a-i acceptors. `fire_alarm_detector`,
+`automatic_sprinkler` and the final report are deferred (see end).
+
+**What ships:**
+* **Shared helper** — `apps/web/src/inspections/labelOverrides.ts` is a **verbatim port** of the
+  API authority; both copies export `applyLabelOverrides` (clone the tree, swap `label` strings —
+  now **trims** the replacement) and `overriddenLabel(map, path, definitionLabel)` (single-node
+  lookup: own **and enumerable** only, via `Object.prototype.propertyIsEnumerable` so it matches
+  `applyLabelOverrides`' `Object.entries` exactly, non-empty trimmed string wins, else the
+  definition label). `tests/labelOverridesParity.test.ts` (16) imports both copies and asserts
+  `applyLabelOverrides` identical output AND `overriddenLabel(map,p,node.label) ===
+  applyLabelOverrides(tree,map)` at every path — across padded values, prototype-inherited and
+  own-non-enumerable props, whitespace-only, non-string, nested repeatable-row / measurement-value
+  paths, option-labels.
+* **Technician forms (co2/wet_chemical via `Co2InspectionForm`, `HoseReelInspectionForm`)** —
+  `controls` is the **canonical, un-overridden** `resolvedControls`, the sole authority for every
+  key / evidence `fieldPath` / response wiring / submit gate / V7 branch; it is never cloned or
+  shadowed. Label **text only** comes from a `labelAt(path, def)` closure =
+  `overriddenLabel(record.displayLabelOverrides, …)` interpolated into JSX; the two
+  `MeasurementValueInput` sites get a throwaway `{ ...def, label: labelAt(…) }`.
+* **Where the frozen map lives (was P0):** NOT `inspectionSnapshot`. `JobSystemSnapshot.labelOverrides?`
+  carries it from the job payload; each repo's `snapshot()` builder **destructures it OUT** before
+  the `{ ...system }` spread and stashes it on a **non-synced** record field `displayLabelOverrides?`
+  (`co2Types.ts` / `hoseReelTypes.ts`), set **only when non-empty** → a no-override record is
+  byte-identical. Absent from every `payload()` / outbox builder.
+* **1a-i acceptor hardening (was P0):** `hoseReelV7Acceptance.ts` + `automaticSprinklerV7Acceptance.ts`
+  strip `labelOverrides` from the frozen `configuration_snapshot` enabled-system entry before it
+  enters `authority` (request fingerprint) or the stored `inspection_snapshot.system`; the
+  historical `enabledSystem()` helpers in `masterSystemInspectionSync.ts` +
+  `automaticSprinklerInspectionSync.ts` do the same (defence-in-depth — those fingerprints
+  already excluded the entry; automatic_sprinkler's is kept even though the system is now
+  deferred). Stripping an absent key is a no-op → no-override jobs byte-identical to `e30c649`.
+  `contractSha256 = sha256(canonical(definition))` never touched. CO2 / Wet Chemical were already
+  clean (server rebuilds `system` from explicit keys; fingerprint excludes the snapshot).
+* **Manager UI** — `ManagerCustomerLabelOverrides` / `ManagerSystemLabelOverrides` in
+  `ManagerCustomerConfiguration.tsx`, inside `ManagerCustomerConfigurationDetail` (no new route).
+  One collapsible editor per eligible enabled system. `managerApi.ts`: `readResponse` refactored
+  onto `readBody` — which now **rejects any non-object body** (null / array / scalar) as
+  `ManagerApiError("unavailable")` before dereference (was P1 #2); `managerRequest` accepts `PUT`;
+  new `loadManagerLabelOverrides` / `saveManagerLabelOverrides`. `asLabelOverrides` validates
+  every `labels[]` node + each `overrides` value; `isManagerCustomer` now validates every field
+  the UI dereferences — `enabledSystems[].key`/`.displayName`, `sites[].displayName`,
+  `supportedSystems[].key`/`.displayName` — so a poisoned `customer` echo (`enabledSystems:[null]`)
+  routes to `onAuthorityFailure`, never `onSaved` (was P1 #3). Server domain errors
+  (`UNKNOWN_LABEL_PATH` / `INVALID_LABEL_OVERRIDE` / `LABEL_OVERRIDES_TOO_LARGE`) still surface
+  inline as the server's message.
+* **Playwright** — `label-override-technician-form.spec.ts` (+ `.html`): CO2 form renders an
+  overridden checklist label from a frozen `record.displayLabelOverrides`, a no-key record renders
+  the definition label; harness signals `body[data-harness-ready]` after its module graph loads so
+  the spec cuts the network (`context.setOffline(true)`) with no lazy-chunk race, and asserts the
+  render did **zero fetch** with `navigator.onLine === false`. `manager-label-overrides.spec.ts`
+  (+ `.html`, mocked `fetch`): load → edit → save → fresh reload persists effectiveLabel → clear
+  → reload shows definitionLabel → rejected value shows a visible server message (no authority
+  failure) → `labels:[null]`, `null` root body, and a poisoned PUT `customer` each route to
+  `onAuthorityFailure` with no crash text. Both `--workers=1`.
+
+**Accepted / read-only web views — NO web change, no double-apply.** Render
+`inspection.displayControls`, already overridden server-side by 1a-i. **Known gap (API follow-up):**
+the V7 `automatic_sprinkler` branch of `/api/master-system-inspections/:id` returns
+`displayControls: null` and applies no overrides.
+
+**DEFERRED — owner-approved:**
+1. **Fire alarm.** Form renders labels from `resolveFireAlarmVisibleLabels(definition)` + literals,
+   not the controls tree; V6 acceptor reads the frozen entry and `fireAlarmV6Acceptance.ts` is
+   DO-NOT-MODIFY. Absent from `labelOverrideSystemKeys` (API + web) → `/label-overrides` 404s.
+2. **Automatic sprinkler.** `resolveAutomaticSprinklerControls` (managerCustomers.ts) is V1-only
+   (2-state) — a V7 customer's GET 409s `SYSTEM_DEFINITION_UNRESOLVABLE`. Needs a V7 fork in that
+   resolver (mirroring `definitionControls.ts` / `co2DefinitionControls.ts`). Also dropped from
+   `labelOverrideSystemKeys`; its web form + repo + type reverted to pre-slice. Its V7/historical
+   acceptor `labelOverrides` strips stay (harmless defence-in-depth).
+3. **Final report + PDF.** `finalServiceReport.ts` builds `section.fields[].label` from
+   `flatten(response_payload)` → `labelFor(key)`, never a controls tree. Own backend slice.
+
+**Gates (all green):** web typecheck + build; `test:label-overrides-parity` (16, incl. padded /
+prototype-inherited / own-non-enumerable helper-parity cases); the 2 Playwright specs `--workers=1`
+(technician re-run x2, manager re-run x3, stable); regression sweep `manager-app-auth-transitions`
+/ `manager-navigation-request-count` / `hose-reel-v7-offline` / `co2-v7-cross-instance` /
+`test:v7-stale-evidence` (1) / `test:v7-hose-reel-submit` (16) / `test:v7-automatic-sprinkler-submit`
+(8). **API:** typecheck + build; historical-matrix (20) / v6-evidence (9) / wet-chemical-definition
+(2) / v7EvidenceContracts + env + `labelOverrides.test.ts` (19). **Cold integration — ONE
+disposable DB `phase6_seed_integration` on port 55432, exactly as §2** (`NODE_ENV=test` makes
+`loadConfig().databaseUrl === SEED_INTEGRATION_DATABASE_URL`; the V6/V7 tests assert only the port,
+`managerLabelOverrides.integration.test.ts` additionally asserts the `/phase6_seed_integration`
+pathname — one DB satisfies all): `fireAlarmV6Acceptance.integration` + `co2V7` / `wetChemicalV7` /
+`fireAlarmV7` / `v7EvidenceRace` + `managerLabelOverrides.integration` (2) → 12 pass, 0 skips.
+`git status --short`: web files + shared helper + tests + 6 `apps/api` files (`labelOverrides.ts` —
+`applyLabelOverrides` trims the replacement, `overriddenLabel` gates on
+`Object.prototype.propertyIsEnumerable` so it matches `Object.entries` exactly (own + enumerable);
+`managerCustomers.ts` allow-list; `hoseReelV7Acceptance.ts`, `automaticSprinklerV7Acceptance.ts`,
+`masterSystemInspectionSync.ts`, `automaticSprinklerInspectionSync.ts` strips). DO-NOT-MODIFY list
+clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
+`P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
+
+<details><summary>Previous — 2026-09-08 label-overrides slice 1a-i (backend, committed <code>eadb12b</code>)</summary>
+
+New capability: a Manager renames
 existing field labels per customer (e.g. `dry_wet_riser` `pumps_auto_start` → "Pumps Start
 Automatically") without a code deploy. **Display strings ONLY** — field keys, response shape,
 evidence `fieldPath`s, `validResponses()` lists, the frozen manifest and above all
 `contractSha256 = sha256(canonical(definition))` are never touched (proven byte-identical for
 all 9 V7 systems with and without an override). Additive + reversible: a missing/blank override
 falls back to the definition label. This slice is backend + data model + job-freeze +
-Accepted-Detail-side rendering only — **the technician web form + Manager UI are a later slice,
-NOT built here.**
+Accepted-Detail-side rendering only — the technician web form + Manager UI are slice 1a-ii above.
 
 Shape: new column `customer_enabled_systems.label_overrides jsonb NOT NULL DEFAULT '{}'` (fwd
 migration `027_customer_label_overrides.sql`, object CHECK mirroring 008's `system_configuration`
@@ -52,7 +148,9 @@ typecheck + build, historical-matrix / v6-evidence / wet-chemical-definition / f
 new `test:label-overrides` (8), the full HANDOVER §2 cold integration batch + new
 `managerLabelOverrides.integration.test.ts` (0 skips), web typecheck + build + v7-stale-evidence.
 DO-NOT-MODIFY list clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to
-`e30c649`. `P0 remaining: 0` `P1 remaining: 0`. Not committed — owner does git.
+`e30c649`. `P0 remaining: 0` `P1 remaining: 0`. Committed `eadb12b` (owner did git).
+
+</details>
 
 <details><summary>Previous — 2026-09-08 <code>ecc3e34</code> (8e-P1 "Summary of Testing")</summary>
 

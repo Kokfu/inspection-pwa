@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { controlsForHoseReelSnapshot } from "../inspectionControls/definitionResolver";
+import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
@@ -67,6 +68,12 @@ export function HoseReelInspectionForm({
   const [priorReference, setPriorReference] = useState<Awaited<ReturnType<typeof latestHoseReelReferenceForCustomer>>>(undefined);
   const isV7 = record.masterTemplate.version === 7;
   const isSchema3 = responses.schemaVersion === 3;
+  // Display-only: the frozen per-customer label for one canonical tree path,
+  // else the definition label. Reads the non-synced `record.displayLabelOverrides`
+  // and never `controls` — every key / evidence `fieldPath` / submit-gate read
+  // stays on the canonical resolved tree.
+  const labelAt = (path: string, definitionLabel: string) =>
+    overriddenLabel(record.displayLabelOverrides, path, definitionLabel);
   const controlResolution = useMemo(() => {
     try {
       return { controls: controlsForHoseReelSnapshot(record.inspectionSnapshot) };
@@ -280,16 +287,18 @@ export function HoseReelInspectionForm({
 
       <fieldset disabled={readOnly}>
         <legend>Water Tank</legend>
-        {controls.checklist.waterTank.map((definition) => (
+        {controls.checklist.waterTank.map((definition) => {
+          const shownLabel = labelAt(`checklist.waterTank.${definition.key}`, definition.label);
+          return (
           <div
             className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
             id={`check-${definition.key}`}
             key={definition.key}
           >
-            <strong>{definition.label}</strong>
+            <strong>{shownLabel}</strong>
             <ResultSelector<GoodPoor>
               definition={definition.result}
-              label={`${definition.label} result`}
+              label={`${shownLabel} result`}
               value={responses.checklist[definition.key]?.result ?? null}
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
@@ -310,21 +319,24 @@ export function HoseReelInspectionForm({
               />
             ) : null}
           </div>
-        ))}
+          );
+        })}
       </fieldset>
 
       <fieldset disabled={readOnly}>
         <legend>Pump House</legend>
-        {controls.checklist.pumpHouse.map((definition) => (
+        {controls.checklist.pumpHouse.map((definition) => {
+          const shownLabel = labelAt(`checklist.pumpHouse.${definition.key}`, definition.label);
+          return (
           <div
             className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
             id={`check-${definition.key}`}
             key={definition.key}
           >
-            <strong>{definition.label}</strong>
+            <strong>{shownLabel}</strong>
             <ResultSelector<GoodPoor>
               definition={definition.result}
-              label={`${definition.label} result`}
+              label={`${shownLabel} result`}
               value={responses.checklist[definition.key]?.result ?? null}
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
@@ -345,15 +357,16 @@ export function HoseReelInspectionForm({
               />
             ) : null}
           </div>
-        ))}
+          );
+        })}
         <div
           className={`measurement-card ${invalidTargets.has("jockey-measurement") ? "field-invalid" : ""}`}
           id="jockey-measurement"
         >
-          <strong>{jockeyDefinition.label}</strong>
+          <strong>{labelAt("measurements.jockey_pump_pressure", jockeyDefinition.label)}</strong>
           {jockeyDefinition.values.map((definition) => (
             <MeasurementValueInput
-              definition={definition}
+              definition={{ ...definition, label: labelAt(`measurements.jockey_pump_pressure.values.${definition.key}`, definition.label) }}
               key={definition.key}
               value={responses.measurements.jockey_pump_pressure.values[
                 definition.key as keyof HoseReelResponses["measurements"]["jockey_pump_pressure"]["values"]
@@ -369,7 +382,7 @@ export function HoseReelInspectionForm({
           ))}
           <ResultSelector<GoodPoor>
             definition={jockeyDefinition.result}
-            label={`${jockeyDefinition.label} result`}
+            label={`${labelAt("measurements.jockey_pump_pressure", jockeyDefinition.label)} result`}
             value={responses.measurements.jockey_pump_pressure.result}
             readOnly={readOnly}
             onChange={(result) => updateJockey({ result })}
@@ -394,10 +407,10 @@ export function HoseReelInspectionForm({
           className={`measurement-card ${invalidTargets.has("standby-measurement") ? "field-invalid" : ""}`}
           id="standby-measurement"
         >
-          <strong>{standbyDefinition.label}</strong>
+          <strong>{labelAt("measurements.standby_pump_cut_in", standbyDefinition.label)}</strong>
           {standbyDefinition.values.map((definition) => (
             <MeasurementValueInput
-              definition={definition}
+              definition={{ ...definition, label: labelAt(`measurements.standby_pump_cut_in.values.${definition.key}`, definition.label) }}
               key={definition.key}
               value={responses.measurements.standby_pump_cut_in.values[
                 definition.key as keyof HoseReelResponses["measurements"]["standby_pump_cut_in"]["values"]
@@ -410,7 +423,7 @@ export function HoseReelInspectionForm({
           ))}
           <ResultSelector<GoodPoor>
             definition={standbyDefinition.result}
-            label={`${standbyDefinition.label} result`}
+            label={`${labelAt("measurements.standby_pump_cut_in", standbyDefinition.label)} result`}
             value={responses.measurements.standby_pump_cut_in.result}
             readOnly={readOnly}
             onChange={(result) => updateStandby({ result })}
@@ -436,16 +449,18 @@ export function HoseReelInspectionForm({
       {isV7 ? (
         <fieldset disabled={readOnly}>
           <legend>Test Run Fire Pump 30 Minutes</legend>
-          {(controls.checklist.testRunFirePump ?? []).map((definition) => (
+          {(controls.checklist.testRunFirePump ?? []).map((definition) => {
+            const shownLabel = labelAt(`checklist.testRunFirePump.${definition.key}`, definition.label);
+            return (
             <div
               className={`hose-check-row ${invalidTargets.has(`check-${definition.key}`) ? "field-invalid" : ""}`}
               id={`check-${definition.key}`}
               key={definition.key}
             >
-              <strong>{definition.label}</strong>
+              <strong>{shownLabel}</strong>
               <ResultSelector<GoodPoor>
                 definition={definition.result}
-                label={`${definition.label} result`}
+                label={`${shownLabel} result`}
                 value={responses.checklist[definition.key]?.result ?? null}
                 readOnly={readOnly}
                 onChange={(result) => updateChecklist(definition.key, { result })}
@@ -466,7 +481,8 @@ export function HoseReelInspectionForm({
                 />
               ) : null}
             </div>
-          ))}
+            );
+          })}
         </fieldset>
       ) : null}
 
@@ -595,12 +611,13 @@ export function HoseReelInspectionForm({
                 if (!field) return null;
                 const result = row[field];
                 const fieldPath = `hose_reel_drum.hose_reel_rows.rows.${row.rowUuid}.${definition.key}` as HoseReelV7FieldPath;
+                const shownLabel = labelAt(`repeatableRows.resultColumns.${definition.key}`, definition.label);
                 return (
                 <div className="hose-component" key={definition.key}>
-                  <strong>{definition.label}</strong>
+                  <strong>{shownLabel}</strong>
                   <ResultSelector<GoodPoor>
                     definition={definition.result}
-                    label={`${definition.label} result`}
+                    label={`${shownLabel} result`}
                     value={result}
                     readOnly={readOnly}
                     onChange={(result) => updateRow(row.rowUuid, { [field]: result })}
@@ -608,7 +625,7 @@ export function HoseReelInspectionForm({
                   {isV7 && isHoseReelV7EvidenceFinding(result) ? (
                     <section>
                       <RemarksField
-                        label={`${definition.label} Remark *`}
+                        label={`${shownLabel} Remark *`}
                         definition={controls.repeatableRows.remarks}
                         value={row.fieldRemarks?.[field] ?? ""}
                         readOnly={readOnly}

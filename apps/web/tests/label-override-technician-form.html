@@ -1,0 +1,124 @@
+<!doctype html><html><body>
+<button id="run">Run label override technician form checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { Co2InspectionForm } from "/src/co2/Co2InspectionForm.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const ntiOptions = [{ value: "normal", label: "Normal" }, { value: "test", label: "Test" }, { value: "isolation", label: "Isolation" }];
+const nti = { type: "single_select", required: false, options: ntiOptions };
+const goodPoor = { type: "single_select", required: true, options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }] };
+const remarks = { policy: "optional", maxLength: 2000 };
+
+// Definition labels straight from the resolver's map. The override renames only
+// "Main Supply" -> "Utility Feed". Everything else must still show its default.
+const chargerItems = [
+  { key: "main_supply", label: "Main Supply", sortOrder: 1, result: goodPoor, remarks },
+  { key: "battery", label: "Battery", sortOrder: 2, result: goodPoor, remarks },
+  { key: "charger", label: "Charger", sortOrder: 3, result: goodPoor, remarks }
+];
+
+const controls = () => ({
+  schemaVersion: 1,
+  source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "co2_fire_extinguisher" },
+  repetitionMode: "per_location",
+  controlPanelLocation: { key: "control_panel_location", label: "Control Panel Location", required: true, maxLength: 300 },
+  detectorRows: {
+    minimum: 1, maximum: 250,
+    alarmZone: { key: "alarm_zone", label: "Alarm Zone", required: true, maxLength: 200 },
+    location: { key: "location", label: "Location", required: true, maxLength: 300 },
+    heatDetector: { key: "heat_detector", label: "Heat Detector", sortOrder: 3, result: nti },
+    smokeDetector: { key: "smoke_detector", label: "Smoke Detector", sortOrder: 4, result: nti },
+    remarks
+  },
+  chargerAndBatteries: chargerItems.map((item) => ({ ...item })),
+  physicalOutlook: [],
+  mainFunctionKeys: [],
+  comments: { policy: "optional", maxLength: 4000 }
+});
+
+const record = (labelOverrides) => {
+  const c = controls();
+  return {
+    clientUuid: id(labelOverrides ? 1 : 2),
+    groupKey: `job:co2`,
+    systemKey: "co2_fire_extinguisher",
+    syncStatus: "Draft",
+    startedAt: null,
+    localUpdatedAt: "2026-09-08T00:00:00.000Z",
+    masterTemplate: { id: id(807), code: "MFE-FSSR", version: 1 },
+    // Non-synced frozen map, exactly as co2Repository sets it at record creation.
+    ...(labelOverrides ? { displayLabelOverrides: labelOverrides } : {}),
+    responses: {
+      controlPanelLocation: "Panel",
+      detectorRows: [{ rowUuid: id(9), displaySequence: 1, alarmZone: "Zone", location: "Loc", heatDetectorStatus: "normal", smokeDetectorStatus: "test", remarks: "" }],
+      chargerAndBatteries: Object.fromEntries(c.chargerAndBatteries.map((x) => [x.key, { result: "good", remarks: "" }])),
+      physicalOutlook: {},
+      mainFunctionKeys: {},
+      comments: ""
+    },
+    inspectionSnapshot: {
+      schemaVersion: 1,
+      job: { id: id(1), reference: "JOB-LABEL", title: "Label test" },
+      customer: { id: id(3), code: "C", displayName: "Label Customer" },
+      configuration: { revisionId: id(4), revisionNumber: 2 },
+      template: { id: id(807), code: "MFE-FSSR", name: "MFE-FSSR", version: 1 },
+      instance: { instanceKey: "location:1", displaySequence: 1, zone: null, location: { id: id(5), key: "l1", displayName: "Loc", sortOrder: 1 } },
+      system: {
+        enabledSystemId: id(6), systemKey: "co2_fire_extinguisher", displayName: "CO2", sortOrder: 1,
+        definitionStatus: "confirmed", zones: [], locations: [],
+        definition: { key: "co2_fire_extinguisher" },
+        resolvedControls: c,
+        repetitionMode: "per_location"
+      }
+    }
+  };
+};
+
+const props = { onBack: () => {}, onSaveDraft: async () => {}, onSubmitLocal: async () => {}, onEditFailed: async () => {} };
+const strongs = () => [...document.querySelectorAll("#view strong")].map((n) => n.textContent);
+
+// Count any network the render path attempts. A frozen-snapshot label render
+// must do zero I/O — that is what makes it work with the network cut.
+let fetchCalls = 0;
+const realFetch = window.fetch;
+window.fetch = (...args) => { fetchCalls += 1; return realFetch(...args); };
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  const root = createRoot(document.querySelector("#view"));
+  const fetchAtStart = fetchCalls;
+
+  // 1. Frozen snapshot WITH an override renders the overridden label and hides the definition label.
+  root.render(React.createElement(Co2InspectionForm, { record: record({ "chargerAndBatteries.main_supply": "Utility Feed" }), ...props }));
+  await new Promise((r) => setTimeout(r, 60));
+  const overridden = strongs();
+  ok("override label is rendered", overridden.includes("Utility Feed"));
+  ok("definition label for overridden field is gone", !overridden.includes("Main Supply"));
+  ok("non-overridden sibling keeps its definition label", overridden.includes("Battery") && overridden.includes("Charger"));
+
+  // 2. A frozen snapshot WITHOUT the key renders the definition label.
+  root.render(React.createElement(Co2InspectionForm, { record: record(undefined), ...props }));
+  await new Promise((r) => setTimeout(r, 60));
+  const plain = strongs();
+  ok("no-override snapshot renders the definition label", plain.includes("Main Supply"));
+  ok("no-override snapshot does not invent the override text", !plain.includes("Utility Feed"));
+
+  ok("label rendering did zero network I/O", fetchCalls === fetchAtStart);
+  ok("rendered with navigator.onLine === false", navigator.onLine === false);
+
+  document.querySelector("#result").textContent = JSON.stringify(
+    { status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks, navigatorOnLine: navigator.onLine, fetchDelta: fetchCalls - fetchAtStart },
+    null, 2
+  );
+};
+
+// Signal that the whole module graph (Co2InspectionForm + its transitive deps)
+// has finished loading, so the spec can cut the network before clicking Run
+// without racing a lazy Vite chunk fetch.
+document.body.dataset.harnessReady = "1";
+</script></body></html>

@@ -27,6 +27,17 @@ export type JobSystemSnapshot = {
   locations: JobLocationSnapshot[];
   evidencePolicy?: EvidencePolicySnapshot;
   systemConfiguration?: { riserMode: "dry" | "wet" };
+  /**
+   * Per-customer display-label overrides frozen into this job's
+   * `configuration_snapshot.enabledSystems[]` at creation. Label strings ONLY —
+   * never a field key, response key, evidence `fieldPath`, the frozen manifest,
+   * or any `contractSha256` / `canonical(definition)` input. The API emits this
+   * key only when the map is non-empty, so a customer with no overrides yields a
+   * snapshot byte-identical to `e30c649`. A job frozen before an override was
+   * set carries no map and renders definition labels. Applied on a clone at
+   * render time via `applyLabelOverrides` (apps/web/src/inspections/labelOverrides.ts).
+   */
+  labelOverrides?: Readonly<Record<string, string>>;
 };
 
 export type EvidencePolicyPoint = {

@@ -70,6 +70,15 @@ export type MasterSystemFormInstanceRecord = {
   masterTemplate: { id: string; code: "MFE-FSSR"; version: number };
   configuration: { revisionId: string; revisionNumber: number };
   inspectionSnapshot: Co2InspectionSnapshot;
+  /**
+   * Frozen per-customer display-label overrides for this system, copied from the
+   * job snapshot at record creation. Present ONLY when the customer had a
+   * non-empty map — so a no-override record is byte-identical to before this
+   * feature. Display strings only, keyed by canonical resolved-controls path
+   * (see apps/web/src/inspections/labelOverrides.ts). **Never synced** — it is
+   * absent from every `payload()` builder — and never enters `inspectionSnapshot`.
+   */
+  displayLabelOverrides?: Readonly<Record<string, string>>;
   responses: Co2Responses;
   startedAt: string | null;
   performedAt: string;

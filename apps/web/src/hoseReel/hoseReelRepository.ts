@@ -125,8 +125,19 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
     ...(controls.source.templateVersion === 7 ? { schemaVersion: 3, drumCount: order } : { drumTypes: { swing: false, fixed: false } })
   };
 }
+/** The job's frozen per-customer label map for this system, only when non-empty
+ *  (so a no-override record stays byte-identical to before the feature). */
+function frozenDisplayLabelOverrides(system: JobSystemSnapshot): Readonly<Record<string, string>> | undefined {
+  const map = system.labelOverrides;
+  return map && Object.keys(map).length > 0 ? map : undefined;
+}
+
 function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput): HoseReelInspectionSnapshot {
   const { definition, resolvedControls } = definitionFor(catalog, job);
+  // `labelOverrides` is display-only and must NOT enter `inspectionSnapshot.system`
+  // — that object is submitted and, for V7 Hose Reel, folded into the accepted
+  // authority / request fingerprint. It rides `record.displayLabelOverrides`.
+  const { labelOverrides: _labelOverrides, ...systemBase } = system;
   return {
     schemaVersion: 1,
     capturedAt: now(),
@@ -135,7 +146,7 @@ function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: 
     configuration: job.configurationSnapshot.configuration,
     template: job.configurationSnapshot.template,
     system: {
-      ...system,
+      ...systemBase,
       definition,
       resolvedControls,
       repetitionMode: "single_with_repeatable_rows",
@@ -144,7 +155,7 @@ function createSnapshot(job: InspectionJob, system: JobSystemSnapshot, catalog: 
   };
 }
 
-export async function getOrCreateHoseReelInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined): Promise<MasterSystemInspectionRecord> { const groupKey = jobSystemKey(job.id); const existing = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (existing) { if (existing.systemKey !== key) throw new Error("Stored Master-system inspection identity is invalid"); return existing; } if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts"); const timestamp = now(); const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null; const inspectionSnapshot = createSnapshot(job, system, catalog); const record: MasterSystemInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: groupKey, jobId: job.id, systemKey: key, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, responses: emptyResponses(system, controlsForHoseReelSnapshot(inspectionSnapshot)), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" }; try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { const raced = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (raced?.systemKey === key) return raced; throw error; } }
+export async function getOrCreateHoseReelInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalogInput, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined): Promise<MasterSystemInspectionRecord> { const groupKey = jobSystemKey(job.id); const existing = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (existing) { if (existing.systemKey !== key) throw new Error("Stored Master-system inspection identity is invalid"); return existing; } if (job.status === "closed") throw new Error("Completed jobs cannot create new inspection Drafts"); const timestamp = now(); const originalCreatorSnapshot: DeviceReportedCreator | null = creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } : null; const inspectionSnapshot = createSnapshot(job, system, catalog); const record: MasterSystemInspectionRecord = { schemaVersion: 1, clientUuid: crypto.randomUUID(), jobSystemKey: groupKey, jobId: job.id, systemKey: key, originalCreatorSnapshot, masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version }, configuration: job.configurationSnapshot.configuration, inspectionSnapshot, ...(frozenDisplayLabelOverrides(system) ? { displayLabelOverrides: frozenDisplayLabelOverrides(system) } : {}), responses: emptyResponses(system, controlsForHoseReelSnapshot(inspectionSnapshot)), performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft" }; try { await localDatabase.masterSystemInspections.add(record); return record; } catch (error) { const raced = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(groupKey).first(); if (raced?.systemKey === key) return raced; throw error; } }
 function preserveConfiguredRows(current: HoseReelResponses, proposed: HoseReelResponses): HoseReelResponses {
   const proposedByUuid = new Map(proposed.rows.map((item) => [item.rowUuid, item]));
   const configured = current.rows.filter((item) => item.source === "configured").map((item) => {

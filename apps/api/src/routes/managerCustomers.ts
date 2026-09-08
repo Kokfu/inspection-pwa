@@ -21,8 +21,22 @@ const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemi
 // system without a resolver has no addressable label node here. Storage
 // (`label_overrides` column), forward-copy and job freeze stay system-agnostic,
 // so this set can widen later without a data migration.
+//
+// `fire_alarm_detector` is deliberately NOT here yet: its V6 acceptor folds the
+// frozen `configuration_snapshot` system entry (which would carry
+// `label_overrides`) into the request fingerprint AND `fireAlarmV6Acceptance.ts`
+// is on the DO-NOT-MODIFY list, so a display-only map cannot be kept out of that
+// hash. Its web technician form also renders labels from a separate resolver.
+//
+// `automatic_sprinkler` is NOT here yet either: `resolveAutomaticSprinklerControls`
+// only understands the historical (V1) 2-state definition, so a GET for a V7
+// customer 409s and no tree can be addressed. It returns with the slice that
+// gives that resolver a V7 fork.
+//
+// Both re-join with their dedicated slices. The storage / forward-copy / freeze
+// layer stays system-agnostic, so widening this set needs no data migration.
 const labelOverrideSystemKeys = new Set([
-  "hose_reel", "co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "automatic_sprinkler"
+  "hose_reel", "co2_fire_extinguisher", "wet_chemical"
 ]);
 const labelOverrideMaxEntries = 300;
 const labelOverrideMaxValueLength = 200;

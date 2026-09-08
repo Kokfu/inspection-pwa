@@ -100,6 +100,11 @@ function snapshot(
   controls: ResolvedCo2Controls,
   capturedAt: string
 ): Co2InspectionSnapshot {
+  // `labelOverrides` is a display-only sibling on the job snapshot. It must NOT
+  // enter `inspectionSnapshot.system` — that object is submitted in the sync
+  // payload and, for some systems, folded verbatim into the accepted authority /
+  // request fingerprint. It rides `record.displayLabelOverrides` instead.
+  const { labelOverrides: _labelOverrides, ...systemBase } = system;
   return {
     schemaVersion: job.configurationSnapshot.template.version === 7 ? 2 : 1,
     capturedAt,
@@ -107,9 +112,16 @@ function snapshot(
     customer: job.configurationSnapshot.customer,
     configuration: job.configurationSnapshot.configuration,
     template: job.configurationSnapshot.template,
-    system: { ...system, definition, resolvedControls: controls, repetitionMode: "per_location" },
+    system: { ...systemBase, definition, resolvedControls: controls, repetitionMode: "per_location" },
     instance
   };
+}
+
+/** The job's frozen per-customer label map for this system, only when non-empty
+ *  (so a no-override record stays byte-identical to before the feature). */
+function frozenDisplayLabelOverrides(system: JobSystemSnapshot): Readonly<Record<string, string>> | undefined {
+  const map = system.labelOverrides;
+  return map && Object.keys(map).length > 0 ? map : undefined;
 }
 
 export async function initializeCo2InspectionGroup(
@@ -171,6 +183,7 @@ export async function initializeCo2InspectionGroup(
             masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version },
             configuration: job.configurationSnapshot.configuration,
             inspectionSnapshot,
+            ...(frozenDisplayLabelOverrides(system) ? { displayLabelOverrides: frozenDisplayLabelOverrides(system) } : {}),
             responses: blankResponses(instance, controls),
             startedAt: null,
             performedAt: timestamp,

@@ -1,0 +1,217 @@
+<!doctype html><html><body>
+<button id="run">Run manager label overrides checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { ManagerCustomerLabelOverrides } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(700);
+const systemKey = "hose_reel";
+
+// Definition tree the fake server exposes for this system.
+const definitionLabels = [
+  { path: "checklist.waterTank.saj_main_water_supply", key: "saj_main_water_supply", definitionLabel: "S.A.J Main Water Supply" },
+  { path: "checklist.pumpHouse.pumps_auto_start", key: "pumps_auto_start", definitionLabel: "Jockey And Stand-By Pump In Auto Start Position" },
+  { path: "repeatableRows.resultColumns.drumResult", key: "drumResult", definitionLabel: "Drum" }
+];
+const validPaths = new Set(definitionLabels.map((n) => n.path));
+
+// Server-side persisted map (mirrors customer_enabled_systems.label_overrides).
+let stored = {};
+
+const tree = () => definitionLabels.map((n) => {
+  const override = stored[n.path];
+  const overridden = typeof override === "string" && override.trim().length > 0;
+  return { ...n, effectiveLabel: overridden ? override.trim() : n.definitionLabel, overridden };
+});
+const body = (extra = {}) => ({ systemKey, templateVersion: 7, labels: tree(), overrides: { ...stored }, ...extra });
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+
+// Fake API. GET returns the tree; PUT validates like apps/api/src/routes/managerCustomers.ts
+// (UNKNOWN_LABEL_PATH / INVALID_LABEL_OVERRIDE / LABEL_OVERRIDES_TOO_LARGE) then persists.
+let getCalls = 0;
+let putCalls = 0;
+let getMode = "ok";      // "ok" | "labelsNull" | "rootNull"
+const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  const path = `/api/manager/customers/${customerId}/systems/${systemKey}/label-overrides`;
+  if (!url.startsWith(path)) return realFetch(input, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  // A small delay guarantees an observable "Loading field labels…" window so the
+  // test can wait for a reload's re-hydrate to fully finish before editing again.
+  if (method === "GET") {
+    getCalls += 1; await new Promise((r) => setTimeout(r, 25));
+    // Malformed HTTP 200s must NOT crash hydration — they become an
+    // "unavailable" authority failure. `labelsNull` = a poisoned array element;
+    // `rootNull` = the whole body is `null` (P1 #2).
+    if (getMode === "labelsNull") return json({ systemKey, templateVersion: 7, labels: [null], overrides: {} });
+    if (getMode === "rootNull") return rawResponse("null");
+    return json(body());
+  }
+  if (method === "PUT") {
+    putCalls += 1;
+    const map = JSON.parse(init.body).labelOverrides ?? {};
+    const entries = Object.entries(map);
+    if (entries.length > 300) return json({ error: "LABEL_OVERRIDES_TOO_LARGE", message: "At most 300 label overrides are allowed." }, 400);
+    for (const [p, label] of entries) {
+      if (!validPaths.has(p)) return json({ error: "UNKNOWN_LABEL_PATH", message: `Unknown label path: ${p}` }, 400);
+      if (typeof label !== "string" || label.trim().length === 0 || label.trim().length > 200 || /BAD/.test(label)) {
+        return json({ error: "INVALID_LABEL_OVERRIDE", message: `Label override for ${p} must be 1-200 characters.` }, 400);
+      }
+    }
+    stored = Object.fromEntries(entries.map(([p, label]) => [p, label.trim()]));
+    // `putCustomerEcho` lets a test inject exactly one `customer` shape into the
+    // PUT response (P1 #3 regression: a poisoned echo must reach onAuthorityFailure,
+    // never onSaved).
+    return json(body({ customer: putCustomerEcho() }));
+  }
+  return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+};
+
+// A fully legitimate ManagerCustomer, exactly the shape loadManagerCustomer /
+// the real PUT return. Each poisoned variant below flips ONE field only, so a
+// test still fails if the guard for that one field is removed.
+const legitCustomer = () => ({
+  customer: { id: customerId, code: "C700", displayName: "Label Customer" },
+  sites: [{ id: id(701), code: "S", displayName: "Site" }],
+  configuration: { id: id(702), revision: 3, enabledSystems: [{ key: systemKey, displayName: "Hose Reel System", sortOrder: 1, zones: [], locations: [] }] },
+  supportedSystems: [{ key: systemKey, displayName: "Hose Reel System", sortOrder: 1, assignable: true }]
+});
+let putCustomerEcho = legitCustomer;
+const poisoned = {
+  "customer not an object": () => ({ ...legitCustomer(), customer: "nope" }),
+  "customer.id missing": () => { const c = legitCustomer(); delete c.customer.id; return c; },
+  "customer.displayName missing": () => { const c = legitCustomer(); delete c.customer.displayName; return c; },
+  "configuration.revision not a number": () => { const c = legitCustomer(); c.configuration.revision = "3"; return c; },
+  "enabledSystems not an array": () => { const c = legitCustomer(); c.configuration.enabledSystems = "x"; return c; },
+  "enabledSystems element is null": () => { const c = legitCustomer(); c.configuration.enabledSystems = [null]; return c; },
+  "enabledSystems element missing key": () => { const c = legitCustomer(); delete c.configuration.enabledSystems[0].key; return c; },
+  "sites element missing displayName": () => { const c = legitCustomer(); delete c.sites[0].displayName; return c; },
+  "supportedSystems element missing displayName": () => { const c = legitCustomer(); delete c.supportedSystems[0].displayName; return c; }
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const q = (sel) => view.querySelector(sel);
+const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.includes(text));
+const inputFor = (definitionLabel) => [...view.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === `Custom label for ${definitionLabel}`);
+const setInput = (el, value) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+};
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
+};
+const loadingVisible = () => view.textContent.includes("Loading field labels");
+// Click Reload and wait for the full open->fetch->hydrate->close cycle.
+const reloadAndSettle = async (expectedGetCalls) => {
+  findButton("Reload").click();
+  await wait(() => loadingVisible(), "reload loading window opened");
+  await wait(() => getCalls === expectedGetCalls && !loadingVisible(), "reload re-hydrate finished");
+};
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  let savedCount = 0;
+  try {
+    stored = {};
+    putCustomerEcho = legitCustomer;
+    createRoot(view).render(React.createElement(ManagerCustomerLabelOverrides, {
+      customer: legitCustomer(),
+      onSaved: () => { savedCount += 1; },
+      onAuthorityFailure: () => { authorityFailures += 1; }
+    }));
+    await wait(() => findButton("Customise labels — Hose Reel System"), "collapsed editor");
+
+    // Load the tree.
+    findButton("Customise labels — Hose Reel System").click();
+    await wait(() => getCalls === 1 && inputFor("Drum"), "tree loaded");
+    ok("tree shows definition labels", view.textContent.includes("S.A.J Main Water Supply") && view.textContent.includes("Drum"));
+
+    // Edit one label + save.
+    setInput(inputFor("Drum"), "Reel Result");
+    await wait(() => inputFor("Drum")?.value === "Reel Result", "edit applied");
+    findButton("Save labels").click();
+    await wait(() => putCalls === 1 && view.textContent.includes("Field labels saved"), "save confirmation");
+    ok("save persisted server-side", stored["repeatableRows.resultColumns.drumResult"] === "Reel Result");
+    ok("effectiveLabel reflected after save", view.textContent.includes("Currently: Reel Result"));
+
+    // Reload (fresh GET) -> effectiveLabel persisted.
+    await reloadAndSettle(2);
+    ok("reload keeps the effectiveLabel", inputFor("Drum").value === "Reel Result" && view.textContent.includes("Currently: Reel Result"));
+
+    // Clear it -> back to definitionLabel.
+    setInput(inputFor("Drum"), "");
+    await wait(() => inputFor("Drum")?.value === "" && view.textContent.includes("1 unsaved change"), "clear applied");
+    findButton("Save labels").click();
+    await wait(() => putCalls === 2 && view.textContent.includes("Field labels saved"), "clear save confirmation");
+    ok("clear removed the override server-side", !("repeatableRows.resultColumns.drumResult" in stored));
+    await reloadAndSettle(3);
+    ok("cleared field shows definition label as placeholder", inputFor("Drum").getAttribute("placeholder") === "Drum" && inputFor("Drum").value === "" && !view.textContent.includes("Currently: Reel Result"));
+
+    // Rejected value -> visible server message.
+    setInput(inputFor("Drum"), "BAD LABEL");
+    await wait(() => inputFor("Drum")?.value === "BAD LABEL", "rejected value typed");
+    findButton("Save labels").click();
+    await wait(() => putCalls === 3 && q("[role=alert]") && /must be 1-200 characters/.test(q("[role=alert]").textContent), "server validation message");
+    ok("server validation error is shown", /Label override for .* must be 1-200 characters/.test(q("[role=alert]").textContent));
+    ok("rejected save did not persist", !("repeatableRows.resultColumns.drumResult" in stored));
+    ok("domain validation did not trigger an authority failure", authorityFailures === 0);
+    ok("legit saves reached onSaved, rejected save did not", savedCount === 2);
+
+    // Malformed HTTP 200 GET bodies on reload -> authority failure, not a raw TypeError.
+    getMode = "labelsNull";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 1, "poisoned labels[] routed to authority failure");
+    ok("labels:[null] routes to onAuthorityFailure", authorityFailures === 1);
+
+    getMode = "rootNull";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 2, "null root body routed to authority failure");
+    ok("null root HTTP 200 routes to onAuthorityFailure", authorityFailures === 2);
+
+    // Poisoned `customer` echo on save: each variant flips ONE field of an
+    // otherwise-legit customer -> must reach onAuthorityFailure, NEVER onSaved.
+    getMode = "ok";
+    // getCalls is 5 here (1 initial + reloads at 2 and 3 + labelsNull + rootNull);
+    // putCalls 3; authorityFailures 2; savedCount 2.
+    let getN = 5, putN = 3, fails = 2;
+    for (const [name, make] of Object.entries(poisoned)) {
+      getN += 1; putN += 1; fails += 1;
+      await reloadAndSettle(getN);
+      const savedBefore = savedCount;
+      putCustomerEcho = make;
+      setInput(inputFor("Drum"), "Reel Result");
+      await wait(() => inputFor("Drum")?.value === "Reel Result", `re-typed for "${name}"`);
+      findButton("Save labels").click();
+      await wait(() => putCalls === putN && authorityFailures === fails, `"${name}" routed to authority failure`);
+      ok(`poisoned customer (${name}) -> onAuthorityFailure`, authorityFailures === fails);
+      ok(`poisoned customer (${name}) never reached onSaved`, savedCount === savedBefore);
+      ok(`poisoned customer (${name}) left no crash text`, !/TypeError|Cannot read/.test(view.textContent));
+    }
+
+    // Control: a legit PUT `customer` echo DOES reach onSaved.
+    putCustomerEcho = legitCustomer;
+    getN += 1; putN += 1;
+    await reloadAndSettle(getN);
+    const savedBefore = savedCount;
+    setInput(inputFor("Drum"), "Reel Result");
+    await wait(() => inputFor("Drum")?.value === "Reel Result", "re-typed for legit control");
+    findButton("Save labels").click();
+    await wait(() => putCalls === putN && savedCount === savedBefore + 1, "legit echo reaches onSaved");
+    ok("legit PUT customer echo still reaches onSaved (guard is not over-strict)", savedCount === savedBefore + 1 && authorityFailures === fails);
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

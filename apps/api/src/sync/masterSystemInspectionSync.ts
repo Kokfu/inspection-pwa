@@ -135,7 +135,11 @@ function validateItem(item: SyncRequestItem): { payload?: HoseReelPayload; failu
 
 function enabledSystem(snapshot: UnknownRecord) {
   const systems = Array.isArray(snapshot.enabledSystems) ? snapshot.enabledSystems : [];
-  return systems.find((system) => isRecord(system) && system.systemKey === "hose_reel" && system.definitionStatus === "confirmed");
+  const found = systems.find((system) => isRecord(system) && system.systemKey === "hose_reel" && system.definitionStatus === "confirmed");
+  // Drop the display-only `labelOverrides` sibling (slice 1a-i freezes it onto
+  // the enabled-system entry) before it is spread into the stored
+  // `inspection_snapshot.system`. Stripping an absent key is a no-op.
+  return isRecord(found) ? (({ labelOverrides: _labelOverrides, ...rest }) => rest)(found) : found;
 }
 
 function canonicalizeRows(rows: UnknownRecord[], system: UnknownRecord): UnknownRecord[] | undefined {

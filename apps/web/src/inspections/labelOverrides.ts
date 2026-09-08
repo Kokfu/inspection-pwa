@@ -1,6 +1,12 @@
 /**
  * Per-customer display-label overrides for a resolved-controls tree.
  *
+ * VERBATIM PORT of `apps/api/src/inspections/labelOverrides.ts` (slice 1a-i).
+ * Keep byte-for-byte in sync with the API copy: same path grammar, same
+ * no-op / clone / blank-fallback semantics. `labelOverrides.parity.test.ts`
+ * asserts the two behave identically. The web copy exists so label rendering
+ * works fully offline from the cached job snapshot with no API round-trip.
+ *
  * LABEL STRINGS ONLY. This never touches field keys, response shape,
  * `validResponses()` lists, evidence `fieldPath`s, the frozen attachment
  * manifest, or `contractSha256 = sha256(canonical(definition))`. It is applied

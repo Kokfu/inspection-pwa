@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { inspectionSyncMessage } from "../uiPresentation";
+import { overriddenLabel } from "../inspections/labelOverrides";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { addCo2DetectorRow, getCo2SubmitIssues } from "./co2Repository";
@@ -32,7 +33,16 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   // G9: duplicate detection spans every location-instance of this system in the
   // Job, so the sibling evidence has to be in state next to `photos`.
   const [siblings, setSiblings] = useState<V7SiblingEvidence[]>([]);
+  // CANONICAL controls — un-overridden. Drives every key, evidence `fieldPath`,
+  // response wiring, submit gate and V7 branch. Never carries a customer label.
   const controls = record.inspectionSnapshot.system.resolvedControls;
+  // Display-only: the frozen per-customer label for one canonical tree path,
+  // else the definition label. Reads the non-synced `record.displayLabelOverrides`
+  // (set from the job snapshot at record creation; a job frozen before an
+  // override, or a customer with none, yields the definition label). Never
+  // touches `controls`.
+  const labelAt = (path: string, definitionLabel: string) =>
+    overriddenLabel(record.displayLabelOverrides, path, definitionLabel);
   const issues = useMemo(
     () => showValidation
       ? [...getCo2SubmitIssues(record, responses), ...v7SubmissionIssues(record, responses, photos, siblings).map((message) => ({ section: "Evidence", message, targetId: "co2-evidence" }))]
@@ -100,12 +110,14 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   ) {
     return <fieldset disabled={readOnly}>
       <legend>{title}</legend>
-      {definitions.map((definition) => (
+      {definitions.map((definition) => {
+        const shownLabel = labelAt(`${group}.${definition.key}`, definition.label);
+        return (
         <section className={`hose-check-row ${invalidTargets.has(`co2-check-${definition.key}`) ? "field-invalid" : ""}`} id={`co2-check-${definition.key}`} key={definition.key}>
-          <strong>{definition.label}</strong>
+          <strong>{shownLabel}</strong>
           <ResultSelector<Co2Result>
             definition={definition.result}
-            label={`${definition.label} result`}
+            label={`${shownLabel} result`}
             value={responses[group][definition.key]?.result ?? null}
             readOnly={readOnly}
             onChange={(result) => updateChecklist(group, definition.key, { result })}
@@ -119,7 +131,8 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
           />
           {record.masterTemplate.version === 7 && isEvidenceFinding(responses[group][definition.key]?.result) ? <V7EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7SuppressionFieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => { setPhotos(await listV7SuppressionPhotos(record.clientUuid)); setSiblings(await collectV7SiblingEvidence(record)); }} /> : null}
         </section>
-      ))}
+      );
+      })}
     </fieldset>;
   }
 
@@ -141,7 +154,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
     <fieldset disabled={readOnly}>
       <legend>{systemLabel} Control Panel</legend>
       <label id="co2-panel-location" className={invalidTargets.has("co2-panel-location") ? "field-invalid" : ""}>
-        {controls.controlPanelLocation.label}
+        {labelAt("controlPanelLocation", controls.controlPanelLocation.label)}
         <input maxLength={controls.controlPanelLocation.maxLength} value={responses.controlPanelLocation} onChange={(event) => setResponses((current) => ({ ...current, controlPanelLocation: event.target.value }))} />
       </label>
     </fieldset>
@@ -151,10 +164,10 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
       {responses.detectorRows.slice().sort((left, right) => left.displaySequence - right.displaySequence).map((row, index) => (
         <section className={`hose-row-card ${invalidTargets.has(`co2-detector-${row.rowUuid}`) ? "field-invalid" : ""}`} id={`co2-detector-${row.rowUuid}`} key={row.rowUuid}>
           <h3>Detector Row {index + 1}</h3>
-          <label>{controls.detectorRows.alarmZone.label}<input maxLength={controls.detectorRows.alarmZone.maxLength} value={row.alarmZone} onChange={(event) => updateDetector(row.rowUuid, { alarmZone: event.target.value })} /></label>
-          <label>{controls.detectorRows.location.label}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
-          <div><strong>{controls.detectorRows.heatDetector.label}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${controls.detectorRows.heatDetector.label} status`} value={row.heatDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>
-          <div><strong>{controls.detectorRows.smokeDetector.label}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${controls.detectorRows.smokeDetector.label} status`} value={row.smokeDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>
+          <label>{labelAt("detectorRows.alarmZone", controls.detectorRows.alarmZone.label)}<input maxLength={controls.detectorRows.alarmZone.maxLength} value={row.alarmZone} onChange={(event) => updateDetector(row.rowUuid, { alarmZone: event.target.value })} /></label>
+          <label>{labelAt("detectorRows.location", controls.detectorRows.location.label)}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
+          {(() => { const heatLabel = labelAt("detectorRows.heatDetector", controls.detectorRows.heatDetector.label); return <div><strong>{heatLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={row.heatDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>; })()}
+          {(() => { const smokeLabel = labelAt("detectorRows.smokeDetector", controls.detectorRows.smokeDetector.label); return <div><strong>{smokeLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={row.smokeDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>; })()}
           <RemarksField label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
           {!readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));
