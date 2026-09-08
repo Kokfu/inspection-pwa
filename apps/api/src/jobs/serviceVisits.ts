@@ -25,6 +25,7 @@ type SystemRow = {
   evidencePolicyVersion: number | null; evidencePolicySchemaVersion: number | null;
   evidencePolicyDefinition: unknown; evidencePolicySha256: string | null;
   systemConfiguration: unknown;
+  labelOverrides: unknown;
 };
 type ZoneRow = { id: string; enabledSystemId: string; key: string; displayName: string; sortOrder: number };
 type LocationRow = {
@@ -74,7 +75,8 @@ async function selectedSystems(client: Queryable, revisionId: string, selected: 
       policy.id AS "evidencePolicyId", policy.code AS "evidencePolicyCode",
       policy.version AS "evidencePolicyVersion", policy.schema_version AS "evidencePolicySchemaVersion",
       policy.definition AS "evidencePolicyDefinition", policy.definition_sha256 AS "evidencePolicySha256",
-      enabled.system_configuration AS "systemConfiguration"
+      enabled.system_configuration AS "systemConfiguration",
+      enabled.label_overrides AS "labelOverrides"
     FROM customer_enabled_systems enabled
     INNER JOIN master_service_report_systems system
       ON system.template_version_id = enabled.template_version_id AND system.system_key = enabled.system_key
@@ -140,9 +142,18 @@ async function buildSnapshot(
     template: { id: configuration.templateId, code: configuration.templateCode, name: configuration.templateName, version: configuration.templateVersion },
     enabledSystems: systems.map((system) => {
       const { evidencePolicyId, evidencePolicyCode, evidencePolicyVersion, evidencePolicySchemaVersion,
-        evidencePolicyDefinition, evidencePolicySha256, systemConfiguration, definition: _definition, ...base } = system;
+        evidencePolicyDefinition, evidencePolicySha256, systemConfiguration, labelOverrides, definition: _definition, ...base } = system;
       return {
         ...base,
+        // Label-only, per-customer, frozen at job creation. Never feeds
+        // `canonical(definition)` / `contractSha256`, response keys, evidence
+        // paths or the manifest. Emitted ONLY when a non-empty map exists (like
+        // `systemConfiguration` below) so a customer with no override produces a
+        // snapshot byte-identical to `e30c649` — this is what keeps historical
+        // acceptors that assert an exact `system` shape (Fire Alarm V3-V5,
+        // Portable Fire Extinguisher) from regressing. A missing map falls back
+        // to the definition label at render time.
+        ...(record(labelOverrides) && Object.keys(labelOverrides).length > 0 ? { labelOverrides } : {}),
         ...(base.systemKey === "dry_wet_riser" ? { systemConfiguration: parseDryWetRiserSystemConfiguration(systemConfiguration) } : {}),
         ...(evidencePolicyId ? { evidencePolicy: { id: evidencePolicyId, code: evidencePolicyCode,
           version: evidencePolicyVersion, schemaVersion: evidencePolicySchemaVersion,

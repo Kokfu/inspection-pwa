@@ -13,6 +13,7 @@
     "test:v6-evidence": "tsx --test src/attachments/attachmentStorage.test.ts src/inspections/evidence/fireAlarmV6Evidence.test.ts src/inspections/templates/systemContractCompatibility.test.ts",
     "test:v6-integration": "tsx --test src/sync/fireAlarmV6Acceptance.integration.test.ts",
     "test:wet-chemical-definition": "tsx --test src/inspections/templates/wetChemicalDefinitionControls.test.ts",
+    "test:label-overrides": "tsx --test src/inspections/labelOverrides.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:wet-chemical-v7-integration": "tsx --test src/sync/wetChemicalV7.integration.test.ts",
     "test:fire-alarm-v7-integration": "tsx --test src/sync/fireAlarmV7.integration.test.ts",

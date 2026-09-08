@@ -4,12 +4,67 @@ import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
+import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
+import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
+import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
+import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = loadConfig().customerCatalogVersion;
 const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical"]);
+// Systems whose per-customer display labels a Manager may override. Bounded to
+// the systems that expose a server-side resolved-controls tree — the canonical
+// path grammar (see `labelOverrides.ts`) is that tree's own object path, so a
+// system without a resolver has no addressable label node here. Storage
+// (`label_overrides` column), forward-copy and job freeze stay system-agnostic,
+// so this set can widen later without a data migration.
+const labelOverrideSystemKeys = new Set([
+  "hose_reel", "co2_fire_extinguisher", "wet_chemical", "fire_alarm_detector", "automatic_sprinkler"
+]);
+const labelOverrideMaxEntries = 300;
+const labelOverrideMaxValueLength = 200;
+
+/** Resolve a system's controls tree for a given published MFE-FSSR version. */
+function resolveSystemControls(systemKey: string, definition: unknown, templateVersion: number): unknown {
+  if (systemKey === "hose_reel") return resolveHoseReelControls(definition, "MFE-FSSR", templateVersion);
+  if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") {
+    return resolveCo2Controls(definition, "MFE-FSSR", templateVersion);
+  }
+  if (systemKey === "fire_alarm_detector") {
+    return templateVersion === 6 || templateVersion === 7
+      ? resolveFireAlarmV6Controls(definition, templateVersion)
+      : resolveFireAlarmControls(definition, "MFE-FSSR", templateVersion);
+  }
+  if (systemKey === "automatic_sprinkler") return resolveAutomaticSprinklerControls(definition, "MFE-FSSR", templateVersion);
+  throw new ManagerCustomerError("LABEL_OVERRIDES_UNSUPPORTED_SYSTEM", "Label overrides are not supported for this system.", 404);
+}
+
+type LabelOverrideMap = Record<string, string>;
+
+/** Validate a client label-override map against the system's real label nodes. */
+function parseLabelOverrideMap(value: unknown, validPaths: Set<string>): LabelOverrideMap {
+  if (!object(value)) {
+    throw new ManagerCustomerError("INVALID_REQUEST", "labelOverrides must be an object.");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > labelOverrideMaxEntries) {
+    throw new ManagerCustomerError("LABEL_OVERRIDES_TOO_LARGE", `At most ${labelOverrideMaxEntries} label overrides are allowed.`);
+  }
+  const parsed: LabelOverrideMap = {};
+  for (const [path, label] of entries) {
+    if (!validPaths.has(path)) {
+      throw new ManagerCustomerError("UNKNOWN_LABEL_PATH", `Unknown label path: ${path}`);
+    }
+    if (typeof label !== "string" || label.trim().length === 0 || label.trim().length > labelOverrideMaxValueLength) {
+      throw new ManagerCustomerError("INVALID_LABEL_OVERRIDE", `Label override for ${path} must be 1-${labelOverrideMaxValueLength} characters.`);
+    }
+    parsed[path] = label.trim();
+  }
+  return parsed;
+}
 // These contracts need structural information that the small shared-customer
 // creation command intentionally does not collect. The API, not the browser,
 // is the capability authority for this initial-format choice.
@@ -17,7 +72,7 @@ const initialStructureRequiredSystemKeys = new Set([...locationDependentSystemKe
 
 type Database = Pick<Pool, "connect" | "query">;
 type CatalogSystem = { key: string; displayName: string; sortOrder: number; definitionStatus: unknown; definition: unknown };
-type EnabledSystem = { id: string; key: string; displayName: string; sortOrder: number; systemConfiguration: unknown; evidencePolicyId: string | null };
+type EnabledSystem = { id: string; key: string; displayName: string; sortOrder: number; systemConfiguration: unknown; evidencePolicyId: string | null; labelOverrides: unknown };
 type Zone = { id: string; enabledSystemId: string; key: string; displayName: string; sortOrder: number };
 type Location = { id: string; enabledSystemId: string; zoneId: string | null; key: string; displayName: string; presetRowCount: number; rowPreset: unknown; sortOrder: number };
 type SupportedSystem = Pick<CatalogSystem, "key" | "displayName" | "sortOrder"> & { assignable: boolean; unavailableReason?: string };
@@ -143,7 +198,8 @@ async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: 
   if (!revision) throw new ManagerCustomerError("CUSTOMER_CONFIGURATION_NOT_FOUND", "Customer configuration was not found.", 404);
   const enabledResult = await client.query<EnabledSystem>(`
     SELECT enabled.id, enabled.system_key AS key, system.display_name AS "displayName", enabled.sort_order AS "sortOrder",
-      enabled.system_configuration AS "systemConfiguration", enabled.evidence_policy_id AS "evidencePolicyId"
+      enabled.system_configuration AS "systemConfiguration", enabled.evidence_policy_id AS "evidencePolicyId",
+      enabled.label_overrides AS "labelOverrides"
     FROM customer_enabled_systems enabled
     INNER JOIN master_service_report_systems system ON system.template_version_id = enabled.template_version_id AND system.system_key = enabled.system_key
     WHERE enabled.configuration_revision_id = $1 ORDER BY enabled.sort_order`, [revision.id]);
@@ -170,8 +226,9 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
     configuration: {
       id: config.revision.id,
       revision: config.revision.revision,
-      enabledSystems: config.enabled.map(({ id, systemConfiguration: _configuration, evidencePolicyId: _policy, ...system }) => ({
+      enabledSystems: config.enabled.map(({ id, systemConfiguration: _configuration, evidencePolicyId: _policy, labelOverrides, ...system }) => ({
         ...system,
+        labelOverrides: object(labelOverrides) ? labelOverrides : {},
         zones: config.zones.filter((zone) => zone.enabledSystemId === id),
         locations: config.locations.filter((location) => location.enabledSystemId === id)
       }))
@@ -185,7 +242,12 @@ export async function listManagerCustomers(database: Pick<Pool, "query"> = pool)
   return Promise.all(result.rows.map(({ id }) => loadManagerCustomer(id, database)));
 }
 
-async function copySelectedConfiguration(client: PoolClient, customerId: string, keys: string[]) {
+async function copySelectedConfiguration(
+  client: PoolClient,
+  customerId: string,
+  keys: string[],
+  options: { labelOverridesBySystemKey?: ReadonlyMap<string, LabelOverrideMap> } = {}
+) {
   const current = await loadConfiguration(client, customerId);
   const supported = await requireSupportedKeys(client, keys);
   assertLocationDependentAssignments(keys, current);
@@ -194,10 +256,20 @@ async function copySelectedConfiguration(client: PoolClient, customerId: string,
   await client.query(`UPDATE customer_configuration_revisions SET status = 'superseded' WHERE id = $1`, [current.revision.id]);
   await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3 AND publication_status = 'published'), $4, 'active')`, [newRevisionId, customerId, customerCatalogVersion, current.revision.revision + 1]);
   const oldByKey = new Map(current.enabled.map((system) => [system.key, system]));
-  for (const [index, catalogSystem] of supported.entries()) {
-    const old = oldByKey.get(catalogSystem.key);
+  const catalogByKey = new Map(supported.map((system) => [system.key, system]));
+  // A label-only edit keeps the customer's current enabled-system order; a
+  // system-selection change (no override map) rebuilds in catalog order, exactly
+  // as before.
+  const orderedKeys = options.labelOverridesBySystemKey
+    ? current.enabled.map((system) => system.key)
+    : supported.map((system) => system.key);
+  for (const [index, key] of orderedKeys.entries()) {
+    const catalogSystem = catalogByKey.get(key)!;
+    const old = oldByKey.get(key);
     const enabledId = randomUUID();
-    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(old?.systemConfiguration ?? {}), old?.evidencePolicyId ?? null]);
+    const labelOverrides = options.labelOverridesBySystemKey?.get(key)
+      ?? (object(old?.labelOverrides) ? old!.labelOverrides : {});
+    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(old?.systemConfiguration ?? {}), old?.evidencePolicyId ?? null, JSON.stringify(labelOverrides)]);
     if (!old) continue;
     const zoneIds = new Map<string, string>();
     for (const zone of current.zones.filter((value) => value.enabledSystemId === old.id)) {
@@ -369,6 +441,100 @@ export function createManagerCustomersRouter(
       const revisionId = await copySelectedConfiguration(client, customerId, keys);
       await audit(client, request.currentUser!.id, "manager_customer_configuration_activated", "customer_configuration_revision", revisionId); await client.query("COMMIT");
       response.status(201).json({ customer: await loadManagerCustomer(customerId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
+
+  const parseLabelOverrideTarget = (request: { params: Record<string, unknown> }) => {
+    const customerId = request.params.customerId;
+    const systemKey = request.params.systemKey;
+    if (typeof customerId !== "string" || !uuidPattern.test(customerId)) {
+      throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
+    }
+    if (typeof systemKey !== "string" || !labelOverrideSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("LABEL_OVERRIDES_UNSUPPORTED_SYSTEM", "Label overrides are not supported for this system.", 404);
+    }
+    return { customerId, systemKey };
+  };
+
+  // The active revision's frozen template version + published definition +
+  // current stored overrides for one enabled system.
+  const loadLabelOverrideContext = async (queryable: Pick<PoolClient, "query">, customerId: string, systemKey: string) => {
+    const owner = await queryable.query(`SELECT 1 FROM customers WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
+    if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+    const result = await queryable.query<{ templateVersion: number; definition: unknown; labelOverrides: unknown }>(`
+      SELECT template.version AS "templateVersion", system.definition, enabled.label_overrides AS "labelOverrides"
+      FROM customer_configuration_revisions revision
+      INNER JOIN master_service_report_templates template ON template.id = revision.template_version_id
+      INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id = revision.id AND enabled.system_key = $2
+      INNER JOIN master_service_report_systems system ON system.template_version_id = revision.template_version_id AND system.system_key = $2
+      WHERE revision.customer_id = $1 AND revision.status = 'active'`, [customerId, systemKey]);
+    const row = result.rows[0];
+    if (!row) throw new ManagerCustomerError("SYSTEM_NOT_ENABLED", "That system is not enabled for this customer.", 404);
+    let controls: unknown;
+    try {
+      controls = resolveSystemControls(systemKey, row.definition, row.templateVersion);
+    } catch {
+      throw new ManagerCustomerError("SYSTEM_DEFINITION_UNRESOLVABLE", "The frozen definition for this system cannot be resolved.", 409);
+    }
+    const stored = object(row.labelOverrides) ? row.labelOverrides as Record<string, unknown> : {};
+    return { templateVersion: row.templateVersion, controls, stored };
+  };
+
+  const labelOverrideTree = (controls: unknown, stored: Record<string, unknown>) =>
+    collectResolvedLabelPaths(controls).map((entry) => {
+      const override = stored[entry.path];
+      const overridden = typeof override === "string" && override.trim().length > 0;
+      return {
+        path: entry.path,
+        key: entry.key,
+        definitionLabel: entry.definitionLabel,
+        effectiveLabel: overridden ? (override as string).trim() : entry.definitionLabel,
+        overridden
+      };
+    });
+
+  router.get("/manager/customers/:customerId/systems/:systemKey/label-overrides", requireRole("admin"), async (request, response, next) => {
+    try {
+      const { customerId, systemKey } = parseLabelOverrideTarget(request);
+      const context = await loadLabelOverrideContext(database, customerId, systemKey);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        systemKey,
+        templateVersion: context.templateVersion,
+        labels: labelOverrideTree(context.controls, context.stored),
+        overrides: context.stored
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/customers/:customerId/systems/:systemKey/label-overrides", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const { customerId, systemKey } = parseLabelOverrideTarget(request);
+      const body = exactBody(request.body, ["labelOverrides"]);
+      client = await database.connect();
+      await client.query("BEGIN");
+      const owner = await client.query(`SELECT id FROM customers WHERE id = $1 AND is_active = true AND is_demo = false FOR UPDATE`, [customerId]);
+      if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      const context = await loadLabelOverrideContext(client, customerId, systemKey);
+      const overrides = parseLabelOverrideMap(body.labelOverrides, resolvedLabelPathSet(context.controls));
+      const current = await loadConfiguration(client, customerId);
+      const revisionId = await copySelectedConfiguration(
+        client,
+        customerId,
+        current.enabled.map((system) => system.key),
+        { labelOverridesBySystemKey: new Map([[systemKey, overrides]]) }
+      );
+      await audit(client, request.currentUser!.id, "manager_customer_label_overrides_updated", "customer_configuration_revision", revisionId);
+      await client.query("COMMIT");
+      const refreshed = await loadLabelOverrideContext(database, customerId, systemKey);
+      response.status(200).json({
+        customer: await loadManagerCustomer(customerId, database),
+        systemKey,
+        templateVersion: refreshed.templateVersion,
+        labels: labelOverrideTree(refreshed.controls, refreshed.stored),
+        overrides: refreshed.stored
+      });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });
   return router;

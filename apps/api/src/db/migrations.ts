@@ -76,6 +76,9 @@ const v7SmokeVentilationEvidenceMigrationUrl = new URL(
 const v7FireIntercomEvidenceMigrationUrl = new URL(
   "../../migrations/026_v7_fire_intercom_evidence.sql", import.meta.url
 );
+const customerLabelOverridesMigrationUrl = new URL(
+  "../../migrations/027_customer_label_overrides.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -421,6 +424,20 @@ export async function runMigrations(
   // a database whose two evidence CHECKs have drifted apart back into agreement.
   if (!(await evidenceSystemKeyCheckListsKey(database, "fire_intercom"))) {
     await database.query(await readFile(v7FireIntercomEvidenceMigrationUrl, "utf8"));
+  }
+  // Migration 027 adds `customer_enabled_systems.label_overrides` (per-customer
+  // display-label overrides). Its named CHECK is immutable like migration 008's
+  // `system_configuration` object CHECK, and PostgreSQL has no
+  // `ADD CONSTRAINT IF NOT EXISTS`, so gate replay on the constraint's presence.
+  const labelOverridesConstraint = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'customer_enabled_systems_label_overrides_object'
+         AND conrelid = 'customer_enabled_systems'::regclass
+     ) AS exists`
+  );
+  if (!labelOverridesConstraint.rows[0]?.exists) {
+    await database.query(await readFile(customerLabelOverridesMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

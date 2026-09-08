@@ -4,6 +4,7 @@ import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserC
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
 import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedFireIntercomV7Detail, validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { applyLabelOverrides } from "../inspections/labelOverrides.js";
 import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern =
@@ -77,7 +78,30 @@ async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "c
   return result.rows[0] as Record<string, unknown> | undefined;
 }
 
-function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: string) {
+/**
+ * The per-customer display-label override map this job froze for `systemKey` at
+ * creation, read from the job's `configuration_snapshot` (never from the frozen
+ * `inspection_snapshot`, whose exact-key readers must not see a new field). A
+ * job created before the override — or a system with none — yields `undefined`,
+ * so labels fall back to the definition.
+ */
+async function frozenLabelOverrides(jobId: unknown, systemKey: unknown): Promise<unknown> {
+  if (typeof jobId !== "string" || typeof systemKey !== "string") return undefined;
+  const result = await pool.query<{ labelOverrides: unknown }>(
+    `SELECT configured.system->'labelOverrides' AS "labelOverrides"
+       FROM inspection_jobs job,
+            LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(job.configuration_snapshot->'enabledSystems') = 'array'
+                   THEN job.configuration_snapshot->'enabledSystems' ELSE '[]'::jsonb END
+            ) AS configured(system)
+      WHERE job.id = $1 AND configured.system->>'systemKey' = $2
+      LIMIT 1`,
+    [jobId, systemKey]
+  );
+  return result.rows[0]?.labelOverrides ?? undefined;
+}
+
+function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: string, labelOverrides?: unknown) {
   const snapshot = row.inspectionSnapshot as Record<string, unknown>;
   const system = snapshot.system as Record<string, unknown>;
   return {
@@ -88,7 +112,10 @@ function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: strin
     displaySequence: row.displaySequence, status: row.status,
     performedAt: row.performedAt, receivedAt: row.receivedAt,
     template: snapshot.template, configuration: snapshot.configuration,
-    responses: row.responses, displayControls: system.resolvedControls,
+    responses: row.responses,
+    // Per-customer display-label overrides frozen into this job's
+    // `configuration_snapshot` at creation, applied on a clone at render time.
+    displayControls: applyLabelOverrides(system.resolvedControls, labelOverrides),
     deviceReportedCreatorUsername: row.deviceReportedCreatorUsername,
     verifiedOriginalCreatorUsername: row.verifiedOriginalCreatorUsername,
     syncedByUsername: row.syncedByUsername
@@ -108,7 +135,7 @@ masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireR
       return;
     }
     if (!validateAcceptedHoseReelDetail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
-    response.json({ inspection: acceptedDetailResponse(row, "Hose Reel System") });
+    response.json({ inspection: acceptedDetailResponse(row, "Hose Reel System", await frozenLabelOverrides(row.jobId, "hose_reel")) });
   } catch (error) { next(error); }
 });
 
@@ -119,7 +146,7 @@ masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("a
     const row = await acceptedDetailRow(clientUuid, "co2_fire_extinguisher", request.currentUser!);
     if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
     if (!validateAcceptedCo2Detail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
-    response.json({ inspection: acceptedDetailResponse(row, "CO2 Fire Extinguisher System") });
+    response.json({ inspection: acceptedDetailResponse(row, "CO2 Fire Extinguisher System", await frozenLabelOverrides(row.jobId, "co2_fire_extinguisher")) });
   } catch (error) { next(error); }
 });
 
@@ -130,7 +157,7 @@ masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requi
     const row = await acceptedDetailRow(clientUuid, "wet_chemical", request.currentUser!);
     if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
     if (!validateAcceptedWetChemicalDetail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
-    response.json({ inspection: acceptedDetailResponse(row, "Wet Chemical System") });
+    response.json({ inspection: acceptedDetailResponse(row, "Wet Chemical System", await frozenLabelOverrides(row.jobId, "wet_chemical")) });
   } catch (error) { next(error); }
 });
 
@@ -516,6 +543,10 @@ masterSystemInspectionsRouter.get(
         return;
       }
       delete inspection.snapshotSchemaVersion;
+      inspection.displayControls = applyLabelOverrides(
+        inspection.displayControls,
+        await frozenLabelOverrides(inspection.jobId, inspection.systemKey)
+      );
       response.json({ inspection });
     } catch (error) {
       next(error);
