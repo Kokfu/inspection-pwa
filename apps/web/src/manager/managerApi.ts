@@ -79,10 +79,11 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
 
 /** Systems whose per-customer display labels a Manager may override. Mirrors the
  *  API `labelOverrideSystemKeys` bound (apps/api/src/routes/managerCustomers.ts).
- *  `fire_alarm_detector` and `automatic_sprinkler` are intentionally excluded —
- *  each waits for a dedicated slice (see the API comment for why). */
+ *  `automatic_sprinkler` joined in slice 1a-iii, once the API resolver gained its
+ *  V7 fork. `fire_alarm_detector` is still excluded and waits for a dedicated
+ *  slice (see the API comment for why). */
 export const labelOverrideSystemKeys: ReadonlySet<string> = new Set([
-  "hose_reel", "co2_fire_extinguisher", "wet_chemical"
+  "hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler"
 ]);
 
 export type ManagerLabelOverrideNode = {

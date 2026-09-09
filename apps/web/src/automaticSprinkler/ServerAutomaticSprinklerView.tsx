@@ -9,6 +9,7 @@ import {
   loadAutomaticSprinklerV7AcceptedEvidence,
   type AutomaticSprinklerV7AcceptedEvidence
 } from "./automaticSprinklerV7AcceptedEvidence";
+import { overriddenLabel } from "../inspections/labelOverrides";
 import { formatClientDateTime } from "../uiPresentation";
 import type {
   SprinklerMeasurementResponse,
@@ -32,15 +33,20 @@ const resultLabel = (value: string | null | undefined) =>
 const isFinding = (value: string | null | undefined) => value === "not_good" || value === "complete_repair";
 
 /** Water Tank / Pump House / Main Alarm Valve checklist fields, then the
- * three-row Test Run Fire Pump 30 Minutes block, in paper-form order. */
-const v7ChecklistSections: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
-  ["Water Tank", [
+ * three-row Test Run Fire Pump 30 Minutes block, in paper-form order.
+ *
+ * Each entry is `[heading, canonical resolved-controls section key, fields]`.
+ * The section key builds the canonical `checklist.<section>.<key>` path a
+ * Manager's override is stored under - the same grammar the technician form
+ * uses - so a renamed field lands on exactly the row it names. */
+const v7ChecklistSections: ReadonlyArray<readonly [string, string, ReadonlyArray<readonly [string, string]>]> = [
+  ["Water Tank", "waterTank", [
     ["saj_main_water_supply", "S.A.J Main Water Supply"],
     ["water_level", "Water Level"],
     ["automatic_refilling_facilities", "Automatic Refilling Facilities"],
     ["drain_and_stop_valve_positions", "Drain Valve Closed and Stop Valves Open"]
   ]],
-  ["Pump House", [
+  ["Pump House", "pumpHouse", [
     ["pump_house_clean", "Keep Clean in Pump House"],
     ["manual_start_pumps", "Manual Start Jockey, Duty and Stand-by Pumps"],
     ["standby_pump_service_items", "Stand-by Pump Water, Oil, Fuel, Belt and Other Service Items"],
@@ -50,12 +56,12 @@ const v7ChecklistSections: ReadonlyArray<readonly [string, ReadonlyArray<readonl
     ["pumps_auto_start", "Jockey, Duty and Stand-by Pumps in Auto Start Position"],
     ["test_and_gate_valve_positions", "Test Valve Closed and Gate Valves Open"]
   ]],
-  ["Main Alarm Valve", [
+  ["Main Alarm Valve", "mainAlarmValve", [
     ["breaching_inlet", "Breaching Inlet in Good Serviceable Condition"],
     ["alarm_gong", "Alarm Gong in Function"],
     ["flow_meter_valve_positions", "Flow Meter Valve Closed and Other Valves Open"]
   ]],
-  ["Test Run Fire Pump 30 Minutes", [
+  ["Test Run Fire Pump 30 Minutes", "testRunFirePump", [
     ["trfp_jockey_pump", "Jockey Pump"],
     ["trfp_duty_pump", "Duty Pump"],
     ["trfp_standby_pump", "Standby Pump"]
@@ -75,6 +81,13 @@ const v7MeasurementSections: ReadonlyArray<readonly [string, ReadonlyArray<reado
 
 function ServerV7AutomaticSprinklerView({ inspection, onBack }: Props) {
   const responses = inspection.responses as V7AutomaticSprinklerResponses;
+  // Display-only, per NODE: substitute a caption only where this job's FROZEN
+  // map actually names that canonical path, exactly like the technician form's
+  // `labelAt`. A field the Manager never renamed keeps the caption below
+  // untouched, so saving one override cannot reword any other row. The override
+  // is applied here and nowhere else, so it can never be applied twice.
+  const labelAt = (path: string, definitionLabel: string) =>
+    overriddenLabel(inspection.displayLabelOverrides, path, definitionLabel);
   const [evidence, setEvidence] = useState<AutomaticSprinklerV7AcceptedEvidence[]>([]);
   const [evidenceError, setEvidenceError] = useState("");
   useEffect(() => {
@@ -112,11 +125,12 @@ function ServerV7AutomaticSprinklerView({ inspection, onBack }: Props) {
     <p className="success-message">
       Submitted {formatClientDateTime(inspection.performedAt)} M-BM-7 Synced by {inspection.syncedByUsername}
     </p>
-    {v7ChecklistSections.map(([title, fields]) => <section key={`checklist-${title}`} aria-label={`${title} checklist`}>
+    {v7ChecklistSections.map(([title, section, fields]) => <section key={`checklist-${title}`} aria-label={`${title} checklist`}>
       <h3>{title}</h3>
-      {fields.map(([key, label]) => {
+      {fields.map(([key, fallbackLabel]) => {
         const response = responses.checklist[key as keyof typeof responses.checklist] as SprinklerRowResponse | undefined;
         if (!response) return null;
+        const label = labelAt(`checklist.${section}.${key}`, fallbackLabel);
         const path = `automatic_sprinkler_checks.${key}`;
         return <section className="hose-check-row" key={key}>
           <strong>{label}</strong>
@@ -127,15 +141,16 @@ function ServerV7AutomaticSprinklerView({ inspection, onBack }: Props) {
     </section>)}
     {v7MeasurementSections.map(([title, fields]) => <section key={`measurement-${title}`} aria-label={`${title} measurements`}>
       <h3>{title} — Pressure Readings</h3>
-      {fields.map(([key, label]) => {
+      {fields.map(([key, fallbackLabel]) => {
         const response = responses.measurements[key as keyof typeof responses.measurements] as SprinklerMeasurementResponse<string> | undefined;
         if (!response) return null;
+        const label = labelAt(`measurements.${key}`, fallbackLabel);
         const path = `automatic_sprinkler_measurements.${key}`;
         return <section className="measurement-card" key={key}>
           <strong>{label}</strong>
           {Object.entries(response.values).map(([valueKey, reading]) => <div className="psi-value-with-evidence" key={valueKey}>
             <div>
-              <span className="status-caption">{valueKey === "cut_in" ? "Cut In" : valueKey === "cut_out" ? "Cut Out" : "Reading"}</span>
+              <span className="status-caption">{labelAt(`measurements.${key}.values.${valueKey}`, valueKey === "cut_in" ? "Cut In" : valueKey === "cut_out" ? "Cut Out" : "Reading")}</span>
               <strong>{reading ?? "Not recorded"} {response.unit}</strong>
             </div>
           </div>)}

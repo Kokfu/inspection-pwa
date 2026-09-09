@@ -6,6 +6,7 @@ import {
 import { listInspectionAttachments } from "../attachments/attachmentRepository";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import { PhotoEvidenceField } from "../attachments/PhotoEvidenceField";
+import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
@@ -56,6 +57,12 @@ export function AutomaticSprinklerInspectionForm({
   const [showValidation, setShowValidation] = useState(false);
   const [attachments, setAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const isV7 = record.masterTemplate.version === 7;
+  // Display-only: the frozen per-customer label for one canonical tree path,
+  // else the definition label. Reads the non-synced `record.displayLabelOverrides`
+  // and never `controls` - every response key, evidence `fieldPath`, submit-gate
+  // read and V7 branch below stays on the canonical resolved tree.
+  const labelAt = (path: string, definitionLabel: string) =>
+    overriddenLabel(record.displayLabelOverrides, path, definitionLabel);
   const controls = useMemo(
     () => controlsForAutomaticSprinklerSnapshot(record.inspectionSnapshot),
     [record.inspectionSnapshot]
@@ -151,11 +158,12 @@ export function AutomaticSprinklerInspectionForm({
       : (responses[section as "waterTank" | "pumpHouse" | "mainAlarmValve"] as Record<string, SprinklerRowResponse>)[key];
     if (!definition || !response) return null;
     const targetId = `sprinkler-${key}`;
+    const shownLabel = labelAt(`checklist.${section}.${key}`, definition.label);
     return <section className={`hose-check-row ${invalidTargets.has(targetId) ? "field-invalid" : ""}`} id={targetId} key={key}>
-      <strong>{definition.label}</strong>
+      <strong>{shownLabel}</strong>
       <ResultSelector<SprinklerResult>
         definition={definition.result}
-        label={`${definition.label} result`}
+        label={`${shownLabel} result`}
         value={response.result}
         readOnly={readOnly}
         onChange={(result) => updateChecklist(section, key, { result })}
@@ -182,14 +190,15 @@ export function AutomaticSprinklerInspectionForm({
     const response = responses.measurements[measurementKey];
     if (!definition || !response) return null;
     const targetId = `sprinkler-${key}`;
+    const shownLabel = labelAt(`measurements.${measurementKey}`, definition.label);
     return <section className={`measurement-card ${invalidTargets.has(targetId) ? "field-invalid" : ""}`} id={targetId} key={key}>
-      <strong>{definition.label}</strong>
+      <strong>{shownLabel}</strong>
       <div className="sprinkler-measurement-evidence">
       <div className="sprinkler-legacy-psi-evidence">
       {definition.values.map((valueDefinition) => (
         <div className="psi-value-with-evidence" key={valueDefinition.key}>
           <MeasurementValueInput
-            definition={valueDefinition}
+            definition={{ ...valueDefinition, label: labelAt(`measurements.${measurementKey}.values.${valueDefinition.key}`, valueDefinition.label) }}
             value={response.values[valueDefinition.key as keyof typeof response.values]}
             readOnly={readOnly}
             onChange={(value) => updateMeasurement(measurementKey, {
@@ -212,7 +221,7 @@ export function AutomaticSprinklerInspectionForm({
       </div>
       <ResultSelector<SprinklerResult>
         definition={definition.result}
-        label={`${definition.label} result`}
+        label={`${shownLabel} result`}
         value={response.result}
         readOnly={readOnly}
         onChange={(result) => updateMeasurement(measurementKey, { result })}

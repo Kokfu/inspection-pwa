@@ -14,6 +14,7 @@
     "test:v6-integration": "tsx --test src/sync/fireAlarmV6Acceptance.integration.test.ts",
     "test:wet-chemical-definition": "tsx --test src/inspections/templates/wetChemicalDefinitionControls.test.ts",
     "test:label-overrides": "tsx --test src/inspections/labelOverrides.test.ts",
+    "test:automatic-sprinkler-definition": "tsx --test src/inspections/templates/automaticSprinklerDefinitionControls.test.ts src/routes/masterSystemInspectionsAutomaticSprinklerV7.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:wet-chemical-v7-integration": "tsx --test src/sync/wetChemicalV7.integration.test.ts",
     "test:fire-alarm-v7-integration": "tsx --test src/sync/fireAlarmV7.integration.test.ts",

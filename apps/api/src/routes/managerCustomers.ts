@@ -28,15 +28,15 @@ const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemi
 // is on the DO-NOT-MODIFY list, so a display-only map cannot be kept out of that
 // hash. Its web technician form also renders labels from a separate resolver.
 //
-// `automatic_sprinkler` is NOT here yet either: `resolveAutomaticSprinklerControls`
-// only understands the historical (V1) 2-state definition, so a GET for a V7
-// customer 409s and no tree can be addressed. It returns with the slice that
-// gives that resolver a V7 fork.
+// `automatic_sprinkler` rejoined in slice 1a-iii: `resolveAutomaticSprinklerControls`
+// now forks on `templateVersion === 7` (four-state result control plus the
+// `test_run_fire_pump_checks` block), so a V7 customer resolves an addressable
+// tree instead of 409ing `SYSTEM_DEFINITION_UNRESOLVABLE`.
 //
-// Both re-join with their dedicated slices. The storage / forward-copy / freeze
-// layer stays system-agnostic, so widening this set needs no data migration.
+// Fire Alarm re-joins with its own dedicated slice. The storage / forward-copy /
+// freeze layer stays system-agnostic, so widening this set needs no data migration.
 const labelOverrideSystemKeys = new Set([
-  "hose_reel", "co2_fire_extinguisher", "wet_chemical"
+  "hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler"
 ]);
 const labelOverrideMaxEntries = 300;
 const labelOverrideMaxValueLength = 200;

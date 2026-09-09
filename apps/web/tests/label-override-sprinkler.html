@@ -1,0 +1,167 @@
+<!doctype html><html><body>
+<button id="run">Run Automatic Sprinkler label override checks</button>
+<pre id="result">Ready</pre>
+<div id="form"></div>
+<div id="accepted"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { getOrCreateAutomaticSprinklerInspection } from "/src/automaticSprinkler/automaticSprinklerRepository.ts";
+import { AutomaticSprinklerInspectionForm } from "/src/automaticSprinkler/AutomaticSprinklerInspectionForm.tsx";
+import { ServerAutomaticSprinklerView } from "/src/automaticSprinkler/ServerAutomaticSprinklerView.tsx";
+
+const id = (n) => `76000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const templateId = "00000000-0000-4000-8000-000000000807";
+const state4 = ["good", "not_good", "complete_repair", "na"];
+const field = (key, label, sortOrder) => ({ key, label, sortOrder, control: "good_poor", required: false, allowedValues: state4, remarksPolicy: "optional" });
+const measure = (key, label, sortOrder, valueKeys) => ({ key, label, sortOrder, result: { control: "good_poor", allowedValues: state4 }, measurements: valueKeys.map((vk, i) => ({ key: vk, label: vk === "cut_in" ? "Cut In" : vk === "cut_out" ? "Cut Out" : "Reading", unit: "PSI", sortOrder: i + 1 })) });
+const definition = { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", configuration: { supportsZones: false, supportsLocations: false, supportsPresetRows: false }, sections: [
+  { key: "water_tank", title: "Water Tank", sortOrder: 1, blocks: [{ key: "water_tank_checks", title: "Water Tank", type: "checklist", sortOrder: 1, items: [field("saj_main_water_supply", "S.A.J Main Water Supply", 1), field("water_level", "Water Level", 2), field("automatic_refilling_facilities", "Automatic Refilling Facilities", 3), field("drain_and_stop_valve_positions", "Drain Valve Closed and Stop Valves Open", 4)] }] },
+  { key: "pump_house", title: "Pump House", sortOrder: 2, blocks: [
+    { key: "pump_house_checks", title: "Pump House", type: "checklist", sortOrder: 1, items: [field("pump_house_clean", "Keep Clean in Pump House", 1), field("manual_start_pumps", "Manual Start Jockey, Duty and Stand-by Pumps", 2), field("standby_pump_service_items", "Stand-by Pump Service Items", 3), field("battery_charging_alternator", "Battery Charging Alternator Operation", 4), field("battery_serviceable", "Battery in Good Serviceable Condition", 5), field("pump_phase_failure_alarm", "Pump Run / Phase Failure Alarm", 6), field("pumps_auto_start", "Pumps in Auto Start Position", 7), field("test_and_gate_valve_positions", "Test Valve Closed and Gate Valves Open", 8)] },
+    { key: "pump_pressure_measurements", title: "Pressure", type: "measurement", sortOrder: 2, items: [measure("jockey_pump_pressure", "Jockey Pump", 1, ["cut_in", "cut_out"]), measure("duty_pump_cut_in", "Duty Pump Cut In", 2, ["value"]), measure("standby_pump_cut_in", "Stand-by Pump Cut In", 3, ["value"])] }] },
+  { key: "main_alarm_valve", title: "Main Alarm Valve", sortOrder: 3, blocks: [
+    { key: "main_alarm_valve_checks", title: "Main Alarm Valve", type: "checklist", sortOrder: 1, items: [field("breaching_inlet", "Breaching Inlet in Good Serviceable Condition", 1), field("alarm_gong", "Alarm Gong in Function", 2), field("flow_meter_valve_positions", "Flow Meter Valve Closed and Other Valves Open", 3)] },
+    { key: "alarm_valve_measurements", title: "Gauges", type: "measurement", sortOrder: 2, items: [measure("water_supply_gauge", "Water Supply Gauge", 1, ["value"]), measure("installation_gauge", "Installation Gauge", 2, ["value"])] },
+    { key: "test_run_fire_pump_checks", title: "Test Run Fire Pump 30 Minutes", type: "checklist", sortOrder: 3, items: [field("trfp_jockey_pump", "Jockey Pump", 1), field("trfp_duty_pump", "Duty Pump", 2), field("trfp_standby_pump", "Standby Pump", 3)] },
+    { key: "comments", title: "Comments", type: "comments", sortOrder: 4, field: { control: "remarks", policy: "optional", maxLength: 4000 } }] }] };
+
+// Definition labels for the two edited paths, and the text a Manager saved.
+const trfpDefinitionLabel = "Jockey Pump";
+const trfpOverride = "Jockey Pump (30 min run)";
+const cutInDefinitionLabel = "Cut In";
+const cutInOverride = "Cut-In Reading";
+const overrides = {
+  "checklist.testRunFirePump.trfp_jockey_pump": trfpOverride,
+  "measurements.jockey_pump_pressure.values.cut_in": cutInOverride
+};
+
+const template = { id: templateId, code: "MFE-FSSR", name: "MFE", version: 7, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", definition }] };
+const catalog = { template: { ...template, id: id(99), version: 1, systems: [] }, templates: [template] };
+function fixture(index, labelOverrides) {
+  // `labelOverrides` rides the frozen job snapshot's enabled-system entry exactly
+  // as serviceVisits.ts freezes it at job creation.
+  const system = { enabledSystemId: id(100 + index), systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", zones: [], locations: [], ...(labelOverrides ? { labelOverrides } : {}) };
+  const job = { id: id(index), reference: `ASP-LBL-${index}`, title: "Sprinkler label test", status: "open", createdAt: new Date().toISOString(), configurationSnapshot: { schemaVersion: 1, customer: { id: id(50), code: "ASP", displayName: "Sprinkler Customer" }, configuration: { revisionId: id(51), revisionNumber: 1 }, template: { id: templateId, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+  return { job, system };
+}
+
+const props = { onBack: () => {}, onSaveDraft: async () => {}, onSubmitLocal: async () => {}, onEditFailed: async () => {}, onAttachmentsChange: async () => {} };
+const formText = () => document.querySelector("#form").textContent;
+
+// Count every network attempt the technician render path makes. A frozen-snapshot
+// label render must do zero I/O - that is what makes it work with the network cut.
+let fetchCalls = 0;
+const realFetch = window.fetch;
+window.fetch = (...args) => { fetchCalls += 1; return realFetch(...args); };
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  try {
+    await localDatabase.open();
+    for (const index of [1, 2]) await localDatabase.masterSystemInspections.where("jobId").equals(id(index)).delete();
+
+    const withOverrides = fixture(1, overrides);
+    const withoutOverrides = fixture(2, undefined);
+    const overriddenRecord = await getOrCreateAutomaticSprinklerInspection(withOverrides.job, withOverrides.system, catalog, { id: 1, username: "browser-tech", role: "inspector" });
+    const plainRecord = await getOrCreateAutomaticSprinklerInspection(withoutOverrides.job, withoutOverrides.system, catalog, { id: 1, username: "browser-tech", role: "inspector" });
+
+    // 1. The repository freezes the map onto the non-synced record field only.
+    ok("record carries the frozen display label overrides", JSON.stringify(overriddenRecord.displayLabelOverrides) === JSON.stringify(overrides));
+    ok("no-override job leaves the field absent", !("displayLabelOverrides" in plainRecord));
+    ok("labelOverrides never enters the submitted inspection snapshot", !("labelOverrides" in overriddenRecord.inspectionSnapshot.system));
+    ok("frozen resolvedControls keep the definition label", overriddenRecord.inspectionSnapshot.system.resolvedControls.checklist.testRunFirePump.find((item) => item.key === "trfp_jockey_pump").label === trfpDefinitionLabel);
+    ok("response keys are unchanged by the override", Object.keys(overriddenRecord.responses.checklist).includes("trfp_jockey_pump") && Object.keys(overriddenRecord.responses.measurements.jockey_pump_pressure.values).join(",") === "cut_in,cut_out");
+
+    // 2. Technician form WITH the frozen map renders the overridden labels.
+    const root = createRoot(document.querySelector("#form"));
+    const fetchAtStart = fetchCalls;
+    root.render(React.createElement(AutomaticSprinklerInspectionForm, { record: overriddenRecord, ...props }));
+    await new Promise((r) => setTimeout(r, 120));
+    const overriddenText = formText();
+    const rowLabel = (key) => document.querySelector(`#sprinkler-${key} strong`)?.textContent;
+    const measurementCard = (key) => document.querySelector(`#sprinkler-${key}`)?.textContent ?? "";
+    ok("checklist row shows the override instead of the definition label", rowLabel("trfp_jockey_pump") === trfpOverride);
+    ok("the overridden row's aria label follows the override", !!document.querySelector(`#sprinkler-trfp_jockey_pump [aria-label="${trfpOverride} result"]`));
+    // The row label ("Jockey Correct Cut In / Cut Out") legitimately contains the
+    // words "Cut In", so assert on the value input's own <label> element instead.
+    const valueLabels = [...document.querySelectorAll("#sprinkler-jockey_pump_pressure label")].map((node) => node.textContent);
+    ok("measurement value override label is rendered", valueLabels[0] === `${cutInOverride} (PSI)` && valueLabels[1] === "Cut Out (PSI)");
+    ok("non-overridden siblings keep their definition labels", rowLabel("trfp_duty_pump") === "Duty Pump" && rowLabel("trfp_standby_pump") === "Standby Pump" && measurementCard("jockey_pump_pressure").includes("Cut Out (PSI)"));
+    ok("each override text appears exactly once on the form", overriddenText.split(trfpOverride).length - 1 === 1 && overriddenText.split(cutInOverride).length - 1 === 1);
+
+    // 3. Technician form WITHOUT the key renders the definition labels.
+    root.render(React.createElement(AutomaticSprinklerInspectionForm, { record: plainRecord, ...props }));
+    await new Promise((r) => setTimeout(r, 120));
+    const plainText = formText();
+    ok("no-override record renders the definition label", document.querySelector("#sprinkler-trfp_jockey_pump strong")?.textContent === trfpDefinitionLabel && document.querySelector("#sprinkler-jockey_pump_pressure label")?.textContent === `${cutInDefinitionLabel} (PSI)`);
+    ok("no-override record does not invent the override text", !plainText.includes(trfpOverride) && !plainText.includes(cutInOverride));
+    root.unmount();
+    // Captured here, before the accepted view (which legitimately fetches its
+    // accepted evidence) runs: the technician label path must do zero network I/O.
+    const technicianFetchDelta = fetchCalls - fetchAtStart;
+
+    // 4. Accepted view: the server forwards the frozen override MAP (never a
+    // re-derived controls tree). The view substitutes per canonical path, so a
+    // rename must move exactly the rows it names and nothing else.
+    const acceptedInspection = (map) => ({
+      clientUuid: id(60), serverFormInstanceId: id(61), jobId: id(1), jobReference: "ASP-LBL-1", jobTitle: "Sprinkler label test",
+      customerName: "Sprinkler Customer", systemKey: "automatic_sprinkler", systemLabel: "Automatic Sprinkler System",
+      instanceKey: "primary", status: "submitted", performedAt: "2026-09-04T00:00:00.000000Z", receivedAt: "2026-09-04T00:00:01.000000Z",
+      templateVersion: 7, responses: overriddenRecord.responses, displayControls: null,
+      ...(map ? { displayLabelOverrides: map } : {}),
+      deviceReportedCreatorUsername: null, verifiedOriginalCreatorUsername: null, syncedByUsername: "browser-tech",
+      evidencePolicy: null, attachments: []
+    });
+    // Every rendered label, keyed by its position, so the two renders can be
+    // compared row by row rather than by substring.
+    const renderedLabels = () => [
+      ...[...document.querySelectorAll("#accepted .hose-check-row strong")].map((n, i) => [`check-${i}`, n.textContent]),
+      ...[...document.querySelectorAll("#accepted .measurement-card > strong")].map((n, i) => [`measure-${i}`, n.textContent]),
+      ...[...document.querySelectorAll("#accepted .status-caption")].map((n, i) => [`value-${i}`, n.textContent])
+    ];
+    const acceptedRoot = createRoot(document.querySelector("#accepted"));
+    const renderAccepted = async (map) => {
+      acceptedRoot.render(React.createElement(ServerAutomaticSprinklerView, { inspection: acceptedInspection(map), onBack: () => {} }));
+      await new Promise((r) => setTimeout(r, 120));
+      return { labels: renderedLabels(), text: document.querySelector("#accepted").textContent };
+    };
+
+    const withMap = await renderAccepted(overrides);
+    ok("accepted view renders the overridden checklist label", withMap.text.includes(trfpOverride));
+    ok("accepted view renders the overridden measurement value label", withMap.text.includes(cutInOverride));
+    ok("accepted view substitutes each override exactly once", withMap.text.split(trfpOverride).length - 1 === 1 && withMap.text.split(cutInOverride).length - 1 === 1);
+
+    // 5. No frozen map: the view renders its own captions unchanged.
+    const withoutMap = await renderAccepted(undefined);
+    ok("no-map accepted view falls back to the built-in captions", withoutMap.text.includes(trfpDefinitionLabel) && !withoutMap.text.includes(trfpOverride));
+    ok("both renders produce the same rows", withMap.labels.length === withoutMap.labels.length && withMap.labels.length > 20);
+
+    // THE REGRESSION GUARD: renaming two fields must change exactly those two
+    // rendered labels. Shipping a re-derived controls tree here silently reworded
+    // 17 of 23 captions to their definition wording; a per-path substitution cannot.
+    const changed = withMap.labels.filter(([slot, label], i) => label !== withoutMap.labels[i][1]);
+    ok("exactly the two renamed rows changed", changed.length === 2);
+    ok("the changed rows are the renamed ones", changed.every(([, label]) => label === trfpOverride || label === cutInOverride));
+    const unchanged = withMap.labels.filter((entry, i) => entry[1] === withoutMap.labels[i][1]);
+    ok("every other rendered label is byte-identical across both renders", unchanged.length === withMap.labels.length - 2);
+    acceptedRoot.unmount();
+
+    ok("technician label rendering did zero network I/O", technicianFetchDelta === 0);
+    ok("rendered with navigator.onLine === false", navigator.onLine === false);
+
+    document.querySelector("#result").textContent = JSON.stringify(
+      { status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks, navigatorOnLine: navigator.onLine, technicianFetchDelta },
+      null, 2
+    );
+  } catch (error) {
+    document.querySelector("#result").textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), checks }, null, 2);
+  }
+};
+
+// Signal that the whole module graph has finished loading, so the spec can cut the
+// network before clicking Run without racing a lazy Vite chunk fetch.
+document.body.dataset.harnessReady = "1";
+</script></body></html>

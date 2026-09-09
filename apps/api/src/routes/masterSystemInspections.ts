@@ -525,7 +525,36 @@ masterSystemInspectionsRouter.get(
         const v7 = await acceptedDetailRow(clientUuid, "automatic_sprinkler", request.currentUser!);
         if (!v7) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
         if (!validateAcceptedAutomaticSprinklerV7Detail(v7)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
-        response.json({ inspection: { ...acceptedDetailResponse(v7, "Automatic Sprinkler System"), displayControls: null } });
+        // A V7 Automatic Sprinkler acceptance freezes no `system.resolvedControls`,
+        // so unlike the V1-V6 branches this one has no controls tree to send:
+        // `displayControls` stays `null`, exactly its historical wire shape.
+        //
+        // Instead the client receives the job's FROZEN per-customer label map
+        // verbatim and substitutes it per canonical path at render time, the same
+        // way the technician form does from `record.displayLabelOverrides`. That
+        // is what keeps a rename scoped: a Manager who renames one field must not
+        // change the wording of any other row, which is exactly what shipping a
+        // whole re-derived tree here would have done (the accepted view's own
+        // captions and the definition labels differ on 17 of 23 fields).
+        //
+        // Display strings only: the response payload, evidence manifest and
+        // contract hash are untouched, and the key is omitted entirely when the
+        // job froze no map, so a record accepted before this feature keeps its
+        // exact previous wire shape.
+        //
+        // `frozenLabelOverrides` is awaited plainly: it is a database read, and a
+        // transient failure must reach the error handler, never be silently
+        // downgraded to "this customer has no overrides".
+        const frozen = await frozenLabelOverrides(v7.jobId, "automatic_sprinkler");
+        const displayLabelOverrides = typeof frozen === "object" && frozen !== null
+          && !Array.isArray(frozen) && Object.keys(frozen).length > 0 ? frozen : undefined;
+        response.json({
+          inspection: {
+            ...acceptedDetailResponse(v7, "Automatic Sprinkler System"),
+            displayControls: null,
+            ...(displayLabelOverrides ? { displayLabelOverrides } : {})
+          }
+        });
         return;
       }
       if (inspection.systemKey === "fire_intercom") {

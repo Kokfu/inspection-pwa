@@ -111,6 +111,7 @@ function snapshot(
   controls: ResolvedAutomaticSprinklerControls,
   capturedAt: string
 ): AutomaticSprinklerInspectionSnapshot {
+  const { labelOverrides: _labelOverrides, ...systemBase } = system;
   return {
     schemaVersion: 1,
     capturedAt,
@@ -118,9 +119,19 @@ function snapshot(
     customer: job.configurationSnapshot.customer,
     configuration: job.configurationSnapshot.configuration,
     template: job.configurationSnapshot.template,
-    system: { ...system, definition, resolvedControls: controls, repetitionMode: "single" },
+    // `labelOverrides` is display-only and must NOT enter `inspectionSnapshot.system`
+    // - that object is submitted and, for V7 Automatic Sprinkler, folded into the
+    // accepted authority / request fingerprint. It rides `record.displayLabelOverrides`.
+    system: { ...systemBase, definition, resolvedControls: controls, repetitionMode: "single" },
     instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null }
   };
+}
+
+/** The job's frozen per-customer label map for this system, only when non-empty
+ *  (so a no-override record stays byte-identical to before the feature). */
+function frozenDisplayLabelOverrides(system: JobSystemSnapshot): Readonly<Record<string, string>> | undefined {
+  const map = system.labelOverrides;
+  return map && Object.keys(map).length > 0 ? map : undefined;
 }
 
 export async function getOrCreateAutomaticSprinklerInspection(
@@ -159,6 +170,7 @@ export async function getOrCreateAutomaticSprinklerInspection(
     masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version },
     configuration: job.configurationSnapshot.configuration,
     inspectionSnapshot,
+    ...(frozenDisplayLabelOverrides(system) ? { displayLabelOverrides: frozenDisplayLabelOverrides(system) } : {}),
     responses: emptyResponses(controls),
     performedAt: timestamp,
     localCreatedAt: timestamp,

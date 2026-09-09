@@ -22,10 +22,13 @@ const v7ChecklistKeys = [...waterTank, ...pumpHouse, ...mainAlarmValve, "trfp_jo
 const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
 const measurementValueKeys: Readonly<Record<(typeof measurementKeys)[number], readonly string[]>> = { jockey_pump_pressure: ["cut_in", "cut_out"], duty_pump_cut_in: ["value"], standby_pump_cut_in: ["value"], water_supply_gauge: ["value"], installation_gauge: ["value"] };
 const v7DetailKeys = ["clientUuid", "serverFormInstanceId", "jobId", "jobReference", "jobTitle", "customerName", "systemKey", "systemLabel", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "receivedAt", "template", "configuration", "responses", "displayControls", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"] as const;
+// A job that froze a non-empty per-customer label map carries ONE extra key.
+// A job with no overrides keeps the original key set byte-for-byte.
+const v7DetailKeysWithOverrides = [...v7DetailKeys, "displayLabelOverrides"] as const;
 
 export type ServerInspectionAttachment = { serverAttachmentId: string; photoUuid: string; inspectionClientUuid: string; status: "accepted"; fieldPath: string; captureSource: "camera" | "gallery" | "unknown"; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; sourceSha256: string; storedSha256: string; capturedAt: string; receivedAt: string };
 type ServerEvidencePolicy = { id: string; version: 1; definition: { schemaVersion: 1; code: "automatic-sprinkler-psi-evidence"; version: 1; systemKey: "automatic_sprinkler"; points: Record<(typeof evidencePaths)[number], { allowed: true; required: false; maxCount: 1 }> }; definitionSha256: string };
-export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; templateVersion?: 7; responses: LegacyAutomaticSprinklerResponses | V7AutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls | null; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
+export type ServerAutomaticSprinklerDetail = { clientUuid: string; serverFormInstanceId: string; jobId: string; jobReference: string; jobTitle: string; customerName: string; systemKey: "automatic_sprinkler"; systemLabel: string; instanceKey: "primary"; status: "submitted"; performedAt: string; receivedAt: string; templateVersion?: 7; responses: LegacyAutomaticSprinklerResponses | V7AutomaticSprinklerResponses; displayControls: ResolvedAutomaticSprinklerControls | null; /** Frozen per-customer display-label overrides, canonical-path keyed. V7 only, present only when the job froze a non-empty map. */ displayLabelOverrides?: Readonly<Record<string, string>>; deviceReportedCreatorUsername: string | null; verifiedOriginalCreatorUsername: string | null; syncedByUsername: string; evidencePolicy: ServerEvidencePolicy | null; attachments: ServerInspectionAttachment[] };
 
 export class ServerInspectionNotFoundError extends Error {}
 export class InvalidServerInspectionDetailError extends Error {}
@@ -105,12 +108,49 @@ function parseV7Responses(value: unknown): V7AutomaticSprinklerResponses | undef
   }
   return { schemaVersion: 2, checklist: checklist as V7AutomaticSprinklerResponses["checklist"], measurements: measurements as V7AutomaticSprinklerResponses["measurements"], comments: value.comments };
 }
+/**
+ * The per-customer display-label override map this job FROZE for
+ * `automatic_sprinkler`, forwarded verbatim by the API
+ * (apps/api/src/routes/masterSystemInspections.ts). Canonical-path keyed
+ * (`checklist.<section>.<key>`, `measurements.<key>`,
+ * `measurements.<key>.values.<vkey>`) exactly like the technician form's
+ * `record.displayLabelOverrides`, so the accepted view substitutes ONLY the
+ * paths a Manager actually renamed and every other caption is left alone.
+ *
+ * Display strings only. The response payload, evidence field paths and the
+ * frozen manifest are validated entirely by `parseV7Responses` and never read
+ * from here, so an unusable map degrades to `undefined` (render every caption
+ * as-is) rather than failing the whole accepted detail.
+ */
+const maxLabelOverrides = 300;
+const maxLabelOverrideLength = 200;
+function parseLabelOverrideMap(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (!record(value)) return undefined;
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > maxLabelOverrides) return undefined;
+  const parsed: Record<string, string> = {};
+  for (const [path, label] of entries) {
+    // A bad entry is skipped, never fatal: `overriddenLabel` semantics are
+    // per-node, so one unusable value cannot suppress the others.
+    if (typeof path !== "string" || path.length === 0 || path.length > maxLabelOverrides) continue;
+    if (typeof label !== "string" || label.trim().length === 0 || label.length > maxLabelOverrideLength) continue;
+    parsed[path] = label.trim();
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
 export function parseServerAutomaticSprinklerDetail(value: unknown): ServerAutomaticSprinklerDetail | undefined {
-  if (record(value) && exactKeys(value, v7DetailKeys) && value.systemKey === "automatic_sprinkler" && record(value.template) && value.template.version === 7) {
-    if (!text(value.clientUuid) || !uuid.test(value.clientUuid) || !text(value.serverFormInstanceId) || !uuid.test(value.serverFormInstanceId) || !text(value.jobId) || !uuid.test(value.jobId) || !text(value.jobReference, 250) || !text(value.jobTitle, 300) || !text(value.customerName, 250) || !text(value.systemLabel, 300) || value.instanceKey !== "primary" || value.zoneId !== null || value.locationId !== null || value.displaySequence !== 1 || value.status !== "submitted" || !canonicalTimestamp(value.performedAt) || !canonicalTimestamp(value.receivedAt) || value.displayControls !== null || !optionalText(value.deviceReportedCreatorUsername) || !optionalText(value.verifiedOriginalCreatorUsername) || !text(value.syncedByUsername) || value.template.id !== v7TemplateId || !record(value.configuration)) return undefined;
+  if (record(value) && (exact(value, v7DetailKeys) || exact(value, v7DetailKeysWithOverrides)) && value.systemKey === "automatic_sprinkler" && record(value.template) && value.template.version === 7) {
+    if (!text(value.clientUuid) || !uuid.test(value.clientUuid) || !text(value.serverFormInstanceId) || !uuid.test(value.serverFormInstanceId) || !text(value.jobId) || !uuid.test(value.jobId) || !text(value.jobReference, 250) || !text(value.jobTitle, 300) || !text(value.customerName, 250) || !text(value.systemLabel, 300) || value.instanceKey !== "primary" || value.zoneId !== null || value.locationId !== null || value.displaySequence !== 1 || value.status !== "submitted" || !canonicalTimestamp(value.performedAt) || !canonicalTimestamp(value.receivedAt) || !optionalText(value.deviceReportedCreatorUsername) || !optionalText(value.verifiedOriginalCreatorUsername) || !text(value.syncedByUsername) || value.template.id !== v7TemplateId || !record(value.configuration)) return undefined;
     const responses = parseV7Responses(value.responses);
-    if (!responses) return undefined;
-    return { clientUuid: value.clientUuid, serverFormInstanceId: value.serverFormInstanceId, jobId: value.jobId, jobReference: value.jobReference, jobTitle: value.jobTitle, customerName: value.customerName, systemKey: "automatic_sprinkler", systemLabel: value.systemLabel, instanceKey: "primary", status: "submitted", performedAt: value.performedAt, receivedAt: value.receivedAt, templateVersion: 7, responses, displayControls: null, deviceReportedCreatorUsername: value.deviceReportedCreatorUsername as string | null, verifiedOriginalCreatorUsername: value.verifiedOriginalCreatorUsername as string | null, syncedByUsername: value.syncedByUsername, evidencePolicy: null, attachments: [] };
+    // A V7 sprinkler acceptance freezes no `resolvedControls`, so this branch
+    // carries no controls tree at all - `displayControls` stays `null`, exactly
+    // the historical wire shape. Labels are the definition captions below, with
+    // only the frozen override paths substituted. `responses` is the authority
+    // and still fails closed; the display map never can.
+    const displayLabelOverrides = parseLabelOverrideMap(value.displayLabelOverrides);
+    if (!responses || value.displayControls !== null) return undefined;
+    return { clientUuid: value.clientUuid, serverFormInstanceId: value.serverFormInstanceId, jobId: value.jobId, jobReference: value.jobReference, jobTitle: value.jobTitle, customerName: value.customerName, systemKey: "automatic_sprinkler", systemLabel: value.systemLabel, instanceKey: "primary", status: "submitted", performedAt: value.performedAt, receivedAt: value.receivedAt, templateVersion: 7, responses, displayControls: null, ...(displayLabelOverrides ? { displayLabelOverrides } : {}), deviceReportedCreatorUsername: value.deviceReportedCreatorUsername as string | null, verifiedOriginalCreatorUsername: value.verifiedOriginalCreatorUsername as string | null, syncedByUsername: value.syncedByUsername, evidencePolicy: null, attachments: [] };
   }
   const keys = ["clientUuid", "serverFormInstanceId", "jobId", "jobReference", "jobTitle", "customerName", "systemKey", "systemLabel", "instanceKey", "status", "performedAt", "receivedAt", "responses", "displayControls", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername", "evidencePolicyId", "evidencePolicyVersion", "evidencePolicyDefinition", "evidencePolicySha256"];
   if (!exactKeys(value, keys) || !text(value.clientUuid) || !uuid.test(value.clientUuid) || !text(value.serverFormInstanceId) || !uuid.test(value.serverFormInstanceId) || !text(value.jobId) || !uuid.test(value.jobId) || !text(value.jobReference) || !text(value.jobTitle) || !text(value.customerName) || value.systemKey !== "automatic_sprinkler" || !text(value.systemLabel) || value.instanceKey !== "primary" || value.status !== "submitted" || !canonicalTimestamp(value.performedAt) || !canonicalTimestamp(value.receivedAt) || !optionalText(value.deviceReportedCreatorUsername) || !optionalText(value.verifiedOriginalCreatorUsername) || !text(value.syncedByUsername)) return undefined;

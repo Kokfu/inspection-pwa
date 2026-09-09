@@ -3,7 +3,114 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-ii (WEB + Sol P0/P1/P2
+**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iii (`automatic_sprinkler`)
+in the working tree, NOT committed.** Closes the two `automatic_sprinkler` gaps 1a-ii left open:
+the API resolver had no V7 fork (so `/label-overrides` 409'd `SYSTEM_DEFINITION_UNRESOLVABLE`), and
+the V7 Accepted-Detail branch returned `displayControls: null`. Per-customer display-label
+overrides now cover **4 systems** — `co2_fire_extinguisher`, `wet_chemical`, `hose_reel`,
+`automatic_sprinkler`. `fire_alarm_detector` and the final report stay deferred.
+
+**What ships:**
+* **API resolver V7 fork** — `apps/api/src/inspections/templates/automaticSprinklerDefinitionControls.ts`
+  now branches on `templateVersion === 7`, mirroring the already-V7 web resolver
+  (`resolvePublishedAutomaticSprinklerControls`) and `definitionControls.ts` / `co2DefinitionControls.ts`:
+  four-state result control (`good` / `not_good` / `complete_repair` / `na`, each field's own frozen
+  `allowedValues` still decides the option set — the label map never widens it), the
+  `test_run_fire_pump_checks` block from the Main Alarm Valve section
+  (`trfp_jockey_pump` / `trfp_duty_pump` / `trfp_standby_pump`) as `checklist.testRunFirePump`,
+  a matching `layout.testRunFirePump`, and `source.templateVersion: 7`.
+  **The V1 path is untouched**: both new tree keys are *conditional spreads*, so a V1–V6 tree keeps
+  exactly its old keys AND key order. `automaticSprinklerDefinitionControls.test.ts` (4) pins
+  `sha256(JSON.stringify(V1..V6 controls)) = 9635824630d591b6…` (the pre-fork bytes), asserts the V7
+  tree shape + 4-state + the canonical label paths, and asserts each fork rejects the other's
+  definition. `validatePhotoEvidence.ts:296` and the historical acceptors
+  (`automaticSprinklerInspectionSync.ts:162,313`) still call the V1 path with a V1 version.
+* **Allow-list** — `automatic_sprinkler` re-added to `labelOverrideSystemKeys` in
+  `apps/api/src/routes/managerCustomers.ts` AND `apps/web/src/manager/managerApi.ts`. The Manager
+  editor is generic over that set, so no UI change was needed.
+* **Technician form** — `AutomaticSprinklerInspectionForm.tsx` uses the same 1a-ii shape:
+  `controls` stays the canonical, un-overridden `resolvedControls` (sole authority for every response
+  key, evidence `fieldPath`, submit gate and the `isV7` branch); only label **text** goes through
+  `labelAt(path, def) = overriddenLabel(record.displayLabelOverrides, path, def)`, and
+  `MeasurementValueInput` gets a throwaway `{ ...def, label: labelAt(…) }`. Canonical paths:
+  `checklist.<waterTank|pumpHouse|mainAlarmValve|testRunFirePump>.<key>`, `measurements.<key>`,
+  `measurements.<key>.values.<vkey>`.
+* **Repo + type** — `automaticSprinklerRepository.ts` `snapshot()` destructures `labelOverrides`
+  OUT before the `{ ...system }` spread (it must never reach the submitted / fingerprinted
+  `inspectionSnapshot.system`); the record gets the non-synced `displayLabelOverrides?` only when
+  the frozen map is non-empty, so a no-override record stays byte-identical.
+  `automaticSprinklerTypes.ts` gains `displayLabelOverrides?: Readonly<Record<string,string>>`
+  (and an optional `layout.testRunFirePump?`, which only the API-shaped tree carries).
+* **Accepted detail (the 1a-ii known gap) — the frozen MAP travels, never a controls tree.** A V7
+  acceptance freezes **no** `system.resolvedControls`, so the V7 `automatic_sprinkler` branch of
+  `GET /api/master-system-inspections/:id` keeps `displayControls: null` and instead forwards this
+  job's frozen `frozenLabelOverrides(jobId, "automatic_sprinkler")` map verbatim as a new
+  `displayLabelOverrides` key. `ServerAutomaticSprinklerView` substitutes it per canonical path via
+  the shared `overriddenLabel(map, path, caption)` — the exact helper and path grammar the
+  technician form uses (`checklist.<section>.<key>`, `measurements.<key>`,
+  `measurements.<key>.values.<vkey>`; the section tables now carry their resolved-tree section key).
+  Applied in one place only, so no double-apply is possible. Response payload, evidence
+  `fieldPath`s, the frozen manifest and `contractSha256` are untouched.
+* **Why the map and not a re-derived tree (Sol round-2 P1).** An earlier revision of this slice sent
+  the whole re-derived controls tree and had the view prefer it for every key. The accepted view's
+  built-in captions and the definition labels are two different wordings — **17 of 23 differ**
+  ("Water Supply Gauge" vs "Water Supply Gauge At", "Jockey Pump" vs "Jockey Correct Cut In / Cut
+  Out", …) — so saving ONE override silently reworded 17 rows nobody edited, permanently, on every
+  job frozen while that override existed. A per-path substitution cannot do that. The browser
+  harness now renders the accepted view twice (with and without the map) and asserts **exactly two**
+  rendered labels differ and every other is byte-identical.
+* **Wire compatibility — this deploy changes no existing record's shape (Sol round-1 P1).** The
+  `displayLabelOverrides` key is emitted **only** when the job froze a non-empty map; a job with no
+  overrides returns the byte-identical historical payload. That matters because this is an installed
+  PWA: the previously shipped client does `exactKeys(value, v7DetailKeys)` and rejects a non-`null`
+  `displayControls` (`5d86ace`), so a service-worker-cached shell would otherwise have failed
+  **every** accepted V7 sprinkler with "Server inspection is currently unavailable" until it updated.
+  No accepted record predating this slice has an override, so none change shape.
+* **Display-only data degrades, it never fails the detail (Sol round-1 P2).** `parseLabelOverrideMap`
+  validates the map (plain object, 1–300 entries, values 1–200 chars, trimmed) and drops individual
+  bad entries rather than the whole map; an unusable map yields `undefined` (render every caption
+  as-is) instead of failing `parseServerAutomaticSprinklerDetail`. A label mismatch must never turn
+  an immutable accepted record into `server-unavailable`. `responses` remains the authority and
+  still fails closed, and a stray `displayControls` tree on a V7 sprinkler is still refused.
+* **A DB error is not a missing override map (Sol P2).** `frozenLabelOverrides` is awaited
+  **outside** the `try` that degrades to `null`, so a transient database failure reaches the error
+  handler (500) instead of silently rendering as "this customer has no overrides".
+
+**Gates (all green).** API: typecheck + build; historical-matrix (20) / v6-evidence (9) /
+wet-chemical-definition (2) / v7EvidenceContracts + env (11) / `test:label-overrides` (8) /
+**`test:automatic-sprinkler-definition` (7 — the resolver fork plus the new
+`masterSystemInspectionsAutomaticSprinklerV7` route test: a no-override job keeps its exact historical
+wire shape, an overridden job forwards the map verbatim with no controls tree, a DB failure 500s)**; `automaticSprinklerV7PdfEvidence` +
+`acceptedMasterSystemDetail.automaticSprinklerV7` / `.dryWetRiserV7` / `.fireIntercomV7` +
+`finalServiceReport` + `serviceVisits` (38). Web: typecheck + build; `test:label-overrides-parity`
+(**still 16**) / `test:v7-stale-evidence` (1) / `test:v7-automatic-sprinkler-submit` (8) /
+`test:v7-hose-reel-submit` (16) / **new `test:label-overrides-sprinkler` (6, incl. the
+per-path-only substitution and the degrade-to-no-overrides contract)**; Playwright
+`--workers=1`: **new `label-override-sprinkler`** + `label-override-technician-form` +
+`manager-label-overrides` + `automatic-sprinkler-v7-offline` + `hose-reel-v7-offline` +
+`co2-v7-cross-instance` + `fire-alarm-v6-accepted-detail` + `manager-app-auth-transitions`.
+**Cold integration — ONE disposable DB `phase6_seed_integration` on port 55432, §2 form**
+(`NODE_ENV=test`, `SEED_INTEGRATION_DATABASE_URL` at that DB, `DATABASE_URL` bogus):
+`fireAlarmV6Acceptance` + `co2V7` / `wetChemicalV7` / `fireAlarmV7` / `v7EvidenceRace` /
+`automaticSprinklerV7` + `managerLabelOverrides` (3, **incl. the new V7 sprinkler case**) →
+**24 pass, 0 skips**; plus `finalServiceReport.sprinkler` / `managerCustomers` /
+`customerCreation` integrations (3). `co2-v7-live-accepted-detail` and
+`wet-chemical-v7-live-accepted-detail` are runtime-fixture specs (`*_LIVE_BROWSER_FIXTURE_PATH`),
+not part of this gate set. `git status --short`: 5 modified `apps/api` files (+2 new tests),
+7 modified `apps/web` files (+3 new tests), HANDOVER.md. `git diff --check` clean (CRLF warnings only). DO-NOT-MODIFY
+list clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
+`P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
+
+**STILL DEFERRED — owner-approved:**
+1. **Fire alarm.** Form renders labels from `resolveFireAlarmVisibleLabels(definition)` + literals,
+   not the controls tree; the V6 acceptor reads the frozen entry and `fireAlarmV6Acceptance.ts` is
+   DO-NOT-MODIFY. Absent from `labelOverrideSystemKeys` (API + web) → `/label-overrides` 404s.
+2. **Final report + PDF.** `finalServiceReport.ts` builds `section.fields[].label` from
+   `flatten(response_payload)` → `labelFor(key)`, never a controls tree. Own backend slice.
+
+<details><summary>Previous — 2026-09-09 label-overrides slice 1a-ii (WEB, uncommitted; its "Known gap" + deferred item 2 are CLOSED by 1a-iii above)</summary>
+
+**Task 8e label-overrides slice 1a-ii (WEB + Sol P0/P1/P2
 remediation, round 3) in the working tree, NOT committed.** Consumes the 1a-i backend (`eadb12b`):
 technician form + Manager UI for **3 systems** — `co2_fire_extinguisher`, `wet_chemical`,
 `hose_reel` — plus owner-approved hardening of 1a-i acceptors. `fire_alarm_detector`,
@@ -98,6 +205,8 @@ pathname — one DB satisfies all): `fireAlarmV6Acceptance.integration` + `co2V7
 `masterSystemInspectionSync.ts`, `automaticSprinklerInspectionSync.ts` strips). DO-NOT-MODIFY list
 clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
 `P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
+
+</details>
 
 <details><summary>Previous — 2026-09-08 label-overrides slice 1a-i (backend, committed <code>eadb12b</code>)</summary>
 

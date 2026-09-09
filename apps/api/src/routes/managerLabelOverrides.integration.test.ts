@@ -8,12 +8,19 @@ import pg from "pg";
 import { runMigrations } from "../db/migrations.js";
 import { createServiceVisit } from "../jobs/serviceVisits.js";
 import { applyLabelOverrides, collectResolvedLabelPaths } from "../inspections/labelOverrides.js";
+import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { createManagerCustomersRouter, ManagerCustomerError } from "./managerCustomers.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const demoCo2CustomerId = "00000000-0000-4000-8000-000000000670";
 const seedCo2JobId = "00000000-0000-4000-8000-000000000679";
+const demoV7CustomerId = "00000000-0000-4000-8000-000000000900";
+const demoV7SiteId = "00000000-0000-4000-8000-000000000909";
+const sprinklerOverridePath = "checklist.testRunFirePump.trfp_jockey_pump";
+const sprinklerValueOverridePath = "measurements.jockey_pump_pressure.values.cut_in";
+const sprinklerOverrideLabel = "Jockey Pump (30 min run)";
+const sprinklerValueOverrideLabel = "Cut-In Reading";
 const overridePath = "chargerAndBatteries.main_supply";
 const overrideLabel = "Primary Mains Feed";
 
@@ -242,5 +249,147 @@ test("label-override endpoints: auth, unsupported system, blank-map clear, and n
       ["definition", "definitionStatus", "displayName", "enabledSystemId", "locations", "repetitionMode", "resolvedControls", "sortOrder", "systemKey", "zones"],
       "frozen Fire Alarm system, once spread by the acceptor, has exactly the 10 keys the V3-V5 reader asserts"
     );
+  } finally { await pool.end(); }
+});
+
+
+/**
+ * Slice 1a-iii: `automatic_sprinkler` rejoins `labelOverrideSystemKeys` now that
+ * `resolveAutomaticSprinklerControls` forks on templateVersion 7. Proves the V7
+ * customer resolves an addressable tree (no `SYSTEM_DEFINITION_UNRESOLVABLE`),
+ * that PUT persists + versions, and that the map freezes into a NEW V7 job's
+ * `configuration_snapshot.enabledSystems[automatic_sprinkler].labelOverrides`.
+ */
+test("V7 Automatic Sprinkler label overrides resolve, persist, version and freeze", { skip: !databaseUrl }, async () => {
+  assert.equal(new URL(databaseUrl!).pathname, "/phase6_seed_integration", "label-override integration only permits its dedicated database");
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    await runMigrations(pool);
+    const userId = (await pool.query<{ id: number }>(
+      "INSERT INTO users(username,password_hash,role) VALUES('sprinkler-label-manager','x','admin') RETURNING id"
+    )).rows[0]!.id;
+    await pool.query("UPDATE customers SET is_demo=false WHERE id=$1", [demoV7CustomerId]);
+
+    const app = express(); app.use(express.json());
+    app.use((request, _response, next) => { request.currentUser = { id: userId, username: "sprinkler-label-manager", role: "admin" }; next(); });
+    app.use(createManagerCustomersRouter(pool));
+    app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+      if (error instanceof ManagerCustomerError) response.status(error.status).json({ error: error.code, message: error.message });
+      else response.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : String(error) });
+    });
+    const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+    const port = (server.address() as { port: number }).port;
+    const path = `/manager/customers/${demoV7CustomerId}/systems/automatic_sprinkler/label-overrides`;
+    const call = (method: "GET" | "PUT", body?: unknown) => fetch(`http://127.0.0.1:${port}${path}`, {
+      method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined
+    });
+
+    let definitionLabels: Record<string, string> = {};
+    try {
+      const treeResponse = await call("GET");
+      assert.equal(treeResponse.status, 200, JSON.stringify(await treeResponse.clone().json()));
+      const tree = await treeResponse.json() as {
+        systemKey: string; templateVersion: number;
+        labels: Array<{ path: string; key: string; definitionLabel: string; effectiveLabel: string; overridden: boolean }>;
+        overrides: Record<string, string>;
+      };
+      assert.equal(tree.systemKey, "automatic_sprinkler");
+      assert.equal(tree.templateVersion, 7, "the V7 demo customer's active revision is frozen to MFE-FSSR v7");
+      assert.deepEqual(tree.overrides, {});
+      const paths = tree.labels.map((entry) => entry.path);
+      for (const expected of [
+        "checklist.waterTank.saj_main_water_supply",
+        "checklist.pumpHouse.pumps_auto_start",
+        "checklist.mainAlarmValve.alarm_gong",
+        "checklist.testRunFirePump.trfp_jockey_pump",
+        "checklist.testRunFirePump.trfp_duty_pump",
+        "checklist.testRunFirePump.trfp_standby_pump",
+        "measurements.jockey_pump_pressure",
+        sprinklerValueOverridePath
+      ]) assert.ok(paths.includes(expected), `GET tree is missing ${expected}`);
+      definitionLabels = Object.fromEntries(tree.labels.map((entry) => [entry.path, entry.definitionLabel]));
+      assert.ok(tree.labels.every((entry) => entry.overridden === false && entry.effectiveLabel === entry.definitionLabel));
+      assert.notEqual(definitionLabels[sprinklerOverridePath], sprinklerOverrideLabel);
+
+      // An unknown path is still rejected against the V7 tree.
+      assert.equal((await call("PUT", { labelOverrides: { "checklist.testRunFirePump.trfp_nonexistent": "X" } })).status, 400);
+
+      const saveResponse = await call("PUT", { labelOverrides: {
+        [sprinklerOverridePath]: `  ${sprinklerOverrideLabel}  `,
+        [sprinklerValueOverridePath]: sprinklerValueOverrideLabel
+      } });
+      assert.equal(saveResponse.status, 200, JSON.stringify(await saveResponse.clone().json()));
+      const saved = await saveResponse.json() as { templateVersion: number; labels: Array<{ path: string; effectiveLabel: string; overridden: boolean }>; overrides: Record<string, string> };
+      assert.equal(saved.templateVersion, 7);
+      assert.deepEqual(saved.overrides, { [sprinklerOverridePath]: sprinklerOverrideLabel, [sprinklerValueOverridePath]: sprinklerValueOverrideLabel });
+      assert.equal(saved.labels.find((entry) => entry.path === sprinklerOverridePath)!.effectiveLabel, sprinklerOverrideLabel);
+      assert.equal(saved.labels.find((entry) => entry.path === sprinklerValueOverridePath)!.effectiveLabel, sprinklerValueOverrideLabel);
+      // Only the two edited paths move; every other label still shows its definition text.
+      for (const entry of saved.labels) {
+        if (entry.path === sprinklerOverridePath || entry.path === sprinklerValueOverridePath) continue;
+        assert.equal(entry.overridden, false, `${entry.path} must not be overridden`);
+        assert.equal(entry.effectiveLabel, definitionLabels[entry.path]);
+      }
+    } finally { await close(server); }
+
+    // Versioning: previous revision superseded with no override, new active carries
+    // the map on automatic_sprinkler only.
+    const revisions = await pool.query<{ status: string; overrides: Record<string, string>; systemKey: string }>(
+      `SELECT revision.status, enabled.label_overrides AS overrides, enabled.system_key AS "systemKey"
+       FROM customer_configuration_revisions revision
+       INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id = revision.id
+       WHERE revision.customer_id=$1 ORDER BY revision.revision, enabled.sort_order`, [demoV7CustomerId]);
+    assert.ok(revisions.rows.filter((row) => row.status === "superseded").every((row) => Object.keys(row.overrides).length === 0));
+    const active = revisions.rows.filter((row) => row.status === "active");
+    assert.ok(active.length > 1, "the V7 demo customer has several enabled systems");
+    for (const row of active) {
+      assert.deepEqual(
+        row.overrides,
+        row.systemKey === "automatic_sprinkler"
+          ? { [sprinklerOverridePath]: sprinklerOverrideLabel, [sprinklerValueOverridePath]: sprinklerValueOverrideLabel }
+          : {},
+        `${row.systemKey} overrides`
+      );
+    }
+    assert.equal((await pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='manager_customer_label_overrides_updated' AND actor_user_id=$1", [userId])).rows[0]!.n, 1);
+
+    // Freeze: a job created AFTER the save carries the map in its snapshot.
+    const visitClient = await pool.connect();
+    let jobId: string;
+    try {
+      jobId = (await createServiceVisit(visitClient, { requestId: randomUUID(), customerId: demoV7CustomerId, siteId: demoV7SiteId, systemKeys: ["automatic_sprinkler"] }, userId)).id;
+    } finally { visitClient.release(); }
+    const frozen = (await pool.query<{ labelOverrides: unknown; templateId: string; version: number }>(
+      `SELECT job.master_template_version_id AS "templateId", template.version,
+        (SELECT s.system->'labelOverrides' FROM jsonb_array_elements(job.configuration_snapshot->'enabledSystems') s(system)
+          WHERE s.system->>'systemKey'='automatic_sprinkler' LIMIT 1) AS "labelOverrides"
+       FROM inspection_jobs job
+       INNER JOIN master_service_report_templates template ON template.id = job.master_template_version_id
+       WHERE job.id=$1`, [jobId])).rows[0]!;
+    assert.equal(Number(frozen.version), 7, "the new job is frozen to MFE-FSSR v7");
+    assert.deepEqual(frozen.labelOverrides, { [sprinklerOverridePath]: sprinklerOverrideLabel, [sprinklerValueOverridePath]: sprinklerValueOverrideLabel });
+
+    // Accepted-Detail render path: exactly what the route does for a V7 Automatic
+    // Sprinkler - re-resolve the frozen definition at version 7, then apply the
+    // frozen map on a clone, once.
+    const definition = (await pool.query<{ definition: unknown }>(
+      "SELECT definition FROM master_service_report_systems WHERE template_version_id=$1 AND system_key='automatic_sprinkler'", [frozen.templateId]
+    )).rows[0]!.definition;
+    const canonical = resolveAutomaticSprinklerControls(definition, "MFE-FSSR", 7);
+    const rendered = applyLabelOverrides(canonical, frozen.labelOverrides);
+    const trfp = (tree: typeof canonical, key: string) => tree.checklist.testRunFirePump!.find((item) => item.key === key)!.label;
+    assert.equal(trfp(rendered, "trfp_jockey_pump"), sprinklerOverrideLabel);
+    assert.equal(
+      rendered.measurements.find((row) => row.key === "jockey_pump_pressure")!.values.find((value) => value.key === "cut_in")!.label,
+      sprinklerValueOverrideLabel
+    );
+    assert.equal(trfp(rendered, "trfp_duty_pump"), trfp(canonical, "trfp_duty_pump"));
+    // The canonical tree the acceptance / gate path reads is untouched.
+    assert.equal(trfp(canonical, "trfp_jockey_pump"), definitionLabels[sprinklerOverridePath]);
+    assert.notEqual(rendered, canonical);
+    assert.ok(collectResolvedLabelPaths(canonical).some((entry) => entry.path === sprinklerOverridePath));
+    // Applying the SAME map to an already-rendered tree changes nothing further.
+    assert.deepEqual(applyLabelOverrides(rendered, frozen.labelOverrides), rendered);
   } finally { await pool.end(); }
 });

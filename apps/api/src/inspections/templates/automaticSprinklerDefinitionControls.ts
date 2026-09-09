@@ -12,7 +12,9 @@ export type ResolvedAutomaticSprinklerControls = {
   schemaVersion: 1;
   source: {
     templateCode: "MFE-FSSR";
-    templateVersion: 1;
+    /** The frozen template version this tree was resolved against. V7 is the
+     * four-state paper-form fork; every earlier published version stays 1. */
+    templateVersion: 1 | 7;
     systemKey: "automatic_sprinkler";
   };
   repetitionMode: "single";
@@ -26,12 +28,17 @@ export type ResolvedAutomaticSprinklerControls = {
     waterTank: ResolvedChecklistItem[];
     pumpHouse: ResolvedChecklistItem[];
     mainAlarmValve: ResolvedChecklistItem[];
+    /** V7 only - the `Test Run Fire Pump 30 Minutes` block. Absent on V1-V6, so
+     * a historical tree stays byte-identical to its pre-V7 shape. */
+    testRunFirePump?: ResolvedChecklistItem[];
   };
   measurements: ResolvedMeasurementRow[];
   layout: {
     waterTank: Array<{ kind: "checklist"; key: string }>;
     pumpHouse: Array<{ kind: "checklist" | "measurement"; key: string }>;
     mainAlarmValve: Array<{ kind: "checklist" | "measurement"; key: string }>;
+    /** V7 only, for the same reason as `checklist.testRunFirePump`. */
+    testRunFirePump?: Array<{ kind: "checklist"; key: string }>;
   };
   comments: ResolvedRemarksDefinition;
 };
@@ -61,6 +68,7 @@ const labels: Readonly<Record<string, string>> = {
 const waterTankOrder = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"] as const;
 const pumpChecklistOrder = ["pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"] as const;
 const mainValveChecklistOrder = ["breaching_inlet", "alarm_gong", "flow_meter_valve_positions"] as const;
+const testRunFirePumpOrder = ["trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"] as const;
 const measurementOrder = ["jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "water_supply_gauge", "installation_gauge"] as const;
 const pumpLayout = [
   { kind: "checklist", key: "pump_house_clean" },
@@ -108,7 +116,28 @@ function exactMembers(values: UnknownRecord[], expected: readonly string[], name
     throw new Error(`Automatic Sprinkler definition has invalid ${name} members`);
   }
 }
-function result(control: unknown, allowedValues: unknown): ResultControlDefinition {
+/** Labels only. Which values a field may carry is decided by that field's own
+ * frozen `allowedValues`, never by this map, so carrying the V7 four-state
+ * vocabulary here cannot widen a historical two-state page. */
+const optionLabels: Readonly<Record<string, string>> = {
+  good: "Good", poor: "Poor", not_good: "Not Good", complete_repair: "Complete Repair", na: "N.A."
+};
+function result(control: unknown, allowedValues: unknown, templateVersion: number): ResultControlDefinition {
+  if (templateVersion === 7) {
+    // V7 fork - mirrors `resolvePublishedAutomaticSprinklerControls` (web) and
+    // the Hose Reel / CO2 V7 resolvers: the frozen definition's own
+    // `allowedValues` list decides the option set, this function never widens it.
+    if (control !== "good_poor" || !Array.isArray(allowedValues) || allowedValues.length === 0
+      || !allowedValues.every((value) => typeof value === "string" && optionLabels[value] !== undefined)
+      || new Set(allowedValues).size !== allowedValues.length) {
+      throw new Error("Automatic Sprinkler definition has invalid result metadata");
+    }
+    return {
+      type: "single_select",
+      required: true,
+      options: (allowedValues as string[]).map((value) => ({ value, label: optionLabels[value]! }))
+    };
+  }
   if (control !== "good_poor" || !Array.isArray(allowedValues)
     || allowedValues.length !== 2 || allowedValues[0] !== "good" || allowedValues[1] !== "poor") {
     throw new Error("Automatic Sprinkler definition has invalid result metadata");
@@ -120,17 +149,17 @@ function result(control: unknown, allowedValues: unknown): ResultControlDefiniti
   };
 }
 const remarks = (maxLength = 2000): ResolvedRemarksDefinition => ({ policy: "optional", maxLength });
-function checklist(item: UnknownRecord): ResolvedChecklistItem {
+function checklist(item: UnknownRecord, templateVersion: number): ResolvedChecklistItem {
   const key = text(item.key, "checklist key");
   return {
     key,
     label: labels[key] ?? text(item.label, "checklist label"),
     sortOrder: integer(item.sortOrder, "checklist sort order"),
-    result: result(item.control, item.allowedValues),
+    result: result(item.control, item.allowedValues, templateVersion),
     remarks: remarks()
   };
 }
-function measurement(item: UnknownRecord): ResolvedMeasurementRow {
+function measurement(item: UnknownRecord, templateVersion: number): ResolvedMeasurementRow {
   if (!isRecord(item.result)) throw new Error("Automatic Sprinkler measurement result metadata is invalid");
   const key = text(item.key, "measurement key");
   const values = list(item.measurements, `${key} values`).map((value) => ({
@@ -145,7 +174,7 @@ function measurement(item: UnknownRecord): ResolvedMeasurementRow {
     label: labels[key] ?? text(item.label, "measurement label"),
     sortOrder: integer(item.sortOrder, "measurement sort order"),
     values,
-    result: result(item.result.control, item.result.allowedValues),
+    result: result(item.result.control, item.result.allowedValues, templateVersion),
     remarks: remarks()
   };
 }
@@ -179,6 +208,13 @@ export function resolveAutomaticSprinklerControls(
   const pumpMeasurements = list(named(pumpBlocks, "pump_pressure_measurements", "Pump measurements").items, "Pump measurement items");
   const valveBlocks = list(valve.blocks, "Main Alarm Valve blocks");
   const valveItems = list(named(valveBlocks, "main_alarm_valve_checks", "Main Alarm Valve checks").items, "Main Alarm Valve items");
+  // V7 adds the `Test Run Fire Pump 30 Minutes` block to the Main Alarm Valve
+  // section (masterServiceReportV7.ts `upgradeV7AutomaticSprinkler`). V1-V6
+  // definitions do not carry it and never look for it.
+  const isV7 = templateVersion === 7;
+  const testRunItems = isV7
+    ? list(named(valveBlocks, "test_run_fire_pump_checks", "Test Run Fire Pump checks").items, "Test Run Fire Pump items")
+    : [];
   const valveMeasurements = list(named(valveBlocks, "alarm_valve_measurements", "Main Alarm Valve measurements").items, "Main Alarm Valve measurement items");
   const commentsBlock = named(valveBlocks, "comments", "Comments");
   if (!isRecord(commentsBlock.field) || commentsBlock.field.control !== "remarks") throw new Error("Automatic Sprinkler comments metadata is invalid");
@@ -186,8 +222,9 @@ export function resolveAutomaticSprinklerControls(
   exactMembers(waterItems, waterTankOrder, "Water Tank");
   exactMembers(pumpItems, pumpChecklistOrder, "Pump House checklist");
   exactMembers(valveItems, mainValveChecklistOrder, "Main Alarm Valve checklist");
+  if (isV7) exactMembers(testRunItems, testRunFirePumpOrder, "Test Run Fire Pump checklist");
   exactMembers([...pumpMeasurements, ...valveMeasurements], measurementOrder, "measurement");
-  const measurements = ordered([...pumpMeasurements, ...valveMeasurements].map(measurement), measurementOrder);
+  const measurements = ordered([...pumpMeasurements, ...valveMeasurements].map((item) => measurement(item, templateVersion)), measurementOrder);
   const jockey = measurements.find((item) => item.key === "jockey_pump_pressure");
   if (!jockey || jockey.values.map((value) => value.key).join(",") !== "cut_in,cut_out") {
     throw new Error("Automatic Sprinkler Jockey measurement shape is invalid");
@@ -197,21 +234,26 @@ export function resolveAutomaticSprinklerControls(
     throw new Error("Automatic Sprinkler single measurement shape is invalid");
   }
 
+  const resolveChecklist = (item: UnknownRecord) => checklist(item, templateVersion);
   return {
     schemaVersion: 1,
-    source: { templateCode: "MFE-FSSR", templateVersion: 1, systemKey: "automatic_sprinkler" },
+    source: { templateCode: "MFE-FSSR", templateVersion: isV7 ? 7 : 1, systemKey: "automatic_sprinkler" },
     repetitionMode: "single",
     instance: { key: "primary", displaySequence: 1, zoneId: null, locationId: null },
     checklist: {
-      waterTank: ordered(waterItems.map(checklist), waterTankOrder),
-      pumpHouse: ordered(pumpItems.map(checklist), pumpChecklistOrder),
-      mainAlarmValve: ordered(valveItems.map(checklist), mainValveChecklistOrder)
+      waterTank: ordered(waterItems.map(resolveChecklist), waterTankOrder),
+      pumpHouse: ordered(pumpItems.map(resolveChecklist), pumpChecklistOrder),
+      mainAlarmValve: ordered(valveItems.map(resolveChecklist), mainValveChecklistOrder),
+      // Conditional spread, not a `[]` default: a V1-V6 tree must keep exactly
+      // the keys (and key order) it had before this fork existed.
+      ...(isV7 ? { testRunFirePump: ordered(testRunItems.map(resolveChecklist), testRunFirePumpOrder) } : {})
     },
     measurements,
     layout: {
       waterTank: waterTankOrder.map((key) => ({ kind: "checklist", key })),
       pumpHouse: [...pumpLayout],
-      mainAlarmValve: [...mainValveLayout]
+      mainAlarmValve: [...mainValveLayout],
+      ...(isV7 ? { testRunFirePump: testRunFirePumpOrder.map((key) => ({ kind: "checklist" as const, key })) } : {})
     },
     comments: remarks(4000)
   };
