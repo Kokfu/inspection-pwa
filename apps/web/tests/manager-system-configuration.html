@@ -1,0 +1,209 @@
+<!doctype html><html><body>
+<button id="run">Run manager system configuration checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { ManagerCustomerSystemConfiguration } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(900);
+const systemKey = "dry_wet_riser";
+
+// Server-authoritative descriptor the fake API exposes (mirrors
+// apps/api/src/inspections/systemConfiguration.ts).
+const schema = {
+  fields: [{
+    key: "riserMode", label: "Riser mode", control: "select", required: true,
+    options: [{ value: "dry", label: "Dry" }, { value: "wet", label: "Wet" }]
+  }]
+};
+
+// Server-side persisted object (mirrors customer_enabled_systems.system_configuration).
+let stored = { riserMode: "dry" };
+
+// parseDryWetRiserSystemConfiguration, mirrored: exactly { riserMode: "dry"|"wet" }.
+const parse = (value) => value && typeof value === "object" && !Array.isArray(value)
+  && Object.keys(value).length === 1 && (value.riserMode === "dry" || value.riserMode === "wet")
+  ? { riserMode: value.riserMode } : undefined;
+
+const body = (extra = {}) => ({ systemKey, templateVersion: 7, schema, configuration: { ...stored }, ...extra });
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+
+let getCalls = 0;
+let putCalls = 0;
+let getMode = "ok"; // "ok" | "schemaBad" | "rootNull" | "wrongSystem" | "emptySchema" | "badConfigValue"
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  const path = `/api/manager/customers/${customerId}/systems/${systemKey}/system-configuration`;
+  if (!url.startsWith(path)) return realFetch(input, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET") {
+    getCalls += 1; await new Promise((r) => setTimeout(r, 25));
+    if (getMode === "schemaBad") return json({ systemKey, templateVersion: 7, schema: { fields: [null] }, configuration: {} });
+    if (getMode === "rootNull") return rawResponse("null");
+    if (getMode === "wrongSystem") return json({ systemKey: "co2_fire_extinguisher", templateVersion: 7, schema, configuration: {} });
+    if (getMode === "emptySchema") return json({ systemKey, templateVersion: 7, schema: { fields: [] }, configuration: {} });
+    if (getMode === "badConfigValue") return json({ systemKey, templateVersion: 7, schema, configuration: { riserMode: 17 } });
+    return json(body());
+  }
+  if (method === "PUT") {
+    putCalls += 1;
+    const payload = JSON.parse(init.body).systemConfiguration ?? {};
+    const parsed = parse(payload);
+    if (!parsed) return json({ error: "INVALID_SYSTEM_CONFIGURATION", message: "The system configuration payload is invalid for this system." }, 400);
+    stored = parsed;
+    return json(body({ customer: putCustomerEcho() }));
+  }
+  return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+};
+
+const legitCustomer = () => ({
+  customer: { id: customerId, code: "C900", displayName: "Riser Customer" },
+  sites: [{ id: id(909), code: "S", displayName: "Site" }],
+  configuration: { id: id(901), revision: 4, enabledSystems: [{ key: systemKey, displayName: "Dry / Wet Riser System", sortOrder: 7, systemConfiguration: { riserMode: "dry" }, zones: [], locations: [] }] },
+  supportedSystems: [{ key: systemKey, displayName: "Dry / Wet Riser System", sortOrder: 7, assignable: true }]
+});
+let putCustomerEcho = legitCustomer;
+const poisoned = {
+  "customer not an object": () => ({ ...legitCustomer(), customer: "nope" }),
+  "customer.id missing": () => { const c = legitCustomer(); delete c.customer.id; return c; },
+  "customer.displayName missing": () => { const c = legitCustomer(); delete c.customer.displayName; return c; },
+  "configuration.revision not a number": () => { const c = legitCustomer(); c.configuration.revision = "4"; return c; },
+  "enabledSystems not an array": () => { const c = legitCustomer(); c.configuration.enabledSystems = "x"; return c; },
+  "enabledSystems element is null": () => { const c = legitCustomer(); c.configuration.enabledSystems = [null]; return c; },
+  "enabledSystems element missing key": () => { const c = legitCustomer(); delete c.configuration.enabledSystems[0].key; return c; },
+  "sites element missing displayName": () => { const c = legitCustomer(); delete c.sites[0].displayName; return c; },
+  "supportedSystems element missing displayName": () => { const c = legitCustomer(); delete c.supportedSystems[0].displayName; return c; }
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const q = (sel) => view.querySelector(sel);
+const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.includes(text));
+const selectFor = (label) => [...view.querySelectorAll("select")].find((s) => s.getAttribute("aria-label") === label);
+const setSelect = (el, value) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+};
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
+};
+const loadingVisible = () => view.textContent.includes("Loading system configuration");
+const reloadAndSettle = async (expectedGetCalls) => {
+  findButton("Reload").click();
+  await wait(() => loadingVisible(), "reload loading window opened");
+  await wait(() => getCalls === expectedGetCalls && !loadingVisible(), "reload re-hydrate finished");
+};
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  let savedCount = 0;
+  try {
+    stored = { riserMode: "dry" };
+    putCustomerEcho = legitCustomer;
+    createRoot(view).render(React.createElement(ManagerCustomerSystemConfiguration, {
+      customer: legitCustomer(),
+      onSaved: () => { savedCount += 1; },
+      onAuthorityFailure: () => { authorityFailures += 1; }
+    }));
+    await wait(() => findButton("Configure — Dry / Wet Riser System"), "collapsed editor");
+
+    // Load the schema + stored value.
+    findButton("Configure — Dry / Wet Riser System").click();
+    await wait(() => getCalls === 1 && selectFor("Riser mode"), "schema loaded");
+    ok("schema renders the Riser mode control", !!selectFor("Riser mode"));
+    ok("stored value is reflected", selectFor("Riser mode").value === "dry");
+    ok("options come from the server schema", [...selectFor("Riser mode").options].map((o) => o.value).join(",") === ",dry,wet");
+
+    // Edit + save.
+    setSelect(selectFor("Riser mode"), "wet");
+    await wait(() => selectFor("Riser mode")?.value === "wet" && view.textContent.includes("1 unsaved change"), "edit applied");
+    findButton("Save configuration").click();
+    await wait(() => putCalls === 1 && view.textContent.includes("System configuration saved"), "save confirmation");
+    ok("save persisted server-side", stored.riserMode === "wet");
+    ok("save reached onSaved", savedCount === 1);
+
+    // Reload -> persisted.
+    await reloadAndSettle(2);
+    ok("reload keeps the saved value", selectFor("Riser mode").value === "wet" && !view.textContent.includes("1 unsaved change"));
+
+    // Invalid value -> visible server message, no authority failure.
+    setSelect(selectFor("Riser mode"), "");
+    await wait(() => selectFor("Riser mode")?.value === "", "cleared value");
+    findButton("Save configuration").click();
+    await wait(() => putCalls === 2 && q("[role=alert]") && /invalid for this system/.test(q("[role=alert]").textContent), "server validation message");
+    ok("server validation error is shown", /invalid for this system/.test(q("[role=alert]").textContent));
+    ok("rejected save did not persist", stored.riserMode === "wet");
+    ok("domain validation did not trigger an authority failure", authorityFailures === 0);
+    ok("rejected save did not reach onSaved", savedCount === 1);
+
+    // Malformed HTTP 200 GET bodies on reload -> authority failure, not a raw TypeError.
+    getMode = "schemaBad";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 1, "poisoned schema routed to authority failure");
+    ok("schema:{fields:[null]} routes to onAuthorityFailure", authorityFailures === 1);
+
+    getMode = "rootNull";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 2, "null root body routed to authority failure");
+    ok("null root HTTP 200 routes to onAuthorityFailure", authorityFailures === 2);
+
+    // The response must be bound to the requested system and to its own schema:
+    // a different systemKey, an empty schema, or a value the schema does not
+    // permit are all authority failures, never a rendered control.
+    getMode = "wrongSystem";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 3, "wrong systemKey routed to authority failure");
+    ok("systemKey mismatch routes to onAuthorityFailure", authorityFailures === 3);
+
+    getMode = "emptySchema";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 4, "empty schema routed to authority failure");
+    ok("empty schema routes to onAuthorityFailure", authorityFailures === 4);
+
+    getMode = "badConfigValue";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 5, "invalid configuration value routed to authority failure");
+    ok("invalid riserMode value routes to onAuthorityFailure", authorityFailures === 5);
+
+    // Poisoned `customer` echo on save -> onAuthorityFailure, never onSaved.
+    getMode = "ok";
+    let getN = 7, putN = 2, fails = 5;
+    for (const [name, make] of Object.entries(poisoned)) {
+      getN += 1; putN += 1; fails += 1;
+      await reloadAndSettle(getN);
+      const savedBefore = savedCount;
+      putCustomerEcho = make;
+      setSelect(selectFor("Riser mode"), "wet");
+      await wait(() => selectFor("Riser mode")?.value === "wet", `re-selected for "${name}"`);
+      findButton("Save configuration").click();
+      await wait(() => putCalls === putN && authorityFailures === fails, `"${name}" routed to authority failure`);
+      ok(`poisoned customer (${name}) -> onAuthorityFailure`, authorityFailures === fails);
+      ok(`poisoned customer (${name}) never reached onSaved`, savedCount === savedBefore);
+      ok(`poisoned customer (${name}) left no crash text`, !/TypeError|Cannot read/.test(view.textContent));
+    }
+
+    // Control: a legit PUT `customer` echo DOES reach onSaved.
+    putCustomerEcho = legitCustomer;
+    getN += 1; putN += 1;
+    await reloadAndSettle(getN);
+    const savedBefore = savedCount;
+    setSelect(selectFor("Riser mode"), "dry");
+    await wait(() => selectFor("Riser mode")?.value === "dry", "re-selected for legit control");
+    findButton("Save configuration").click();
+    await wait(() => putCalls === putN && savedCount === savedBefore + 1, "legit echo reaches onSaved");
+    ok("legit PUT customer echo still reaches onSaved (guard is not over-strict)", savedCount === savedBefore + 1 && authorityFailures === fails);
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

@@ -3,7 +3,94 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iv (Final Report + PDF): 1a-iv
+**Last updated:** 2026-09-09 — **Phase 8H STEP 3.1 slice 1 (`system_configuration` vertical for
+`dry_wet_riser`) — uncommitted working tree, owner does git.** A Manager can now stand up and edit
+a `dry_wet_riser` customer end-to-end (backend API + Manager web UI) via the exact mechanism slice
+1a-i built for `label_overrides` — NO migration (the column + `jsonb_typeof='object'` CHECK exist
+since 008), NO evidence-policy work, NO tick-list rework beyond passing riser config through.
+
+**What ships:**
+* **NEW `apps/api/src/inspections/systemConfiguration.ts`** — parser/schema registry:
+  `systemConfigurationSystemKeys = new Set(["dry_wet_riser"])` (widenable without a migration),
+  `parseSystemConfiguration(systemKey, value)` (delegates to `parseDryWetRiserSystemConfiguration`),
+  `systemConfigurationSchema(systemKey)` returning the server-authoritative form descriptor the web
+  renders (`riserMode` select, `dry`/`wet`).
+* **`managerCustomers.ts`** — `GET`/`PUT
+  /manager/customers/:customerId/systems/:systemKey/system-configuration` (`requireRole("admin")`),
+  mirroring the label-override routes: resolves the frozen active revision like
+  `loadLabelOverrideContext`; unsupported system → 404 `SYSTEM_CONFIGURATION_UNSUPPORTED_SYSTEM`,
+  system not enabled → 404 `SYSTEM_NOT_ENABLED`, bad payload → 400 `INVALID_SYSTEM_CONFIGURATION`.
+  PUT `BEGIN` → `FOR UPDATE` customer lock → `copySelectedConfiguration(...,
+  { systemConfigurationBySystemKey })` → `audit(manager_customer_system_configuration_updated)` →
+  `COMMIT` → re-read. `Cache-Control: private, no-store`.
+* **`copySelectedConfiguration`** gained `systemConfigurationBySystemKey?: ReadonlyMap<string,
+  unknown>`; when set for a key it writes `JSON.stringify(map.get(key))` at the
+  `customer_enabled_systems` INSERT. The "keep `current.enabled` order" branch now fires for EITHER
+  map, but only when the enabled SET is unchanged — a set change (enabling `dry_wet_riser` with an
+  inline config) still rebuilds in catalog order so the new key is actually inserted.
+  `assertDryWetRiserAssignments` resolves `riserMode` from the pending map FIRST, then the
+  forward-copied row — enabling `dry_wet_riser` with no resolvable `riserMode` from either source
+  still fails `RISER_MODE_REQUIRED` (400, unchanged — pinned by `managerCustomers.test.ts`).
+* **`POST .../configuration-revisions`** accepts an optional `systemConfiguration: Record<systemKey,
+  object>` body key (every key must be in `systemKeys` AND `systemConfigurationSystemKeys` AND
+  parse), threaded straight into `copySelectedConfiguration` — so "enable dry_wet_riser + set
+  riserMode" is ONE atomic revision. `exactBody` allow-list widened to
+  `["systemKeys", "systemConfiguration"]`.
+* **`loadManagerCustomer`** now surfaces `systemConfiguration` on
+  `configuration.enabledSystems[]` (was dropped).
+* **Web** — `managerApi.ts`: `loadManagerSystemConfiguration` / `saveManagerSystemConfiguration`,
+  `systemConfigurationSystemKeys` Set, `ManagerSystemConfigurationSchema` type, full response
+  shape-guard (`asSystemConfiguration`) routing a poisoned 200 / `null` to `onAuthorityFailure`,
+  and `activateManagerCustomerConfiguration`'s new optional `systemConfiguration` arg.
+  `ManagerCustomerConfiguration.tsx`: new `ManagerCustomerSystemConfiguration` +
+  `ManagerSystemConfigurationEditor` (collapsible per eligible system, lazy GET on expand, control
+  rendered from the server `schema`, Save → PUT → `onSaved(result.customer)`, domain-vs-authority
+  error split), rendered beside `ManagerCustomerLabelOverrides`; the "Assigned Services" save path
+  requires a riser-mode choice inline when `dry_wet_riser` is newly ticked and sends it via the new
+  arg.
+
+**Config is read from the JOB's frozen `configuration_snapshot`** at freeze time, never re-resolved
+from the live revision. `serviceVisits.ts` job-freeze is untouched — it already emits
+`systemConfiguration` only for `dry_wet_riser` (:157); a `system_configuration = {}` customer's
+frozen job snapshot has NO `systemConfiguration` key on non-`dry_wet_riser` systems (asserted).
+
+**`label_overrides` handling, `applyLabelOverrides`, and the label-override routes/tests are
+untouched** — `managerLabelOverrides.integration.test.ts` and the web `manager-label-overrides`
+spec stay green WITHOUT edits despite the shared `copySelectedConfiguration` signature change.
+
+**New tests:** `apps/api/src/routes/managerSystemConfiguration.integration.test.ts` (3, mirrors
+`managerLabelOverrides`: schema+config GET; PUT versions the map / audit row / freezes into NEW
+jobs only / invalid → NO revision; auth matrix; unsupported + not-enabled 404s; fresh-enable via
+`configuration-revisions` WITH inline config succeeds + freezes / WITHOUT → 400
+`RISER_MODE_REQUIRED`; label_overrides / zones / locations forward-copied unchanged; non-riser
+systems freeze no `systemConfiguration` key). Web `tests/manager-system-configuration.{html,spec.ts}`
+(mirrors `manager-label-overrides`). Scripts: `test:system-configuration` (api),
+`test:system-configuration-manager` (web, `--workers=1`).
+
+**Deviation from the brief:** DoD says the WITHOUT-inline-config `configuration-revisions` case is
+"409 `RISER_MODE_REQUIRED`". It is 400 — `assertDryWetRiserAssignments` has thrown 400 since
+`ba1fb2a` and `managerCustomers.test.ts` pins 400. Changing it was out of scope (would break a
+frozen test); the new integration test asserts 400.
+
+**Sol P1 remediation (round 1) — `apps/web/src/manager/managerApi.ts` only:**
+* **P1-1** — `asSystemConfiguration(expectedSystemKey, data)` now binds the response to the
+  requested system: rejects a mismatched `systemKey`, an empty `schema.fields`, and any
+  `configuration` value that is not a declared option of a declared field. A poisoned 200 naming
+  `co2_fire_extinguisher` / carrying `{ riserMode: 17 }` now routes to `onAuthorityFailure`.
+* **P1-2** — `isManagerCustomer` (shared with `saveManagerLabelOverrides`) now validates EVERY
+  declared `ManagerCustomer` field + nested element: `customer.code`, `configuration.id`,
+  `enabledSystems[].sortOrder` / `zones` / `locations` (and optional `systemConfiguration` object),
+  `sites[].id` / `.code`, `supportedSystems[].sortOrder` / `.assignable` (boolean) /
+  optional `.unavailableReason`. A poisoned echo with a missing/non-boolean `assignable` (which
+  could flip a service checkbox's authorization) now routes to `onAuthorityFailure`, never
+  `onSaved`. `manager-label-overrides.{spec,integration}` stay green WITHOUT edits — the hardening
+  only adds rejection reasons and every legit fixture / real `loadManagerCustomer` response already
+  carries these fields. `manager-system-configuration.html` gains `wrongSystem` / `emptySchema` /
+  `badConfigValue` poisoned-GET cases.
+
+<details><summary>Previous — 2026-09-09 label-overrides slice 1a-iv (Final Report + PDF), committed <code>193c078</code> / <code>f6045de</code></summary>
+
+**Task 8e label-overrides slice 1a-iv (Final Report + PDF): 1a-iv
 committed `193c078`, response-key-alias remediation committed `f6045de` (HEAD). Sol re-review
 test-hardening pass in the working tree (owner does git).** Closes deferred item 2:
 `finalServiceReport.ts` built every
@@ -121,6 +208,8 @@ Sprinkler 1a-iv tests unchanged; its pinned digest
    DO-NOT-MODIFY. Absent from `labelOverrideSystemKeys` (API + web) → `/label-overrides` 404s. The
    final report's `fire_alarm_detector` branch (`fireAlarmV6Fields`) is likewise NOT wired to
    `v7DisplayLabelLookup` (returns `undefined` for it) and stays byte-identical.
+
+</details>
 
 <details><summary>Previous — 2026-09-09 label-overrides slice 1a-iii (`automatic_sprinkler`), committed <code>dbe9924</code></summary>
 
@@ -813,7 +902,8 @@ node --import tsx --test --test-concurrency=1 `
   src/reports/finalServiceReport.sprinkler.integration.test.ts `
   src/reports/fireAlarmV6FinalReport.integration.test.ts `
   src/routes/managerCustomers.integration.test.ts `
-  src/routes/managerLabelOverrides.integration.test.ts
+  src/routes/managerLabelOverrides.integration.test.ts `
+  src/routes/managerSystemConfiguration.integration.test.ts
 Confirm-Exit "integration batch"
 
 cd ../.. ; docker rm -f phase8f-v7-verify
@@ -832,6 +922,8 @@ cd ../web
 npm run typecheck ; Confirm-Exit "web typecheck"
 npm run build ; Confirm-Exit "web build"
 npm run test:v7-stale-evidence ; Confirm-Exit "v7-stale-evidence"
+npm run test:label-overrides-manager ; Confirm-Exit "label-overrides-manager"
+npm run test:system-configuration-manager ; Confirm-Exit "system-configuration-manager"
 cd ../..
 ```
 
@@ -1205,8 +1297,14 @@ field, add integration coverage, re-verify, Sol pass.
       on the deployed image since rebuild #2.
 
 ### STEP 3 — Manager administration  (Phase 8H)
-- [ ] 3.1 Manager UI to edit `customer_enabled_systems.system_configuration` per customer (the
-      "minor modification per customer" capability) + evidence-policy assignment + service tick-list.
+- [~] 3.1 Manager UI for per-customer `customer_enabled_systems` configuration.
+      - [x] slice 1 — `system_configuration` vertical (backend API + Manager web UI) for
+        `dry_wet_riser` (`riserMode`), via the slice 1a-i `label_overrides` mechanism. Fresh
+        `dry_wet_riser` customers can now be stood up through the UI. No migration.
+      - [ ] evidence-policy assignment (`customer_enabled_systems.evidence_policy_id` stays
+        seed-only).
+      - [ ] service tick-list UI polish (beyond passing riser config through
+        `configuration-revisions`).
 - [ ] 3.2 Manager review of completed reports / service history (partly exists).
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)

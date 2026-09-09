@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   activateManagerCustomerConfiguration,
   createManagerCustomer,
   createManagerCustomerSite,
   labelOverrideSystemKeys,
   loadManagerLabelOverrides,
+  loadManagerSystemConfiguration,
   ManagerApiError,
   saveManagerLabelOverrides,
+  saveManagerSystemConfiguration,
+  systemConfigurationSystemKeys,
   type ManagerCustomer,
-  type ManagerLabelOverrideNode
+  type ManagerLabelOverrideNode,
+  type ManagerSystemConfigurationSchema
 } from "./managerApi";
 
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
@@ -33,11 +37,35 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
 
 export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure }: { customer: ManagerCustomer; onBack: () => void; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void }) {
   const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
-  useEffect(() => setKeys(customer.configuration.enabledSystems.map((system) => system.key)), [customer]);
+  const [newRiserMode, setNewRiserMode] = useState("");
+  useEffect(() => { setKeys(customer.configuration.enabledSystems.map((system) => system.key)); setNewRiserMode(""); }, [customer]);
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  // `dry_wet_riser` cannot be stood up without a frozen `riserMode`, so when it
+  // is newly ticked the choice is required inline and passed through
+  // `activateManagerCustomerConfiguration`'s `systemConfiguration` arg — one
+  // atomic revision that enables and configures it.
+  const riserAlreadyEnabled = customer.configuration.enabledSystems.some((system) => system.key === "dry_wet_riser");
+  const riserNewlyTicked = keys.includes("dry_wet_riser") && !riserAlreadyEnabled;
+  const submitConfiguration = async (event: FormEvent) => {
+    event.preventDefault(); setError("");
+    if (riserNewlyTicked && newRiserMode !== "dry" && newRiserMode !== "wet") {
+      setError("Choose a riser mode (dry or wet) before enabling Dry / Wet Riser."); return;
+    }
+    setSaving(true);
+    try {
+      onSaved(await activateManagerCustomerConfiguration(
+        customer.customer.id, keys,
+        riserNewlyTicked ? { dry_wet_riser: { riserMode: newRiserMode } } : undefined
+      ));
+    } catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Configuration could not be activated.");
+    } finally { setSaving(false); }
+  };
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
-    {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { onSaved(await activateManagerCustomerConfiguration(customer.customer.id, keys)); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Configuration could not be activated."); } finally { setSaving(false); } }}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset><p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
+    {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>{riserNewlyTicked ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+    <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
   </section>;
 }
 
@@ -156,6 +184,131 @@ function ManagerSystemLabelOverrides({ customerId, systemKey, systemLabel, onSav
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save labels"}</button>
+        </div>
+      </> : null}
+    </div> : null}
+  </div>;
+}
+
+/**
+ * Per-customer `system_configuration` editor. One collapsible section per
+ * eligible enabled system (`systemConfigurationSystemKeys`). Reads the
+ * server-authoritative form descriptor + stored config from
+ * `GET .../system-configuration` and PUTs the full object; the server versions
+ * the customer configuration and forward-copies everything else. Server
+ * validation (`INVALID_SYSTEM_CONFIGURATION`) surfaces inline as the server's
+ * own message, never as an authority failure.
+ */
+export function ManagerCustomerSystemConfiguration({ customer, onSaved, onAuthorityFailure }: {
+  customer: ManagerCustomer; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const editable = useMemo(
+    () => customer.configuration.enabledSystems.filter((system) => systemConfigurationSystemKeys.has(system.key)),
+    [customer.configuration.enabledSystems]
+  );
+  if (editable.length === 0) return null;
+  return <section className="report-summary" aria-labelledby="manager-system-configuration-title">
+    <h3 id="manager-system-configuration-title">System configuration</h3>
+    <p>Per-customer settings that change how a service is carried out. Saving creates a new configuration version; existing service visits keep the settings they were created with.</p>
+    {editable.map((system) => (
+      <ManagerSystemConfigurationEditor
+        key={system.key}
+        customerId={customer.customer.id}
+        systemKey={system.key}
+        systemLabel={system.displayName}
+        onSaved={onSaved}
+        onAuthorityFailure={onAuthorityFailure}
+      />
+    ))}
+  </section>;
+}
+
+function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+  customerId: string; systemKey: string; systemLabel: string;
+  onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [schema, setSchema] = useState<ManagerSystemConfigurationSchema | undefined>(undefined);
+  const [loaded, setLoaded] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const hydrate = (next: ManagerSystemConfigurationSchema, configuration: Record<string, unknown>) => {
+    const values = Object.fromEntries(next.fields.map((field) => {
+      const value = configuration[field.key];
+      return [field.key, typeof value === "string" ? value : ""];
+    }));
+    setSchema(next); setLoaded(values); setDraft(values);
+  };
+
+  const load = async () => {
+    setLoading(true); setError(""); setMessage("");
+    try { const result = await loadManagerSystemConfiguration(customerId, systemKey); hydrate(result.schema, result.configuration); }
+    catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "System configuration could not be loaded.");
+    } finally { setLoading(false); }
+  };
+
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && schema === undefined && !loading) void load();
+  };
+
+  const save = async () => {
+    if (!schema) return;
+    setSaving(true); setError(""); setMessage("");
+    const payload: Record<string, unknown> = {};
+    for (const field of schema.fields) payload[field.key] = draft[field.key] ?? "";
+    try {
+      const result = await saveManagerSystemConfiguration(customerId, systemKey, payload);
+      hydrate(result.configuration.schema, result.configuration.configuration);
+      onSaved(result.customer);
+      setMessage("System configuration saved. A new configuration version was created.");
+    } catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "System configuration could not be saved.");
+    } finally { setSaving(false); }
+  };
+
+  const changedCount = schema
+    ? schema.fields.filter((field) => (draft[field.key] ?? "") !== (loaded[field.key] ?? "")).length
+    : 0;
+
+  return <div className="manager-system-configuration-system">
+    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+      {open ? "Hide" : "Configure"} — {systemLabel}
+    </button>
+    {open ? <div>
+      {loading ? <p>Loading system configuration…</p> : null}
+      {error ? <p className="form-message" role="alert">{error}</p> : null}
+      {message ? <p className="form-message" role="status">{message}</p> : null}
+      {schema ? <>
+        <ul className="manager-system-configuration-list">
+          {schema.fields.map((field) => (
+            <li key={field.key}>
+              <label>
+                <span className="manager-system-configuration-label">{field.label}</span>
+                <select
+                  aria-label={field.label}
+                  value={draft[field.key] ?? ""}
+                  onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+                >
+                  <option value="">Select…</option>
+                  {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+            </li>
+          ))}
+        </ul>
+        <p className="support-metadata">{changedCount} unsaved change{changedCount === 1 ? "" : "s"}.</p>
+        <div className="inline-actions">
+          <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
+          <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save configuration"}</button>
         </div>
       </> : null}
     </div> : null}

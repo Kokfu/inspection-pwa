@@ -5,6 +5,11 @@ import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
+import {
+  parseSystemConfiguration,
+  systemConfigurationSchema,
+  systemConfigurationSystemKeys
+} from "../inspections/systemConfiguration.js";
 import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
@@ -78,6 +83,36 @@ function parseLabelOverrideMap(value: unknown, validPaths: Set<string>): LabelOv
     parsed[path] = label.trim();
   }
   return parsed;
+}
+
+/**
+ * Validate the optional `systemConfiguration` body key on
+ * `POST .../configuration-revisions`. Every entry's key must be BOTH in the
+ * request's `systemKeys` and in `systemConfigurationSystemKeys`, and must parse
+ * (`parseSystemConfiguration`). Returns the normalised map, or `undefined` when
+ * the key is absent — making "enable dry_wet_riser + set riserMode" one atomic
+ * revision.
+ */
+function parseConfigurationRevisionSystemConfiguration(
+  value: unknown, keys: string[]
+): Map<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  if (!object(value)) {
+    throw new ManagerCustomerError("INVALID_SYSTEM_CONFIGURATION", "systemConfiguration must be an object.");
+  }
+  const requested = new Set(keys);
+  const map = new Map<string, unknown>();
+  for (const [systemKey, configuration] of Object.entries(value)) {
+    if (!requested.has(systemKey) || !systemConfigurationSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("INVALID_SYSTEM_CONFIGURATION", `systemConfiguration is not permitted for ${systemKey}.`);
+    }
+    const parsed = parseSystemConfiguration(systemKey, configuration);
+    if (!parsed) {
+      throw new ManagerCustomerError("INVALID_SYSTEM_CONFIGURATION", `systemConfiguration for ${systemKey} is invalid.`);
+    }
+    map.set(systemKey, parsed);
+  }
+  return map;
 }
 // These contracts need structural information that the small shared-customer
 // creation command intentionally does not collect. The API, not the browser,
@@ -193,10 +228,19 @@ function assertLocationDependentAssignments(keys: string[], configuration: Await
   }
 }
 
-function assertDryWetRiserAssignments(keys: string[], configuration: Awaited<ReturnType<typeof loadConfiguration>>) {
+function assertDryWetRiserAssignments(
+  keys: string[],
+  configuration: Awaited<ReturnType<typeof loadConfiguration>>,
+  systemConfigurationBySystemKey?: ReadonlyMap<string, unknown>
+) {
   if (!keys.includes("dry_wet_riser")) return;
+  // The about-to-be-written config wins over the forward-copied current row, so
+  // "enable dry_wet_riser + set riserMode" in one revision passes this guard.
+  const pending = systemConfigurationBySystemKey?.get("dry_wet_riser");
   const existing = configuration.enabled.find((system) => system.key === "dry_wet_riser");
-  if (!existing || !parseDryWetRiserSystemConfiguration(existing.systemConfiguration)) {
+  const resolved = parseDryWetRiserSystemConfiguration(pending)
+    ?? (existing ? parseDryWetRiserSystemConfiguration(existing.systemConfiguration) : undefined);
+  if (!resolved) {
     throw new ManagerCustomerError(
       "RISER_MODE_REQUIRED",
       "dry_wet_riser.systemConfiguration.riserMode must be either dry or wet."
@@ -240,8 +284,9 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
     configuration: {
       id: config.revision.id,
       revision: config.revision.revision,
-      enabledSystems: config.enabled.map(({ id, systemConfiguration: _configuration, evidencePolicyId: _policy, labelOverrides, ...system }) => ({
+      enabledSystems: config.enabled.map(({ id, systemConfiguration, evidencePolicyId: _policy, labelOverrides, ...system }) => ({
         ...system,
+        systemConfiguration: object(systemConfiguration) ? systemConfiguration : {},
         labelOverrides: object(labelOverrides) ? labelOverrides : {},
         zones: config.zones.filter((zone) => zone.enabledSystemId === id),
         locations: config.locations.filter((location) => location.enabledSystemId === id)
@@ -260,30 +305,39 @@ async function copySelectedConfiguration(
   client: PoolClient,
   customerId: string,
   keys: string[],
-  options: { labelOverridesBySystemKey?: ReadonlyMap<string, LabelOverrideMap> } = {}
+  options: {
+    labelOverridesBySystemKey?: ReadonlyMap<string, LabelOverrideMap>;
+    systemConfigurationBySystemKey?: ReadonlyMap<string, unknown>;
+  } = {}
 ) {
   const current = await loadConfiguration(client, customerId);
   const supported = await requireSupportedKeys(client, keys);
   assertLocationDependentAssignments(keys, current);
-  assertDryWetRiserAssignments(keys, current);
+  assertDryWetRiserAssignments(keys, current, options.systemConfigurationBySystemKey);
   const newRevisionId = randomUUID();
   await client.query(`UPDATE customer_configuration_revisions SET status = 'superseded' WHERE id = $1`, [current.revision.id]);
   await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3 AND publication_status = 'published'), $4, 'active')`, [newRevisionId, customerId, customerCatalogVersion, current.revision.revision + 1]);
   const oldByKey = new Map(current.enabled.map((system) => [system.key, system]));
   const catalogByKey = new Map(supported.map((system) => [system.key, system]));
-  // A label-only edit keeps the customer's current enabled-system order; a
-  // system-selection change (no override map) rebuilds in catalog order, exactly
-  // as before.
-  const orderedKeys = options.labelOverridesBySystemKey
-    ? current.enabled.map((system) => system.key)
-    : supported.map((system) => system.key);
+  // A per-system edit (label overrides or system_configuration) that leaves the
+  // enabled SET unchanged keeps the customer's current enabled-system order; any
+  // system-selection change — including enabling `dry_wet_riser` with an inline
+  // `system_configuration` — rebuilds in catalog order so the added key is
+  // actually inserted, exactly as before.
+  const currentKeys = current.enabled.map((system) => system.key);
+  const perSystemEdit = Boolean(options.labelOverridesBySystemKey || options.systemConfigurationBySystemKey);
+  const sameEnabledSet = currentKeys.length === keys.length && keys.every((key) => currentKeys.includes(key));
+  const orderedKeys = perSystemEdit && sameEnabledSet ? currentKeys : supported.map((system) => system.key);
   for (const [index, key] of orderedKeys.entries()) {
     const catalogSystem = catalogByKey.get(key)!;
     const old = oldByKey.get(key);
     const enabledId = randomUUID();
     const labelOverrides = options.labelOverridesBySystemKey?.get(key)
       ?? (object(old?.labelOverrides) ? old!.labelOverrides : {});
-    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(old?.systemConfiguration ?? {}), old?.evidencePolicyId ?? null, JSON.stringify(labelOverrides)]);
+    const systemConfiguration = options.systemConfigurationBySystemKey?.has(key)
+      ? options.systemConfigurationBySystemKey.get(key)
+      : (old?.systemConfiguration ?? {});
+    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(systemConfiguration), old?.evidencePolicyId ?? null, JSON.stringify(labelOverrides)]);
     if (!old) continue;
     const zoneIds = new Map<string, string>();
     for (const zone of current.zones.filter((value) => value.enabledSystemId === old.id)) {
@@ -449,10 +503,12 @@ export function createManagerCustomersRouter(
       client = await database.connect();
       const customerId = request.params.customerId;
       if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
-      const body = exactBody(request.body, ["systemKeys"]); const keys = systemKeys(body.systemKeys); await client.query("BEGIN");
+      const body = exactBody(request.body, ["systemKeys", "systemConfiguration"]); const keys = systemKeys(body.systemKeys);
+      const systemConfigurationBySystemKey = parseConfigurationRevisionSystemConfiguration(body.systemConfiguration, keys);
+      await client.query("BEGIN");
       const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
       if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
-      const revisionId = await copySelectedConfiguration(client, customerId, keys);
+      const revisionId = await copySelectedConfiguration(client, customerId, keys, systemConfigurationBySystemKey ? { systemConfigurationBySystemKey } : {});
       await audit(client, request.currentUser!.id, "manager_customer_configuration_activated", "customer_configuration_revision", revisionId); await client.query("COMMIT");
       response.status(201).json({ customer: await loadManagerCustomer(customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
@@ -548,6 +604,85 @@ export function createManagerCustomersRouter(
         templateVersion: refreshed.templateVersion,
         labels: labelOverrideTree(refreshed.controls, refreshed.stored),
         overrides: refreshed.stored
+      });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
+
+  const parseSystemConfigurationTarget = (request: { params: Record<string, unknown> }) => {
+    const customerId = request.params.customerId;
+    const systemKey = request.params.systemKey;
+    if (typeof customerId !== "string" || !uuidPattern.test(customerId)) {
+      throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
+    }
+    if (typeof systemKey !== "string" || !systemConfigurationSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("SYSTEM_CONFIGURATION_UNSUPPORTED_SYSTEM", "Per-customer configuration is not supported for this system.", 404);
+    }
+    return { customerId, systemKey };
+  };
+
+  // The active revision's frozen template version, the server-authoritative form
+  // descriptor, and the currently stored `system_configuration` for one enabled
+  // system. Resolved exactly like `loadLabelOverrideContext`.
+  const loadSystemConfigurationContext = async (queryable: Pick<PoolClient, "query">, customerId: string, systemKey: string) => {
+    const owner = await queryable.query(`SELECT 1 FROM customers WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
+    if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+    const result = await queryable.query<{ templateVersion: number; systemConfiguration: unknown }>(`
+      SELECT template.version AS "templateVersion", enabled.system_configuration AS "systemConfiguration"
+      FROM customer_configuration_revisions revision
+      INNER JOIN master_service_report_templates template ON template.id = revision.template_version_id
+      INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id = revision.id AND enabled.system_key = $2
+      WHERE revision.customer_id = $1 AND revision.status = 'active'`, [customerId, systemKey]);
+    const row = result.rows[0];
+    if (!row) throw new ManagerCustomerError("SYSTEM_NOT_ENABLED", "That system is not enabled for this customer.", 404);
+    return {
+      templateVersion: row.templateVersion,
+      schema: systemConfigurationSchema(systemKey),
+      stored: object(row.systemConfiguration) ? row.systemConfiguration : {}
+    };
+  };
+
+  router.get("/manager/customers/:customerId/systems/:systemKey/system-configuration", requireRole("admin"), async (request, response, next) => {
+    try {
+      const { customerId, systemKey } = parseSystemConfigurationTarget(request);
+      const context = await loadSystemConfigurationContext(database, customerId, systemKey);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        systemKey,
+        templateVersion: context.templateVersion,
+        schema: context.schema,
+        configuration: context.stored
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/customers/:customerId/systems/:systemKey/system-configuration", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const { customerId, systemKey } = parseSystemConfigurationTarget(request);
+      const body = exactBody(request.body, ["systemConfiguration"]);
+      client = await database.connect();
+      await client.query("BEGIN");
+      const owner = await client.query(`SELECT id FROM customers WHERE id = $1 AND is_active = true AND is_demo = false FOR UPDATE`, [customerId]);
+      if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await loadSystemConfigurationContext(client, customerId, systemKey);
+      const parsed = parseSystemConfiguration(systemKey, body.systemConfiguration);
+      if (!parsed) throw new ManagerCustomerError("INVALID_SYSTEM_CONFIGURATION", "The system configuration payload is invalid for this system.");
+      const current = await loadConfiguration(client, customerId);
+      const revisionId = await copySelectedConfiguration(
+        client,
+        customerId,
+        current.enabled.map((system) => system.key),
+        { systemConfigurationBySystemKey: new Map([[systemKey, parsed]]) }
+      );
+      await audit(client, request.currentUser!.id, "manager_customer_system_configuration_updated", "customer_configuration_revision", revisionId);
+      await client.query("COMMIT");
+      const refreshed = await loadSystemConfigurationContext(database, customerId, systemKey);
+      response.status(200).json({
+        customer: await loadManagerCustomer(customerId, database),
+        systemKey,
+        templateVersion: refreshed.templateVersion,
+        schema: refreshed.schema,
+        configuration: refreshed.stored
       });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });

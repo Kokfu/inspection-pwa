@@ -11,6 +11,7 @@
     "test:label-overrides-parity": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/labelOverridesParity.test.ts",
     "test:label-overrides-technician": "playwright test tests/label-override-technician-form.spec.ts",
     "test:label-overrides-manager": "playwright test tests/manager-label-overrides.spec.ts",
+    "test:system-configuration-manager": "playwright test tests/manager-system-configuration.spec.ts --workers=1",
     "test:label-overrides-sprinkler": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/automaticSprinklerLabelOverrides.test.ts",
     "test:label-overrides-sprinkler-browser": "playwright test tests/label-override-sprinkler.spec.ts",
     "test:fire-alarm-dispatch": "playwright test tests/fire-alarm-client-dispatch.spec.ts",
