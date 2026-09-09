@@ -103,6 +103,14 @@ type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: Reado
  * aliases for the few resolved keys whose spelling differs.  Do not replace
  * this with a casing heuristic: a response key is part of each system's
  * frozen contract and Wet Chemical's second detector demonstrates why.
+ *
+ * The `"…Status 1" / " 2" / " 3"` variants exist because the frozen V7 CO2 /
+ * Wet Chemical detector columns are `normal_test_isolation_multi` (multi_select):
+ * the response serializes each as an ordered array, so `flatten` renders the
+ * per-element segments as `<row> - heatDetectorStatus 1` … `- heatDetectorStatus 3`
+ * (bounded at 3 — normal / test / isolation are the only options). Registering
+ * the bare key plus those three bounded segments points every rendered form of
+ * the column at the frozen/overridden definition wording.
  */
 const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   hose_reel: {
@@ -136,9 +144,12 @@ const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<strin
  * (KEY DESIGN POINT of the 1a-iv brief). The only key that resolves to more than
  * one label in a tree is the generic single-measurement value key `value`; such
  * a key is dropped so it prettifies exactly as before rather than an arbitrary
- * winner. `labelFor` keeps the prettifier as the fallback for every key the tree
- * does not cover (row `remarks`, `rowUuid`, the camelCase CO2 / Wet Chemical
- * `controlPanelLocation` / detector-column keys, …).
+ * winner. The CO2 / Wet Chemical camelCase response keys
+ * (`controlPanelLocation`, `alarmZone`, the `heatDetectorStatus` /
+ * `smokeDetectorStatus` detector columns) are covered too, via the explicit
+ * `v7DisplayResponseKeyAliases` table above. `labelFor` keeps the prettifier as
+ * the fallback only for keys genuinely outside the tree and the alias table
+ * (row `remarks`, `rowUuid`, `displaySequence`, `unit`, …).
  *
  * Returns `undefined` (labels and evidence captions fall back to the pre-1a-iv
  * behaviour, byte-identical) for any non-V7 record, any out-of-scope system, a

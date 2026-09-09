@@ -77,6 +77,22 @@ test("completed service visit report uses accepted server history, preserves per
   assert.equal(report.sections.length, 1);
   assert.equal(report.sections.find((section) => section.systemKey === "co2_fire_extinguisher")?.location?.locationLabel, "CO2 Room");
   assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /Historical accepted response/);
+  // Historical immutability, explicit (Sol P1): this fixture is a legacy
+  // `schemaVersion === 1` CO2 accepted record. `v7DisplayLabelLookup` bails at its
+  // first guard for `snapshot.schemaVersion !== 2`, so `flatten` runs with NO
+  // `lookup` and every label is the raw prettified response key — the alias table
+  // and the frozen/overridden definition wording never touch this path. Proven
+  // two ways: the detector column renders as the prettified key, NOT its curated
+  // "Heat Detector" wording, and the whole section shape is byte-pinned.
+  assert.equal((forms[0] as { inspection_snapshot: { schemaVersion: number } }).inspection_snapshot.schemaVersion, 1);
+  const legacyLabels = new Set(report.sections[0]!.fields.map((field) => field.label));
+  assert.ok(legacyLabels.has("Detector Rows 1 - Heat Detector Status"), "legacy path prettifies the raw response key");
+  assert.ok(!legacyLabels.has("Detector Rows 1 - Heat Detector"), "legacy path never applies the V7 curated detector wording");
+  assert.equal(
+    createHash("sha256").update(JSON.stringify(report.sections)).digest("hex"),
+    "4204832f76dfd71e515b01615c90b6112a114980bd83148738c13014ef3d16ce",
+    "legacy schemaVersion===1 CO2 report section shape is byte-identical (no 1a-iv / alias-table influence)"
+  );
   // Derived "Summary of Testing" roll-up (DoD case c): an all-good/na system.
   assert.equal(report.systems[0]?.condition, "GOOD CONDITIONS");
   assert.equal(report.systems[0]?.conditionDetail, "");
@@ -532,18 +548,23 @@ const hoseReelV7Controls = resolveHoseReelControls(hoseReelV7Definition, "MFE-FS
 // Frozen JSON in PostgreSQL cannot carry TypeScript's `undefined` properties.
 const co2V7Definition = JSON.parse(JSON.stringify(masterServiceReportV7.systems.find((system) => system.key === "co2_fire_extinguisher")!)) as typeof masterServiceReportV7.systems[number];
 const co2V7Controls = resolveCo2Controls(co2V7Definition, "MFE-FSSR", 7);
+const wetChemicalV7Definition = JSON.parse(JSON.stringify(masterServiceReportV7.systems.find((system) => system.key === "wet_chemical")!)) as typeof masterServiceReportV7.systems[number];
+const wetChemicalV7Controls = resolveCo2Controls(wetChemicalV7Definition, "MFE-FSSR", 7);
 
 function v7AliasReportDatabase(
-  systemKey: "hose_reel" | "co2_fire_extinguisher",
-  definition: typeof hoseReelV7Definition | typeof co2V7Definition,
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical",
+  definition: typeof hoseReelV7Definition | typeof co2V7Definition | typeof wetChemicalV7Definition,
   response: Record<string, unknown>,
   labelOverrides?: Record<string, string>,
   evidenceRows: Array<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }> = []
 ) {
   const revisionId = ids[25]!;
-  const location = systemKey === "co2_fire_extinguisher" ? { id: co2Location, zoneId: null, key: "co2-room", displayName: "CO2 Room", sortOrder: 1 } : undefined;
+  const isSuppression = systemKey !== "hose_reel";
+  const suppressionControls = systemKey === "wet_chemical" ? wetChemicalV7Controls : co2V7Controls;
+  const displayName = systemKey === "hose_reel" ? "Hose Reel System" : systemKey === "wet_chemical" ? "Wet Chemical System" : "CO2 System";
+  const location = isSuppression ? { id: co2Location, zoneId: null, key: "co2-room", displayName: "CO2 Room", sortOrder: 1 } : undefined;
   const enabledSystem = {
-    enabledSystemId: ids[3]!, systemKey, displayName: systemKey === "hose_reel" ? "Hose Reel System" : "CO2 System",
+    enabledSystemId: ids[3]!, systemKey, displayName,
     definitionStatus: "confirmed", sortOrder: 1, zones: [], locations: location ? [location] : [],
     ...(labelOverrides ? { labelOverrides } : {})
   };
@@ -557,9 +578,9 @@ function v7AliasReportDatabase(
     schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" },
     customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", version: 7 }, instance: { instanceKey, displaySequence: 1, zone: null, location: locationSnapshot }
   };
-  const snapshot = systemKey === "co2_fire_extinguisher"
-    ? { ...authority, system: { key: systemKey, displayName: enabledSystem.displayName, definition, resolvedControls: co2V7Controls, repetitionMode: "per_location" } }
-    : { ...authority, system: { key: systemKey, systemKey, displayName: enabledSystem.displayName, definition, repetitionMode: "single_with_repeatable_rows" }, contractSha256: v7EvidenceContractSha256(definition), evidenceManifest: evidenceRows.map((item, index) => ({ photoUuid: ids[index + 23]!, fieldPath: item.field_path, sourceSha256: "a".repeat(64) })) };
+  const snapshot = isSuppression
+    ? { ...authority, system: { key: systemKey, displayName, definition, resolvedControls: suppressionControls, repetitionMode: "per_location" } }
+    : { ...authority, system: { key: systemKey, systemKey, displayName, definition, repetitionMode: "single_with_repeatable_rows" }, contractSha256: v7EvidenceContractSha256(definition), evidenceManifest: evidenceRows.map((item, index) => ({ photoUuid: ids[index + 23]!, fieldPath: item.field_path, sourceSha256: "a".repeat(64) })) };
   const row = {
     ...primary(systemKey, ids[10]!), form_instance_id: ids[24]!, instance_key: instanceKey, location_id: location?.id ?? null,
     master_template_version_id: masterServiceReportV7.id, customer_configuration_revision_id: revisionId, inspection_snapshot: snapshot, response_payload: response,
@@ -588,14 +609,18 @@ function hoseReelV7Response(hoseResult = "good") {
   };
 }
 
-function co2V7Response() {
-  const checklist = (items: typeof co2V7Controls.chargerAndBatteries) => Object.fromEntries(items.map((item) => [item.key, { result: "good", remarks: "" }]));
+/** Shared CO2 / Wet Chemical V7 accepted response — same resolved-controls shape,
+ * different per-system checklist keys.  Both detector columns are
+ * `normal_test_isolation_multi`, so the response serializes them as arrays. */
+function suppressionV7Response(controls: typeof co2V7Controls) {
+  const checklist = (items: typeof controls.chargerAndBatteries) => Object.fromEntries(items.map((item) => [item.key, { result: "good", remarks: "" }]));
   return {
     controlPanelLocation: "Control Room",
     detectorRows: [{ rowUuid: ids[22]!, displaySequence: 1, alarmZone: "Zone A", location: "CO2 Room", heatDetectorStatus: ["normal"], smokeDetectorStatus: ["normal"], remarks: "" }],
-    chargerAndBatteries: checklist(co2V7Controls.chargerAndBatteries), physicalOutlook: checklist(co2V7Controls.physicalOutlook), mainFunctionKeys: checklist(co2V7Controls.mainFunctionKeys), comments: ""
+    chargerAndBatteries: checklist(controls.chargerAndBatteries), physicalOutlook: checklist(controls.physicalOutlook), mainFunctionKeys: checklist(controls.mainFunctionKeys), comments: ""
   };
 }
+const co2V7Response = () => suppressionV7Response(co2V7Controls);
 
 test("V7 Hose Reel response aliases keep a mismatched field label and its bound-evidence caption in lockstep", async () => {
   const uploadsPath = await mkdtemp(path.join(tmpdir(), "phase8e-hose-report-"));
@@ -611,18 +636,51 @@ test("V7 Hose Reel response aliases keep a mismatched field label and its bound-
     const evidenceRows = [{ field_path: fieldPath, stored_sha256: digest, storage_relative_path: relative, width: 2, height: 2 }];
     const adapter = resolveV7EvidenceContract({ systemKey: "hose_reel", templateId: masterServiceReportV7.id, templateVersion: 7, definition: hoseReelV7Definition, contractSha256: v7EvidenceContractSha256(hoseReelV7Definition) });
     assert.ok(adapter && parseV7EvidenceManifest([{ photoUuid: ids[23]!, fieldPath, sourceSha256: "a".repeat(64) }], adapter, hoseReelV7Response("not_good")));
+    // Freeze `repeatableRows.resultColumns.hose = "Flexible Hose"`; accept one row with
+    // `hoseResult: "not_good"` and one bound accepted photo on `…rows.<uuid>.hose`.
     const base = await loadFinalServiceReport(jobId, v7AliasReportDatabase("hose_reel", hoseReelV7Definition, hoseReelV7Response("not_good"), undefined, evidenceRows) as never);
     const renamed = await loadFinalServiceReport(jobId, v7AliasReportDatabase("hose_reel", hoseReelV7Definition, hoseReelV7Response("not_good"), { "repeatableRows.resultColumns.hose": "Flexible Hose" }, evidenceRows) as never);
+    // Sol P1 re-pin: post-1a-iv definition-wording baseline for a no-override V7 job — NOT
+    // equal to the pre-alias prettified output ("Rows 1 - Hose Result"); the alias table
+    // intentionally extends 1a-iv's definition-wording behaviour to the key-mismatched fields.
     assert.equal(createHash("sha256").update(JSON.stringify(base.sections)).digest("hex"), "75e80bc4bbd4a943a316051ab86de0975a38e11a027bd7d8334abd9c62f7649f");
-    assert.ok(base.sections[0]!.fields.some((field) => field.label.endsWith(" - Hose") && field.value === "Not Good"));
+
+    // The `hose` result column flattens under the `hoseResult` response key. The label
+    // EXISTS in both reports — assert it directly, never gated on "if it changed".
+    const baseHoseField = base.sections[0]!.fields.find((field) => field.value === "Not Good" && field.label === "Rows 1 - Hose");
+    assert.ok(baseHoseField, "no-override job renders the frozen definition wording 'Hose'");
+    const renamedHoseField = renamed.sections[0]!.fields.find((field) => field.value === "Not Good" && field.label === "Rows 1 - Flexible Hose");
+    assert.ok(renamedHoseField, "overridden job renders the flattened row column as 'Rows 1 - Flexible Hose'");
+
+    // The bound-evidence caption moves in lockstep with the field label.
     assert.equal(base.sections[0]!.evidence[0]?.caption, "Hose Reel Drum - Hose");
     assert.equal(renamed.sections[0]!.evidence[0]?.caption, "Hose Reel Drum - Flexible Hose");
+
+    // EXACT changed-label set: the `hoseResult` result column AND its own `fieldRemarks`
+    // entry (both carry the aliased segment) — and nothing else. value/depth never move.
+    assert.equal(renamed.sections[0]!.fields.length, base.sections[0]!.fields.length);
+    const changedIndexes: number[] = [];
     for (const [index, before] of base.sections[0]!.fields.entries()) {
       const after = renamed.sections[0]!.fields[index]!;
-      assert.equal(after.value, before.value, `field ${index} value is unchanged`);
-      assert.equal(after.depth, before.depth, `field ${index} depth is unchanged`);
-      if (after.label !== before.label) assert.equal(after.label, before.label.replace("Hose", "Flexible Hose"));
+      assert.equal(after.value, before.value, `field ${index} value unmoved`);
+      assert.equal(after.depth, before.depth, `field ${index} depth unmoved`);
+      if (after.label !== before.label) changedIndexes.push(index);
     }
+    assert.deepEqual(
+      changedIndexes.map((index) => [base.sections[0]!.fields[index]!.label, renamed.sections[0]!.fields[index]!.label]),
+      [
+        ["Rows 1 - Hose", "Rows 1 - Flexible Hose"],
+        ["Rows 1 - Field Remarks - Hose", "Rows 1 - Field Remarks - Flexible Hose"]
+      ]
+    );
+    // Per-field (not substring) equality of the entire untouched subset.
+    const untouched = (fields: FinalReportSection["fields"]) => fields.filter((_, index) => !changedIndexes.includes(index));
+    assert.deepEqual(untouched(renamed.sections[0]!.fields), untouched(base.sections[0]!.fields));
+
+    // A mutation that registers the alias into the definition map but NOT the display
+    // map fails here twice over: the no-override base digest moves (the `hose` column
+    // falls back to the prettified "Hose Result"), and the exact changed-label set
+    // collapses to [] because base and renamed would both prettify identically.
   } finally {
     if (previousUploadsPath === undefined) delete process.env.UPLOADS_PATH; else process.env.UPLOADS_PATH = previousUploadsPath;
     await rm(uploadsPath, { recursive: true, force: true });
@@ -630,13 +688,22 @@ test("V7 Hose Reel response aliases keep a mismatched field label and its bound-
 });
 
 test("V7 CO2 response aliases apply frozen detector wording without moving any sibling field", async () => {
+  // The V7 CO2 evidence contract (`co2AdapterFields`) carries only checklist paths —
+  // the detector columns are `normal_test_isolation_multi`, never Poor-capable, so
+  // there is NO detector-row evidence path. This proves the field-label side only.
   assert.ok(validateCo2Responses(co2V7Response(), co2V7Controls));
   assert.equal(collectResolvedLabelPaths(applyLabelOverrides(co2V7Controls, { "detectorRows.heatDetector": "Heat Sensor" })).find((entry) => entry.key === "heat_detector")?.definitionLabel, "Heat Sensor");
   const adapter = resolveV7EvidenceContract({ systemKey: "co2_fire_extinguisher", templateId: masterServiceReportV7.id, templateVersion: 7, definition: co2V7Definition, contractSha256: v7EvidenceContractSha256(co2V7Definition) });
   assert.deepEqual(adapter?.derivePoorFieldPaths(co2V7Response()), []);
   const base = await loadFinalServiceReport(jobId, v7AliasReportDatabase("co2_fire_extinguisher", co2V7Definition, co2V7Response()) as never);
   const renamed = await loadFinalServiceReport(jobId, v7AliasReportDatabase("co2_fire_extinguisher", co2V7Definition, co2V7Response(), { "detectorRows.heatDetector": "Heat Sensor" }) as never);
+  // Sol P1 re-pin: post-1a-iv definition-wording baseline for a no-override V7 job — NOT
+  // equal to the pre-alias prettified output ("Detector Rows 1 - Heat Detector Status 1");
+  // the alias table intentionally extends 1a-iv's definition-wording behaviour to the
+  // key-mismatched detector columns.
   assert.equal(createHash("sha256").update(JSON.stringify(base.sections)).digest("hex"), "dd2e04e001e6caaafadc6bf3a3fdc8dcea3d72f75ced0de2b1976bd38d8dc1f1");
+  // The frozen heat-detector wording reaches the no-override report verbatim.
+  assert.ok(base.sections[0]!.fields.some((field) => field.label === "Detector Rows 1 - Heat Detector"));
   let changed = 0;
   for (const [index, before] of base.sections[0]!.fields.entries()) {
     const after = renamed.sections[0]!.fields[index]!;
@@ -644,8 +711,53 @@ test("V7 CO2 response aliases apply frozen detector wording without moving any s
     assert.equal(after.depth, before.depth, `field ${index} depth is unchanged`);
     if (after.label !== before.label) {
       changed += 1;
-      assert.equal(after.label, before.label.replace("Heat Detector", "Heat Sensor"));
+      assert.equal(before.label, "Detector Rows 1 - Heat Detector");
+      assert.equal(after.label, "Detector Rows 1 - Heat Sensor");
     }
   }
   assert.equal(changed, 1, "only the heat-detector response-key alias is renamed");
+  const untouched = (fields: FinalReportSection["fields"]) =>
+    fields.filter((field) => field.label !== "Detector Rows 1 - Heat Detector" && field.label !== "Detector Rows 1 - Heat Sensor");
+  assert.deepEqual(untouched(renamed.sections[0]!.fields), untouched(base.sections[0]!.fields));
+});
+
+test("V7 Wet Chemical response aliases move the second-detector column to the frozen override; siblings byte-identical", async () => {
+  // The Wet Chemical V7 evidence contract (`wetChemicalAdapterFields`) carries only
+  // checklist paths — the detector columns are `normal_test_isolation_multi`, never
+  // Poor-capable, so there is NO detector-row evidence path. Like the CO2 case, this
+  // proves the field-label side only.
+  assert.ok(validateCo2Responses(suppressionV7Response(wetChemicalV7Controls), wetChemicalV7Controls));
+  // Wet Chemical's second source column is deliberately preserved under the V1 field
+  // key `unconfirmed_second_heat_detector` (NOT normalised to `smoke_detector`); its
+  // response key is still `smokeDetectorStatus`. The alias table bridges the two.
+  assert.equal(
+    collectResolvedLabelPaths(applyLabelOverrides(wetChemicalV7Controls, { "detectorRows.smokeDetector": "Deep Fryer Heat Probe" })).find((entry) => entry.key === "unconfirmed_second_heat_detector")?.definitionLabel,
+    "Deep Fryer Heat Probe"
+  );
+  const adapter = resolveV7EvidenceContract({ systemKey: "wet_chemical", templateId: masterServiceReportV7.id, templateVersion: 7, definition: wetChemicalV7Definition, contractSha256: v7EvidenceContractSha256(wetChemicalV7Definition) });
+  assert.deepEqual(adapter?.derivePoorFieldPaths(suppressionV7Response(wetChemicalV7Controls)), []);
+  const base = await loadFinalServiceReport(jobId, v7AliasReportDatabase("wet_chemical", wetChemicalV7Definition, suppressionV7Response(wetChemicalV7Controls)) as never);
+  const renamed = await loadFinalServiceReport(jobId, v7AliasReportDatabase("wet_chemical", wetChemicalV7Definition, suppressionV7Response(wetChemicalV7Controls), { "detectorRows.smokeDetector": "Deep Fryer Heat Probe" }) as never);
+  // Sol P1 re-pin: post-1a-iv definition-wording baseline for a no-override V7 job — NOT
+  // equal to the pre-alias prettified output ("Detector Rows 1 - Smoke Detector Status 1");
+  // the alias table intentionally extends 1a-iv's definition-wording behaviour to the
+  // key-mismatched second-detector column.
+  assert.equal(createHash("sha256").update(JSON.stringify(base.sections)).digest("hex"), "49472a8e38d01b461afeb4be08d807c40baf408d6b484680f857dc9430b42875");
+  // The frozen second-detector wording reaches the no-override report verbatim.
+  assert.ok(base.sections[0]!.fields.some((field) => field.label === "Detector Rows 1 - Heat Detector (Second Source Column - Unconfirmed)"));
+  let changed = 0;
+  for (const [index, before] of base.sections[0]!.fields.entries()) {
+    const after = renamed.sections[0]!.fields[index]!;
+    assert.equal(after.value, before.value, `field ${index} value is unchanged`);
+    assert.equal(after.depth, before.depth, `field ${index} depth is unchanged`);
+    if (after.label !== before.label) {
+      changed += 1;
+      assert.equal(before.label, "Detector Rows 1 - Heat Detector (Second Source Column - Unconfirmed)");
+      assert.equal(after.label, "Detector Rows 1 - Deep Fryer Heat Probe");
+    }
+  }
+  assert.equal(changed, 1, "only the second-detector response-key alias is renamed; every sibling label byte-identical");
+  const untouched = (fields: FinalReportSection["fields"]) =>
+    fields.filter((field) => !field.label.includes("Second Source Column") && !field.label.includes("Deep Fryer Heat Probe"));
+  assert.deepEqual(untouched(renamed.sections[0]!.fields), untouched(base.sections[0]!.fields));
 });
