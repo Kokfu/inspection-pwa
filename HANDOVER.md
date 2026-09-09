@@ -3,8 +3,8 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iv (Final Report + PDF)
-in the working tree, NOT committed.** Closes deferred item 2: `finalServiceReport.ts` built every
+**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iv (Final Report + PDF),
+committed `193c078`; P1 response-key-alias follow-up in the working tree.** Closes deferred item 2: `finalServiceReport.ts` built every
 `section.fields[].label` by prettifying the raw response key (`trfp_jockey_pump` → "Trfp Jockey
 Pump"), so the client-facing report and PDF ignored BOTH the customer's per-job overrides AND the
 frozen definition wording. Now the four override systems' **V7** report sections render the frozen
@@ -48,14 +48,22 @@ definition labels with the job's frozen `labelOverrides` applied.
   `fireAlarmV6FinalReport.integration` all green, unmodified). The no-override V7 Sprinkler
   rendering is pinned as the digest baseline; the with-override test asserts only the renamed
   field's two rows move.
-* **CO2 / Wet Chemical partial coverage** — their V7 response keys are camelCase
-  (`controlPanelLocation`, `heatDetectorStatus`) and do not match the resolved-controls snake_case
-  `key`s, so those specific fields keep the prettifier; the snake_case checklist groups
-  (charger/physical/function) are covered. `automatic_sprinkler` (flat `Record<ChecklistKey,…>`) and
-  `hose_reel` row columns are fully covered.
+* **CO2 / Wet Chemical response-key coverage is complete** via the explicit Final Report alias table:
+  `control_panel_location → controlPanelLocation`, `alarm_zone → alarmZone`,
+  `heat_detector → heatDetectorStatus`, `smoke_detector → smokeDetectorStatus` (CO2), and
+  `unconfirmed_second_heat_detector → smokeDetectorStatus` (Wet Chemical). The detector-state
+  response is an ordered array, so its bounded rendered segments (`…Status 1` through `…Status 3`)
+  are registered explicitly too; no casing heuristic or contract key change is involved.
 * **PDF digest not pinnable** — PDFKit stamps a random `/ID`, so the pinned digest is
   `sha256(JSON.stringify(report.sections))` (deterministic); the PDF is checked structurally
   (`%PDF-`, length, `!basePdf.equals(renamedPdf)`).
+
+**Files committed in `193c078`:**
+* `apps/api/src/reports/finalServiceReport.ts` — frozen V7 definition wording and per-job display-label overrides reach Final Report/PDF.
+* `apps/api/src/reports/finalServiceReport.test.ts` — pins V7 sprinkler wording, override isolation, and report-section digest.
+* `HANDOVER.md` — records the slice’s authority-chain design and verification status.
+* `apps/web/src/automaticSprinkler/automaticSprinklerTypes.ts` — comment-only four-state V7 result-model clarification.
+* `apps/web/src/automaticSprinkler/serverAutomaticSprinklerApi.ts` — behavior-neutral comment cleanup and 300-character constant split.
 
 **Gates (all green).** API: typecheck + build; `test:final-report` (**14**, incl. 3 new
 V7-Sprinkler label tests) / `test:final-report-integration` / `test:final-report-sprinkler` /
@@ -66,10 +74,9 @@ automatic-sprinkler-definition (7). Cold §2 batch — `co2V7` / `wetChemicalV7`
 `v7EvidenceRace` / `hydrantV7` / `hoseReelV7` / `automaticSprinklerV7` / `dryWetRiserV7` /
 `smokeVentilationV7` / `portableFireExtinguisherV7` / `fireIntercomV7` /
 `migrationReplayForwardOnly` / `fireAlarmV6Acceptance` / `managerCustomers` /
-`managerLabelOverrides` → **90 pass, 0 skip**. Web: typecheck + build; `test:v7-stale-evidence` (1). `git status --short`: 2 modified `apps/api` files
-(`finalServiceReport.ts` + `finalServiceReport.test.ts`); 2 pre-existing unrelated `apps/web`
-`automaticSprinkler` files were already modified in the working tree at session start (NOT touched
-by this slice). `git diff --check` clean (CRLF warnings only). DO-NOT-MODIFY list clean; V1–V5 /
+`managerLabelOverrides` → **90 pass, 0 skip**. Web: typecheck + build; `test:v7-stale-evidence` (1). At `193c078`,
+the five files above were the complete slice; no unrelated web working-tree change was included.
+`git diff --check` was clean (CRLF warnings only). DO-NOT-MODIFY list clean; V1–V5 /
 Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
 `P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
 

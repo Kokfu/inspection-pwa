@@ -98,6 +98,25 @@ function labelFor(key: string, lookup?: ReadonlyMap<string, string>) {
 type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: ReadonlyMap<string, string> };
 
 /**
+ * The accepted V7 response is intentionally not a serialization of the
+ * resolved controls tree.  These are the explicit, contract-owned response
+ * aliases for the few resolved keys whose spelling differs.  Do not replace
+ * this with a casing heuristic: a response key is part of each system's
+ * frozen contract and Wet Chemical's second detector demonstrates why.
+ */
+const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  hose_reel: {
+    drum: ["drumResult"], hose: ["hoseResult"], nozzle: ["nozzleResult"], valve: ["valveResult"], nozzle_box: ["nozzleBoxResult"]
+  },
+  co2_fire_extinguisher: {
+    control_panel_location: ["controlPanelLocation"], alarm_zone: ["alarmZone"], heat_detector: ["heatDetectorStatus", "heatDetectorStatus 1", "heatDetectorStatus 2", "heatDetectorStatus 3"], smoke_detector: ["smokeDetectorStatus", "smokeDetectorStatus 1", "smokeDetectorStatus 2", "smokeDetectorStatus 3"]
+  },
+  wet_chemical: {
+    control_panel_location: ["controlPanelLocation"], alarm_zone: ["alarmZone"], heat_detector: ["heatDetectorStatus", "heatDetectorStatus 1", "heatDetectorStatus 2", "heatDetectorStatus 3"], unconfirmed_second_heat_detector: ["smokeDetectorStatus", "smokeDetectorStatus 1", "smokeDetectorStatus 2", "smokeDetectorStatus 3"]
+  }
+};
+
+/**
  * Slice 1a-iv: a per-system flat `responseKey -> displayLabel` lookup for the
  * four systems that carry per-customer display-label overrides
  * (`automatic_sprinkler`, `co2_fire_extinguisher`, `wet_chemical`, `hose_reel`).
@@ -143,14 +162,19 @@ function v7DisplayLabelLookup(systemKey: string, snapshot: unknown, frozenSystem
   // `entry.definitionLabel` is `fieldNode.label` from the walked tree — i.e. the
   // EFFECTIVE label after any override on `overridden`, and the pure definition
   // label on `resolved`.
+  const aliases = v7DisplayResponseKeyAliases[systemKey] ?? {};
   const build = (tree: unknown) => {
     const map = new Map<string, string>();
     const ambiguous = new Set<string>();
+    const register = (key: string, label: string) => {
+      if (ambiguous.has(key)) return;
+      const existing = map.get(key);
+      if (existing === undefined) map.set(key, label);
+      else if (existing !== label) { map.delete(key); ambiguous.add(key); }
+    };
     for (const entry of collectResolvedLabelPaths(tree)) {
-      if (ambiguous.has(entry.key)) continue;
-      const existing = map.get(entry.key);
-      if (existing === undefined) map.set(entry.key, entry.definitionLabel);
-      else if (existing !== entry.definitionLabel) { map.delete(entry.key); ambiguous.add(entry.key); }
+      register(entry.key, entry.definitionLabel);
+      for (const alias of aliases[entry.key] ?? []) register(alias, entry.definitionLabel);
     }
     return { map, ambiguous };
   };

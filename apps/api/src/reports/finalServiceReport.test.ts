@@ -3,6 +3,9 @@ import test from "node:test";
 import express from "express";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import zlib from "node:zlib";
 import type { Server } from "node:http";
 import { createFinalReportPdfHandler } from "../routes/inspectionJobs.js";
@@ -14,11 +17,15 @@ import { fireAlarmDetectorV3, masterServiceReportV3 } from "../inspections/templ
 import { masterServiceReportV4, wetChemicalV4 } from "../inspections/templates/masterServiceReportV4.js";
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
 import { resolveFireAlarmControls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { createHash } from "node:crypto";
 import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
 import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
-import { v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
+import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
+import { applyLabelOverrides, collectResolvedLabelPaths } from "../inspections/labelOverrides.js";
+import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
+import sharp from "sharp";
 
 const ids = Array.from({ length: 30 }, (_, index) => `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
 const jobId = ids[0]!;
@@ -513,4 +520,132 @@ test("V7 Automatic Sprinkler override renames exactly one field; every sibling l
   const renamedPdf = await renderFinalServiceReportPdf(renamed);
   assert.ok(!basePdf.equals(renamedPdf), "the rename reaches the PDF");
   assert.ok(renamedPdf.length > basePdf.length, "the only content delta is the longer renamed label");
+});
+
+/* ------------------------------------------------------------------------- *
+ * V7 response-key aliases.  These systems deliberately serialize a handful
+ * of resolved control keys under contract-specific response names.
+ * ------------------------------------------------------------------------- */
+
+const hoseReelV7Definition = masterServiceReportV7.systems.find((system) => system.key === "hose_reel")!;
+const hoseReelV7Controls = resolveHoseReelControls(hoseReelV7Definition, "MFE-FSSR", 7);
+// Frozen JSON in PostgreSQL cannot carry TypeScript's `undefined` properties.
+const co2V7Definition = JSON.parse(JSON.stringify(masterServiceReportV7.systems.find((system) => system.key === "co2_fire_extinguisher")!)) as typeof masterServiceReportV7.systems[number];
+const co2V7Controls = resolveCo2Controls(co2V7Definition, "MFE-FSSR", 7);
+
+function v7AliasReportDatabase(
+  systemKey: "hose_reel" | "co2_fire_extinguisher",
+  definition: typeof hoseReelV7Definition | typeof co2V7Definition,
+  response: Record<string, unknown>,
+  labelOverrides?: Record<string, string>,
+  evidenceRows: Array<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }> = []
+) {
+  const revisionId = ids[25]!;
+  const location = systemKey === "co2_fire_extinguisher" ? { id: co2Location, zoneId: null, key: "co2-room", displayName: "CO2 Room", sortOrder: 1 } : undefined;
+  const enabledSystem = {
+    enabledSystemId: ids[3]!, systemKey, displayName: systemKey === "hose_reel" ? "Hose Reel System" : "CO2 System",
+    definitionStatus: "confirmed", sortOrder: 1, zones: [], locations: location ? [location] : [],
+    ...(labelOverrides ? { labelOverrides } : {})
+  };
+  const configuration = {
+    schemaVersion: 1, customer: { id: ids[1]!, code: "ACME", displayName: "Acme Fire Safety" }, site: { id: ids[2]!, displayName: "Main Tower" },
+    configuration: { revisionId, revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "Master", version: 7 }, enabledSystems: [enabledSystem]
+  };
+  const instanceKey = location ? `location:${location.id}` : "primary";
+  const locationSnapshot = location ? { id: location.id, key: location.key, displayName: location.displayName, sortOrder: location.sortOrder } : null;
+  const authority = {
+    schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" },
+    customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", version: 7 }, instance: { instanceKey, displaySequence: 1, zone: null, location: locationSnapshot }
+  };
+  const snapshot = systemKey === "co2_fire_extinguisher"
+    ? { ...authority, system: { key: systemKey, displayName: enabledSystem.displayName, definition, resolvedControls: co2V7Controls, repetitionMode: "per_location" } }
+    : { ...authority, system: { key: systemKey, systemKey, displayName: enabledSystem.displayName, definition, repetitionMode: "single_with_repeatable_rows" }, contractSha256: v7EvidenceContractSha256(definition), evidenceManifest: evidenceRows.map((item, index) => ({ photoUuid: ids[index + 23]!, fieldPath: item.field_path, sourceSha256: "a".repeat(64) })) };
+  const row = {
+    ...primary(systemKey, ids[10]!), form_instance_id: ids[24]!, instance_key: instanceKey, location_id: location?.id ?? null,
+    master_template_version_id: masterServiceReportV7.id, customer_configuration_revision_id: revisionId, inspection_snapshot: snapshot, response_payload: response,
+    stored_sha256: null, storage_relative_path: null, width: null, height: null
+  };
+  return {
+    async query(sql: string) {
+      if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] };
+      if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] };
+      if (sql.includes("staged_inspection_evidence")) return { rowCount: evidenceRows.length, rows: evidenceRows };
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+}
+
+function hoseReelV7Response(hoseResult = "good") {
+  const checklistItems = [...hoseReelV7Controls.checklist.waterTank, ...hoseReelV7Controls.checklist.pumpHouse, ...hoseReelV7Controls.checklist.testRunFirePump];
+  const rowUuid = ids[22]!;
+  return {
+    schemaVersion: 3,
+    checklist: Object.fromEntries(checklistItems.map((item) => [item.key, { result: "good", remarks: "" }])),
+    measurements: Object.fromEntries(hoseReelV7Controls.measurements.map((item) => [item.key, { values: Object.fromEntries(item.values.map((value) => [value.key, 10])), unit: "PSI", result: "good", remarks: "" }])),
+    drumCount: 1,
+    rows: [{ rowUuid, source: "technician", configuredLocationId: null, zoneSnapshot: null, locationSnapshot: null, locationText: "Lobby", assetReference: null, sortOrder: 1, drumType: "swing", drumResult: "good", hoseResult, nozzleResult: "good", valveResult: "good", nozzleBoxResult: "good", remarks: "", fieldRemarks: hoseResult === "good" ? {} : { hoseResult: "Hose is perished" } }],
+    comments: ""
+  };
+}
+
+function co2V7Response() {
+  const checklist = (items: typeof co2V7Controls.chargerAndBatteries) => Object.fromEntries(items.map((item) => [item.key, { result: "good", remarks: "" }]));
+  return {
+    controlPanelLocation: "Control Room",
+    detectorRows: [{ rowUuid: ids[22]!, displaySequence: 1, alarmZone: "Zone A", location: "CO2 Room", heatDetectorStatus: ["normal"], smokeDetectorStatus: ["normal"], remarks: "" }],
+    chargerAndBatteries: checklist(co2V7Controls.chargerAndBatteries), physicalOutlook: checklist(co2V7Controls.physicalOutlook), mainFunctionKeys: checklist(co2V7Controls.mainFunctionKeys), comments: ""
+  };
+}
+
+test("V7 Hose Reel response aliases keep a mismatched field label and its bound-evidence caption in lockstep", async () => {
+  const uploadsPath = await mkdtemp(path.join(tmpdir(), "phase8e-hose-report-"));
+  const previousUploadsPath = process.env.UPLOADS_PATH;
+  process.env.UPLOADS_PATH = uploadsPath;
+  try {
+    const content = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).jpeg().toBuffer();
+    const digest = createHash("sha256").update(content).digest("hex");
+    const relative = "inspections/hose/evidence.jpg";
+    await mkdir(path.join(uploadsPath, "inspections", "hose"), { recursive: true });
+    await writeFile(path.join(uploadsPath, ...relative.split("/")), content);
+    const fieldPath = `hose_reel_drum.hose_reel_rows.rows.${ids[22]}.hose`;
+    const evidenceRows = [{ field_path: fieldPath, stored_sha256: digest, storage_relative_path: relative, width: 2, height: 2 }];
+    const adapter = resolveV7EvidenceContract({ systemKey: "hose_reel", templateId: masterServiceReportV7.id, templateVersion: 7, definition: hoseReelV7Definition, contractSha256: v7EvidenceContractSha256(hoseReelV7Definition) });
+    assert.ok(adapter && parseV7EvidenceManifest([{ photoUuid: ids[23]!, fieldPath, sourceSha256: "a".repeat(64) }], adapter, hoseReelV7Response("not_good")));
+    const base = await loadFinalServiceReport(jobId, v7AliasReportDatabase("hose_reel", hoseReelV7Definition, hoseReelV7Response("not_good"), undefined, evidenceRows) as never);
+    const renamed = await loadFinalServiceReport(jobId, v7AliasReportDatabase("hose_reel", hoseReelV7Definition, hoseReelV7Response("not_good"), { "repeatableRows.resultColumns.hose": "Flexible Hose" }, evidenceRows) as never);
+    assert.equal(createHash("sha256").update(JSON.stringify(base.sections)).digest("hex"), "75e80bc4bbd4a943a316051ab86de0975a38e11a027bd7d8334abd9c62f7649f");
+    assert.ok(base.sections[0]!.fields.some((field) => field.label.endsWith(" - Hose") && field.value === "Not Good"));
+    assert.equal(base.sections[0]!.evidence[0]?.caption, "Hose Reel Drum - Hose");
+    assert.equal(renamed.sections[0]!.evidence[0]?.caption, "Hose Reel Drum - Flexible Hose");
+    for (const [index, before] of base.sections[0]!.fields.entries()) {
+      const after = renamed.sections[0]!.fields[index]!;
+      assert.equal(after.value, before.value, `field ${index} value is unchanged`);
+      assert.equal(after.depth, before.depth, `field ${index} depth is unchanged`);
+      if (after.label !== before.label) assert.equal(after.label, before.label.replace("Hose", "Flexible Hose"));
+    }
+  } finally {
+    if (previousUploadsPath === undefined) delete process.env.UPLOADS_PATH; else process.env.UPLOADS_PATH = previousUploadsPath;
+    await rm(uploadsPath, { recursive: true, force: true });
+  }
+});
+
+test("V7 CO2 response aliases apply frozen detector wording without moving any sibling field", async () => {
+  assert.ok(validateCo2Responses(co2V7Response(), co2V7Controls));
+  assert.equal(collectResolvedLabelPaths(applyLabelOverrides(co2V7Controls, { "detectorRows.heatDetector": "Heat Sensor" })).find((entry) => entry.key === "heat_detector")?.definitionLabel, "Heat Sensor");
+  const adapter = resolveV7EvidenceContract({ systemKey: "co2_fire_extinguisher", templateId: masterServiceReportV7.id, templateVersion: 7, definition: co2V7Definition, contractSha256: v7EvidenceContractSha256(co2V7Definition) });
+  assert.deepEqual(adapter?.derivePoorFieldPaths(co2V7Response()), []);
+  const base = await loadFinalServiceReport(jobId, v7AliasReportDatabase("co2_fire_extinguisher", co2V7Definition, co2V7Response()) as never);
+  const renamed = await loadFinalServiceReport(jobId, v7AliasReportDatabase("co2_fire_extinguisher", co2V7Definition, co2V7Response(), { "detectorRows.heatDetector": "Heat Sensor" }) as never);
+  assert.equal(createHash("sha256").update(JSON.stringify(base.sections)).digest("hex"), "dd2e04e001e6caaafadc6bf3a3fdc8dcea3d72f75ced0de2b1976bd38d8dc1f1");
+  let changed = 0;
+  for (const [index, before] of base.sections[0]!.fields.entries()) {
+    const after = renamed.sections[0]!.fields[index]!;
+    assert.equal(after.value, before.value, `field ${index} value is unchanged`);
+    assert.equal(after.depth, before.depth, `field ${index} depth is unchanged`);
+    if (after.label !== before.label) {
+      changed += 1;
+      assert.equal(after.label, before.label.replace("Heat Detector", "Heat Sensor"));
+    }
+  }
+  assert.equal(changed, 1, "only the heat-detector response-key alias is renamed");
 });
