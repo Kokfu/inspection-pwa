@@ -15,6 +15,10 @@ import { masterServiceReportV4, wetChemicalV4 } from "../inspections/templates/m
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { resolveFireAlarmControls } from "../inspections/templates/fireAlarmDefinitionControls.js";
+import { createHash } from "node:crypto";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
+import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
+import { v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
 
 const ids = Array.from({ length: 30 }, (_, index) => `70000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
 const jobId = ids[0]!;
@@ -376,4 +380,137 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   assert.ok(!extractPdfText(cleanPdf).includes("Remarks:"), "no finding anywhere -> no Remarks block");
   // Secondary: the findings + conditionDetail lines still add measurable rendered content.
   assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
+});
+
+/* ------------------------------------------------------------------------- *
+ * Slice 1a-iv — the Final Report + PDF now render the FROZEN definition
+ * wording and the job's FROZEN per-customer display-label overrides for the
+ * four override systems, instead of prettifying the raw response key.
+ * ------------------------------------------------------------------------- */
+
+const sprinklerV7Definition = masterServiceReportV7.systems.find((system) => system.key === "automatic_sprinkler")!;
+const sprinklerV7TemplateId = masterServiceReportV7.id;
+const sprinklerV7Controls = resolveAutomaticSprinklerControls(sprinklerV7Definition, "MFE-FSSR", 7);
+const sprinklerV7ContractSha256 = v7EvidenceContractSha256(sprinklerV7Definition);
+
+function sprinklerV7ReportDatabase(labelOverrides?: Record<string, string>) {
+  const revisionId = ids[25]!;
+  const checklistItems = [
+    ...sprinklerV7Controls.checklist.waterTank, ...sprinklerV7Controls.checklist.pumpHouse,
+    ...sprinklerV7Controls.checklist.mainAlarmValve, ...(sprinklerV7Controls.checklist.testRunFirePump ?? [])
+  ];
+  const response = {
+    schemaVersion: 2,
+    checklist: Object.fromEntries(checklistItems.map((item) => [item.key, { result: "good", remarks: "" }])),
+    measurements: Object.fromEntries(sprinklerV7Controls.measurements.map((row) => [row.key, {
+      values: Object.fromEntries(row.values.map((value) => [value.key, 10])), unit: "PSI", result: "good", remarks: ""
+    }])),
+    comments: ""
+  };
+  const enabledSystem = {
+    enabledSystemId: ids[3]!, systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System",
+    definitionStatus: "confirmed", sortOrder: 1, zones: [], locations: [],
+    ...(labelOverrides ? { labelOverrides } : {})
+  };
+  const configuration = {
+    schemaVersion: 1, customer: { id: ids[1], code: "ACME", displayName: "Acme Fire Safety" },
+    site: { id: ids[2], displayName: "Main Tower" }, configuration: { revisionId, revisionNumber: 1 },
+    template: { id: sprinklerV7TemplateId, code: "MFE-FSSR", name: "Master", version: 7 },
+    enabledSystems: [enabledSystem]
+  };
+  const snapshot = {
+    schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z",
+    job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" },
+    customer: configuration.customer, configuration: configuration.configuration,
+    template: { id: sprinklerV7TemplateId, code: "MFE-FSSR", version: 7 },
+    system: {
+      key: "automatic_sprinkler", systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System",
+      definition: sprinklerV7Definition, repetitionMode: "single"
+    },
+    instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null },
+    contractSha256: sprinklerV7ContractSha256, evidenceManifest: []
+  };
+  const row = {
+    ...primary("automatic_sprinkler", ids[10]!), master_template_version_id: sprinklerV7TemplateId,
+    customer_configuration_revision_id: revisionId, inspection_snapshot: snapshot, response_payload: response,
+    stored_sha256: null, storage_relative_path: null, width: null, height: null
+  };
+  return {
+    async query(sql: string) {
+      if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] };
+      if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] };
+      if (sql.includes("staged_inspection_evidence")) return { rowCount: 0, rows: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+}
+
+test("V7 Automatic Sprinkler final report renders frozen definition wording, not the prettified response key", async () => {
+  const report = await loadFinalServiceReport(jobId, sprinklerV7ReportDatabase() as never);
+  const labels = new Set(report.sections[0]!.fields.map((field) => field.label));
+  // Definition wording reaches the report: "trfp_jockey_pump" -> "Jockey Pump", not "Trfp Jockey Pump".
+  assert.ok(labels.has("Checklist - Jockey Pump - Result"));
+  assert.ok(!report.sections[0]!.fields.some((field) => field.label.includes("Trfp Jockey Pump")));
+  // A curated label from the frozen definition's own map, not a key prettification.
+  assert.ok(labels.has("Checklist - S.A.J Main Water Supply - Result"));
+  assert.ok(!report.sections[0]!.fields.some((field) => field.label.includes("Saj Main Water Supply")));
+  // The structural " - Result" / " - Remarks" suffix pairs survive (sectionRemarkLines depends on them).
+  for (const field of report.sections[0]!.fields) {
+    if (field.label.endsWith(" - Result")) {
+      assert.ok(labels.has(`${field.label.slice(0, -" - Result".length)} - Remarks`), `${field.label} keeps its Remarks sibling`);
+    }
+  }
+  // The generic measurement value key `value` resolves to two different definition
+  // labels, so it is dropped from the lookup and prettifies exactly as before.
+  assert.ok(labels.has("Measurements - Correct Duty Pump Cut In - Values - Value"));
+});
+
+test("V7 Automatic Sprinkler final report with NO frozen override map is stable (pinned report-section digest)", async () => {
+  const report = await loadFinalServiceReport(jobId, sprinklerV7ReportDatabase() as never);
+  // Pin the full report-section shape (labels, values, depths, evidence). Any
+  // drift in the 1a-iv label pipeline for a no-override V7 sprinkler job trips
+  // this deliberately. PDFKit stamps a random `/ID` so the PDF is not
+  // byte-stable; its CONTENT is asserted through the decoded text below.
+  assert.equal(
+    createHash("sha256").update(JSON.stringify(report.sections)).digest("hex"),
+    "2e415ad2857dfd76e221772a5994979f98a74409048ce70ca61454ccd159f356"
+  );
+  // The PDF renders `section.fields[].label` verbatim, so the pinned digest above
+  // already fixes its business content; PDFKit's embedded-subset glyph IDs are not
+  // reversible enough to assert the exact label strings out of the PDF bytes.
+  const pdf = await renderFinalServiceReportPdf(report);
+  assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
+  assert.ok(pdf.length > 900);
+});
+
+test("V7 Automatic Sprinkler override renames exactly one field; every sibling label is byte-identical", async () => {
+  const base = await loadFinalServiceReport(jobId, sprinklerV7ReportDatabase() as never);
+  const renamed = await loadFinalServiceReport(
+    jobId,
+    sprinklerV7ReportDatabase({ "checklist.testRunFirePump.trfp_jockey_pump": "Fire Pump Jockey (annual)" }) as never
+  );
+  assert.equal(renamed.sections.length, base.sections.length);
+  assert.equal(renamed.sections[0]!.fields.length, base.sections[0]!.fields.length);
+  let changed = 0;
+  for (const [index, field] of base.sections[0]!.fields.entries()) {
+    const after = renamed.sections[0]!.fields[index]!;
+    // value and depth NEVER move — labels only.
+    assert.equal(after.value, field.value, `field ${index} value unchanged`);
+    assert.equal(after.depth, field.depth, `field ${index} depth unchanged`);
+    if (after.label === field.label) continue;
+    changed += 1;
+    // The ONLY labels allowed to move are the renamed field's own Result / Remarks rows.
+    assert.ok(field.label === "Checklist - Jockey Pump - Result" || field.label === "Checklist - Jockey Pump - Remarks", `unexpected label change at ${index}: ${field.label}`);
+    assert.equal(after.label, field.label.replace("Jockey Pump", "Fire Pump Jockey (annual)"));
+  }
+  assert.equal(changed, 2, "exactly the renamed field's Result and Remarks rows changed");
+  // Every other section-field label is byte-identical to the no-override report.
+  const unchangedBase = base.sections[0]!.fields.filter((field) => !field.label.startsWith("Checklist - Jockey Pump - "));
+  const unchangedRenamed = renamed.sections[0]!.fields.filter((field) => !field.label.startsWith("Checklist - Fire Pump Jockey (annual) - "));
+  assert.deepEqual(unchangedRenamed, unchangedBase);
+  // The PDF changes, and only because the renamed label is longer text.
+  const basePdf = await renderFinalServiceReportPdf(base);
+  const renamedPdf = await renderFinalServiceReportPdf(renamed);
+  assert.ok(!basePdf.equals(renamedPdf), "the rename reaches the PDF");
+  assert.ok(renamedPdf.length > basePdf.length, "the only content delta is the longer renamed label");
 });

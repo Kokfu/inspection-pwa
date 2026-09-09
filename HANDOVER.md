@@ -3,12 +3,91 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iii (`automatic_sprinkler`)
-in the working tree, NOT committed.** Closes the two `automatic_sprinkler` gaps 1a-ii left open:
+**Last updated:** 2026-09-09 — **Task 8e label-overrides slice 1a-iv (Final Report + PDF)
+in the working tree, NOT committed.** Closes deferred item 2: `finalServiceReport.ts` built every
+`section.fields[].label` by prettifying the raw response key (`trfp_jockey_pump` → "Trfp Jockey
+Pump"), so the client-facing report and PDF ignored BOTH the customer's per-job overrides AND the
+frozen definition wording. Now the four override systems' **V7** report sections render the frozen
+definition labels with the job's frozen `labelOverrides` applied.
+
+**What ships (`apps/api/src/reports/finalServiceReport.ts` only, + its unit test):**
+* **`v7DisplayLabelLookup(systemKey, snapshot, frozenSystem)`** — for `automatic_sprinkler`,
+  `co2_fire_extinguisher`, `wet_chemical`, `hose_reel` on a `schemaVersion === 2` record only. Runs
+  the existing per-system resolver (`resolveAutomaticSprinklerControls` V7 fork /
+  `resolveCo2Controls` / `resolveHoseReelControls`) on the snapshot's FROZEN `system.definition` at
+  the FROZEN `template.version`, then `applyLabelOverrides(tree, frozenSystem.labelOverrides)` ONCE
+  on a clone — `frozenSystem` is `expectedSystem(job.configuration_snapshot, …)`, i.e. the map
+  frozen into THIS job's snapshot, never the live customer revision. Emits a flat
+  `responseKey → displayLabel` map via `collectResolvedLabelPaths`. Returns `undefined` (⇒ prettifier
+  fallback, byte-identical) for any non-V7 record, out-of-scope system, or resolver throw.
+* **`labelFor(key, lookup?)` is now segment-aware.** With no `lookup` it prettifies the whole key
+  exactly as before (splitting on `" - "` and rejoining is a no-op for the prettifier). With a
+  `lookup`, each `" - "`-joined segment the map covers is swapped for its label and every other
+  segment is prettified as before — so the structural `" - Result"` / `" - Remarks"` suffixes that
+  `sectionRemarkLines` matches survive, and only the field-name segment moves. `flatten` threads the
+  `lookup` through.
+* **Evidence caption** (`remapEvidenceCaptions`, TASK point 4) — the V7 evidence contract
+  (`v7EvidenceContracts.ts`) stays the caption authority; when the job froze a rename AND the
+  contract caption ends with the exact definition label, its suffix is swapped so the PDF
+  "Final evidence included: …" line matches the renamed field. Surgical ⇒ no-override is
+  byte-identical. The `:648` `labelFor(evidence.field)` fallback in `renderFinalServiceReportPdf`
+  is only reachable for the out-of-scope legacy Sprinkler PSI lifecycle and is untouched.
+
+**Design deviations from the brief's RECOMMENDED shape (justified):**
+* **Per-segment, not whole-leaf, substitution** — needed to keep the `- Result` / `- Remarks`
+  suffix structure and the section-path context intact. Still "labelFor consults the lookup before
+  the prettifier", flat `responseKey → label` map, no path-shape reconciliation.
+* **Collision drop** — the generic single-measurement value key `value` resolves to two definition
+  labels ("Cut In" and "Gauge Reading"), so it is dropped from the map and prettifies to "Value"
+  exactly as before. Applied symmetrically to the definition and overridden maps.
+* **V7 forks of the four systems DO change** (prettified key → frozen definition wording): that is
+  the "Definition wording now reaches the report" DoD item. The NON-NEGOTIABLE "byte-identical to
+  today's for a job with NO frozen override map" is read as scoped to the historical-immutable forks
+  (V1–V6, CO2 V1, Wet Chemical V4) — those never reach `v7DisplayLabelLookup` and are byte-identical
+  (proven: `finalServiceReport.integration` CO2-V1 + `.sprinkler.integration` Sprinkler-V1 +
+  `fireAlarmV6FinalReport.integration` all green, unmodified). The no-override V7 Sprinkler
+  rendering is pinned as the digest baseline; the with-override test asserts only the renamed
+  field's two rows move.
+* **CO2 / Wet Chemical partial coverage** — their V7 response keys are camelCase
+  (`controlPanelLocation`, `heatDetectorStatus`) and do not match the resolved-controls snake_case
+  `key`s, so those specific fields keep the prettifier; the snake_case checklist groups
+  (charger/physical/function) are covered. `automatic_sprinkler` (flat `Record<ChecklistKey,…>`) and
+  `hose_reel` row columns are fully covered.
+* **PDF digest not pinnable** — PDFKit stamps a random `/ID`, so the pinned digest is
+  `sha256(JSON.stringify(report.sections))` (deterministic); the PDF is checked structurally
+  (`%PDF-`, length, `!basePdf.equals(renamedPdf)`).
+
+**Gates (all green).** API: typecheck + build; `test:final-report` (**14**, incl. 3 new
+V7-Sprinkler label tests) / `test:final-report-integration` / `test:final-report-sprinkler` /
+`test:final-report-v6` / `automaticSprinklerV7PdfEvidence` → **18 pass, 0 skip** from the cold
+`phase6_seed_integration` DB (§2 form); historical-matrix (20) / v6-evidence (9) /
+wet-chemical-definition (2) / v7EvidenceContracts + env + label-overrides (19) /
+automatic-sprinkler-definition (7). Cold §2 batch — `co2V7` / `wetChemicalV7` / `fireAlarmV7` /
+`v7EvidenceRace` / `hydrantV7` / `hoseReelV7` / `automaticSprinklerV7` / `dryWetRiserV7` /
+`smokeVentilationV7` / `portableFireExtinguisherV7` / `fireIntercomV7` /
+`migrationReplayForwardOnly` / `fireAlarmV6Acceptance` / `managerCustomers` /
+`managerLabelOverrides` → **90 pass, 0 skip**. Web: typecheck + build; `test:v7-stale-evidence` (1). `git status --short`: 2 modified `apps/api` files
+(`finalServiceReport.ts` + `finalServiceReport.test.ts`); 2 pre-existing unrelated `apps/web`
+`automaticSprinkler` files were already modified in the working tree at session start (NOT touched
+by this slice). `git diff --check` clean (CRLF warnings only). DO-NOT-MODIFY list clean; V1–V5 /
+Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
+`P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
+
+**STILL DEFERRED — owner-approved:**
+1. **Fire alarm.** Form renders labels from `resolveFireAlarmVisibleLabels(definition)` + literals,
+   not the controls tree; the V6 acceptor reads the frozen entry and `fireAlarmV6Acceptance.ts` is
+   DO-NOT-MODIFY. Absent from `labelOverrideSystemKeys` (API + web) → `/label-overrides` 404s. The
+   final report's `fire_alarm_detector` branch (`fireAlarmV6Fields`) is likewise NOT wired to
+   `v7DisplayLabelLookup` (returns `undefined` for it) and stays byte-identical.
+
+<details><summary>Previous — 2026-09-09 label-overrides slice 1a-iii (`automatic_sprinkler`), committed <code>dbe9924</code></summary>
+
+**Task 8e label-overrides slice 1a-iii (`automatic_sprinkler`).** Closes the two
+`automatic_sprinkler` gaps 1a-ii left open:
 the API resolver had no V7 fork (so `/label-overrides` 409'd `SYSTEM_DEFINITION_UNRESOLVABLE`), and
 the V7 Accepted-Detail branch returned `displayControls: null`. Per-customer display-label
 overrides now cover **4 systems** — `co2_fire_extinguisher`, `wet_chemical`, `hose_reel`,
-`automatic_sprinkler`. `fire_alarm_detector` and the final report stay deferred.
+`automatic_sprinkler`.
 
 **What ships:**
 * **API resolver V7 fork** — `apps/api/src/inspections/templates/automaticSprinklerDefinitionControls.ts`
@@ -101,12 +180,7 @@ not part of this gate set. `git status --short`: 5 modified `apps/api` files (+2
 list clean; V1–V5 / Fire Alarm V6 / CO2 V1 / Wet Chemical V4 byte-identical to `e30c649`.
 `P0 remaining: 0` `P1 remaining: 0` `P2 remaining: 0`. Not committed — owner does git.
 
-**STILL DEFERRED — owner-approved:**
-1. **Fire alarm.** Form renders labels from `resolveFireAlarmVisibleLabels(definition)` + literals,
-   not the controls tree; the V6 acceptor reads the frozen entry and `fireAlarmV6Acceptance.ts` is
-   DO-NOT-MODIFY. Absent from `labelOverrideSystemKeys` (API + web) → `/label-overrides` 404s.
-2. **Final report + PDF.** `finalServiceReport.ts` builds `section.fields[].label` from
-   `flatten(response_payload)` → `labelFor(key)`, never a controls tree. Own backend slice.
+</details>
 
 <details><summary>Previous — 2026-09-09 label-overrides slice 1a-ii (WEB, uncommitted; its "Known gap" + deferred item 2 are CLOSED by 1a-iii above)</summary>
 

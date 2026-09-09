@@ -114,9 +114,11 @@ export type ResolvedAutomaticSprinklerControls = {
     waterTank: SprinklerLayoutRow[];
     pumpHouse: SprinklerLayoutRow[];
     mainAlarmValve: SprinklerLayoutRow[];
-    /** V7 only. The web resolver does not emit it (the Test Run block renders
-     * from `checklist.testRunFirePump`); the API resolver does, and an accepted
-     * V7 `displayControls` tree is produced by the API resolver. */
+    /** V7 only, and optional because the two resolvers disagree by design: the
+     * web resolver omits it (the Test Run block renders from
+     * `checklist.testRunFirePump`) while the API resolver emits it. Only the API
+     * tree carries it, and that tree is consumed by the Manager label-override
+     * editor — an accepted V7 sprinkler detail sends no controls tree at all. */
     testRunFirePump?: SprinklerLayoutRow[];
   };
   comments: ResolvedRemarksDefinition;

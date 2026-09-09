@@ -122,8 +122,13 @@ function parseV7Responses(value: unknown): V7AutomaticSprinklerResponses | undef
  * from here, so an unusable map degrades to `undefined` (render every caption
  * as-is) rather than failing the whole accepted detail.
  */
+// Mirrors the write-side bounds in apps/api/src/routes/managerCustomers.ts
+// (`labelOverrideMaxEntries` / `labelOverrideMaxValueLength`). The path cap is
+// this side only: canonical paths run ~45 chars, so 300 is slack, not a limit
+// any real tree approaches.
 const maxLabelOverrides = 300;
 const maxLabelOverrideLength = 200;
+const maxLabelPathLength = 300;
 function parseLabelOverrideMap(value: unknown): Readonly<Record<string, string>> | undefined {
   if (!record(value)) return undefined;
   const entries = Object.entries(value);
@@ -132,7 +137,7 @@ function parseLabelOverrideMap(value: unknown): Readonly<Record<string, string>>
   for (const [path, label] of entries) {
     // A bad entry is skipped, never fatal: `overriddenLabel` semantics are
     // per-node, so one unusable value cannot suppress the others.
-    if (typeof path !== "string" || path.length === 0 || path.length > maxLabelOverrides) continue;
+    if (typeof path !== "string" || path.length === 0 || path.length > maxLabelPathLength) continue;
     if (typeof label !== "string" || label.trim().length === 0 || label.length > maxLabelOverrideLength) continue;
     parsed[path] = label.trim();
   }
@@ -146,8 +151,15 @@ export function parseServerAutomaticSprinklerDetail(value: unknown): ServerAutom
     // A V7 sprinkler acceptance freezes no `resolvedControls`, so this branch
     // carries no controls tree at all - `displayControls` stays `null`, exactly
     // the historical wire shape. Labels are the definition captions below, with
-    // only the frozen override paths substituted. `responses` is the authority
-    // and still fails closed; the display map never can.
+    // only the frozen override paths substituted.
+    //
+    // The two checks below are deliberately asymmetric. A non-`null`
+    // `displayControls` is a PROTOCOL violation - this branch structurally has no
+    // tree to send - so it fails the detail closed, exactly as the shipped client
+    // has always done. An unusable override map is DISPLAY data, so it degrades to
+    // "no overrides" and the captions render as-is; failing there would turn a
+    // label mismatch into an unviewable accepted record. `responses` is the
+    // authority and always fails closed.
     const displayLabelOverrides = parseLabelOverrideMap(value.displayLabelOverrides);
     if (!responses || value.displayControls !== null) return undefined;
     return { clientUuid: value.clientUuid, serverFormInstanceId: value.serverFormInstanceId, jobId: value.jobId, jobReference: value.jobReference, jobTitle: value.jobTitle, customerName: value.customerName, systemKey: "automatic_sprinkler", systemLabel: value.systemLabel, instanceKey: "primary", status: "submitted", performedAt: value.performedAt, receivedAt: value.receivedAt, templateVersion: 7, responses, displayControls: null, ...(displayLabelOverrides ? { displayLabelOverrides } : {}), deviceReportedCreatorUsername: value.deviceReportedCreatorUsername as string | null, verifiedOriginalCreatorUsername: value.verifiedOriginalCreatorUsername as string | null, syncedByUsername: value.syncedByUsername, evidencePolicy: null, attachments: [] };

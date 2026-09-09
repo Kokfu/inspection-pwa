@@ -9,6 +9,9 @@ import sharp from "sharp";
 import { loadConfig } from "../config/env.js";
 import { buildJobCompletion, type AcceptedAuthorityRow, type CompletionJobRow } from "../jobs/jobCompletion.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
+import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
+import { applyLabelOverrides, collectResolvedLabelPaths } from "../inspections/labelOverrides.js";
 import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
 import { validateAutomaticSprinklerHistoricalPayload } from "../sync/automaticSprinklerInspectionSync.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
@@ -70,8 +73,116 @@ function optionalAssetReference(value: unknown): string | undefined {
   return value.trim().length > 0 ? value : undefined;
 }
 
-function labelFor(key: string) {
-  return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+function prettifyLabelSegment(segment: string) {
+  return segment.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * Display label for a flattened response path. With no `lookup` the whole key is
+ * prettified exactly as before slice 1a-iv — splitting on " - " and rejoining is
+ * a no-op for `prettifyLabelSegment`, which never adds or consumes " - " (`-` is
+ * not `_` and not a camelCase hump), so a report for a job with no frozen
+ * override map stays byte-identical, PDF bytes included.
+ *
+ * With a `lookup` (per-system `responseKey -> frozen/overridden display label`,
+ * see `v7DisplayLabelLookup`), each " - "-joined segment the lookup covers is
+ * replaced by that label and every other segment is prettified as before. This
+ * keeps the structural " - Result" / " - Remarks" suffixes that
+ * `sectionRemarkLines` matches on, and only swaps the field-name segment.
+ */
+function labelFor(key: string, lookup?: ReadonlyMap<string, string>) {
+  if (!lookup) return prettifyLabelSegment(key);
+  return key.split(" - ").map((segment) => lookup.get(segment) ?? prettifyLabelSegment(segment)).join(" - ");
+}
+
+type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: ReadonlyMap<string, string> };
+
+/**
+ * Slice 1a-iv: a per-system flat `responseKey -> displayLabel` lookup for the
+ * four systems that carry per-customer display-label overrides
+ * (`automatic_sprinkler`, `co2_fire_extinguisher`, `wet_chemical`, `hose_reel`).
+ *
+ * Built ONLY from the frozen authority chain: the existing per-system resolver
+ * runs on the accepted snapshot's frozen `system.definition` at the frozen
+ * `template.version`, then `applyLabelOverrides` swaps labels ONCE, on a clone,
+ * using the map frozen into the JOB's `configuration_snapshot` for this system
+ * (`frozenSystem.labelOverrides`) — never the live customer revision. Display
+ * strings only: keys, response shape, evidence `fieldPath`s and
+ * `contractSha256 = sha256(canonical(definition))` are untouched.
+ *
+ * `flatten()` walks the RESPONSE payload, whose path shape
+ * (`checklist.trfp_jockey_pump`) does not line up with the resolved-controls
+ * path shape (`checklist.testRunFirePump.trfp_jockey_pump`). Response keys are
+ * unique within a system, so a flat `key -> label` map sidesteps the mismatch
+ * (KEY DESIGN POINT of the 1a-iv brief). The only key that resolves to more than
+ * one label in a tree is the generic single-measurement value key `value`; such
+ * a key is dropped so it prettifies exactly as before rather than an arbitrary
+ * winner. `labelFor` keeps the prettifier as the fallback for every key the tree
+ * does not cover (row `remarks`, `rowUuid`, the camelCase CO2 / Wet Chemical
+ * `controlPanelLocation` / detector-column keys, …).
+ *
+ * Returns `undefined` (labels and evidence captions fall back to the pre-1a-iv
+ * behaviour, byte-identical) for any non-V7 record, any out-of-scope system, a
+ * tree whose every label survived unchanged with an empty map, or a resolver
+ * failure.
+ */
+function v7DisplayLabelLookup(systemKey: string, snapshot: unknown, frozenSystem: unknown): V7DisplayLabels | undefined {
+  if (!isRecord(snapshot) || snapshot.schemaVersion !== 2 || !isRecord(snapshot.system) || !isRecord(snapshot.template)) return undefined;
+  const definition = snapshot.system.definition;
+  const version = snapshot.template.version;
+  if (!isRecord(definition) || typeof version !== "number") return undefined;
+  let resolved: unknown;
+  try {
+    if (systemKey === "automatic_sprinkler") resolved = resolveAutomaticSprinklerControls(definition, "MFE-FSSR", version);
+    else if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") resolved = resolveCo2Controls(definition, "MFE-FSSR", version);
+    else if (systemKey === "hose_reel") resolved = resolveHoseReelControls(definition, "MFE-FSSR", version);
+    else return undefined;
+  } catch { return undefined; }
+  const overrides = isRecord(frozenSystem) ? frozenSystem.labelOverrides : undefined;
+  const overridden = applyLabelOverrides(resolved, overrides);
+  // `entry.definitionLabel` is `fieldNode.label` from the walked tree — i.e. the
+  // EFFECTIVE label after any override on `overridden`, and the pure definition
+  // label on `resolved`.
+  const build = (tree: unknown) => {
+    const map = new Map<string, string>();
+    const ambiguous = new Set<string>();
+    for (const entry of collectResolvedLabelPaths(tree)) {
+      if (ambiguous.has(entry.key)) continue;
+      const existing = map.get(entry.key);
+      if (existing === undefined) map.set(entry.key, entry.definitionLabel);
+      else if (existing !== entry.definitionLabel) { map.delete(entry.key); ambiguous.add(entry.key); }
+    }
+    return { map, ambiguous };
+  };
+  const display = build(overridden);
+  const definition_ = overridden === resolved ? { map: new Map(display.map), ambiguous: display.ambiguous } : build(resolved);
+  // A key ambiguous in EITHER tree is dropped from BOTH, so the field map and the
+  // evidence-caption suffix swap always agree on which keys they cover.
+  for (const key of display.ambiguous) definition_.map.delete(key);
+  for (const key of definition_.ambiguous) display.map.delete(key);
+  if (display.map.size === 0) return undefined;
+  return { display: display.map, definition: definition_.map };
+}
+
+/**
+ * Slice 1a-iv: when the job froze an override that RENAMES an evidenced field,
+ * swap the field-name suffix of the V7 evidence-contract caption so the PDF's
+ * "Final evidence included: …" line matches the renamed field label. Surgical:
+ * fires only when a real rename exists AND the frozen contract caption ends with
+ * the exact definition label, so a job with no override is byte-identical. The
+ * frozen evidence contract (`v7EvidenceContracts.ts`) stays the caption
+ * authority; this is display-only, on the already-built report object.
+ */
+function remapEvidenceCaptions(evidence: FinalReportEvidence[], labels: V7DisplayLabels) {
+  for (const item of evidence) {
+    const key = String(item.field).split(".").pop() ?? "";
+    const definitionLabel = labels.definition.get(key);
+    const displayLabel = labels.display.get(key);
+    if (definitionLabel !== undefined && displayLabel !== undefined && definitionLabel !== displayLabel
+      && item.caption !== undefined && item.caption.endsWith(definitionLabel)) {
+      item.caption = `${item.caption.slice(0, item.caption.length - definitionLabel.length)}${displayLabel}`;
+    }
+  }
 }
 
 function scalar(value: unknown) {
@@ -89,17 +200,17 @@ function scalar(value: unknown) {
 }
 
 /** Keeps the accepted response's JSON insertion order, which is the submitted form/section order. */
-function flatten(value: unknown, prefix = "", depth = 0, output: FinalReportField[] = []) {
+function flatten(value: unknown, prefix = "", depth = 0, output: FinalReportField[] = [], lookup?: ReadonlyMap<string, string>) {
   const simple = scalar(value);
-  if (simple !== undefined) { output.push({ label: labelFor(prefix || "Result"), value: simple, depth }); return output; }
+  if (simple !== undefined) { output.push({ label: labelFor(prefix || "Result", lookup), value: simple, depth }); return output; }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => flatten(item, `${prefix || "Item"} ${index + 1}`, depth + 1, output));
+    value.forEach((item, index) => flatten(item, `${prefix || "Item"} ${index + 1}`, depth + 1, output, lookup));
     return output;
   }
   if (!isRecord(value)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted inspection data is malformed and cannot be reported.");
   for (const [key, child] of Object.entries(value)) {
     if (key === "schemaVersion" || /(^|_)(id|uuid)$|Id$/.test(key)) continue;
-    flatten(child, prefix ? `${prefix} - ${key}` : key, depth + (prefix ? 1 : 0), output);
+    flatten(child, prefix ? `${prefix} - ${key}` : key, depth + (prefix ? 1 : 0), output, lookup);
   }
   return output;
 }
@@ -598,8 +709,24 @@ export async function loadFinalServiceReport(
       }
       const location = historicalLocation(system, unit, matching[0]!.instance_key);
       if (unit.authorityKey.startsWith("location:") && !location) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Frozen report location identity is unavailable.");
-      sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location,
-        fields: completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? fireAlarmV6Fields(matching[0]!.inspection_snapshot, matching[0]!.response_payload) : flatten(matching[0]!.response_payload), evidence: completeSystem.systemKey === "automatic_sprinkler" ? (isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedEvidence(matching, system)) : completeSystem.systemKey === "fire_alarm_detector" && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? (matching[0]!.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, matching[0]!) : await validatedFireAlarmV6Evidence(database, matching[0]!)) : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom") && isRecord(matching[0]!.inspection_snapshot) && matching[0]!.inspection_snapshot.schemaVersion === 2 ? await validatedV7SuppressionEvidence(database, matching[0]!) : [] });
+      const primaryRow = matching[0]!;
+      const snapshotIsV7 = isRecord(primaryRow.inspection_snapshot) && primaryRow.inspection_snapshot.schemaVersion === 2;
+      // Slice 1a-iv: per-customer display-label overrides + frozen definition
+      // wording now reach the report. `undefined` for every out-of-scope system
+      // and every non-V7 record -> `flatten` / captions are byte-identical.
+      const displayLabels = v7DisplayLabelLookup(completeSystem.systemKey, primaryRow.inspection_snapshot, system);
+      const fields = completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
+        ? fireAlarmV6Fields(primaryRow.inspection_snapshot, primaryRow.response_payload)
+        : flatten(primaryRow.response_payload, "", 0, [], displayLabels?.display);
+      const evidence = completeSystem.systemKey === "automatic_sprinkler"
+        ? (snapshotIsV7 ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedEvidence(matching, system))
+        : completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
+          ? (primaryRow.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedFireAlarmV6Evidence(database, primaryRow))
+          : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom") && snapshotIsV7
+            ? await validatedV7SuppressionEvidence(database, primaryRow)
+            : [];
+      if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);
+      sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location, fields, evidence });
     }
   }
   return { customer, site, serviceDate, jobReference: reference,
