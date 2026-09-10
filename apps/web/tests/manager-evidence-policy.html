@@ -1,0 +1,202 @@
+<!doctype html><html><body>
+<button id="run">Run manager evidence policy checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { ManagerCustomerEvidencePolicy } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(700);
+const systemKey = "automatic_sprinkler";
+const policyId = id(710);
+const otherUuid = id(999);
+
+// Server-authoritative descriptor + published policy catalog the fake API exposes
+// (mirrors apps/api/src/routes/managerCustomers.ts + evidencePolicyAssignment.ts).
+const field = { key: "evidencePolicyId", label: "Evidence policy", control: "select", required: false };
+const policies = [{ id: policyId, code: "automatic-sprinkler-psi-evidence", version: 1, label: "automatic-sprinkler-psi-evidence v1" }];
+
+// Server-side persisted value (mirrors customer_enabled_systems.evidence_policy_id).
+let stored = null;
+
+const body = (extra = {}) => ({ systemKey, templateVersion: 7, field, policies, evidencePolicyId: stored, ...extra });
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+
+let getCalls = 0;
+let putCalls = 0;
+let getMode = "ok"; // ok | fieldBad | rootNull | wrongSystem | policyBad | valueNotInList
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  const path = `/api/manager/customers/${customerId}/systems/${systemKey}/evidence-policy`;
+  if (!url.startsWith(path)) return realFetch(input, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET") {
+    getCalls += 1; await new Promise((r) => setTimeout(r, 25));
+    if (getMode === "fieldBad") return json({ systemKey, templateVersion: 7, field: { key: "evidencePolicyId", label: 1, control: "select", required: false }, policies, evidencePolicyId: null });
+    if (getMode === "rootNull") return rawResponse("null");
+    if (getMode === "wrongSystem") return json({ systemKey: "co2_fire_extinguisher", templateVersion: 7, field, policies, evidencePolicyId: null });
+    if (getMode === "policyBad") return json({ systemKey, templateVersion: 7, field, policies: [{ id: policyId }], evidencePolicyId: null });
+    if (getMode === "dupPolicies") return json({ systemKey, templateVersion: 7, field, policies: [policies[0], { ...policies[0], label: "shadow" }], evidencePolicyId: null });
+    if (getMode === "valueNotInList") return json({ systemKey, templateVersion: 7, field, policies, evidencePolicyId: otherUuid });
+    return json(body());
+  }
+  if (method === "PUT") {
+    putCalls += 1;
+    const value = JSON.parse(init.body).evidencePolicyId;
+    if (!(value === null || value === policyId)) return json({ error: "INVALID_EVIDENCE_POLICY", message: "That evidence policy is not published for this system." }, 400);
+    stored = value;
+    return json(body({ customer: putCustomerEcho() }));
+  }
+  return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+};
+
+const legitCustomer = () => ({
+  customer: { id: customerId, code: "C700", displayName: "Sprinkler Customer" },
+  sites: [{ id: id(703), code: "S", displayName: "Site" }],
+  configuration: { id: id(701), revision: 4, enabledSystems: [{ key: systemKey, displayName: "Automatic Sprinkler System", sortOrder: 1, evidencePolicyId: null, zones: [], locations: [] }] },
+  supportedSystems: [{ key: systemKey, displayName: "Automatic Sprinkler System", sortOrder: 1, assignable: true }]
+});
+let putCustomerEcho = legitCustomer;
+const poisoned = {
+  "customer not an object": () => ({ ...legitCustomer(), customer: "nope" }),
+  "customer.id missing": () => { const c = legitCustomer(); delete c.customer.id; return c; },
+  "configuration.revision not a number": () => { const c = legitCustomer(); c.configuration.revision = "4"; return c; },
+  "enabledSystems element is null": () => { const c = legitCustomer(); c.configuration.enabledSystems = [null]; return c; },
+  "enabledSystems evidencePolicyId is a number": () => { const c = legitCustomer(); c.configuration.enabledSystems[0].evidencePolicyId = 7; return c; },
+  "supportedSystems element missing displayName": () => { const c = legitCustomer(); delete c.supportedSystems[0].displayName; return c; }
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const q = (sel) => view.querySelector(sel);
+const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.includes(text));
+const selectFor = (label) => [...view.querySelectorAll("select")].find((s) => s.getAttribute("aria-label") === label);
+const setSelect = (el, value) => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+};
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
+};
+const loadingVisible = () => view.textContent.includes("Loading evidence policy");
+const reloadAndSettle = async (expectedGetCalls) => {
+  findButton("Reload").click();
+  await wait(() => loadingVisible(), "reload loading window opened");
+  await wait(() => getCalls === expectedGetCalls && !loadingVisible(), "reload re-hydrate finished");
+};
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  let savedCount = 0;
+  try {
+    stored = null;
+    putCustomerEcho = legitCustomer;
+    createRoot(view).render(React.createElement(ManagerCustomerEvidencePolicy, {
+      customer: legitCustomer(),
+      onSaved: () => { savedCount += 1; },
+      onAuthorityFailure: () => { authorityFailures += 1; }
+    }));
+    await wait(() => findButton("Configure evidence policy — Automatic Sprinkler System"), "collapsed editor");
+
+    // Load the field + policy list + current value.
+    findButton("Configure evidence policy — Automatic Sprinkler System").click();
+    await wait(() => getCalls === 1 && selectFor("Evidence policy"), "field loaded");
+    ok("field renders the Evidence policy control", !!selectFor("Evidence policy"));
+    ok("current value is None", selectFor("Evidence policy").value === "");
+    ok("options are None + one server policy", [...selectFor("Evidence policy").options].map((o) => o.value).join(",") === `,${policyId}`);
+    ok("first option is the None label", selectFor("Evidence policy").options[0].textContent.includes("None (default evidence handling)"));
+
+    // Pick a policy + save.
+    setSelect(selectFor("Evidence policy"), policyId);
+    await wait(() => selectFor("Evidence policy")?.value === policyId && view.textContent.includes("1 unsaved change"), "edit applied");
+    findButton("Save evidence policy").click();
+    await wait(() => putCalls === 1 && view.textContent.includes("Evidence policy saved"), "save confirmation");
+    ok("save persisted server-side", stored === policyId);
+    ok("save reached onSaved", savedCount === 1);
+
+    // Reload -> persisted.
+    await reloadAndSettle(2);
+    ok("reload keeps the saved value", selectFor("Evidence policy").value === policyId && view.textContent.includes("0 unsaved changes"));
+
+    // Pick None + save -> clears.
+    setSelect(selectFor("Evidence policy"), "");
+    await wait(() => selectFor("Evidence policy")?.value === "" && view.textContent.includes("1 unsaved change"), "cleared value");
+    findButton("Save evidence policy").click();
+    await wait(() => putCalls === 2 && view.textContent.includes("Evidence policy saved"), "clear save confirmation");
+    ok("clear persisted server-side as null", stored === null);
+    ok("clear reached onSaved", savedCount === 2);
+    await reloadAndSettle(3);
+    ok("reload keeps the cleared value", selectFor("Evidence policy").value === "");
+
+    // Malformed HTTP 200 GET bodies on reload -> authority failure, not a raw TypeError.
+    getMode = "fieldBad";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 1, "malformed field routed to authority failure");
+    ok("malformed field routes to onAuthorityFailure", authorityFailures === 1);
+
+    getMode = "rootNull";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 2, "null root body routed to authority failure");
+    ok("null root HTTP 200 routes to onAuthorityFailure", authorityFailures === 2);
+
+    getMode = "wrongSystem";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 3, "wrong systemKey routed to authority failure");
+    ok("systemKey mismatch routes to onAuthorityFailure", authorityFailures === 3);
+
+    getMode = "policyBad";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 4, "malformed policy entry routed to authority failure");
+    ok("policy entry missing code/version/label routes to onAuthorityFailure", authorityFailures === 4);
+
+    getMode = "dupPolicies";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 5, "duplicate policy id routed to authority failure");
+    ok("duplicate policy id routes to onAuthorityFailure", authorityFailures === 5);
+
+    getMode = "valueNotInList";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 6, "evidencePolicyId not in the list routed to authority failure");
+    ok("evidencePolicyId not one of the returned ids routes to onAuthorityFailure", authorityFailures === 6);
+
+    // Poisoned `customer` echo on save -> onAuthorityFailure, never onSaved.
+    getMode = "ok";
+    let getN = 9, putN = 2, fails = 6;
+    for (const [name, make] of Object.entries(poisoned)) {
+      getN += 1; putN += 1; fails += 1;
+      await reloadAndSettle(getN);
+      const savedBefore = savedCount;
+      putCustomerEcho = make;
+      setSelect(selectFor("Evidence policy"), policyId);
+      await wait(() => selectFor("Evidence policy")?.value === policyId, `re-selected for "${name}"`);
+      findButton("Save evidence policy").click();
+      await wait(() => putCalls === putN && authorityFailures === fails, `"${name}" routed to authority failure`);
+      ok(`poisoned customer (${name}) -> onAuthorityFailure`, authorityFailures === fails);
+      ok(`poisoned customer (${name}) never reached onSaved`, savedCount === savedBefore);
+      ok(`poisoned customer (${name}) left no crash text`, !/TypeError|Cannot read/.test(view.textContent));
+    }
+
+    // Control: a legit PUT `customer` echo DOES reach onSaved.
+    putCustomerEcho = legitCustomer;
+    getN += 1; putN += 1;
+    await reloadAndSettle(getN);
+    const savedBefore = savedCount;
+    setSelect(selectFor("Evidence policy"), "");
+    await wait(() => selectFor("Evidence policy")?.value === "", "re-selected for legit control");
+    findButton("Save evidence policy").click();
+    await wait(() => putCalls === putN && savedCount === savedBefore + 1, "legit echo reaches onSaved");
+    ok("legit PUT customer echo still reaches onSaved (guard is not over-strict)", savedCount === savedBefore + 1 && authorityFailures === fails);
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

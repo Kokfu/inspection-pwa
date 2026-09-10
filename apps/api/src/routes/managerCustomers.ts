@@ -4,6 +4,10 @@ import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
+import {
+  evidencePolicyAssignableSystemKeys,
+  parseEvidencePolicyIdInput
+} from "../inspections/evidencePolicyAssignment.js";
 import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
 import {
   parseSystemConfiguration,
@@ -111,6 +115,39 @@ function parseConfigurationRevisionSystemConfiguration(
       throw new ManagerCustomerError("INVALID_SYSTEM_CONFIGURATION", `systemConfiguration for ${systemKey} is invalid.`);
     }
     map.set(systemKey, parsed);
+  }
+  return map;
+}
+
+/**
+ * Validate the optional `evidencePolicy` body key on
+ * `POST .../configuration-revisions`. Every entry's key must be BOTH in the
+ * request's `systemKeys` and in `evidencePolicyAssignableSystemKeys`, and every
+ * value must parse (`parseEvidencePolicyIdInput` — a UUID string or `null`).
+ * Mirrors `parseConfigurationRevisionSystemConfiguration`. Returns the map of
+ * `systemKey -> (policyId | null)`, or `undefined` when the key is absent. Each
+ * non-null id is additionally checked against `inspection_evidence_policies` by
+ * the caller while holding the transaction — never relying on the DB trigger to
+ * 500.
+ */
+function parseConfigurationRevisionEvidencePolicy(
+  value: unknown, keys: string[]
+): Map<string, string | null> | undefined {
+  if (value === undefined) return undefined;
+  if (!object(value)) {
+    throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", "evidencePolicy must be an object.");
+  }
+  const requested = new Set(keys);
+  const map = new Map<string, string | null>();
+  for (const [systemKey, policyId] of Object.entries(value)) {
+    if (!requested.has(systemKey) || !evidencePolicyAssignableSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", `evidencePolicy is not permitted for ${systemKey}.`);
+    }
+    const parsed = parseEvidencePolicyIdInput(policyId);
+    if (!parsed) {
+      throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", `evidencePolicy for ${systemKey} is invalid.`);
+    }
+    map.set(systemKey, parsed.evidencePolicyId);
   }
   return map;
 }
@@ -284,9 +321,12 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
     configuration: {
       id: config.revision.id,
       revision: config.revision.revision,
-      enabledSystems: config.enabled.map(({ id, systemConfiguration, evidencePolicyId: _policy, labelOverrides, ...system }) => ({
+      enabledSystems: config.enabled.map(({ id, systemConfiguration, evidencePolicyId, labelOverrides, ...system }) => ({
         ...system,
         systemConfiguration: object(systemConfiguration) ? systemConfiguration : {},
+        // Response-only: the string | null column value. The editor GET resolves
+        // its own code/version — this does NOT join the policy table.
+        evidencePolicyId: evidencePolicyId ?? null,
         labelOverrides: object(labelOverrides) ? labelOverrides : {},
         zones: config.zones.filter((zone) => zone.enabledSystemId === id),
         locations: config.locations.filter((location) => location.enabledSystemId === id)
@@ -308,6 +348,7 @@ async function copySelectedConfiguration(
   options: {
     labelOverridesBySystemKey?: ReadonlyMap<string, LabelOverrideMap>;
     systemConfigurationBySystemKey?: ReadonlyMap<string, unknown>;
+    evidencePolicyBySystemKey?: ReadonlyMap<string, string | null>;
   } = {}
 ) {
   const current = await loadConfiguration(client, customerId);
@@ -325,7 +366,7 @@ async function copySelectedConfiguration(
   // `system_configuration` — rebuilds in catalog order so the added key is
   // actually inserted, exactly as before.
   const currentKeys = current.enabled.map((system) => system.key);
-  const perSystemEdit = Boolean(options.labelOverridesBySystemKey || options.systemConfigurationBySystemKey);
+  const perSystemEdit = Boolean(options.labelOverridesBySystemKey || options.systemConfigurationBySystemKey || options.evidencePolicyBySystemKey);
   const sameEnabledSet = currentKeys.length === keys.length && keys.every((key) => currentKeys.includes(key));
   const orderedKeys = perSystemEdit && sameEnabledSet ? currentKeys : supported.map((system) => system.key);
   for (const [index, key] of orderedKeys.entries()) {
@@ -337,7 +378,12 @@ async function copySelectedConfiguration(
     const systemConfiguration = options.systemConfigurationBySystemKey?.has(key)
       ? options.systemConfigurationBySystemKey.get(key)
       : (old?.systemConfiguration ?? {});
-    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(systemConfiguration), old?.evidencePolicyId ?? null, JSON.stringify(labelOverrides)]);
+    // Legacy pre-V7 photo-policy hook; a functional no-op on V7 (see
+    // `evidencePolicyAssignment.ts`). `null` is a valid explicit clear.
+    const evidencePolicyId = options.evidencePolicyBySystemKey?.has(key)
+      ? options.evidencePolicyBySystemKey.get(key) ?? null
+      : (old?.evidencePolicyId ?? null);
+    await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(systemConfiguration), evidencePolicyId, JSON.stringify(labelOverrides)]);
     if (!old) continue;
     const zoneIds = new Map<string, string>();
     for (const zone of current.zones.filter((value) => value.enabledSystemId === old.id)) {
@@ -503,12 +549,23 @@ export function createManagerCustomersRouter(
       client = await database.connect();
       const customerId = request.params.customerId;
       if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
-      const body = exactBody(request.body, ["systemKeys", "systemConfiguration"]); const keys = systemKeys(body.systemKeys);
+      const body = exactBody(request.body, ["systemKeys", "systemConfiguration", "evidencePolicy"]); const keys = systemKeys(body.systemKeys);
       const systemConfigurationBySystemKey = parseConfigurationRevisionSystemConfiguration(body.systemConfiguration, keys);
+      const evidencePolicyBySystemKey = parseConfigurationRevisionEvidencePolicy(body.evidencePolicy, keys);
       await client.query("BEGIN");
       const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
       if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
-      const revisionId = await copySelectedConfiguration(client, customerId, keys, systemConfigurationBySystemKey ? { systemConfigurationBySystemKey } : {});
+      if (evidencePolicyBySystemKey) {
+        for (const [systemKey, policyId] of evidencePolicyBySystemKey) {
+          if (policyId === null) continue;
+          const match = await client.query(`SELECT 1 FROM inspection_evidence_policies WHERE id = $1 AND system_key = $2 AND publication_status = 'published'`, [policyId, systemKey]);
+          if (!match.rows[0]) throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", `evidencePolicy for ${systemKey} is not a published policy for that system.`);
+        }
+      }
+      const revisionId = await copySelectedConfiguration(client, customerId, keys, {
+        ...(systemConfigurationBySystemKey ? { systemConfigurationBySystemKey } : {}),
+        ...(evidencePolicyBySystemKey ? { evidencePolicyBySystemKey } : {})
+      });
       await audit(client, request.currentUser!.id, "manager_customer_configuration_activated", "customer_configuration_revision", revisionId); await client.query("COMMIT");
       response.status(201).json({ customer: await loadManagerCustomer(customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
@@ -683,6 +740,107 @@ export function createManagerCustomersRouter(
         templateVersion: refreshed.templateVersion,
         schema: refreshed.schema,
         configuration: refreshed.stored
+      });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
+
+  // Per-customer `customer_enabled_systems.evidence_policy_id` assignment. This is
+  // the LEGACY pre-V7 photo/PSI evidence lifecycle hook and is a functional
+  // NO-OP for every customer a Manager can produce today (all on catalog version
+  // 7 — the V7 acceptance path never reads `system.evidencePolicy`). The write
+  // path + UI exist so the vertical is ready when a V7-era policy catalog does.
+  // Mechanism mirrors the `system-configuration` routes exactly. No migration.
+  const evidencePolicyField = { key: "evidencePolicyId", label: "Evidence policy", control: "select", required: false } as const;
+
+  const parseEvidencePolicyTarget = (request: { params: Record<string, unknown> }) => {
+    const customerId = request.params.customerId;
+    const systemKey = request.params.systemKey;
+    if (typeof customerId !== "string" || !uuidPattern.test(customerId)) {
+      throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
+    }
+    if (typeof systemKey !== "string" || !evidencePolicyAssignableSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("EVIDENCE_POLICY_UNSUPPORTED_SYSTEM", "Evidence policy assignment is not supported for this system.", 404);
+    }
+    return { customerId, systemKey };
+  };
+
+  // The active revision's frozen template version, the currently stored
+  // `evidence_policy_id` for one enabled system, and every published
+  // `inspection_evidence_policies` row for that `system_key`. Resolved exactly
+  // like `loadSystemConfigurationContext`.
+  const loadEvidencePolicyContext = async (queryable: Pick<PoolClient, "query">, customerId: string, systemKey: string) => {
+    const owner = await queryable.query(`SELECT 1 FROM customers WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
+    if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+    const result = await queryable.query<{ templateVersion: number; evidencePolicyId: string | null }>(`
+      SELECT template.version AS "templateVersion", enabled.evidence_policy_id AS "evidencePolicyId"
+      FROM customer_configuration_revisions revision
+      INNER JOIN master_service_report_templates template ON template.id = revision.template_version_id
+      INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id = revision.id AND enabled.system_key = $2
+      WHERE revision.customer_id = $1 AND revision.status = 'active'`, [customerId, systemKey]);
+    const row = result.rows[0];
+    if (!row) throw new ManagerCustomerError("SYSTEM_NOT_ENABLED", "That system is not enabled for this customer.", 404);
+    const policies = await queryable.query<{ id: string; code: string; version: number }>(`
+      SELECT id, code, version FROM inspection_evidence_policies
+      WHERE system_key = $1 AND publication_status = 'published'
+      ORDER BY code, version`, [systemKey]);
+    return {
+      templateVersion: row.templateVersion,
+      evidencePolicyId: row.evidencePolicyId,
+      policies: policies.rows.map((policy) => ({
+        id: policy.id, code: policy.code, version: policy.version, label: `${policy.code} v${policy.version}`
+      }))
+    };
+  };
+
+  router.get("/manager/customers/:customerId/systems/:systemKey/evidence-policy", requireRole("admin"), async (request, response, next) => {
+    try {
+      const { customerId, systemKey } = parseEvidencePolicyTarget(request);
+      const context = await loadEvidencePolicyContext(database, customerId, systemKey);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        systemKey,
+        templateVersion: context.templateVersion,
+        field: evidencePolicyField,
+        policies: context.policies,
+        evidencePolicyId: context.evidencePolicyId
+      });
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/customers/:customerId/systems/:systemKey/evidence-policy", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const { customerId, systemKey } = parseEvidencePolicyTarget(request);
+      const body = exactBody(request.body, ["evidencePolicyId"]);
+      const parsed = parseEvidencePolicyIdInput(body.evidencePolicyId);
+      if (!parsed) throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", "evidencePolicyId must be a published evidence policy id or null.");
+      client = await database.connect();
+      await client.query("BEGIN");
+      const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
+      if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await loadEvidencePolicyContext(client, customerId, systemKey);
+      if (parsed.evidencePolicyId !== null) {
+        // Never rely on the `enforce_enabled_system_evidence_policy` trigger to 500.
+        const match = await client.query(`SELECT 1 FROM inspection_evidence_policies WHERE id = $1 AND system_key = $2 AND publication_status = 'published'`, [parsed.evidencePolicyId, systemKey]);
+        if (!match.rows[0]) throw new ManagerCustomerError("INVALID_EVIDENCE_POLICY", "That evidence policy is not published for this system.");
+      }
+      const current = await loadConfiguration(client, customerId);
+      const revisionId = await copySelectedConfiguration(
+        client,
+        customerId,
+        current.enabled.map((system) => system.key),
+        { evidencePolicyBySystemKey: new Map([[systemKey, parsed.evidencePolicyId]]) }
+      );
+      await audit(client, request.currentUser!.id, "manager_customer_evidence_policy_updated", "customer_configuration_revision", revisionId);
+      await client.query("COMMIT");
+      const refreshed = await loadEvidencePolicyContext(database, customerId, systemKey);
+      response.status(200).json({
+        customer: await loadManagerCustomer(customerId, database),
+        systemKey,
+        templateVersion: refreshed.templateVersion,
+        field: evidencePolicyField,
+        policies: refreshed.policies,
+        evidencePolicyId: refreshed.evidencePolicyId
       });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });

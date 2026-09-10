@@ -3,11 +3,97 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-09 — **Phase 8H STEP 3.1 slice 1 (`system_configuration` vertical for
-`dry_wet_riser`) — uncommitted working tree, owner does git.** A Manager can now stand up and edit
-a `dry_wet_riser` customer end-to-end (backend API + Manager web UI) via the exact mechanism slice
-1a-i built for `label_overrides` — NO migration (the column + `jsonb_typeof='object'` CHECK exist
-since 008), NO evidence-policy work, NO tick-list rework beyond passing riser config through.
+**Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 2 (`evidence_policy_id` assignment
+vertical) — uncommitted working tree, owner does git.** A Manager can now set or clear a
+per-customer `customer_enabled_systems.evidence_policy_id` end-to-end (backend API + Manager web
+UI) via the EXACT mechanism slice 1 (`system_configuration`, `7b7cb83`) and slice 1a-i
+(`label_overrides`) built. **PLUMBING-ONLY, KNOWN NO-OP FOR V7:** the assignable catalog is bounded
+to `automatic_sprinkler` and the single published policy is
+`automaticSprinklerPsiEvidencePolicyV1` — the LEGACY pre-V7 per-field photo/PSI lifecycle. V7
+evidence is contract-driven and `acceptAutomaticSprinklerV7Inspection` never reads
+`system.evidencePolicy`, so assigning this policy is a functional NO-OP for every customer a
+Manager can produce today (all on catalog version 7). The write path + UI exist so the vertical is
+ready when a V7-era policy catalog does. NO migration (the `evidence_policy_id` column + FK +
+`enforce_enabled_system_evidence_policy` trigger exist since 007); NO new/changed policy rows; NO
+seed change; NO V7 evidence / acceptance / Final Report / PDF change.
+
+**What ships (slice 2):**
+* **NEW `apps/api/src/inspections/evidencePolicyAssignment.ts`** —
+  `evidencePolicyAssignableSystemKeys = new Set(["automatic_sprinkler"])` (widenable without a
+  migration, like `systemConfigurationSystemKeys`) and
+  `parseEvidencePolicyIdInput(value)` → `{ evidencePolicyId: <uuid> }` for a UUID string,
+  `{ evidencePolicyId: null }` for JSON `null` (explicit clear), `undefined` otherwise. `uuidPattern`
+  regex duplicated (not imported from route code). Module doc marks it the legacy photo-policy hook
+  / a V7 no-op.
+* **`managerCustomers.ts`** — `GET`/`PUT
+  /manager/customers/:customerId/systems/:systemKey/evidence-policy` (`requireRole("admin")`),
+  mirroring the `system-configuration` routes. `systemKey` not in
+  `evidencePolicyAssignableSystemKeys` → 404 `EVIDENCE_POLICY_UNSUPPORTED_SYSTEM`; system not
+  enabled → 404 `SYSTEM_NOT_ENABLED`; bad id/type → 400 `INVALID_EVIDENCE_POLICY`. GET responds
+  `{ systemKey, templateVersion, field, policies, evidencePolicyId }` where `field` is a
+  server-authoritative select descriptor and `policies` = every published
+  `inspection_evidence_policies` row for that `system_key` as `{ id, code, version, label }`. PUT
+  `BEGIN` → `FOR UPDATE` customer lock → verify a non-null id names a published row for that
+  `system_key` (never relying on the DB trigger to 500) → `copySelectedConfiguration(...,
+  { evidencePolicyBySystemKey })` → `audit(manager_customer_evidence_policy_updated)` → `COMMIT` →
+  re-read. `Cache-Control: private, no-store`.
+* **`copySelectedConfiguration`** gained `evidencePolicyBySystemKey?: ReadonlyMap<string, string |
+  null>`; when set for a key it writes `map.get(key)` (string | null) at the
+  `customer_enabled_systems` INSERT `evidence_policy_id` param instead of
+  `old?.evidencePolicyId ?? null`. `perSystemEdit` now also fires for this map, so a same-set edit
+  keeps `current.enabled` order.
+* **`POST .../configuration-revisions`** accepts an optional `evidencePolicy: Record<systemKey,
+  string | null>` body key (allow-list `["systemKeys", "systemConfiguration", "evidencePolicy"]`);
+  every key must be in `systemKeys` AND `evidencePolicyAssignableSystemKeys`, every value parses,
+  every non-null id is a published row for that `system_key` (else 400 `INVALID_EVIDENCE_POLICY`,
+  no revision). A `{ systemKeys }`-only or `{ systemKeys, systemConfiguration }` body is
+  byte-unchanged.
+* **`loadManagerCustomer`** now surfaces `evidencePolicyId` (string | null) on
+  `configuration.enabledSystems[]` (was destructured out). Response-only; no policy-table join.
+* **Web** — `managerApi.ts`: `loadManagerEvidencePolicy` / `saveManagerEvidencePolicy`,
+  `evidencePolicyAssignableSystemKeys` Set, `ManagerEvidencePolicy{,Option,Field}` types, an
+  authority-bound `asEvidencePolicy(expectedSystemKey, data)` guard (rejects a mismatched
+  `systemKey`, a malformed `field`, a `policies` element missing `id`/`code`/`version`/`label`, or
+  an `evidencePolicyId` that is neither `null` nor a returned policy id) routing a poisoned 200 /
+  `null` to `onAuthorityFailure`; the PUT `customer` echo stays guarded by the hardened
+  `isManagerCustomer` (extended, not weakened, with an `evidencePolicyId` string|null|absent
+  check); `activateManagerCustomerConfiguration` gains an optional `evidencePolicy` arg after
+  `systemConfiguration`. `ManagerCustomerConfiguration.tsx`: new `ManagerCustomerEvidencePolicy` +
+  `ManagerEvidencePolicyEditor` (collapsible per eligible enabled system, lazy GET on expand, one
+  `<select>` — "None (default evidence handling)" then one `<option>` per policy, Save → PUT
+  (`""` → `null`) → `onSaved(result.customer)`, domain-vs-authority error split), rendered after
+  `ManagerCustomerSystemConfiguration`; section copy notes it only affects the legacy
+  photo-evidence lifecycle. No inline requirement anywhere — the "Assigned Services" save path is
+  unchanged.
+
+**New tests:** `apps/api/src/routes/managerEvidencePolicy.integration.test.ts` (4: GET semantics
+on the photo + plain sprinkler demo customers; PUT versions the assignment / audit row / freezes
+into NEW jobs only / clears / random-uuid + non-string + non-uuid → 400 `INVALID_EVIDENCE_POLICY`
+no revision / `label_overrides` / `system_configuration` / zones / locations forward-copied
+unchanged; auth matrix + unsupported system + system-not-enabled 404s; `configuration-revisions`
+inline `evidencePolicy` enables `automatic_sprinkler` fresh + assigns the PSI policy in one
+revision, rejects a key not in `systemKeys` / not assignable / not published; **V7 no-op** — PUT
+on `demoV7CustomerId` succeeds, a new V7 job's snapshot carries the frozen `evidencePolicy` AND a
+V7 sprinkler payload still accepts through `acceptAutomaticSprinklerV7Inspection` unchanged).
+Web `tests/manager-evidence-policy.{html,spec.ts}` (mirrors `manager-system-configuration`).
+Scripts: `test:evidence-policy` (api), `test:evidence-policy-manager` (web, `--workers=1`).
+
+`serviceVisits.ts` job-freeze is untouched — it already emits `evidencePolicy` only when the
+enabled row has a policy (:158); an `evidence_policy_id IS NULL` customer's frozen job snapshot has
+NO `evidencePolicy` key (asserted). `managerLabelOverrides.integration.test.ts`,
+`managerSystemConfiguration.integration.test.ts`, and the web `manager-label-overrides` +
+`manager-system-configuration` specs stay green WITHOUT edits despite the shared
+`copySelectedConfiguration` signature change and the shared `isManagerCustomer` guard.
+
+**Sol P1 remediation (round 1) — `apps/web/src/manager/managerApi.ts` + its web test only:**
+* **P1-1** — `asEvidencePolicy` now rejects a `policies` list with a duplicate `id`
+  (a poisoned 200 with two entries sharing an id but differing labels rendered an ambiguous
+  `<select>` + duplicate React keys instead of routing to `onAuthorityFailure`). The
+  `evidencePolicyId`-in-list check reuses the de-duplicated id array.
+  `manager-evidence-policy.html` gains a `dupPolicies` poisoned-GET case. No backend change —
+  the §2 integration batch is unaffected.
+
+<details><summary>Previous — 2026-09-09 STEP 3.1 slice 1 (<code>system_configuration</code> vertical for <code>dry_wet_riser</code>)</summary>
 
 **What ships:**
 * **NEW `apps/api/src/inspections/systemConfiguration.ts`** — parser/schema registry:
@@ -87,6 +173,8 @@ frozen test); the new integration test asserts 400.
   only adds rejection reasons and every legit fixture / real `loadManagerCustomer` response already
   carries these fields. `manager-system-configuration.html` gains `wrongSystem` / `emptySchema` /
   `badConfigValue` poisoned-GET cases.
+
+</details>
 
 <details><summary>Previous — 2026-09-09 label-overrides slice 1a-iv (Final Report + PDF), committed <code>193c078</code> / <code>f6045de</code></summary>
 
@@ -903,7 +991,8 @@ node --import tsx --test --test-concurrency=1 `
   src/reports/fireAlarmV6FinalReport.integration.test.ts `
   src/routes/managerCustomers.integration.test.ts `
   src/routes/managerLabelOverrides.integration.test.ts `
-  src/routes/managerSystemConfiguration.integration.test.ts
+  src/routes/managerSystemConfiguration.integration.test.ts `
+  src/routes/managerEvidencePolicy.integration.test.ts
 Confirm-Exit "integration batch"
 
 cd ../.. ; docker rm -f phase8f-v7-verify
@@ -924,6 +1013,7 @@ npm run build ; Confirm-Exit "web build"
 npm run test:v7-stale-evidence ; Confirm-Exit "v7-stale-evidence"
 npm run test:label-overrides-manager ; Confirm-Exit "label-overrides-manager"
 npm run test:system-configuration-manager ; Confirm-Exit "system-configuration-manager"
+npm run test:evidence-policy-manager ; Confirm-Exit "evidence-policy-manager"
 cd ../..
 ```
 
@@ -1301,8 +1391,11 @@ field, add integration coverage, re-verify, Sol pass.
       - [x] slice 1 — `system_configuration` vertical (backend API + Manager web UI) for
         `dry_wet_riser` (`riserMode`), via the slice 1a-i `label_overrides` mechanism. Fresh
         `dry_wet_riser` customers can now be stood up through the UI. No migration.
-      - [ ] evidence-policy assignment (`customer_enabled_systems.evidence_policy_id` stays
-        seed-only).
+      - [x] slice 2 — evidence-policy assignment vertical (backend API + Manager web UI) for
+        `customer_enabled_systems.evidence_policy_id`, via the slice 1 `system_configuration`
+        mechanism. **Plumbing only:** bounded to `automatic_sprinkler` + the one published legacy
+        PSI policy; a functional NO-OP for V7 customers (the V7 acceptance path never reads
+        `system.evidencePolicy`) pending a V7-era policy catalog. No migration.
       - [ ] service tick-list UI polish (beyond passing riser config through
         `configuration-revisions`).
 - [ ] 3.2 Manager review of completed reports / service history (partly exists).

@@ -32,6 +32,7 @@ export type ManagerCustomer = {
     enabledSystems: Array<{
       key: string; displayName: string; sortOrder: number;
       systemConfiguration?: Record<string, unknown>;
+      evidencePolicyId?: string | null;
       zones: unknown[]; locations: unknown[];
     }>;
   };
@@ -137,12 +138,13 @@ export function createManagerCustomerSite(customerId: string, displayName: strin
 export function activateManagerCustomerConfiguration(
   customerId: string,
   systemKeys: string[],
-  systemConfiguration?: Record<string, Record<string, unknown>>
+  systemConfiguration?: Record<string, Record<string, unknown>>,
+  evidencePolicy?: Record<string, string | null>
 ) {
   return managerRequest<ManagerCustomer>(
     `/api/manager/customers/${encodeURIComponent(customerId)}/configuration-revisions`,
     "POST", "customer",
-    { systemKeys, ...(systemConfiguration ? { systemConfiguration } : {}) }
+    { systemKeys, ...(systemConfiguration ? { systemConfiguration } : {}), ...(evidencePolicy ? { evidencePolicy } : {}) }
   );
 }
 
@@ -243,6 +245,105 @@ export async function saveManagerSystemConfiguration(
   return { configuration: asSystemConfiguration(systemKey, data), customer: data.customer };
 }
 
+/** Systems whose per-customer `evidence_policy_id` a Manager may assign. Mirrors
+ *  the API `evidencePolicyAssignableSystemKeys` bound
+ *  (apps/api/src/inspections/evidencePolicyAssignment.ts) — widenable without a
+ *  migration. Today: `automatic_sprinkler` only, and the one published policy is
+ *  the LEGACY pre-V7 photo/PSI lifecycle — a functional no-op on V7. */
+export const evidencePolicyAssignableSystemKeys: ReadonlySet<string> = new Set(["automatic_sprinkler"]);
+
+export type ManagerEvidencePolicyOption = { id: string; code: string; version: number; label: string };
+
+export type ManagerEvidencePolicyField = {
+  key: "evidencePolicyId";
+  label: string;
+  control: "select";
+  required: boolean;
+};
+
+export type ManagerEvidencePolicy = {
+  systemKey: string;
+  templateVersion: number;
+  field: ManagerEvidencePolicyField;
+  policies: ManagerEvidencePolicyOption[];
+  evidencePolicyId: string | null;
+};
+
+function evidencePolicyPath(customerId: string, systemKey: string) {
+  return `/api/manager/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/evidence-policy`;
+}
+
+function isEvidencePolicyOption(value: unknown): value is ManagerEvidencePolicyOption {
+  return isPlainObject(value)
+    && typeof value.id === "string" && typeof value.code === "string"
+    && typeof value.version === "number" && typeof value.label === "string";
+}
+
+/**
+ * Fully validate the evidence-policy response body AND bind it to the system that
+ * was actually requested. A poisoned HTTP 200 that names a different `systemKey`,
+ * carries a malformed `field` descriptor, a `policies` element missing
+ * `id`/`code`/`version`/`label`, a `policies` list with a duplicate `id` (which
+ * would render an ambiguous `<select>` and duplicate React keys), or an
+ * `evidencePolicyId` that is neither `null` nor one of the returned policy ids is
+ * an "unavailable" authority failure, never a rendered control. Same pattern as
+ * `asSystemConfiguration`.
+ */
+function asEvidencePolicy(expectedSystemKey: string, data: Record<string, unknown>): ManagerEvidencePolicy {
+  const field = data.field;
+  if (typeof data.systemKey !== "string" || data.systemKey !== expectedSystemKey
+    || typeof data.templateVersion !== "number"
+    || !isPlainObject(field) || field.key !== "evidencePolicyId"
+    || typeof field.label !== "string" || field.control !== "select" || typeof field.required !== "boolean"
+    || !Array.isArray(data.policies) || !data.policies.every(isEvidencePolicyOption)
+    || !(data.evidencePolicyId === null || typeof data.evidencePolicyId === "string")) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  const policies = data.policies as ManagerEvidencePolicyOption[];
+  const ids = policies.map((policy) => policy.id);
+  if (new Set(ids).size !== ids.length) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  if (data.evidencePolicyId !== null && !ids.includes(data.evidencePolicyId)) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  return {
+    systemKey: data.systemKey,
+    templateVersion: data.templateVersion,
+    field: { key: "evidencePolicyId", label: field.label, control: "select", required: field.required },
+    policies,
+    evidencePolicyId: data.evidencePolicyId as string | null
+  };
+}
+
+export async function loadManagerEvidencePolicy(customerId: string, systemKey: string, signal?: AbortSignal): Promise<ManagerEvidencePolicy> {
+  let response: Response;
+  try { response = await fetch(evidencePolicyPath(customerId, systemKey), { credentials: "same-origin", cache: "no-store", signal }); }
+  catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  return asEvidencePolicy(systemKey, await readBody(response));
+}
+
+/**
+ * PUT the `evidence_policy_id` for one system (`null` clears it). Server
+ * validation (`INVALID_EVIDENCE_POLICY`) surfaces as `ManagerApiError` "domain"
+ * with the server message. The response also carries the refreshed `customer`,
+ * still guarded by the hardened `isManagerCustomer`.
+ */
+export async function saveManagerEvidencePolicy(
+  customerId: string, systemKey: string, evidencePolicyId: string | null
+): Promise<{ evidencePolicy: ManagerEvidencePolicy; customer: ManagerCustomer }> {
+  let response: Response;
+  try {
+    response = await fetch(evidencePolicyPath(customerId, systemKey), {
+      method: "PUT", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evidencePolicyId })
+    });
+  } catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  const data = await readBody(response);
+  if (!isManagerCustomer(data.customer)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  return { evidencePolicy: asEvidencePolicy(systemKey, data), customer: data.customer };
+}
+
 function labelOverridesPath(customerId: string, systemKey: string) {
   return `/api/manager/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/label-overrides`;
 }
@@ -297,7 +398,8 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
     && typeof entry.key === "string" && typeof entry.displayName === "string"
     && typeof entry.sortOrder === "number"
     && Array.isArray(entry.zones) && Array.isArray(entry.locations)
-    && (entry.systemConfiguration === undefined || isPlainObject(entry.systemConfiguration));
+    && (entry.systemConfiguration === undefined || isPlainObject(entry.systemConfiguration))
+    && (entry.evidencePolicyId === undefined || entry.evidencePolicyId === null || typeof entry.evidencePolicyId === "string");
   const supportedEntry = (entry: unknown) => isPlainObject(entry)
     && typeof entry.key === "string" && typeof entry.displayName === "string"
     && typeof entry.sortOrder === "number" && typeof entry.assignable === "boolean"

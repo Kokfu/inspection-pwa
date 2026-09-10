@@ -3,14 +3,18 @@ import {
   activateManagerCustomerConfiguration,
   createManagerCustomer,
   createManagerCustomerSite,
+  evidencePolicyAssignableSystemKeys,
   labelOverrideSystemKeys,
+  loadManagerEvidencePolicy,
   loadManagerLabelOverrides,
   loadManagerSystemConfiguration,
   ManagerApiError,
+  saveManagerEvidencePolicy,
   saveManagerLabelOverrides,
   saveManagerSystemConfiguration,
   systemConfigurationSystemKeys,
   type ManagerCustomer,
+  type ManagerEvidencePolicyOption,
   type ManagerLabelOverrideNode,
   type ManagerSystemConfigurationSchema
 } from "./managerApi";
@@ -66,6 +70,7 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
     {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>{riserNewlyTicked ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
     <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+    <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
   </section>;
 }
 
@@ -309,6 +314,130 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save configuration"}</button>
+        </div>
+      </> : null}
+    </div> : null}
+  </div>;
+}
+
+/**
+ * Per-customer evidence-policy assignment (`customer_enabled_systems.evidence_policy_id`).
+ * One collapsible section per eligible enabled system (`evidencePolicyAssignableSystemKeys`).
+ * Reads the server-authoritative `field` descriptor + published policy list +
+ * current value from `GET .../evidence-policy` and PUTs the chosen id (`""` ->
+ * `null`); the server versions the customer configuration and forward-copies
+ * everything else. Server validation (`INVALID_EVIDENCE_POLICY`) surfaces inline
+ * as the server's own message, never as an authority failure.
+ *
+ * This only affects the LEGACY photo-evidence lifecycle — V7 evidence is
+ * contract-driven and ignores it, so assigning a policy is a no-op for every
+ * customer created today. Nothing gates enabling a system on an evidence policy;
+ * there is no inline requirement and the "Assigned Services" save path is
+ * unchanged.
+ */
+export function ManagerCustomerEvidencePolicy({ customer, onSaved, onAuthorityFailure }: {
+  customer: ManagerCustomer; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const editable = useMemo(
+    () => customer.configuration.enabledSystems.filter((system) => evidencePolicyAssignableSystemKeys.has(system.key)),
+    [customer.configuration.enabledSystems]
+  );
+  if (editable.length === 0) return null;
+  return <section className="report-summary" aria-labelledby="manager-evidence-policy-title">
+    <h3 id="manager-evidence-policy-title">Evidence policy</h3>
+    <p>Assign the photo-evidence policy a technician's inspection is held to for this customer. This only affects the legacy photo-evidence lifecycle; it does not change what is recorded. Saving creates a new configuration version; existing service visits keep the policy they were created with.</p>
+    {editable.map((system) => (
+      <ManagerEvidencePolicyEditor
+        key={system.key}
+        customerId={customer.customer.id}
+        systemKey={system.key}
+        systemLabel={system.displayName}
+        onSaved={onSaved}
+        onAuthorityFailure={onAuthorityFailure}
+      />
+    ))}
+  </section>;
+}
+
+function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+  customerId: string; systemKey: string; systemLabel: string;
+  onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fieldLabel, setFieldLabel] = useState("Evidence policy");
+  const [policies, setPolicies] = useState<ManagerEvidencePolicyOption[] | undefined>(undefined);
+  const [loaded, setLoaded] = useState("");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const hydrate = (next: { field: { label: string }; policies: ManagerEvidencePolicyOption[]; evidencePolicyId: string | null }) => {
+    setFieldLabel(next.field.label);
+    setPolicies(next.policies);
+    setLoaded(next.evidencePolicyId ?? "");
+    setDraft(next.evidencePolicyId ?? "");
+  };
+
+  const load = async () => {
+    setLoading(true); setError(""); setMessage("");
+    try { hydrate(await loadManagerEvidencePolicy(customerId, systemKey)); }
+    catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Evidence policy could not be loaded.");
+    } finally { setLoading(false); }
+  };
+
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && policies === undefined && !loading) void load();
+  };
+
+  const save = async () => {
+    setSaving(true); setError(""); setMessage("");
+    try {
+      const result = await saveManagerEvidencePolicy(customerId, systemKey, draft === "" ? null : draft);
+      hydrate(result.evidencePolicy);
+      onSaved(result.customer);
+      setMessage("Evidence policy saved. A new configuration version was created.");
+    } catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Evidence policy could not be saved.");
+    } finally { setSaving(false); }
+  };
+
+  const changed = draft !== loaded;
+
+  return <div className="manager-evidence-policy-system">
+    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+      {open ? "Hide" : "Configure"} evidence policy — {systemLabel}
+    </button>
+    {open ? <div>
+      {loading ? <p>Loading evidence policy…</p> : null}
+      {error ? <p className="form-message" role="alert">{error}</p> : null}
+      {message ? <p className="form-message" role="status">{message}</p> : null}
+      {policies ? <>
+        <ul className="manager-evidence-policy-list">
+          <li>
+            <label>
+              <span className="manager-evidence-policy-label">{fieldLabel}</span>
+              <select
+                aria-label={fieldLabel}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+              >
+                <option value="">None (default evidence handling)</option>
+                {policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.label}</option>)}
+              </select>
+            </label>
+          </li>
+        </ul>
+        <p className="support-metadata">{changed ? "1 unsaved change." : "0 unsaved changes."}</p>
+        <div className="inline-actions">
+          <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
+          <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save evidence policy"}</button>
         </div>
       </> : null}
     </div> : null}
