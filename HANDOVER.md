@@ -3,6 +3,49 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 final polish (the "Assigned Services"
+tick-list UX) — uncommitted working tree, owner does git.** Web-only, copy/UX. NO new route, NO
+`managerApi.ts` request/guard change, NO backend change, NO migration, NO `app.css` change. The
+"Assigned Services" (`submitConfiguration`) save path is byte-unchanged for every existing case;
+`copySelectedConfiguration` and every `parse*` helper are untouched.
+
+**What ships (STEP 3.1 final polish):** `apps/web/src/manager/ManagerCustomerConfiguration.tsx`
++ `tests/manager-customer-configuration.{html,spec.ts}` only.
+* **1a — actionable "Location configuration required".** In `ManagerCustomerConfigurationDetail`'s
+  `<fieldset className="manager-service-picker">`, an unticked, not-yet-assignable
+  location-dependent system (`co2_fire_extinguisher` / `wet_chemical`, gated on
+  `locationConfigurableSystemKeys`) still shows the server `unavailableReason`, now followed by a
+  second `<small>`: "Define at least one zone and one location for this service in the "Zones &
+  locations" editor below, then this service can be assigned." Copy only — no scroll hijack, no
+  new route. (The "Add Customer" picker in `ManagerCustomerConfiguration` is deliberately left
+  alone — that form has no "Zones & locations" editor to point at.)
+* **1b — already-enabled `dry_wet_riser` with an unset `riserMode`.** `riserNewlyTicked` →
+  `riserNeedsMode` = `keys.includes("dry_wet_riser") && storedRiserMode ∉ {dry,wet}`, so the
+  inline "Riser mode" `<select>` now also surfaces for an already-enabled riser whose frozen
+  `system_configuration` somehow carries no mode (a defensive case — the seed and every write
+  path set one). When a valid mode is stored, `riserNeedsMode` is false and the save arg is
+  `undefined` exactly as before. **Documented fallback:** if that control were ever missed, the
+  save is still safely rejected server-side — `assertDryWetRiserAssignments` throws
+  `RISER_MODE_REQUIRED` (`ManagerCustomerError` default **HTTP 400**, mapped to a `"domain"`
+  error and shown inline) BEFORE any revision row is written
+  (`apps/api/src/routes/managerCustomers.ts:305-323`; proven by
+  `src/routes/managerCustomers.test.ts:69` — `assert.deepEqual(writes, [])`). No backend change.
+* **1c — unticking a system that has downstream config.** New display-only line: "Removing
+  <system> also drops the per-service settings saved for it (zones and locations, field labels,
+  system and evidence settings). Re-adding a service in a later version starts from defaults — its
+  previous settings are not restored." Shown when the pending selection drops an enabled system
+  that has any saved per-service config (`enabledSystemHasSavedSettings`, mirroring
+  `ManagerPerServiceSummary`'s per-flag test), because `copySelectedConfiguration` only
+  forward-copies config for keys still selected. No behaviour change to the save path.
+* **Tests:** `tests/manager-customer-configuration.{html,spec.ts}` gain the 1a/1b/1c assertions
+  (co2 flipped to `assignable:false` in the harness fixture to exercise the 1a pointer; the spec
+  pins the new checks by name). The four `tests/manager-{label-overrides,system-configuration,
+  evidence-policy,locations}` harnesses render single sub-editors and never touch the picker, so
+  they are unchanged — all four re-run green (`--workers=1`, 0 skips) as regression proof.
+  `apps/web` typecheck + build green; `test:v7-stale-evidence` + `final-ui-acceptance` green.
+
+<details><summary>Previous — 2026-09-10 STEP 3.1 slice 3b (Manager customer-configuration screen: cosmetic / summary consolidation)</summary>
+
 **Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 3b (Manager customer-configuration
 screen: cosmetic / summary consolidation) — uncommitted working tree, owner does git.**
 Web-only, cosmetic. NO new route, NO `managerApi.ts` request/guard change, NO backend change, NO
@@ -38,6 +81,8 @@ every editor's own load/PUT path.
   unified unsaved + confirmation copy only — no behavioural assertion changed; all four still
   green (`--workers=1`, 0 skips). `apps/web` typecheck + build green;
   `test:v7-stale-evidence` + `final-ui-acceptance` green.
+
+</details>
 
 <details><summary>Previous — 2026-09-10 STEP 3.1 slice 3a (per-customer zone/location configuration vertical)</summary>
 
@@ -1547,9 +1592,13 @@ field, add integration coverage, re-verify, Sol pass.
         `configuration-revisions`), which is what flips the "Assigned Services" checkbox from
         disabled ("Location configuration required") to assignable. No migration (tables + FKs
         exist since migrations 004/006).
-      - [ ] slice 3b — cosmetic / summary pass over the STEP 3.1 config screens.
-      - [ ] service tick-list UI polish (beyond passing riser config through
-        `configuration-revisions`).
+      - [x] slice 3b — cosmetic / summary pass over the STEP 3.1 config screens
+        (consolidated "Per-service settings" frame + at-a-glance summary + unified collapsible).
+      - [x] service tick-list ("Assigned Services") UI polish — actionable "Location
+        configuration required" pointer to the Zones & locations editor; inline Riser mode
+        control also surfaces for an already-enabled riser with an unset mode (server
+        `RISER_MODE_REQUIRED` 400 is the documented fallback); untick-drops-config warning.
+        Web-only copy/UX; save path byte-unchanged.
 - [ ] 3.2 Manager review of completed reports / service history (partly exists).
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)

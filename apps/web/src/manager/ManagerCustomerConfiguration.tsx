@@ -48,22 +48,40 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   const [newRiserMode, setNewRiserMode] = useState("");
   useEffect(() => { setKeys(customer.configuration.enabledSystems.map((system) => system.key)); setNewRiserMode(""); }, [customer]);
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
-  // `dry_wet_riser` cannot be stood up without a frozen `riserMode`, so when it
-  // is newly ticked the choice is required inline and passed through
+  // `dry_wet_riser` cannot be stood up without a frozen `riserMode`, so whenever
+  // it is ticked without one the choice is required inline and passed through
   // `activateManagerCustomerConfiguration`'s `systemConfiguration` arg — one
-  // atomic revision that enables and configures it.
-  const riserAlreadyEnabled = customer.configuration.enabledSystems.some((system) => system.key === "dry_wet_riser");
-  const riserNewlyTicked = keys.includes("dry_wet_riser") && !riserAlreadyEnabled;
+  // atomic revision that enables (or re-affirms) and configures it. This covers
+  // a fresh tick AND — defensively — an already-enabled riser whose stored
+  // `system_configuration` somehow carries no `riserMode`. If that inline control
+  // were ever missed, the save is still safely rejected server-side with
+  // `RISER_MODE_REQUIRED` (HTTP 400, surfaced inline as a domain error) BEFORE
+  // any revision row is written; surfacing the control just gives the Manager an
+  // in-form way to supply the mode instead of a bare server string. When the
+  // riser already has a valid `riserMode`, `riserNeedsMode` is false and the save
+  // path is byte-unchanged (no `systemConfiguration` arg).
+  const riserEnabled = customer.configuration.enabledSystems.find((system) => system.key === "dry_wet_riser");
+  const riserStoredMode = riserEnabled?.systemConfiguration?.riserMode;
+  const riserNeedsMode = keys.includes("dry_wet_riser") && riserStoredMode !== "dry" && riserStoredMode !== "wet";
+  // Display-only: a one-line inline warning when the pending selection drops a
+  // system that has saved per-service settings. `copySelectedConfiguration`
+  // (server) only forward-copies config for keys still selected, so re-adding the
+  // service in a later revision comes back bare. The save path is unchanged. The
+  // `keys.length > 0` guard skips the transient mount frame before the
+  // `enabledSystems` effect seeds `keys`.
+  const removedSystemsWithSettings = keys.length === 0 ? [] : customer.configuration.enabledSystems
+    .filter((system) => !keys.includes(system.key) && enabledSystemHasSavedSettings(system))
+    .map((system) => system.displayName);
   const submitConfiguration = async (event: FormEvent) => {
     event.preventDefault(); setError("");
-    if (riserNewlyTicked && newRiserMode !== "dry" && newRiserMode !== "wet") {
-      setError("Choose a riser mode (dry or wet) before enabling Dry / Wet Riser."); return;
+    if (riserNeedsMode && newRiserMode !== "dry" && newRiserMode !== "wet") {
+      setError("Choose a riser mode (dry or wet) for Dry / Wet Riser before saving."); return;
     }
     setSaving(true);
     try {
       onSaved(await activateManagerCustomerConfiguration(
         customer.customer.id, keys,
-        riserNewlyTicked ? { dry_wet_riser: { riserMode: newRiserMode } } : undefined
+        riserNeedsMode ? { dry_wet_riser: { riserMode: newRiserMode } } : undefined
       ));
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -71,7 +89,7 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
     } finally { setSaving(false); }
   };
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
-    {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>{riserNewlyTicked ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
+    {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in the “Zones &amp; locations” editor below, then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <section className="report-summary manager-per-service" aria-labelledby="manager-per-service-title">
       <h3 id="manager-per-service-title">Per-service settings</h3>
       <p>Settings that apply to an individual service for this customer. Each editor below creates a new configuration version when it is saved; existing service visits keep the settings they were created with.</p>
@@ -157,6 +175,24 @@ function ManagerPerServiceSummary({ customer }: { customer: ManagerCustomer }) {
 
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * STEP 3.1 final polish: does one enabled system carry any saved per-service
+ * configuration that `copySelectedConfiguration` would NOT restore if the system
+ * were unticked now and re-added later? Mirrors `ManagerPerServiceSummary`'s
+ * per-flag "set" test (label overrides / system configuration / evidence policy
+ * / zones+locations), read straight off `customer.configuration.enabledSystems`.
+ */
+const enabledSystemHasSavedSettings = (
+  system: ManagerCustomer["configuration"]["enabledSystems"][number]
+) => {
+  const labelOverrides = (system as { labelOverrides?: Record<string, unknown> }).labelOverrides;
+  return (isPlainRecord(labelOverrides) && Object.keys(labelOverrides).length > 0)
+    || (isPlainRecord(system.systemConfiguration) && Object.keys(system.systemConfiguration).length > 0)
+    || (typeof system.evidencePolicyId === "string" && system.evidencePolicyId.length > 0)
+    || system.zones.length > 0
+    || system.locations.length > 0;
+};
 
 /**
  * Per-customer display-label overrides. One collapsible editor per eligible

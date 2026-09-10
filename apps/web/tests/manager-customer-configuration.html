@@ -51,8 +51,11 @@ const customer = {
       }
     ]
   },
+  // co2 is intentionally NOT assignable (no valid zone/location authority yet) so
+  // the STEP 3.1-final-polish checks can assert the actionable "Zones &
+  // locations" pointer; it stays ticked because it is already in enabledSystems.
   supportedSystems: [
-    { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: true },
+    { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: false, unavailableReason: "Location configuration required" },
     { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 2, assignable: true },
     { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true }
   ]
@@ -149,6 +152,41 @@ document.querySelector("#run").onclick = async () => {
       co2Labels.closest(".manager-per-service-block").textContent.includes("No unsaved changes."));
     ok("expand did not trip an authority failure", authorityFailures === 0);
     ok("no crash text", !/TypeError|Cannot read/.test(view.textContent));
+
+    // ---- STEP 3.1 final polish: the "Assigned Services" tick-list itself ----
+    const picker = view.querySelector(".manager-service-picker");
+    const optionFor = (name) => [...picker.querySelectorAll(".manager-service-option")].find((el) => el.textContent.includes(name));
+    const co2Option = optionFor("CO2 Fire Extinguisher System");
+
+    // 1a. A location-dependent system that is not yet assignable keeps the server
+    // reason AND gains an actionable pointer to the "Zones & locations" editor.
+    ok("unassignable co2 still shows the server reason", co2Option.textContent.includes("Location configuration required"));
+    ok("unassignable co2 points the Manager at the Zones & locations editor below",
+      co2Option.textContent.includes("Zones & locations") && co2Option.textContent.includes("below"));
+    ok("the actionable pointer is scoped to location-dependent systems only",
+      [...picker.querySelectorAll(".manager-service-option")].filter((el) => el.textContent.includes("editor below")).length === 1);
+
+    // 1b. An already-enabled dry_wet_riser whose stored riserMode is unset
+    // surfaces the inline Riser mode control (not only on a fresh tick).
+    ok("already-enabled riser with unset riserMode surfaces the inline Riser mode control",
+      !!view.querySelector(".manager-riser-mode select"));
+
+    // 1c. Unticking a system that has saved per-service settings warns that the
+    // config is dropped and not restored on re-add. Display-only. Uses the
+    // assignable `automatic_sprinkler` (evidence policy SET) so it can be
+    // re-ticked — an unassignable system disables its own checkbox once removed.
+    const sprinklerCheckbox = optionFor("Automatic Sprinkler System").querySelector("input[type=checkbox]");
+    ok("sprinkler checkbox starts ticked and interactive", sprinklerCheckbox.checked && !sprinklerCheckbox.disabled);
+    sprinklerCheckbox.click();
+    await wait(() => view.textContent.includes("previous settings are not restored"), "untick warning shown");
+    const untickWarning = [...view.querySelectorAll("form.report-summary p")].find((p) => p.textContent.includes("previous settings are not restored"));
+    ok("untick warning names the removed system", untickWarning.textContent.includes("Automatic Sprinkler System"));
+    ok("untick warning enumerates the settings that are dropped",
+      /zones and locations, field labels, system and evidence settings/i.test(untickWarning.textContent));
+    ok("no untick warning while co2 (unchanged) is still ticked", !untickWarning.textContent.includes("CO2 Fire Extinguisher System"));
+    sprinklerCheckbox.click(); // restore the original selection
+    await wait(() => !view.textContent.includes("previous settings are not restored"), "untick warning clears on re-tick");
+    ok("re-ticking clears the untick warning without an authority failure", authorityFailures === 0);
   } catch (error) {
     checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
   }
