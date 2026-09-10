@@ -13,6 +13,7 @@
     "test:label-overrides-manager": "playwright test tests/manager-label-overrides.spec.ts",
     "test:system-configuration-manager": "playwright test tests/manager-system-configuration.spec.ts --workers=1",
     "test:evidence-policy-manager": "playwright test tests/manager-evidence-policy.spec.ts --workers=1",
+    "test:locations-manager": "playwright test tests/manager-locations.spec.ts --workers=1",
     "test:label-overrides-sprinkler": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/automaticSprinklerLabelOverrides.test.ts",
     "test:label-overrides-sprinkler-browser": "playwright test tests/label-override-sprinkler.spec.ts",
     "test:fire-alarm-dispatch": "playwright test tests/fire-alarm-client-dispatch.spec.ts",

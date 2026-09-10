@@ -3,6 +3,105 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 3a (per-customer zone/location
+configuration vertical) — uncommitted working tree, owner does git.** A Manager can now define
+the zones and preset locations for a location-dependent master system
+(`co2_fire_extinguisher`, `wet_chemical`) end-to-end (backend API + Manager web UI) via the EXACT
+mechanism slice 1 (`system_configuration`, `7b7cb83`) and slice 2 (`evidence_policy_id`) built.
+This closes the gap where those tables were only ever written by the seed or forward-copied
+verbatim — there was no Manager write path, so a CO2 / Wet Chemical customer could not be stood up
+through the UI (its "Assigned Services" checkbox stayed disabled with "Location configuration
+required"). Defining at least one zone + one location now flips that checkbox to assignable. NO
+migration (`customer_system_zones` / `customer_system_locations` + FKs + the
+`enforce_location_zone_system` trigger exist since migrations 004/006); NO seed change; NO change
+to `label_overrides` / `system_configuration` / `evidence_policy_id` handling; NO V7 evidence /
+acceptance / Final Report / PDF change; NO change to `serviceVisits.ts` job-freeze (it already
+emits `zones` / `locations` per system — config is read from the JOB's frozen
+`configuration_snapshot`, never re-resolved).
+
+**What ships (slice 3a):**
+* **NEW `apps/api/src/inspections/locationConfiguration.ts`** —
+  `locationConfigurableSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical"])` (widenable
+  without a migration, like `systemConfigurationSystemKeys`) and
+  `parseLocationConfigurationInput(value)` → the normalised `{ zones, locations }` or `undefined`
+  (caller → 400 `INVALID_LOCATION_CONFIGURATION`). Validates exactly `{ zones, locations }`; zone
+  keys non-empty, bounded and unique; location keys non-empty, bounded and unique; every
+  `location.zoneId` names a submitted zone `key` (never a null-zone location — keeps the
+  `serviceVisits.ts` buildSnapshot invariant, ~:131); `presetRowCount` a bounded 1..500 int;
+  optional `rowPreset` a bounded plain object frozen opaquely. `sort_order` re-derived from
+  submission order. No route import; no `uuidPattern` needed (cross-refs are by `key`).
+* **`managerCustomers.ts`** — `GET`/`PUT
+  /manager/customers/:customerId/systems/:systemKey/locations` (`requireRole("admin")`), mirroring
+  the `system-configuration` / `evidence-policy` routes. `systemKey` not in
+  `locationConfigurableSystemKeys` → 404 `LOCATIONS_UNSUPPORTED_SYSTEM`. **POSTURE:** GET resolves
+  against the active revision's template version EVEN WHEN the system row is absent, returning
+  `zones: []`, `locations: []` (so the Manager can define them before ticking the box); when the
+  system is enabled it returns its current zones/locations. GET responds
+  `{ systemKey, templateVersion, zones, locations }`, `Cache-Control: private, no-store`. PUT
+  `exactBody(["zones","locations"])` → parse → `BEGIN` → `FOR UPDATE` customer lock (404
+  `CUSTOMER_NOT_FOUND`) → assert the buildSnapshot invariant → `copySelectedConfiguration(...,
+  <current.enabled keys PLUS systemKey if absent>, { zonesLocationsBySystemKey })` →
+  `audit(manager_customer_locations_updated)` → `COMMIT` → re-read → 200
+  `{ customer, systemKey, templateVersion, zones, locations }`.
+* **`copySelectedConfiguration`** gained `zonesLocationsBySystemKey?: ReadonlyMap<string,
+  LocationConfigurationInput>`. When set for a key it INSERTs the SUBMITTED zones (fresh UUIDs)
+  then locations (each `zoneId` mapped through the new-UUID map) for that system's new
+  `enabledId`, instead of forward-copying the `old` row's zones/locations — and this branch runs
+  BEFORE the `if (!old) continue;` short-circuit, so a freshly-enabled location-dependent system
+  still gets its zones/locations. Every other system forward-copies unchanged. `perSystemEdit` now
+  also fires for this map. `assertLocationDependentAssignments` / `assertDryWetRiserAssignments`
+  are **byte-unchanged**: the location guard is instead handed
+  `withPendingLocationAuthority(current, zonesLocationsBySystemKey)` — a synthetic
+  (`pending:*` ids, never persisted) copy of `current` in which each pending system's authority is
+  the submission — so "enable co2 + define its zones/locations" passes the guard in one revision,
+  exactly as the DWR guard already honours `systemConfigurationBySystemKey`.
+* **`POST .../configuration-revisions`** accepts an optional `locations: Record<systemKey,
+  { zones, locations }>` body key (allow-list `["systemKeys", "systemConfiguration",
+  "evidencePolicy", "locations"]`); every key must be in `systemKeys` AND
+  `locationConfigurableSystemKeys`, every value parses, every `location.zoneId` resolves within
+  its own system's submitted zones (else 400 `INVALID_LOCATION_CONFIGURATION`, no revision).
+  Mirrors `parseConfigurationRevisionSystemConfiguration` exactly. A `{ systemKeys }`-only /
+  `{ systemKeys, systemConfiguration }` / `{ systemKeys, evidencePolicy }` body is byte-unchanged.
+* **`loadManagerCustomer`** already surfaces `zones` / `locations` per enabled system — no shape
+  change, nothing added.
+* **Web** — `managerApi.ts`: `loadManagerLocations` / `saveManagerLocations`,
+  `locationConfigurableSystemKeys` Set, `ManagerZone` / `ManagerLocation` / `ManagerLocations` /
+  `ManagerLocationsDraft` types, an authority-bound `asManagerLocations(expectedSystemKey, data)`
+  guard (rejects a mismatched `systemKey`, a malformed zone/location row, a `zones` list with a
+  duplicate `id`, or a location whose `zoneId` is not one of the returned zone ids) routing a
+  poisoned 200 / `null` to `onAuthorityFailure`; the PUT `customer` echo stays guarded by the
+  unchanged hardened `isManagerCustomer` (its `zones`/`locations` array checks already cover the
+  new field). `ManagerCustomerConfiguration.tsx`: new `ManagerCustomerLocations` +
+  `ManagerLocationsEditor` (collapsible per system = `locationConfigurableSystemKeys` ∩ the
+  customer's **supported catalog** — not limited to enabled systems — lazy GET on expand; an
+  editable zone list add/rename/remove; an editable location list add/remove with a `displayName`
+  input, a zone `<select>` from the current zone list, and a `presetRowCount` number input; Save →
+  PUT → `onSaved(result.customer)`; domain-vs-authority error split), rendered in
+  `ManagerCustomerConfigurationDetail` after `ManagerCustomerEvidencePolicy`, with a one-line note
+  that defining a zone + location unlocks the CO2 / Wet Chemical checkboxes. The "Assigned
+  Services" save path is unchanged.
+
+**New tests:** `apps/api/src/routes/managerLocations.integration.test.ts` (4: GET on the seeded V1
+CO2 demo returns its 3 zones + 6 locations, GET on the V7 CO2 demo its 1 zone + 1 location, GET on
+an operational customer without CO2 returns `[]`/`[]`; PUT versions the set / audit row / freezes
+the new set into NEW jobs only while a pre-PUT job keeps its frozen snapshot / rejects a dangling
+`zoneId` + a duplicate zone key + `presetRowCount` 0 / 99999 with no revision /
+`label_overrides` + `system_configuration` + `evidence_policy_id` forward-copied unchanged; auth
+matrix + `LOCATIONS_UNSUPPORTED_SYSTEM` on `hydrant`; PUT fresh-enables CO2 on an operational
+customer and flips its `supportedSystems.assignable` false → true, and a follow-up
+`configuration-revisions` keeping CO2 succeeds with no 409 and forward-copies the zones/locations;
+`configuration-revisions` inline `locations` enables CO2 fresh + defines its zones/locations in
+one revision, rejects a key not in `systemKeys` / not location-configurable / with a dangling
+`zoneId`). Web `tests/manager-locations.{html,spec.ts}` (mirrors `manager-evidence-policy`).
+Scripts: `test:locations` (api), `test:locations-manager` (web, `--workers=1`).
+
+`managerLabelOverrides.integration.test.ts`, `managerSystemConfiguration.integration.test.ts`,
+`managerEvidencePolicy.integration.test.ts`, `managerCustomers.integration.test.ts` and the web
+`manager-label-overrides` + `manager-system-configuration` + `manager-evidence-policy` specs stay
+green WITHOUT edits despite the shared `copySelectedConfiguration` signature change.
+
+<details><summary>Previous — 2026-09-10 STEP 3.1 slice 2 (<code>evidence_policy_id</code> assignment vertical)</summary>
+
 **Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 2 (`evidence_policy_id` assignment
 vertical) — uncommitted working tree, owner does git.** A Manager can now set or clear a
 per-customer `customer_enabled_systems.evidence_policy_id` end-to-end (backend API + Manager web
@@ -92,6 +191,8 @@ NO `evidencePolicy` key (asserted). `managerLabelOverrides.integration.test.ts`,
   `evidencePolicyId`-in-list check reuses the de-duplicated id array.
   `manager-evidence-policy.html` gains a `dupPolicies` poisoned-GET case. No backend change —
   the §2 integration batch is unaffected.
+
+</details>
 
 <details><summary>Previous — 2026-09-09 STEP 3.1 slice 1 (<code>system_configuration</code> vertical for <code>dry_wet_riser</code>)</summary>
 
@@ -992,7 +1093,8 @@ node --import tsx --test --test-concurrency=1 `
   src/routes/managerCustomers.integration.test.ts `
   src/routes/managerLabelOverrides.integration.test.ts `
   src/routes/managerSystemConfiguration.integration.test.ts `
-  src/routes/managerEvidencePolicy.integration.test.ts
+  src/routes/managerEvidencePolicy.integration.test.ts `
+  src/routes/managerLocations.integration.test.ts
 Confirm-Exit "integration batch"
 
 cd ../.. ; docker rm -f phase8f-v7-verify
@@ -1014,6 +1116,7 @@ npm run test:v7-stale-evidence ; Confirm-Exit "v7-stale-evidence"
 npm run test:label-overrides-manager ; Confirm-Exit "label-overrides-manager"
 npm run test:system-configuration-manager ; Confirm-Exit "system-configuration-manager"
 npm run test:evidence-policy-manager ; Confirm-Exit "evidence-policy-manager"
+npm run test:locations-manager ; Confirm-Exit "locations-manager"
 cd ../..
 ```
 
@@ -1396,6 +1499,15 @@ field, add integration coverage, re-verify, Sol pass.
         mechanism. **Plumbing only:** bounded to `automatic_sprinkler` + the one published legacy
         PSI policy; a functional NO-OP for V7 customers (the V7 acceptance path never reads
         `system.evidencePolicy`) pending a V7-era policy catalog. No migration.
+      - [x] slice 3a — per-customer zone/location configuration vertical (backend API + Manager
+        web UI) for `customer_system_zones` / `customer_system_locations`, via the slice 1/2
+        mechanism. **CO2 / Wet Chemical are now UI-configurable end to end:** a Manager defines
+        zones + preset locations for `co2_fire_extinguisher` / `wet_chemical` through
+        `GET`/`PUT /manager/customers/:id/systems/:systemKey/locations` (or inline on
+        `configuration-revisions`), which is what flips the "Assigned Services" checkbox from
+        disabled ("Location configuration required") to assignable. No migration (tables + FKs
+        exist since migrations 004/006).
+      - [ ] slice 3b — cosmetic / summary pass over the STEP 3.1 config screens.
       - [ ] service tick-list UI polish (beyond passing riser config through
         `configuration-revisions`).
 - [ ] 3.2 Manager review of completed reports / service history (partly exists).

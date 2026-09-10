@@ -16,6 +16,7 @@
     "test:label-overrides": "tsx --test src/inspections/labelOverrides.test.ts",
     "test:system-configuration": "tsx --test src/routes/managerSystemConfiguration.integration.test.ts",
     "test:evidence-policy": "tsx --test src/routes/managerEvidencePolicy.integration.test.ts",
+    "test:locations": "tsx --test src/routes/managerLocations.integration.test.ts",
     "test:automatic-sprinkler-definition": "tsx --test src/inspections/templates/automaticSprinklerDefinitionControls.test.ts src/routes/masterSystemInspectionsAutomaticSprinklerV7.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:wet-chemical-v7-integration": "tsx --test src/sync/wetChemicalV7.integration.test.ts",

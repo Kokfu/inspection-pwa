@@ -10,6 +10,11 @@ import {
 } from "../inspections/evidencePolicyAssignment.js";
 import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
 import {
+  locationConfigurableSystemKeys,
+  parseLocationConfigurationInput,
+  type LocationConfigurationInput
+} from "../inspections/locationConfiguration.js";
+import {
   parseSystemConfiguration,
   systemConfigurationSchema,
   systemConfigurationSystemKeys
@@ -151,6 +156,38 @@ function parseConfigurationRevisionEvidencePolicy(
   }
   return map;
 }
+/**
+ * Validate the optional `locations` body key on
+ * `POST .../configuration-revisions`. Every entry's key must be BOTH in the
+ * request's `systemKeys` and in `locationConfigurableSystemKeys`, and every value
+ * must parse (`parseLocationConfigurationInput` — which itself checks every
+ * `location.zoneId` resolves within that system's own submitted zones). Mirrors
+ * `parseConfigurationRevisionSystemConfiguration` exactly. Returns the map of
+ * `systemKey -> { zones, locations }`, or `undefined` when the key is absent —
+ * making "enable co2_fire_extinguisher + define its zones/locations" one atomic
+ * revision.
+ */
+function parseConfigurationRevisionLocations(
+  value: unknown, keys: string[]
+): Map<string, LocationConfigurationInput> | undefined {
+  if (value === undefined) return undefined;
+  if (!object(value)) {
+    throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "locations must be an object.");
+  }
+  const requested = new Set(keys);
+  const map = new Map<string, LocationConfigurationInput>();
+  for (const [systemKey, configuration] of Object.entries(value)) {
+    if (!requested.has(systemKey) || !locationConfigurableSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", `locations is not permitted for ${systemKey}.`);
+    }
+    const parsed = parseLocationConfigurationInput(configuration);
+    if (!parsed) {
+      throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", `locations for ${systemKey} is invalid.`);
+    }
+    map.set(systemKey, parsed);
+  }
+  return map;
+}
 // These contracts need structural information that the small shared-customer
 // creation command intentionally does not collect. The API, not the browser,
 // is the capability authority for this initial-format choice.
@@ -285,6 +322,49 @@ function assertDryWetRiserAssignments(
   }
 }
 
+/**
+ * A copy of `current` in which every system named in `pending` has its enabled
+ * row + zones + locations replaced by SUBMITTED authority (synthetic
+ * `pending:*` ids — never persisted). Passing this to the unchanged
+ * `assertLocationDependentAssignments` lets "enable co2_fire_extinguisher +
+ * define its zones/locations" pass the guard in one revision, exactly as
+ * `assertDryWetRiserAssignments` already honours `systemConfigurationBySystemKey`.
+ * With no `pending`, `current` is returned untouched.
+ */
+function withPendingLocationAuthority(
+  current: Awaited<ReturnType<typeof loadConfiguration>>,
+  pending?: ReadonlyMap<string, LocationConfigurationInput>
+) {
+  if (!pending || pending.size === 0) return current;
+  const overridden = new Set(pending.keys());
+  const keptEnabled = current.enabled.filter((system) => !overridden.has(system.key));
+  const keptIds = new Set(keptEnabled.map((system) => system.id));
+  const enabled = [...keptEnabled];
+  const zones = current.zones.filter((zone) => keptIds.has(zone.enabledSystemId));
+  const locations = current.locations.filter((location) => keptIds.has(location.enabledSystemId));
+  for (const [key, submission] of pending) {
+    const syntheticId = `pending:${key}`;
+    enabled.push({
+      id: syntheticId, key, displayName: key, sortOrder: 0,
+      systemConfiguration: {}, evidencePolicyId: null, labelOverrides: {}
+    });
+    const zoneIdByKey = new Map<string, string>();
+    for (const zone of submission.zones) {
+      const zoneId = `pending-zone:${key}:${zone.key}`;
+      zoneIdByKey.set(zone.key, zoneId);
+      zones.push({ id: zoneId, enabledSystemId: syntheticId, key: zone.key, displayName: zone.displayName, sortOrder: zone.sortOrder });
+    }
+    for (const location of submission.locations) {
+      locations.push({
+        id: `pending-location:${key}:${location.key}`, enabledSystemId: syntheticId,
+        zoneId: zoneIdByKey.get(location.zoneId) ?? null, key: location.key, displayName: location.displayName,
+        presetRowCount: location.presetRowCount, rowPreset: location.rowPreset, sortOrder: location.sortOrder
+      });
+    }
+  }
+  return { revision: current.revision, enabled, zones, locations };
+}
+
 async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: string) {
   const revisionResult = await client.query<{ id: string; revision: number; templateId: string }>(`
     SELECT id, revision, template_version_id AS "templateId" FROM customer_configuration_revisions
@@ -349,11 +429,12 @@ async function copySelectedConfiguration(
     labelOverridesBySystemKey?: ReadonlyMap<string, LabelOverrideMap>;
     systemConfigurationBySystemKey?: ReadonlyMap<string, unknown>;
     evidencePolicyBySystemKey?: ReadonlyMap<string, string | null>;
+    zonesLocationsBySystemKey?: ReadonlyMap<string, LocationConfigurationInput>;
   } = {}
 ) {
   const current = await loadConfiguration(client, customerId);
   const supported = await requireSupportedKeys(client, keys);
-  assertLocationDependentAssignments(keys, current);
+  assertLocationDependentAssignments(keys, withPendingLocationAuthority(current, options.zonesLocationsBySystemKey));
   assertDryWetRiserAssignments(keys, current, options.systemConfigurationBySystemKey);
   const newRevisionId = randomUUID();
   await client.query(`UPDATE customer_configuration_revisions SET status = 'superseded' WHERE id = $1`, [current.revision.id]);
@@ -366,7 +447,7 @@ async function copySelectedConfiguration(
   // `system_configuration` — rebuilds in catalog order so the added key is
   // actually inserted, exactly as before.
   const currentKeys = current.enabled.map((system) => system.key);
-  const perSystemEdit = Boolean(options.labelOverridesBySystemKey || options.systemConfigurationBySystemKey || options.evidencePolicyBySystemKey);
+  const perSystemEdit = Boolean(options.labelOverridesBySystemKey || options.systemConfigurationBySystemKey || options.evidencePolicyBySystemKey || options.zonesLocationsBySystemKey);
   const sameEnabledSet = currentKeys.length === keys.length && keys.every((key) => currentKeys.includes(key));
   const orderedKeys = perSystemEdit && sameEnabledSet ? currentKeys : supported.map((system) => system.key);
   for (const [index, key] of orderedKeys.entries()) {
@@ -384,6 +465,22 @@ async function copySelectedConfiguration(
       ? options.evidencePolicyBySystemKey.get(key) ?? null
       : (old?.evidencePolicyId ?? null);
     await client.query(`INSERT INTO customer_enabled_systems (id, configuration_revision_id, template_version_id, system_key, sort_order, system_configuration, evidence_policy_id, label_overrides) VALUES ($1, $2, (SELECT id FROM master_service_report_templates WHERE code = 'MFE-FSSR' AND version = $3), $4, $5, $6, $7, $8)`, [enabledId, newRevisionId, customerCatalogVersion, catalogSystem.key, index + 1, JSON.stringify(systemConfiguration), evidencePolicyId, JSON.stringify(labelOverrides)]);
+    // A submitted zone/location set REPLACES this system's authority (fresh
+    // UUIDs, `location.zoneId` mapped through the new-UUID map). Runs before the
+    // `!old` short-circuit so a freshly-enabled location-dependent system still
+    // gets its zones/locations. Every other system forward-copies unchanged.
+    const submittedLocations = options.zonesLocationsBySystemKey?.get(key);
+    if (submittedLocations) {
+      const submittedZoneIds = new Map<string, string>();
+      for (const zone of submittedLocations.zones) {
+        const id = randomUUID(); submittedZoneIds.set(zone.key, id);
+        await client.query(`INSERT INTO customer_system_zones (id, enabled_system_id, zone_key, display_name, sort_order) VALUES ($1,$2,$3,$4,$5)`, [id, enabledId, zone.key, zone.displayName, zone.sortOrder]);
+      }
+      for (const location of submittedLocations.locations) {
+        await client.query(`INSERT INTO customer_system_locations (id, enabled_system_id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [randomUUID(), enabledId, submittedZoneIds.get(location.zoneId) ?? null, location.key, location.displayName, location.presetRowCount, JSON.stringify(location.rowPreset), location.sortOrder]);
+      }
+      continue;
+    }
     if (!old) continue;
     const zoneIds = new Map<string, string>();
     for (const zone of current.zones.filter((value) => value.enabledSystemId === old.id)) {
@@ -549,9 +646,10 @@ export function createManagerCustomersRouter(
       client = await database.connect();
       const customerId = request.params.customerId;
       if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
-      const body = exactBody(request.body, ["systemKeys", "systemConfiguration", "evidencePolicy"]); const keys = systemKeys(body.systemKeys);
+      const body = exactBody(request.body, ["systemKeys", "systemConfiguration", "evidencePolicy", "locations"]); const keys = systemKeys(body.systemKeys);
       const systemConfigurationBySystemKey = parseConfigurationRevisionSystemConfiguration(body.systemConfiguration, keys);
       const evidencePolicyBySystemKey = parseConfigurationRevisionEvidencePolicy(body.evidencePolicy, keys);
+      const zonesLocationsBySystemKey = parseConfigurationRevisionLocations(body.locations, keys);
       await client.query("BEGIN");
       const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
       if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
@@ -564,7 +662,8 @@ export function createManagerCustomersRouter(
       }
       const revisionId = await copySelectedConfiguration(client, customerId, keys, {
         ...(systemConfigurationBySystemKey ? { systemConfigurationBySystemKey } : {}),
-        ...(evidencePolicyBySystemKey ? { evidencePolicyBySystemKey } : {})
+        ...(evidencePolicyBySystemKey ? { evidencePolicyBySystemKey } : {}),
+        ...(zonesLocationsBySystemKey ? { zonesLocationsBySystemKey } : {})
       });
       await audit(client, request.currentUser!.id, "manager_customer_configuration_activated", "customer_configuration_revision", revisionId); await client.query("COMMIT");
       response.status(201).json({ customer: await loadManagerCustomer(customerId, database) });
@@ -841,6 +940,98 @@ export function createManagerCustomersRouter(
         field: evidencePolicyField,
         policies: refreshed.policies,
         evidencePolicyId: refreshed.evidencePolicyId
+      });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
+
+  // Per-customer zone / location configuration for the location-dependent master
+  // systems (`co2_fire_extinguisher`, `wet_chemical`). Defining at least one zone
+  // + one location here is what flips the system's "Assigned Services" checkbox
+  // from disabled ("Location configuration required") to assignable. Mechanism
+  // mirrors the `system-configuration` / `evidence-policy` routes exactly. No
+  // migration — `customer_system_zones` / `customer_system_locations` exist since
+  // migrations 004/006.
+  const parseLocationsTarget = (request: { params: Record<string, unknown> }) => {
+    const customerId = request.params.customerId;
+    const systemKey = request.params.systemKey;
+    if (typeof customerId !== "string" || !uuidPattern.test(customerId)) {
+      throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer id is invalid.");
+    }
+    if (typeof systemKey !== "string" || !locationConfigurableSystemKeys.has(systemKey)) {
+      throw new ManagerCustomerError("LOCATIONS_UNSUPPORTED_SYSTEM", "Zone/location configuration is not supported for this system.", 404);
+    }
+    return { customerId, systemKey };
+  };
+
+  // The active revision's frozen template version plus the current zones /
+  // locations for one system. POSTURE: resolves against the active revision even
+  // when the system row is ABSENT (returns `zones: []`, `locations: []`) so a
+  // Manager can define them before ticking the box.
+  const loadLocationsContext = async (queryable: Pick<PoolClient, "query">, customerId: string, systemKey: string) => {
+    const owner = await queryable.query(`SELECT 1 FROM customers WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
+    if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+    const revision = await queryable.query<{ id: string; templateVersion: number }>(`
+      SELECT revision.id, template.version AS "templateVersion"
+      FROM customer_configuration_revisions revision
+      INNER JOIN master_service_report_templates template ON template.id = revision.template_version_id
+      WHERE revision.customer_id = $1 AND revision.status = 'active'`, [customerId]);
+    const active = revision.rows[0];
+    if (!active) throw new ManagerCustomerError("CUSTOMER_CONFIGURATION_NOT_FOUND", "Customer configuration was not found.", 404);
+    const enabled = await queryable.query<{ id: string }>(`
+      SELECT id FROM customer_enabled_systems WHERE configuration_revision_id = $1 AND system_key = $2`, [active.id, systemKey]);
+    const enabledId = enabled.rows[0]?.id;
+    if (!enabledId) return { templateVersion: active.templateVersion, zones: [] as Zone[], locations: [] as Location[] };
+    const zones = (await queryable.query<Zone>(`SELECT id, enabled_system_id AS "enabledSystemId", zone_key AS key, display_name AS "displayName", sort_order AS "sortOrder" FROM customer_system_zones WHERE enabled_system_id = $1 ORDER BY sort_order`, [enabledId])).rows;
+    const locations = (await queryable.query<Location>(`SELECT id, enabled_system_id AS "enabledSystemId", zone_id AS "zoneId", location_key AS key, display_name AS "displayName", preset_row_count AS "presetRowCount", row_preset AS "rowPreset", sort_order AS "sortOrder" FROM customer_system_locations WHERE enabled_system_id = $1 ORDER BY sort_order`, [enabledId])).rows;
+    return { templateVersion: active.templateVersion, zones, locations };
+  };
+
+  router.get("/manager/customers/:customerId/systems/:systemKey/locations", requireRole("admin"), async (request, response, next) => {
+    try {
+      const { customerId, systemKey } = parseLocationsTarget(request);
+      const context = await loadLocationsContext(database, customerId, systemKey);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ systemKey, templateVersion: context.templateVersion, zones: context.zones, locations: context.locations });
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/customers/:customerId/systems/:systemKey/locations", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const { customerId, systemKey } = parseLocationsTarget(request);
+      const body = exactBody(request.body, ["zones", "locations"]);
+      const parsed = parseLocationConfigurationInput({ zones: body.zones, locations: body.locations });
+      if (!parsed) throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "The zone/location payload is invalid for this system.");
+      client = await database.connect();
+      await client.query("BEGIN");
+      const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
+      if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await loadLocationsContext(client, customerId, systemKey);
+      // `serviceVisits.ts` buildSnapshot invariant (~:131): every location of a
+      // location-dependent system must carry a non-null zone that belongs to the
+      // SAME system. `parseLocationConfigurationInput` already guarantees every
+      // `location.zoneId` names a submitted zone `key`; assert it here too so the
+      // contract is explicit at the write path.
+      const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
+      if (parsed.locations.some((location) => !submittedZoneKeys.has(location.zoneId))) {
+        throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
+      }
+      const current = await loadConfiguration(client, customerId);
+      const keys = current.enabled.map((system) => system.key);
+      if (!keys.includes(systemKey)) keys.push(systemKey);
+      const revisionId = await copySelectedConfiguration(
+        client, customerId, keys,
+        { zonesLocationsBySystemKey: new Map([[systemKey, parsed]]) }
+      );
+      await audit(client, request.currentUser!.id, "manager_customer_locations_updated", "customer_configuration_revision", revisionId);
+      await client.query("COMMIT");
+      const refreshed = await loadLocationsContext(database, customerId, systemKey);
+      response.status(200).json({
+        customer: await loadManagerCustomer(customerId, database),
+        systemKey,
+        templateVersion: refreshed.templateVersion,
+        zones: refreshed.zones,
+        locations: refreshed.locations
       });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });

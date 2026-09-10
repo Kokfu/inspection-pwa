@@ -1,0 +1,234 @@
+<!doctype html><html><body>
+<button id="run">Run manager locations checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { ManagerCustomerLocations } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(670);
+const systemKey = "co2_fire_extinguisher";
+const enabledSystemId = id(672);
+const otherUuid = id(999);
+
+// Server-side persisted zone/location authority (mirrors customer_system_zones /
+// customer_system_locations). Zones/locations round-trip with real UUID ids; a
+// submitted `location.zoneId` is a submitted zone's `key`.
+let stored = {
+  zones: [{ id: id(681), enabledSystemId, key: "seed-zone", displayName: "Seed Zone", sortOrder: 1 }],
+  locations: [{ id: id(691), enabledSystemId, zoneId: id(681), key: "seed-loc", displayName: "Seed Location", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }]
+};
+
+let uuidCounter = 1000;
+const mintUuid = () => id(uuidCounter++);
+
+const applyPut = (payload) => {
+  const zoneIdByKey = new Map();
+  const zones = payload.zones.map((zone, index) => {
+    const uuid = mintUuid();
+    zoneIdByKey.set(zone.key, uuid);
+    return { id: uuid, enabledSystemId, key: zone.key, displayName: zone.displayName, sortOrder: index + 1 };
+  });
+  const locations = payload.locations.map((location, index) => ({
+    id: mintUuid(), enabledSystemId, zoneId: zoneIdByKey.get(location.zoneId) ?? null,
+    key: location.key, displayName: location.displayName, presetRowCount: location.presetRowCount, rowPreset: {}, sortOrder: index + 1
+  }));
+  stored = { zones, locations };
+};
+
+const body = (extra = {}) => ({ systemKey, templateVersion: 7, zones: stored.zones, locations: stored.locations, ...extra });
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+
+let getCalls = 0;
+let putCalls = 0;
+let getMode = "ok"; // ok | zoneBad | rootNull | wrongSystem | zoneMismatch | dupZones
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  const path = `/api/manager/customers/${customerId}/systems/${systemKey}/locations`;
+  if (!url.startsWith(path)) return realFetch(input, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET") {
+    getCalls += 1; await new Promise((r) => setTimeout(r, 25));
+    if (getMode === "zoneBad") return json({ systemKey, templateVersion: 7, zones: [{ id: id(681), enabledSystemId, key: "z", sortOrder: 1 }], locations: [] });
+    if (getMode === "rootNull") return rawResponse("null");
+    if (getMode === "wrongSystem") return json({ systemKey: "wet_chemical", templateVersion: 7, zones: stored.zones, locations: stored.locations });
+    if (getMode === "zoneMismatch") return json({ systemKey, templateVersion: 7, zones: stored.zones, locations: [{ id: id(691), enabledSystemId, zoneId: otherUuid, key: "l", displayName: "L", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] });
+    if (getMode === "dupZones") return json({ systemKey, templateVersion: 7, zones: [stored.zones[0], { ...stored.zones[0], displayName: "shadow" }], locations: [] });
+    return json(body());
+  }
+  if (method === "PUT") {
+    putCalls += 1;
+    const payload = JSON.parse(init.body);
+    // Mirror parseLocationConfigurationInput's essentials: every location.zoneId
+    // must be one of the submitted zone keys; presetRowCount a 1..500 int.
+    const zoneKeys = new Set(payload.zones.map((zone) => zone.key));
+    const invalid = payload.locations.some((location) => !zoneKeys.has(location.zoneId)
+      || !Number.isInteger(location.presetRowCount) || location.presetRowCount < 1 || location.presetRowCount > 500);
+    if (invalid) return json({ error: "INVALID_LOCATION_CONFIGURATION", message: "The zone/location payload is invalid for this system." }, 400);
+    applyPut(payload);
+    return json(body({ customer: putCustomerEcho() }));
+  }
+  return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+};
+
+const legitCustomer = () => ({
+  customer: { id: customerId, code: "C670", displayName: "CO2 Customer" },
+  sites: [{ id: id(663), code: "S", displayName: "Site" }],
+  configuration: { id: id(671), revision: 4, enabledSystems: [{ key: systemKey, displayName: "CO2 Fire Extinguisher System", sortOrder: 1, zones: [], locations: [] }] },
+  supportedSystems: [{ key: systemKey, displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: true }]
+});
+let putCustomerEcho = legitCustomer;
+const poisoned = {
+  "customer not an object": () => ({ ...legitCustomer(), customer: "nope" }),
+  "customer.id missing": () => { const c = legitCustomer(); delete c.customer.id; return c; },
+  "configuration.revision not a number": () => { const c = legitCustomer(); c.configuration.revision = "4"; return c; },
+  "enabledSystems element is null": () => { const c = legitCustomer(); c.configuration.enabledSystems = [null]; return c; },
+  "enabledSystems element missing locations": () => { const c = legitCustomer(); delete c.configuration.enabledSystems[0].locations; return c; },
+  "supportedSystems element missing displayName": () => { const c = legitCustomer(); delete c.supportedSystems[0].displayName; return c; }
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.includes(text));
+const zoneNameInputs = () => [...view.querySelectorAll(".manager-locations-zone-list input")];
+const locationRows = () => [...view.querySelectorAll(".manager-locations-location-list > li")];
+const setInput = (el, value) => {
+  const proto = el.tagName === "SELECT" ? window.HTMLSelectElement.prototype : window.HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+  el.dispatchEvent(new Event(el.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
+};
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 250; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
+};
+const loadingVisible = () => view.textContent.includes("Loading zones and locations");
+const reloadAndSettle = async (expectedGetCalls) => {
+  findButton("Reload").click();
+  await wait(() => loadingVisible(), "reload loading window opened");
+  await wait(() => getCalls === expectedGetCalls && !loadingVisible(), "reload re-hydrate finished");
+};
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  let savedCount = 0;
+  try {
+    stored = {
+      zones: [{ id: id(681), enabledSystemId, key: "seed-zone", displayName: "Seed Zone", sortOrder: 1 }],
+      locations: [{ id: id(691), enabledSystemId, zoneId: id(681), key: "seed-loc", displayName: "Seed Location", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }]
+    };
+    putCustomerEcho = legitCustomer;
+    createRoot(view).render(React.createElement(ManagerCustomerLocations, {
+      customer: legitCustomer(),
+      onSaved: () => { savedCount += 1; },
+      onAuthorityFailure: () => { authorityFailures += 1; }
+    }));
+    await wait(() => findButton("zones & locations — CO2 Fire Extinguisher System"), "collapsed editor");
+
+    // Load the seeded 1 zone + 1 location.
+    findButton("zones & locations — CO2 Fire Extinguisher System").click();
+    await wait(() => getCalls === 1 && zoneNameInputs().length === 1, "zones/locations loaded");
+    ok("seeded zone renders", zoneNameInputs()[0].value === "Seed Zone");
+    ok("seeded location renders", locationRows().length === 1);
+
+    // Add a zone, add a location on it, save.
+    findButton("Add zone").click();
+    await wait(() => zoneNameInputs().length === 2, "zone added");
+    setInput(zoneNameInputs()[1], "Manager Zone B");
+    await wait(() => zoneNameInputs()[1].value === "Manager Zone B", "zone renamed");
+    findButton("Add location").click();
+    await wait(() => locationRows().length === 2, "location added");
+    const newRow = locationRows()[1];
+    setInput(newRow.querySelector("input:not([type=number])"), "Manager Location 2");
+    const zoneSelect = newRow.querySelector("select");
+    setInput(zoneSelect, zoneSelect.options[2].value); // the added zone
+    setInput(newRow.querySelector("input[type=number]"), "4");
+    await wait(() => view.textContent.includes("Unsaved changes."), "edits applied");
+    findButton("Save zones & locations").click();
+    await wait(() => putCalls === 1 && view.textContent.includes("Zones and locations saved"), "save confirmation");
+    ok("save persisted 2 zones + 2 locations server-side", stored.zones.length === 2 && stored.locations.length === 2);
+    ok("added location points at the added zone", stored.locations[1].zoneId === stored.zones[1].id);
+    ok("added location keeps its preset row count", stored.locations[1].presetRowCount === 4);
+    ok("save reached onSaved", savedCount === 1);
+
+    // Reload -> persisted.
+    await reloadAndSettle(2);
+    ok("reload keeps both zones", zoneNameInputs().length === 2 && zoneNameInputs()[1].value === "Manager Zone B");
+    ok("reload keeps both locations", locationRows().length === 2 && view.textContent.includes("No unsaved changes."));
+
+    // Remove both locations -> save -> reload clears.
+    findButton("Remove location").click();
+    await wait(() => locationRows().length === 1, "one location removed");
+    findButton("Remove location").click();
+    await wait(() => locationRows().length === 0, "all locations removed");
+    findButton("Save zones & locations").click();
+    await wait(() => putCalls === 2 && view.textContent.includes("Zones and locations saved"), "clear save confirmation");
+    ok("clear persisted server-side", stored.locations.length === 0);
+    ok("clear reached onSaved", savedCount === 2);
+    await reloadAndSettle(3);
+    ok("reload keeps the cleared location list", locationRows().length === 0);
+
+    // Malformed HTTP 200 GET bodies on reload -> authority failure, not a crash.
+    getMode = "zoneBad";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 1, "malformed zone routed to authority failure");
+    ok("zone row missing displayName routes to onAuthorityFailure", authorityFailures === 1);
+
+    getMode = "rootNull";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 2, "null root body routed to authority failure");
+    ok("null root HTTP 200 routes to onAuthorityFailure", authorityFailures === 2);
+
+    getMode = "wrongSystem";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 3, "wrong systemKey routed to authority failure");
+    ok("systemKey mismatch routes to onAuthorityFailure", authorityFailures === 3);
+
+    getMode = "zoneMismatch";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 4, "dangling location zoneId routed to authority failure");
+    ok("location zoneId not in the returned zone list routes to onAuthorityFailure", authorityFailures === 4);
+
+    getMode = "dupZones";
+    findButton("Reload").click();
+    await wait(() => authorityFailures === 5, "duplicate zone id routed to authority failure");
+    ok("duplicate zone id routes to onAuthorityFailure", authorityFailures === 5);
+
+    // Poisoned `customer` echo on save -> onAuthorityFailure, never onSaved.
+    getMode = "ok";
+    let getN = 8, putN = 2, fails = 5;
+    for (const [name, make] of Object.entries(poisoned)) {
+      getN += 1; putN += 1; fails += 1;
+      await reloadAndSettle(getN);
+      const savedBefore = savedCount;
+      putCustomerEcho = make;
+      setInput(zoneNameInputs()[0], `Poke ${name}`.slice(0, 40));
+      await wait(() => view.textContent.includes("Unsaved changes."), `re-edited for "${name}"`);
+      findButton("Save zones & locations").click();
+      await wait(() => putCalls === putN && authorityFailures === fails, `"${name}" routed to authority failure`);
+      ok(`poisoned customer (${name}) -> onAuthorityFailure`, authorityFailures === fails);
+      ok(`poisoned customer (${name}) never reached onSaved`, savedCount === savedBefore);
+      ok(`poisoned customer (${name}) left no crash text`, !/TypeError|Cannot read/.test(view.textContent));
+    }
+
+    // Control: a legit PUT `customer` echo DOES reach onSaved.
+    putCustomerEcho = legitCustomer;
+    getN += 1; putN += 1;
+    await reloadAndSettle(getN);
+    const savedBefore = savedCount;
+    setInput(zoneNameInputs()[0], "Seed Zone Renamed");
+    await wait(() => view.textContent.includes("Unsaved changes."), "re-edited for legit control");
+    findButton("Save zones & locations").click();
+    await wait(() => putCalls === putN && savedCount === savedBefore + 1, "legit echo reaches onSaved");
+    ok("legit PUT customer echo still reaches onSaved (guard is not over-strict)", savedCount === savedBefore + 1 && authorityFailures === fails);
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

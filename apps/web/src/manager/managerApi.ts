@@ -439,3 +439,125 @@ export async function saveManagerLabelOverrides(
   if (!isManagerCustomer(data.customer)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   return { labels: asLabelOverrides(data), customer: data.customer };
 }
+
+/** Systems whose per-customer zone/location configuration a Manager may edit.
+ *  Mirrors the API `locationConfigurableSystemKeys` bound
+ *  (apps/api/src/inspections/locationConfiguration.ts) — widenable without a
+ *  migration. Defining at least one zone + location for one of these is what
+ *  unlocks its "Assigned Services" checkbox. */
+export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
+  "co2_fire_extinguisher", "wet_chemical"
+]);
+
+export type ManagerZone = {
+  id: string;
+  enabledSystemId: string;
+  key: string;
+  displayName: string;
+  sortOrder: number;
+};
+
+export type ManagerLocation = {
+  id: string;
+  enabledSystemId: string;
+  zoneId: string;
+  key: string;
+  displayName: string;
+  presetRowCount: number;
+  rowPreset: Record<string, unknown>;
+  sortOrder: number;
+};
+
+export type ManagerLocations = {
+  systemKey: string;
+  templateVersion: number;
+  zones: ManagerZone[];
+  locations: ManagerLocation[];
+};
+
+/** The submission shape for one PUT — `zoneId` on a location is a submitted
+ *  zone's `key` (the persisted UUIDs are minted server-side). */
+export type ManagerLocationsDraft = {
+  zones: Array<{ key: string; displayName: string; sortOrder: number }>;
+  locations: Array<{ key: string; displayName: string; zoneId: string; presetRowCount: number; rowPreset?: Record<string, unknown> }>;
+};
+
+function locationsPath(customerId: string, systemKey: string) {
+  return `/api/manager/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/locations`;
+}
+
+function isManagerZone(value: unknown): value is ManagerZone {
+  return isPlainObject(value)
+    && typeof value.id === "string" && typeof value.enabledSystemId === "string"
+    && typeof value.key === "string" && typeof value.displayName === "string"
+    && typeof value.sortOrder === "number";
+}
+
+function isManagerLocationShape(value: unknown): value is Omit<ManagerLocation, "zoneId"> & { zoneId: unknown } {
+  return isPlainObject(value)
+    && typeof value.id === "string" && typeof value.enabledSystemId === "string"
+    && typeof value.key === "string" && typeof value.displayName === "string"
+    && typeof value.presetRowCount === "number" && typeof value.sortOrder === "number"
+    && isPlainObject(value.rowPreset);
+}
+
+/**
+ * Fully validate the locations response body AND bind it to the system that was
+ * actually requested. A poisoned HTTP 200 that names a different `systemKey`,
+ * carries a malformed zone/location row, a `zones` list with a duplicate `id`
+ * (ambiguous `<select>` + duplicate React keys), or a location whose `zoneId` is
+ * not one of the returned zone ids is an "unavailable" authority failure, never a
+ * rendered control. Same pattern as `asEvidencePolicy` / `asSystemConfiguration`.
+ */
+function asManagerLocations(expectedSystemKey: string, data: Record<string, unknown>): ManagerLocations {
+  if (typeof data.systemKey !== "string" || data.systemKey !== expectedSystemKey
+    || typeof data.templateVersion !== "number"
+    || !Array.isArray(data.zones) || !data.zones.every(isManagerZone)
+    || !Array.isArray(data.locations) || !data.locations.every(isManagerLocationShape)) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  const zones = data.zones as ManagerZone[];
+  const zoneIds = zones.map((zone) => zone.id);
+  if (new Set(zoneIds).size !== zoneIds.length) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  const zoneIdSet = new Set(zoneIds);
+  const locations = data.locations as Array<Omit<ManagerLocation, "zoneId"> & { zoneId: unknown }>;
+  if (!locations.every((location) => typeof location.zoneId === "string" && zoneIdSet.has(location.zoneId))) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  return {
+    systemKey: data.systemKey,
+    templateVersion: data.templateVersion,
+    zones,
+    locations: locations as ManagerLocation[]
+  };
+}
+
+export async function loadManagerLocations(customerId: string, systemKey: string, signal?: AbortSignal): Promise<ManagerLocations> {
+  let response: Response;
+  try { response = await fetch(locationsPath(customerId, systemKey), { credentials: "same-origin", cache: "no-store", signal }); }
+  catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  return asManagerLocations(systemKey, await readBody(response));
+}
+
+/**
+ * PUT the full zone/location set for one system. Server validation
+ * (`INVALID_LOCATION_CONFIGURATION`) surfaces as `ManagerApiError` "domain" with
+ * the server message. The response also carries the refreshed `customer`, still
+ * guarded by the hardened `isManagerCustomer`.
+ */
+export async function saveManagerLocations(
+  customerId: string, systemKey: string, draft: ManagerLocationsDraft
+): Promise<{ locations: ManagerLocations; customer: ManagerCustomer }> {
+  let response: Response;
+  try {
+    response = await fetch(locationsPath(customerId, systemKey), {
+      method: "PUT", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ zones: draft.zones, locations: draft.locations })
+    });
+  } catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  const data = await readBody(response);
+  if (!isManagerCustomer(data.customer)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  return { locations: asManagerLocations(systemKey, data), customer: data.customer };
+}

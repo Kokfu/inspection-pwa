@@ -7,15 +7,19 @@ import {
   labelOverrideSystemKeys,
   loadManagerEvidencePolicy,
   loadManagerLabelOverrides,
+  loadManagerLocations,
   loadManagerSystemConfiguration,
+  locationConfigurableSystemKeys,
   ManagerApiError,
   saveManagerEvidencePolicy,
   saveManagerLabelOverrides,
+  saveManagerLocations,
   saveManagerSystemConfiguration,
   systemConfigurationSystemKeys,
   type ManagerCustomer,
   type ManagerEvidencePolicyOption,
   type ManagerLabelOverrideNode,
+  type ManagerLocations,
   type ManagerSystemConfigurationSchema
 } from "./managerApi";
 
@@ -71,6 +75,7 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
     <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
     <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
     <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+    <ManagerCustomerLocations customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
   </section>;
 }
 
@@ -438,6 +443,213 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save evidence policy"}</button>
+        </div>
+      </> : null}
+    </div> : null}
+  </div>;
+}
+
+/**
+ * Per-customer zone / location configuration for the location-dependent master
+ * systems (`locationConfigurableSystemKeys` ∩ the customer's supported catalog —
+ * NOT limited to already-enabled systems, because defining zones/locations here
+ * is what makes a system enable-able). One collapsible editor per eligible
+ * system, lazy GET on expand. Reads the current zones/locations from
+ * `GET .../locations` and PUTs the full set; the server versions the customer
+ * configuration and forward-copies everything else. Server validation
+ * (`INVALID_LOCATION_CONFIGURATION`) surfaces inline as the server's own
+ * message, never as an authority failure. The "Assigned Services" save path is
+ * unchanged.
+ */
+export function ManagerCustomerLocations({ customer, onSaved, onAuthorityFailure }: {
+  customer: ManagerCustomer; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const editable = useMemo(
+    () => customer.supportedSystems.filter((system) => locationConfigurableSystemKeys.has(system.key)),
+    [customer.supportedSystems]
+  );
+  if (editable.length === 0) return null;
+  return <section className="report-summary" aria-labelledby="manager-locations-title">
+    <h3 id="manager-locations-title">Zones &amp; locations</h3>
+    <p>Define the zones and preset locations a technician records against for this customer. Defining at least one zone and one location here is what unlocks the CO2 / Wet Chemical checkboxes in “Assigned Services”. Saving creates a new configuration version; existing service visits keep the zones and locations they were created with.</p>
+    {editable.map((system) => (
+      <ManagerLocationsEditor
+        key={system.key}
+        customerId={customer.customer.id}
+        systemKey={system.key}
+        systemLabel={system.displayName}
+        onSaved={onSaved}
+        onAuthorityFailure={onAuthorityFailure}
+      />
+    ))}
+  </section>;
+}
+
+type LocationsZoneRow = { localId: string; key: string; displayName: string };
+type LocationsLocationRow = { localId: string; key: string; displayName: string; zoneLocalId: string; presetRowCount: number };
+
+const newLocationsKey = () => {
+  const raw = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `k${Date.now()}${Math.random()}`;
+  return raw.replace(/[^a-z0-9]/gi, "").slice(0, 12) || `k${Date.now()}`;
+};
+
+const normalizeLocationsDraft = (zoneRows: LocationsZoneRow[], locationRows: LocationsLocationRow[]) => ({
+  zones: zoneRows.map((zone, index) => ({ key: zone.key, displayName: zone.displayName.trim(), sortOrder: index + 1 })),
+  locations: locationRows.map((location) => ({
+    key: location.key,
+    displayName: location.displayName.trim(),
+    zoneId: zoneRows.find((zone) => zone.localId === location.zoneLocalId)?.key ?? "",
+    presetRowCount: location.presetRowCount
+  }))
+});
+
+function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+  customerId: string; systemKey: string; systemLabel: string;
+  onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [zoneRows, setZoneRows] = useState<LocationsZoneRow[]>([]);
+  const [locationRows, setLocationRows] = useState<LocationsLocationRow[]>([]);
+  const [loadedSnapshot, setLoadedSnapshot] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const hydrate = (result: ManagerLocations) => {
+    const zones = result.zones.map((zone) => ({ localId: zone.id, key: zone.key, displayName: zone.displayName }));
+    const locations = result.locations.map((location) => ({
+      localId: location.id,
+      key: location.key,
+      displayName: location.displayName,
+      zoneLocalId: result.zones.find((zone) => zone.id === location.zoneId)?.id ?? "",
+      presetRowCount: location.presetRowCount
+    }));
+    setZoneRows(zones);
+    setLocationRows(locations);
+    setLoadedSnapshot(JSON.stringify(normalizeLocationsDraft(zones, locations)));
+    setLoaded(true);
+  };
+
+  const load = async () => {
+    setLoading(true); setError(""); setMessage("");
+    try { hydrate(await loadManagerLocations(customerId, systemKey)); }
+    catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Zones and locations could not be loaded.");
+    } finally { setLoading(false); }
+  };
+
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !loaded && !loading) void load();
+  };
+
+  const save = async () => {
+    setSaving(true); setError(""); setMessage("");
+    try {
+      const result = await saveManagerLocations(customerId, systemKey, normalizeLocationsDraft(zoneRows, locationRows));
+      hydrate(result.locations);
+      onSaved(result.customer);
+      setMessage("Zones and locations saved. A new configuration version was created.");
+    } catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Zones and locations could not be saved.");
+    } finally { setSaving(false); }
+  };
+
+  const addZone = () => setZoneRows((current) => [...current, { localId: newLocationsKey(), key: newLocationsKey(), displayName: "" }]);
+  const renameZone = (localId: string, displayName: string) =>
+    setZoneRows((current) => current.map((zone) => zone.localId === localId ? { ...zone, displayName } : zone));
+  const removeZone = (localId: string) => {
+    setZoneRows((current) => current.filter((zone) => zone.localId !== localId));
+    setLocationRows((current) => current.map((location) => location.zoneLocalId === localId ? { ...location, zoneLocalId: "" } : location));
+  };
+  const addLocation = () => setLocationRows((current) => [...current, {
+    localId: newLocationsKey(), key: newLocationsKey(), displayName: "", zoneLocalId: zoneRows[0]?.localId ?? "", presetRowCount: 1
+  }]);
+  const updateLocation = (localId: string, patch: Partial<LocationsLocationRow>) =>
+    setLocationRows((current) => current.map((location) => location.localId === localId ? { ...location, ...patch } : location));
+  const removeLocation = (localId: string) =>
+    setLocationRows((current) => current.filter((location) => location.localId !== localId));
+
+  const changed = loaded && JSON.stringify(normalizeLocationsDraft(zoneRows, locationRows)) !== loadedSnapshot;
+
+  return <div className="manager-locations-system">
+    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+      {open ? "Hide" : "Configure"} zones & locations — {systemLabel}
+    </button>
+    {open ? <div>
+      {loading ? <p>Loading zones and locations…</p> : null}
+      {error ? <p className="form-message" role="alert">{error}</p> : null}
+      {message ? <p className="form-message" role="status">{message}</p> : null}
+      {loaded ? <>
+        <h4>Zones</h4>
+        <ul className="manager-locations-zone-list">
+          {zoneRows.map((zone) => (
+            <li key={zone.localId}>
+              <label>
+                <span className="manager-locations-label">Zone name</span>
+                <input
+                  aria-label={`Zone name for ${zone.key}`}
+                  maxLength={300}
+                  value={zone.displayName}
+                  onChange={(event) => renameZone(zone.localId, event.target.value)}
+                />
+              </label>
+              <button type="button" className="secondary-command" onClick={() => removeZone(zone.localId)}>Remove zone</button>
+            </li>
+          ))}
+        </ul>
+        <button type="button" onClick={addZone}>Add zone</button>
+        <h4>Locations</h4>
+        <ul className="manager-locations-location-list">
+          {locationRows.map((location) => (
+            <li key={location.localId}>
+              <label>
+                <span className="manager-locations-label">Location name</span>
+                <input
+                  aria-label={`Location name for ${location.key}`}
+                  maxLength={300}
+                  value={location.displayName}
+                  onChange={(event) => updateLocation(location.localId, { displayName: event.target.value })}
+                />
+              </label>
+              <label>
+                <span className="manager-locations-label">Zone</span>
+                <select
+                  aria-label={`Zone for ${location.key}`}
+                  value={location.zoneLocalId}
+                  onChange={(event) => updateLocation(location.localId, { zoneLocalId: event.target.value })}
+                >
+                  <option value="">Select…</option>
+                  {zoneRows.map((zone) => <option key={zone.localId} value={zone.localId}>{zone.displayName || zone.key}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="manager-locations-label">Preset rows</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  aria-label={`Preset rows for ${location.key}`}
+                  value={location.presetRowCount}
+                  onChange={(event) => updateLocation(location.localId, { presetRowCount: Math.trunc(Number(event.target.value)) || 1 })}
+                />
+              </label>
+              <button type="button" className="secondary-command" onClick={() => removeLocation(location.localId)}>Remove location</button>
+            </li>
+          ))}
+        </ul>
+        <button type="button" disabled={zoneRows.length === 0} onClick={addLocation}>Add location</button>
+        <p className="support-metadata">{changed ? "Unsaved changes." : "No unsaved changes."}</p>
+        <div className="inline-actions">
+          <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
+          <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save zones & locations"}</button>
         </div>
       </> : null}
     </div> : null}
