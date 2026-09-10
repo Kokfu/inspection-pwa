@@ -72,12 +72,91 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   };
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}<section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>{riserNewlyTicked ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
-    <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <ManagerCustomerLocations customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+    <section className="report-summary manager-per-service" aria-labelledby="manager-per-service-title">
+      <h3 id="manager-per-service-title">Per-service settings</h3>
+      <p>Settings that apply to an individual service for this customer. Each editor below creates a new configuration version when it is saved; existing service visits keep the settings they were created with.</p>
+      <p className="support-metadata">Version {customer.configuration.revision}</p>
+      <ManagerPerServiceSummary customer={customer} />
+      <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+      <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+      <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+      <ManagerCustomerLocations customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
+    </section>
   </section>;
 }
+
+/**
+ * Slice 3b: the four per-service editors below share one collapsible affordance.
+ * These are the single source of that shared copy, so the per-system toggle
+ * label, the unsaved-changes line and the save confirmation stay identical
+ * across all four editors. Only `noun` varies between them.
+ */
+const perServiceToggleLabel = (open: boolean, noun: string, systemLabel: string) =>
+  `${open ? "Hide" : "Edit"} ${noun} — ${systemLabel}`;
+const perServiceUnsavedLine = (changed: boolean) => (changed ? "Unsaved changes." : "No unsaved changes.");
+const PER_SERVICE_SAVE_CONFIRMATION = "Saved. A new configuration version was created.";
+
+/**
+ * Slice 3b: at-a-glance per-system summary of which per-service settings are
+ * already set, read straight off `customer.configuration.enabledSystems`
+ * (`labelOverrides`, `systemConfiguration`, `evidencePolicyId`, `zones`,
+ * `locations`) — no extra fetch. A setting that does not apply to a system (its
+ * key is not in that editor's eligibility Set) reads "n/a"; otherwise "set" or
+ * "not set".
+ */
+function ManagerPerServiceSummary({ customer }: { customer: ManagerCustomer }) {
+  const rows = useMemo(() => customer.configuration.enabledSystems.map((system) => {
+    const labelOverrides = (system as { labelOverrides?: Record<string, unknown> }).labelOverrides;
+    return {
+      key: system.key,
+      displayName: system.displayName,
+      flags: [
+        {
+          label: "Field labels",
+          applies: labelOverrideSystemKeys.has(system.key),
+          set: isPlainRecord(labelOverrides) && Object.keys(labelOverrides).length > 0
+        },
+        {
+          label: "System settings",
+          applies: systemConfigurationSystemKeys.has(system.key),
+          set: isPlainRecord(system.systemConfiguration) && Object.keys(system.systemConfiguration).length > 0
+        },
+        {
+          label: "Evidence policy",
+          applies: evidencePolicyAssignableSystemKeys.has(system.key),
+          set: typeof system.evidencePolicyId === "string" && system.evidencePolicyId.length > 0
+        },
+        {
+          label: "Zones & locations",
+          applies: locationConfigurableSystemKeys.has(system.key),
+          set: system.zones.length > 0 && system.locations.length > 0
+        }
+      ]
+    };
+  }), [customer.configuration.enabledSystems]);
+  if (rows.length === 0) return null;
+  return <ul className="manager-per-service-summary" aria-label="Per-service settings summary">
+    {rows.map((row) => (
+      <li key={row.key}>
+        <span className="manager-per-service-summary-system">{row.displayName}</span>
+        <span className="manager-per-service-summary-flags">
+          {row.flags.map((flag) => {
+            const state = !flag.applies ? "n/a" : flag.set ? "set" : "not set";
+            const tone = !flag.applies ? "na" : flag.set ? "set" : "unset";
+            return <span
+              key={flag.label}
+              className={`manager-config-flag manager-config-flag--${tone}`}
+              aria-label={`${row.displayName} — ${flag.label}: ${state}`}
+            >{flag.label}<small>{state}</small></span>;
+          })}
+        </span>
+      </li>
+    ))}
+  </ul>;
+}
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * Per-customer display-label overrides. One collapsible editor per eligible
@@ -97,9 +176,9 @@ export function ManagerCustomerLabelOverrides({ customer, onSaved, onAuthorityFa
     [customer.configuration.enabledSystems]
   );
   if (editable.length === 0) return null;
-  return <section className="report-summary" aria-labelledby="manager-label-overrides-title">
-    <h3 id="manager-label-overrides-title">Custom field labels</h3>
-    <p>Rename the field labels a technician sees for this customer. This does not change what is recorded — only the wording on the form and the accepted report.</p>
+  return <section className="manager-per-service-block" aria-labelledby="manager-label-overrides-title">
+    <h4 id="manager-label-overrides-title">Custom field labels</h4>
+    <p>Rename the field labels a technician sees for this customer. This changes the wording on the form and the accepted report only, never what is recorded. Saving creates a new configuration version; existing service visits keep the labels they were created with.</p>
     {editable.map((system) => (
       <ManagerSystemLabelOverrides
         key={system.key}
@@ -153,7 +232,7 @@ function ManagerSystemLabelOverrides({ customerId, systemKey, systemLabel, onSav
       const result = await saveManagerLabelOverrides(customerId, systemKey, map);
       hydrate(result.labels.labels);
       onSaved(result.customer);
-      setMessage("Field labels saved. A new configuration version was created.");
+      setMessage(PER_SERVICE_SAVE_CONFIRMATION);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "Field labels could not be saved.");
@@ -166,7 +245,7 @@ function ManagerSystemLabelOverrides({ customerId, systemKey, systemLabel, onSav
 
   return <div className="manager-label-override-system">
     <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
-      {open ? "Hide" : "Customise"} labels — {systemLabel}
+      {perServiceToggleLabel(open, "field labels", systemLabel)}
     </button>
     {open ? <div>
       {loading ? <p>Loading field labels…</p> : null}
@@ -190,7 +269,8 @@ function ManagerSystemLabelOverrides({ customerId, systemKey, systemLabel, onSav
             </li>
           ))}
         </ul>
-        <p className="support-metadata">Blank a field to restore its default label. {changedCount} unsaved change{changedCount === 1 ? "" : "s"}.</p>
+        <p className="support-metadata">Blank a field to restore its default label.</p>
+        <p className="support-metadata">{perServiceUnsavedLine(changedCount > 0)}</p>
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save labels"}</button>
@@ -217,9 +297,9 @@ export function ManagerCustomerSystemConfiguration({ customer, onSaved, onAuthor
     [customer.configuration.enabledSystems]
   );
   if (editable.length === 0) return null;
-  return <section className="report-summary" aria-labelledby="manager-system-configuration-title">
-    <h3 id="manager-system-configuration-title">System configuration</h3>
-    <p>Per-customer settings that change how a service is carried out. Saving creates a new configuration version; existing service visits keep the settings they were created with.</p>
+  return <section className="manager-per-service-block" aria-labelledby="manager-system-configuration-title">
+    <h4 id="manager-system-configuration-title">System configuration</h4>
+    <p>Set the per-customer options that change how this service is carried out. Saving creates a new configuration version; existing service visits keep the settings they were created with.</p>
     {editable.map((system) => (
       <ManagerSystemConfigurationEditor
         key={system.key}
@@ -278,7 +358,7 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
       const result = await saveManagerSystemConfiguration(customerId, systemKey, payload);
       hydrate(result.configuration.schema, result.configuration.configuration);
       onSaved(result.customer);
-      setMessage("System configuration saved. A new configuration version was created.");
+      setMessage(PER_SERVICE_SAVE_CONFIRMATION);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "System configuration could not be saved.");
@@ -291,7 +371,7 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
 
   return <div className="manager-system-configuration-system">
     <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
-      {open ? "Hide" : "Configure"} — {systemLabel}
+      {perServiceToggleLabel(open, "system settings", systemLabel)}
     </button>
     {open ? <div>
       {loading ? <p>Loading system configuration…</p> : null}
@@ -315,7 +395,7 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
             </li>
           ))}
         </ul>
-        <p className="support-metadata">{changedCount} unsaved change{changedCount === 1 ? "" : "s"}.</p>
+        <p className="support-metadata">{perServiceUnsavedLine(changedCount > 0)}</p>
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save configuration"}</button>
@@ -348,9 +428,9 @@ export function ManagerCustomerEvidencePolicy({ customer, onSaved, onAuthorityFa
     [customer.configuration.enabledSystems]
   );
   if (editable.length === 0) return null;
-  return <section className="report-summary" aria-labelledby="manager-evidence-policy-title">
-    <h3 id="manager-evidence-policy-title">Evidence policy</h3>
-    <p>Assign the photo-evidence policy a technician's inspection is held to for this customer. This only affects the legacy photo-evidence lifecycle; it does not change what is recorded. Saving creates a new configuration version; existing service visits keep the policy they were created with.</p>
+  return <section className="manager-per-service-block" aria-labelledby="manager-evidence-policy-title">
+    <h4 id="manager-evidence-policy-title">Evidence policy</h4>
+    <p>Assign the photo-evidence policy a technician's inspection is held to for this customer. This affects the legacy photo-evidence lifecycle only, never what is recorded. Saving creates a new configuration version; existing service visits keep the policy they were created with.</p>
     {editable.map((system) => (
       <ManagerEvidencePolicyEditor
         key={system.key}
@@ -406,7 +486,7 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
       const result = await saveManagerEvidencePolicy(customerId, systemKey, draft === "" ? null : draft);
       hydrate(result.evidencePolicy);
       onSaved(result.customer);
-      setMessage("Evidence policy saved. A new configuration version was created.");
+      setMessage(PER_SERVICE_SAVE_CONFIRMATION);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "Evidence policy could not be saved.");
@@ -417,7 +497,7 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
 
   return <div className="manager-evidence-policy-system">
     <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
-      {open ? "Hide" : "Configure"} evidence policy — {systemLabel}
+      {perServiceToggleLabel(open, "evidence policy", systemLabel)}
     </button>
     {open ? <div>
       {loading ? <p>Loading evidence policy…</p> : null}
@@ -439,7 +519,7 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
             </label>
           </li>
         </ul>
-        <p className="support-metadata">{changed ? "1 unsaved change." : "0 unsaved changes."}</p>
+        <p className="support-metadata">{perServiceUnsavedLine(changed)}</p>
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save evidence policy"}</button>
@@ -469,8 +549,8 @@ export function ManagerCustomerLocations({ customer, onSaved, onAuthorityFailure
     [customer.supportedSystems]
   );
   if (editable.length === 0) return null;
-  return <section className="report-summary" aria-labelledby="manager-locations-title">
-    <h3 id="manager-locations-title">Zones &amp; locations</h3>
+  return <section className="manager-per-service-block" aria-labelledby="manager-locations-title">
+    <h4 id="manager-locations-title">Zones &amp; locations</h4>
     <p>Define the zones and preset locations a technician records against for this customer. Defining at least one zone and one location here is what unlocks the CO2 / Wet Chemical checkboxes in “Assigned Services”. Saving creates a new configuration version; existing service visits keep the zones and locations they were created with.</p>
     {editable.map((system) => (
       <ManagerLocationsEditor
@@ -555,7 +635,7 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
       const result = await saveManagerLocations(customerId, systemKey, normalizeLocationsDraft(zoneRows, locationRows));
       hydrate(result.locations);
       onSaved(result.customer);
-      setMessage("Zones and locations saved. A new configuration version was created.");
+      setMessage(PER_SERVICE_SAVE_CONFIRMATION);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "Zones and locations could not be saved.");
@@ -581,14 +661,14 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
 
   return <div className="manager-locations-system">
     <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
-      {open ? "Hide" : "Configure"} zones & locations — {systemLabel}
+      {perServiceToggleLabel(open, "zones & locations", systemLabel)}
     </button>
     {open ? <div>
       {loading ? <p>Loading zones and locations…</p> : null}
       {error ? <p className="form-message" role="alert">{error}</p> : null}
       {message ? <p className="form-message" role="status">{message}</p> : null}
       {loaded ? <>
-        <h4>Zones</h4>
+        <h5>Zones</h5>
         <ul className="manager-locations-zone-list">
           {zoneRows.map((zone) => (
             <li key={zone.localId}>
@@ -606,7 +686,7 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
           ))}
         </ul>
         <button type="button" onClick={addZone}>Add zone</button>
-        <h4>Locations</h4>
+        <h5>Locations</h5>
         <ul className="manager-locations-location-list">
           {locationRows.map((location) => (
             <li key={location.localId}>
@@ -646,7 +726,7 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
           ))}
         </ul>
         <button type="button" disabled={zoneRows.length === 0} onClick={addLocation}>Add location</button>
-        <p className="support-metadata">{changed ? "Unsaved changes." : "No unsaved changes."}</p>
+        <p className="support-metadata">{perServiceUnsavedLine(changed)}</p>
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
           <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save zones & locations"}</button>

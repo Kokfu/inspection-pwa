@@ -130,10 +130,10 @@ document.querySelector("#run").onclick = async () => {
       onSaved: () => { savedCount += 1; },
       onAuthorityFailure: () => { authorityFailures += 1; }
     }));
-    await wait(() => findButton("Customise labels — Hose Reel System"), "collapsed editor");
+    await wait(() => findButton("Edit field labels — Hose Reel System"), "collapsed editor");
 
     // Load the tree.
-    findButton("Customise labels — Hose Reel System").click();
+    findButton("Edit field labels — Hose Reel System").click();
     await wait(() => getCalls === 1 && inputFor("Drum"), "tree loaded");
     ok("tree shows definition labels", view.textContent.includes("S.A.J Main Water Supply") && view.textContent.includes("Drum"));
 
@@ -141,7 +141,7 @@ document.querySelector("#run").onclick = async () => {
     setInput(inputFor("Drum"), "Reel Result");
     await wait(() => inputFor("Drum")?.value === "Reel Result", "edit applied");
     findButton("Save labels").click();
-    await wait(() => putCalls === 1 && view.textContent.includes("Field labels saved"), "save confirmation");
+    await wait(() => putCalls === 1 && view.textContent.includes("Saved. A new configuration version was created."), "save confirmation");
     ok("save persisted server-side", stored["repeatableRows.resultColumns.drumResult"] === "Reel Result");
     ok("effectiveLabel reflected after save", view.textContent.includes("Currently: Reel Result"));
 
@@ -151,9 +151,9 @@ document.querySelector("#run").onclick = async () => {
 
     // Clear it -> back to definitionLabel.
     setInput(inputFor("Drum"), "");
-    await wait(() => inputFor("Drum")?.value === "" && view.textContent.includes("1 unsaved change"), "clear applied");
+    await wait(() => inputFor("Drum")?.value === "" && view.textContent.includes("Unsaved changes."), "clear applied");
     findButton("Save labels").click();
-    await wait(() => putCalls === 2 && view.textContent.includes("Field labels saved"), "clear save confirmation");
+    await wait(() => putCalls === 2 && view.textContent.includes("Saved. A new configuration version was created."), "clear save confirmation");
     ok("clear removed the override server-side", !("repeatableRows.resultColumns.drumResult" in stored));
     await reloadAndSettle(3);
     ok("cleared field shows definition label as placeholder", inputFor("Drum").getAttribute("placeholder") === "Drum" && inputFor("Drum").value === "" && !view.textContent.includes("Currently: Reel Result"));

@@ -150,7 +150,7 @@ document.querySelector("#run").onclick = async () => {
     setInput(newRow.querySelector("input[type=number]"), "4");
     await wait(() => view.textContent.includes("Unsaved changes."), "edits applied");
     findButton("Save zones & locations").click();
-    await wait(() => putCalls === 1 && view.textContent.includes("Zones and locations saved"), "save confirmation");
+    await wait(() => putCalls === 1 && view.textContent.includes("Saved. A new configuration version was created."), "save confirmation");
     ok("save persisted 2 zones + 2 locations server-side", stored.zones.length === 2 && stored.locations.length === 2);
     ok("added location points at the added zone", stored.locations[1].zoneId === stored.zones[1].id);
     ok("added location keeps its preset row count", stored.locations[1].presetRowCount === 4);
@@ -167,7 +167,7 @@ document.querySelector("#run").onclick = async () => {
     findButton("Remove location").click();
     await wait(() => locationRows().length === 0, "all locations removed");
     findButton("Save zones & locations").click();
-    await wait(() => putCalls === 2 && view.textContent.includes("Zones and locations saved"), "clear save confirmation");
+    await wait(() => putCalls === 2 && view.textContent.includes("Saved. A new configuration version was created."), "clear save confirmation");
     ok("clear persisted server-side", stored.locations.length === 0);
     ok("clear reached onSaved", savedCount === 2);
     await reloadAndSettle(3);

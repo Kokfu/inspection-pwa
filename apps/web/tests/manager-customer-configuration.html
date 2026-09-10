@@ -1,0 +1,157 @@
+<!doctype html><html><body>
+<button id="run">Run manager customer configuration checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+// The consolidation this harness checks is part markup, part stylesheet — pull
+// in the real app CSS so a browser screenshot of this page is representative.
+import "/src/styles/app.css";
+import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+/**
+ * DoD (Phase 8H STEP 3.1 slice 3b): the four per-system editors render inside
+ * ONE "Per-service settings" frame with a single configuration-version
+ * indicator; the at-a-glance summary reports which of {label overrides, system
+ * config, evidence policy, zones+locations} are set per enabled system, read
+ * straight off `customer.configuration.enabledSystems` with no extra fetch; and
+ * every per-system collapsible shares one affordance (an `Edit … — <system>`
+ * toggle with `aria-expanded`, flipping to `Hide …` / `aria-expanded="true"` and
+ * a unified "No unsaved changes." line on expand).
+ */
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(800);
+const policyId = id(810);
+
+// A ManagerCustomer whose enabled systems deliberately span all four editors and
+// a mix of set / not-set / not-applicable states:
+//  - co2_fire_extinguisher  -> label overrides SET, zones+locations SET
+//  - automatic_sprinkler    -> evidence policy SET, label overrides NOT set
+//  - dry_wet_riser          -> system settings NOT set
+const customer = {
+  customer: { id: customerId, code: "C800", displayName: "Consolidated Customer" },
+  sites: [{ id: id(801), code: "S", displayName: "Primary Site" }],
+  configuration: {
+    id: id(802), revision: 9,
+    enabledSystems: [
+      {
+        key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1,
+        labelOverrides: { "checklist.a.b": "Renamed Field" },
+        zones: [{ id: id(821), key: "z1", displayName: "Zone 1" }],
+        locations: [{ id: id(831), key: "l1", displayName: "Location 1", zoneId: id(821), presetRowCount: 1 }]
+      },
+      {
+        key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 2,
+        labelOverrides: {}, evidencePolicyId: policyId, zones: [], locations: []
+      },
+      {
+        key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3,
+        systemConfiguration: {}, zones: [], locations: []
+      }
+    ]
+  },
+  supportedSystems: [
+    { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: true },
+    { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 2, assignable: true },
+    { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true }
+  ]
+};
+
+// The label-overrides GET the co2 sub-editor issues when it is expanded. A valid
+// body (mirrors asLabelOverrides) so the collapsible renders its unified
+// "No unsaved changes." line.
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const url = typeof input === "string" ? input : input.url;
+  if (url.includes(`/systems/co2_fire_extinguisher/label-overrides`)) {
+    await new Promise((r) => setTimeout(r, 15));
+    return json({
+      systemKey: "co2_fire_extinguisher", templateVersion: 7,
+      labels: [{ path: "checklist.a.b", key: "b", definitionLabel: "Original Field", effectiveLabel: "Renamed Field", overridden: true }],
+      overrides: { "checklist.a.b": "Renamed Field" }
+    });
+  }
+  if (url.includes("/api/manager/")) return json({});
+  return realFetch(input, init);
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
+};
+const frame = () => view.querySelector(".manager-per-service");
+// While every editor is collapsed, the only .secondary-command buttons inside
+// the per-service blocks are the per-system collapsible toggles (Reload / Save
+// live inside the expanded body). Capture them before expanding anything.
+const toggles = () => [...view.querySelectorAll(".manager-per-service-block .secondary-command")];
+const flagLabels = () => [...view.querySelectorAll(".manager-per-service-summary .manager-config-flag")].map((el) => el.getAttribute("aria-label"));
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  let savedCount = 0;
+  try {
+    createRoot(view).render(React.createElement(ManagerCustomerConfigurationDetail, {
+      customer,
+      onBack: () => {},
+      onSaved: () => { savedCount += 1; },
+      onAuthorityFailure: () => { authorityFailures += 1; }
+    }));
+    await wait(() => frame(), "per-service frame rendered");
+
+    // 1. ONE shared frame + ONE version indicator inside it.
+    ok("exactly one Per-service settings frame", view.querySelectorAll(".manager-per-service").length === 1);
+    ok("frame heading is Per-service settings", !!frame().querySelector("h3") && frame().querySelector("h3").textContent === "Per-service settings");
+    const versionHits = (frame().textContent.match(/Version 9(?!\d)/g) || []).length;
+    ok("configuration version indicator shown once in the frame", versionHits === 1);
+    ok("no per-block version indicator", [...frame().querySelectorAll(".manager-per-service-block")].every((b) => !/Version \d/.test(b.textContent)));
+
+    // 2. At-a-glance summary reads set / not set / n/a straight off enabledSystems.
+    const labels = flagLabels();
+    ok("summary lists a row per enabled system", view.querySelectorAll(".manager-per-service-summary > li").length === 3);
+    ok("co2 label overrides -> set", labels.includes("CO2 Fire Extinguisher System — Field labels: set"));
+    ok("co2 zones & locations -> set", labels.includes("CO2 Fire Extinguisher System — Zones & locations: set"));
+    ok("co2 evidence policy -> n/a", labels.includes("CO2 Fire Extinguisher System — Evidence policy: n/a"));
+    ok("co2 system settings -> n/a", labels.includes("CO2 Fire Extinguisher System — System settings: n/a"));
+    ok("sprinkler evidence policy -> set", labels.includes("Automatic Sprinkler System — Evidence policy: set"));
+    ok("sprinkler label overrides -> not set", labels.includes("Automatic Sprinkler System — Field labels: not set"));
+    ok("riser system settings -> not set", labels.includes("Dry / Wet Riser System — System settings: not set"));
+    ok("riser zones & locations -> n/a", labels.includes("Dry / Wet Riser System — Zones & locations: n/a"));
+    const setChips = [...view.querySelectorAll(".manager-per-service-summary .manager-config-flag--set")];
+    ok("set chips carry the shared 'set' tone class", setChips.length === 3);
+
+    // 3. Unified per-system collapsible affordance across all four editors.
+    const t = toggles();
+    ok("five per-system toggles (2 label + 1 config + 1 evidence + 1 locations)", t.length === 5);
+    ok("every toggle uses the Edit … — <system> pattern", t.every((b) => /^Edit .+ — .+$/.test(b.textContent.trim())));
+    ok("every toggle starts collapsed with aria-expanded=false", t.every((b) => b.getAttribute("aria-expanded") === "false"));
+    ok("toggle nouns are the consolidated set", t.map((b) => b.textContent.trim()).sort().join("|") ===
+      [
+        "Edit evidence policy — Automatic Sprinkler System",
+        "Edit field labels — Automatic Sprinkler System",
+        "Edit field labels — CO2 Fire Extinguisher System",
+        "Edit system settings — Dry / Wet Riser System",
+        "Edit zones & locations — CO2 Fire Extinguisher System"
+      ].sort().join("|"));
+
+    // Expand the co2 label-overrides editor -> toggle flips, unified line shows.
+    const co2Labels = t.find((b) => b.textContent.includes("field labels — CO2 Fire Extinguisher System"));
+    co2Labels.click();
+    await wait(() => co2Labels.getAttribute("aria-expanded") === "true", "co2 label editor expanded");
+    ok("expanded toggle flips to Hide …", co2Labels.textContent.trim() === "Hide field labels — CO2 Fire Extinguisher System");
+    await wait(() => co2Labels.closest(".manager-per-service-block").textContent.includes("No unsaved changes."), "unified unsaved line");
+    ok("expanded editor shows the unified 'No unsaved changes.' line",
+      co2Labels.closest(".manager-per-service-block").textContent.includes("No unsaved changes."));
+    ok("expand did not trip an authority failure", authorityFailures === 0);
+    ok("no crash text", !/TypeError|Cannot read/.test(view.textContent));
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

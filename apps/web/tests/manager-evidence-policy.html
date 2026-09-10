@@ -104,10 +104,10 @@ document.querySelector("#run").onclick = async () => {
       onSaved: () => { savedCount += 1; },
       onAuthorityFailure: () => { authorityFailures += 1; }
     }));
-    await wait(() => findButton("Configure evidence policy — Automatic Sprinkler System"), "collapsed editor");
+    await wait(() => findButton("Edit evidence policy — Automatic Sprinkler System"), "collapsed editor");
 
     // Load the field + policy list + current value.
-    findButton("Configure evidence policy — Automatic Sprinkler System").click();
+    findButton("Edit evidence policy — Automatic Sprinkler System").click();
     await wait(() => getCalls === 1 && selectFor("Evidence policy"), "field loaded");
     ok("field renders the Evidence policy control", !!selectFor("Evidence policy"));
     ok("current value is None", selectFor("Evidence policy").value === "");
@@ -116,21 +116,21 @@ document.querySelector("#run").onclick = async () => {
 
     // Pick a policy + save.
     setSelect(selectFor("Evidence policy"), policyId);
-    await wait(() => selectFor("Evidence policy")?.value === policyId && view.textContent.includes("1 unsaved change"), "edit applied");
+    await wait(() => selectFor("Evidence policy")?.value === policyId && view.textContent.includes("Unsaved changes."), "edit applied");
     findButton("Save evidence policy").click();
-    await wait(() => putCalls === 1 && view.textContent.includes("Evidence policy saved"), "save confirmation");
+    await wait(() => putCalls === 1 && view.textContent.includes("Saved. A new configuration version was created."), "save confirmation");
     ok("save persisted server-side", stored === policyId);
     ok("save reached onSaved", savedCount === 1);
 
     // Reload -> persisted.
     await reloadAndSettle(2);
-    ok("reload keeps the saved value", selectFor("Evidence policy").value === policyId && view.textContent.includes("0 unsaved changes"));
+    ok("reload keeps the saved value", selectFor("Evidence policy").value === policyId && view.textContent.includes("No unsaved changes."));
 
     // Pick None + save -> clears.
     setSelect(selectFor("Evidence policy"), "");
-    await wait(() => selectFor("Evidence policy")?.value === "" && view.textContent.includes("1 unsaved change"), "cleared value");
+    await wait(() => selectFor("Evidence policy")?.value === "" && view.textContent.includes("Unsaved changes."), "cleared value");
     findButton("Save evidence policy").click();
-    await wait(() => putCalls === 2 && view.textContent.includes("Evidence policy saved"), "clear save confirmation");
+    await wait(() => putCalls === 2 && view.textContent.includes("Saved. A new configuration version was created."), "clear save confirmation");
     ok("clear persisted server-side as null", stored === null);
     ok("clear reached onSaved", savedCount === 2);
     await reloadAndSettle(3);

@@ -3,6 +3,44 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 3b (Manager customer-configuration
+screen: cosmetic / summary consolidation) — uncommitted working tree, owner does git.**
+Web-only, cosmetic. NO new route, NO `managerApi.ts` request/guard change, NO backend change, NO
+migration. The "Assigned Services" (`submitConfiguration`) save path is byte-unchanged, and so is
+every editor's own load/PUT path.
+
+**What ships (slice 3b):** `apps/web/src/manager/ManagerCustomerConfiguration.tsx` +
+`apps/web/src/styles/app.css` only.
+* `ManagerCustomerConfigurationDetail` now wraps the four per-system editors
+  (`ManagerCustomerLabelOverrides`, `ManagerCustomerSystemConfiguration`,
+  `ManagerCustomerEvidencePolicy`, `ManagerCustomerLocations`) in ONE `report-summary`
+  frame — `<h3>Per-service settings</h3>` — with the configuration version indicator shown
+  once at the top of the frame (not per block). Each editor dropped its own `report-summary`
+  card for a lighter `.manager-per-service-block` (a `<h4>` + top-border divider), so the four
+  read as one surface.
+* **New `ManagerPerServiceSummary`** — an at-a-glance per-enabled-system row of four state chips
+  ({field labels, system settings, evidence policy, zones & locations} → `set` / `not set` /
+  `n/a`), read straight off `customer.configuration.enabledSystems`
+  (`labelOverrides`, `systemConfiguration`, `evidencePolicyId`, `zones`, `locations`) — **no new
+  fetch**, no `managerApi.ts` change (`labelOverrides` is read via a local structural cast; the
+  API already surfaces it on each enabled system).
+* **Unified per-system collapsible affordance** via three shared helpers
+  (`perServiceToggleLabel` / `perServiceUnsavedLine` / `PER_SERVICE_SAVE_CONFIRMATION`): every
+  toggle is now `Edit <noun> — <system>` / `Hide <noun> — <system>` with `aria-expanded`; every
+  editor's unsaved line is `Unsaved changes.` / `No unsaved changes.`; every save confirmation is
+  `Saved. A new configuration version was created.`. Consistent intro-sentence pattern per editor
+  (all four end "…existing service visits keep the <noun> they were created with").
+* **Tests:** new `tests/manager-customer-configuration.{html,spec.ts}` (renders
+  `ManagerCustomerConfigurationDetail`; proves one frame + one version line, the summary badges'
+  set/not-set/n-a states, and the unified `Edit … — <system>` / `aria-expanded` collapsible with
+  the shared `No unsaved changes.` line on expand). `tests/manager-{label-overrides,
+  system-configuration,evidence-policy,locations}.{html}` updated for the renamed toggle labels /
+  unified unsaved + confirmation copy only — no behavioural assertion changed; all four still
+  green (`--workers=1`, 0 skips). `apps/web` typecheck + build green;
+  `test:v7-stale-evidence` + `final-ui-acceptance` green.
+
+<details><summary>Previous — 2026-09-10 STEP 3.1 slice 3a (per-customer zone/location configuration vertical)</summary>
+
 **Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 slice 3a (per-customer zone/location
 configuration vertical) — uncommitted working tree, owner does git.** A Manager can now define
 the zones and preset locations for a location-dependent master system
@@ -99,6 +137,8 @@ Scripts: `test:locations` (api), `test:locations-manager` (web, `--workers=1`).
 `managerEvidencePolicy.integration.test.ts`, `managerCustomers.integration.test.ts` and the web
 `manager-label-overrides` + `manager-system-configuration` + `manager-evidence-policy` specs stay
 green WITHOUT edits despite the shared `copySelectedConfiguration` signature change.
+
+</details>
 
 <details><summary>Previous — 2026-09-10 STEP 3.1 slice 2 (<code>evidence_policy_id</code> assignment vertical)</summary>
 

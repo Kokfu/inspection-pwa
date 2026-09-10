@@ -900,6 +900,33 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
 .report-summary h3, .report-section h3 { margin: 0 0 14px; padding-bottom: 10px; border-bottom: 2px solid var(--brand-soft); color: var(--brand-dark); font-size: 1.06rem; letter-spacing: -.01em; }
 .report-summary ul { margin-bottom: 0; }
 
+/* Per-service settings: one framed screen wrapping the four per-system editors
+   (label overrides, system configuration, evidence policy, zones & locations)
+   so they read as a single surface rather than four stacked cards. */
+.manager-per-service { display: grid; gap: 0; }
+.manager-per-service > p { margin: 0 0 4px; color: var(--muted); }
+.manager-per-service > .support-metadata { margin: 0 0 14px; }
+.manager-per-service-block { display: grid; gap: 10px; padding: 18px 0 6px; border-top: 1px solid var(--border); }
+.manager-per-service-block > h4 { margin: 0; color: var(--brand-dark); font-size: .98rem; font-weight: 800; letter-spacing: -.01em; }
+.manager-per-service-block > p { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.45; }
+.manager-per-service-block > .secondary-command { margin-top: 2px; }
+.manager-per-service-block h5 { margin: 6px 0 0; color: var(--ink); font-size: .84rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+
+/* At-a-glance summary: one row per enabled system, four state chips each. */
+.manager-per-service-summary { display: grid; gap: 8px; margin: 0 0 6px; padding: 14px; border: 1px solid var(--border); border-radius: 11px; background: #fbfcfd; list-style: none; }
+.manager-per-service-summary > li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.manager-per-service-summary-system { color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
+.manager-per-service-summary-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.manager-config-flag { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.manager-config-flag small { font-size: .72rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.manager-config-flag--set { border-color: #b7dcc4; color: #1f6b3c; background: #eef8f1; }
+.manager-config-flag--unset { color: var(--muted); background: var(--surface); }
+.manager-config-flag--na { color: #8aa0a4; background: var(--surface); border-style: dashed; }
+
+@media (min-width: 640px) {
+  .manager-per-service-summary > li { grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); align-items: baseline; gap: 10px 16px; }
+}
+
 /* Job-facts header: a clean two-column label / value key-value list, not a cramped 3-col dl. */
 .report-summary--facts { padding-block: clamp(14px, 2.6vw, 20px); }
 .report-summary--facts .job-facts { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; padding: 0; border-top: 0; }

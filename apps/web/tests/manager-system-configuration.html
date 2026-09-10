@@ -114,10 +114,10 @@ document.querySelector("#run").onclick = async () => {
       onSaved: () => { savedCount += 1; },
       onAuthorityFailure: () => { authorityFailures += 1; }
     }));
-    await wait(() => findButton("Configure — Dry / Wet Riser System"), "collapsed editor");
+    await wait(() => findButton("Edit system settings — Dry / Wet Riser System"), "collapsed editor");
 
     // Load the schema + stored value.
-    findButton("Configure — Dry / Wet Riser System").click();
+    findButton("Edit system settings — Dry / Wet Riser System").click();
     await wait(() => getCalls === 1 && selectFor("Riser mode"), "schema loaded");
     ok("schema renders the Riser mode control", !!selectFor("Riser mode"));
     ok("stored value is reflected", selectFor("Riser mode").value === "dry");
@@ -125,15 +125,15 @@ document.querySelector("#run").onclick = async () => {
 
     // Edit + save.
     setSelect(selectFor("Riser mode"), "wet");
-    await wait(() => selectFor("Riser mode")?.value === "wet" && view.textContent.includes("1 unsaved change"), "edit applied");
+    await wait(() => selectFor("Riser mode")?.value === "wet" && view.textContent.includes("Unsaved changes."), "edit applied");
     findButton("Save configuration").click();
-    await wait(() => putCalls === 1 && view.textContent.includes("System configuration saved"), "save confirmation");
+    await wait(() => putCalls === 1 && view.textContent.includes("Saved. A new configuration version was created."), "save confirmation");
     ok("save persisted server-side", stored.riserMode === "wet");
     ok("save reached onSaved", savedCount === 1);
 
     // Reload -> persisted.
     await reloadAndSettle(2);
-    ok("reload keeps the saved value", selectFor("Riser mode").value === "wet" && !view.textContent.includes("1 unsaved change"));
+    ok("reload keeps the saved value", selectFor("Riser mode").value === "wet" && view.textContent.includes("No unsaved changes."));
 
     // Invalid value -> visible server message, no authority failure.
     setSelect(selectFor("Riser mode"), "");
