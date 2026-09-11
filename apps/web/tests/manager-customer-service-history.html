@@ -1,0 +1,199 @@
+<!doctype html><html><body>
+<button id="run">Run manager customer service history checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+/**
+ * DoD (STEP 3.2 slice B): a read-only "Service history" section on the customer
+ * configuration screen, always scoped to `customerId`, with a "Site" select
+ * (All Sites default, built from `customer.sites`) and a Status select (All /
+ * Open / Closed). Changing either filter resets the list and cursor and
+ * refetches from scratch. Rows reuse ManagerHome's visitCard semantics (status
+ * badge, formatted created time, inspection progress, reference) but lead with
+ * `visit.site` instead of a redundant "Customer" line. Closed rows show
+ * "View Final Report" + "Download PDF"; open rows show only "View Progress".
+ * "Load more" appends (never replaces) and disappears once `nextCursor` is
+ * `null`. A 403-shaped response trips `onAuthorityFailure`, never a domain
+ * error message. Strictly read-only — no mutation call anywhere.
+ */
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customerId = id(900);
+const site1 = id(901);
+const site2 = id(902);
+const site3 = id(903);
+const site4 = id(904);
+
+const customer = {
+  customer: { id: customerId, code: "C900", displayName: "History Customer" },
+  sites: [
+    { id: site1, code: "S1", displayName: "Site One" },
+    { id: site2, code: "S2", displayName: "Site Two" },
+    { id: site3, code: "S3", displayName: "Site Three (forbidden)" },
+    { id: site4, code: "S4", displayName: "Site Four (empty)" }
+  ],
+  configuration: { id: id(905), revision: 1, enabledSystems: [] },
+  supportedSystems: []
+};
+
+const baseVisit = (n, overrides) => ({
+  id: id(n), reference: `SV-${n}`, customer: "History Customer", site: "Site One",
+  createdAt: "2026-09-01T03:00:00.000Z", serviceDate: "2026-09-01", serviceTime: "11:00",
+  status: "open", systems: ["Hose Reel System"], inspectionProgress: { accepted: 1, required: 3 },
+  completion: { completedAt: null, completedBy: null },
+  ...overrides
+});
+
+const visitOpen1 = baseVisit(910, { status: "open" });
+const visitClosed1 = baseVisit(911, { status: "closed", inspectionProgress: { accepted: 3, required: 3 } });
+const visitClosed2 = baseVisit(912, { status: "closed", inspectionProgress: { accepted: 2, required: 2 } });
+const visitSite2 = baseVisit(913, { site: "Site Two" });
+const visitOpenOnly = baseVisit(914, { status: "open" });
+const visitClosedOnly = baseVisit(915, { status: "closed", inspectionProgress: { accepted: 4, required: 4 } });
+
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+
+const capturedQueries = [];
+const realFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const raw = typeof input === "string" ? input : input.url;
+  if (!raw.includes("/api/manager/service-visits")) return realFetch(input, init);
+  const url = new URL(raw, window.location.origin);
+  const params = url.searchParams;
+  capturedQueries.push(params.toString());
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  if (params.get("siteId") === site3) return json({ error: "FORBIDDEN" }, 403);
+  if (params.get("siteId") === site4) return json({ serviceVisits: [], nextCursor: null });
+  if (params.get("cursor") === "cursor-page2") return json({ serviceVisits: [visitClosed2], nextCursor: null });
+  if (params.get("siteId") === site2) return json({ serviceVisits: [visitSite2], nextCursor: null });
+  if (params.get("status") === "open") return json({ serviceVisits: [visitOpenOnly], nextCursor: null });
+  if (params.get("status") === "closed") return json({ serviceVisits: [visitClosedOnly], nextCursor: null });
+  return json({ serviceVisits: [visitOpen1, visitClosed1], nextCursor: "cursor-page2" });
+};
+
+const view = document.querySelector("#view");
+const result = document.querySelector("#result");
+const wait = async (predicate, label) => {
+  for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
+  throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 500));
+};
+const historySection = () => view.querySelector("#manager-service-history-title")?.closest("section");
+const rows = () => [...(historySection()?.querySelectorAll(".job-card-list > li") ?? [])];
+const siteSelect = () => historySection().querySelector('select[aria-label="Site"]');
+const statusSelect = () => historySection().querySelector('select[aria-label="Status"]');
+const loadMoreButton = () => [...historySection().querySelectorAll("button")].find((b) => b.textContent.includes("Load more"));
+
+document.querySelector("#run").onclick = async () => {
+  const checks = [];
+  const ok = (name, value) => checks.push({ name, value: !!value });
+  let authorityFailures = 0;
+  const viewedProgress = [];
+  const viewedReports = [];
+  const downloadedReports = [];
+  try {
+    createRoot(view).render(React.createElement(ManagerCustomerConfigurationDetail, {
+      customer,
+      onBack: () => {},
+      onSaved: () => {},
+      onAuthorityFailure: () => { authorityFailures += 1; },
+      onViewServiceVisit: (jobId) => { viewedProgress.push(jobId); },
+      onViewFinalReport: (jobId) => { viewedReports.push(jobId); },
+      onDownloadFinalReport: async (jobId) => { downloadedReports.push(jobId); }
+    }));
+
+    // 1. Section renders as its own report-summary block, scoped to the customer.
+    await wait(() => historySection(), "service history section rendered");
+    ok("service history renders inside a report-summary section", historySection().className.includes("report-summary"));
+    await wait(() => rows().length === 2, "initial page rendered (2 visits)");
+    ok("initial request carries customerId always", capturedQueries[0].includes(`customerId=${customerId}`));
+    ok("initial request has no siteId (All sites default)", !capturedQueries[0].includes("siteId="));
+    ok("initial request has no status (All default)", !capturedQueries[0].includes("status="));
+    ok("initial request has no cursor", !capturedQueries[0].includes("cursor="));
+
+    // 2. Row semantics: open row shows only View Progress; closed row shows both report buttons.
+    const openRow = rows().find((row) => row.textContent.includes("SV-910"));
+    const closedRow = rows().find((row) => row.textContent.includes("SV-911"));
+    ok("open row leads with Site (not Customer)", openRow.querySelector(".job-card-label").textContent === "Site");
+    ok("open row shows In Progress badge", openRow.querySelector(".status-badge").textContent === "In Progress");
+    ok("open row shows only View Progress", [...openRow.querySelectorAll("button")].map((b) => b.textContent.trim()).join("|") === "View Progress");
+    ok("closed row shows Service Completed badge", closedRow.querySelector(".status-badge").textContent === "Service Completed");
+    ok("closed row shows View Final Report + Download PDF", [...closedRow.querySelectorAll("button")].map((b) => b.textContent.trim()).join("|") === "View Final Report|Download PDF");
+    ok("no redundant Customer label on rows", !historySection().querySelector(".job-card-label")?.textContent.includes("Customer"));
+
+    openRow.querySelector("button").click();
+    ok("View Progress calls onViewServiceVisit with the job id", viewedProgress.includes(visitOpen1.id));
+    closedRow.querySelector("button.secondary-command").click();
+    ok("View Final Report calls onViewFinalReport with the job id", viewedReports.includes(visitClosed1.id));
+    const downloadButton = [...closedRow.querySelectorAll("button")].find((b) => b.textContent.trim() === "Download PDF");
+    downloadButton.click();
+    await wait(() => downloadedReports.includes(visitClosed1.id), "Download PDF calls onDownloadFinalReport");
+    ok("Download PDF calls onDownloadFinalReport with the job id", downloadedReports.includes(visitClosed1.id));
+
+    // 3. Load more appends (not replaces) and disappears once nextCursor is null.
+    ok("Load more shown while nextCursor is non-null", !!loadMoreButton());
+    loadMoreButton().click();
+    await wait(() => rows().length === 3, "Load more appended a third row");
+    ok("Load more appended (original rows still present)", rows().some((r) => r.textContent.includes("SV-910")) && rows().some((r) => r.textContent.includes("SV-911")));
+    ok("Load more request carried the cursor", capturedQueries.some((q) => q.includes("cursor=cursor-page2")));
+    await wait(() => !loadMoreButton(), "Load more disappears once nextCursor is null");
+    ok("Load more is gone once nextCursor is null", !loadMoreButton());
+
+    // 4. Site filter resets the list and cursor, refetches from scratch.
+    const queriesBeforeSite = capturedQueries.length;
+    siteSelect().value = site2;
+    siteSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 1 && rows()[0].textContent.includes("SV-913"), "site filter replaced the list");
+    ok("changing site issued a new request", capturedQueries.length > queriesBeforeSite);
+    const siteQuery = capturedQueries[capturedQueries.length - 1];
+    ok("site filter request carries siteId", siteQuery.includes(`siteId=${site2}`));
+    ok("site filter request carries customerId", siteQuery.includes(`customerId=${customerId}`));
+    ok("site filter reset the cursor (no cursor on the new request)", !siteQuery.includes("cursor="));
+    ok("site filter reset removed the previously loaded rows (replace, not append)", rows().length === 1);
+
+    // 5. Status filter, independently of the site filter.
+    siteSelect().value = "";
+    siteSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 2, "site reset back to All sites");
+    statusSelect().value = "open";
+    statusSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 1 && rows()[0].textContent.includes("SV-914"), "status filter applied (open)");
+    const statusQuery = capturedQueries[capturedQueries.length - 1];
+    ok("status filter request carries status=open", statusQuery.includes("status=open"));
+    ok("status filter request has no siteId", !statusQuery.includes("siteId="));
+
+    statusSelect().value = "closed";
+    statusSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 1 && rows()[0].textContent.includes("SV-915"), "status filter applied (closed)");
+    ok("status filter request carries status=closed", capturedQueries[capturedQueries.length - 1].includes("status=closed"));
+
+    statusSelect().value = "";
+    statusSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 2, "status reset back to All");
+
+    // 6. A 403-shaped response trips onAuthorityFailure, never a domain-error message.
+    const authorityFailuresBefore = authorityFailures;
+    siteSelect().value = site3;
+    siteSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => authorityFailures > authorityFailuresBefore, "403 tripped onAuthorityFailure");
+    ok("403 response trips onAuthorityFailure exactly once", authorityFailures === authorityFailuresBefore + 1);
+    ok("403 response does not render a domain form-message", !historySection().querySelector(".form-message"));
+
+    // 7. Empty state.
+    siteSelect().value = site4;
+    siteSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => historySection().textContent.includes("No service history for the selected filter."), "empty state shown");
+    ok("empty state shown for a filter with zero matches", historySection().textContent.includes("No service history for the selected filter."));
+    ok("empty state clears previously rendered rows", rows().length === 0);
+
+    // 8. No crash text.
+    ok("no crash text", !/TypeError|Cannot read/.test(view.textContent));
+  } catch (error) {
+    checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
+  }
+  result.textContent = JSON.stringify({ status: checks.every((c) => c.value) ? "PASS" : "FAIL", checks }, null, 2);
+};
+</script></body></html>

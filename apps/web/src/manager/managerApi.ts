@@ -82,6 +82,42 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
   return readResponse<ManagerServiceVisit>(response, "serviceVisit");
 }
 
+export type ManagerServiceHistoryFilters = {
+  customerId: string;
+  siteId?: string;
+  status?: "open" | "closed";
+  cursor?: string;
+  limit?: number;
+};
+
+/**
+ * STEP 3.2 slice B: filtered, keyset-paginated service history for the Manager
+ * customer-configuration screen. Reuses Slice A's `GET /manager/service-visits`
+ * filters (`customerId`/`siteId`/`status`/`cursor`/`limit`); `systemKey`/`from`/`to`
+ * are out of scope for this slice's UI. Absent fields are omitted from the query
+ * string entirely — same conditional-inclusion style as `activateManagerCustomerConfiguration`.
+ */
+export async function loadManagerServiceHistory(
+  filters: ManagerServiceHistoryFilters,
+  signal?: AbortSignal
+): Promise<{ serviceVisits: ManagerServiceVisit[]; nextCursor: string | null }> {
+  const query = new URLSearchParams({
+    customerId: filters.customerId,
+    ...(filters.siteId ? { siteId: filters.siteId } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.cursor ? { cursor: filters.cursor } : {}),
+    ...(filters.limit !== undefined ? { limit: String(filters.limit) } : {})
+  });
+  let response: Response;
+  try { response = await fetch(`/api/manager/service-visits?${query}`, { credentials: "same-origin", cache: "no-store", signal }); }
+  catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
+  const data = await readBody(response);
+  if (!Array.isArray(data.serviceVisits) || !(data.nextCursor === null || typeof data.nextCursor === "string")) {
+    throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  }
+  return { serviceVisits: data.serviceVisits as ManagerServiceVisit[], nextCursor: data.nextCursor as string | null };
+}
+
 /** Systems whose per-customer display labels a Manager may override. Mirrors the
  *  API `labelOverrideSystemKeys` bound (apps/api/src/routes/managerCustomers.ts).
  *  `automatic_sprinkler` joined in slice 1a-iii, once the API resolver gained its

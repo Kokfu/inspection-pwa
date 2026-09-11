@@ -1798,7 +1798,21 @@ export function App() {
         route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-home" })} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-customer" && managerCustomer ? (
-          <ManagerCustomerConfigurationDetail customer={managerCustomer} onBack={() => navigate({ name: "manager-home" })} onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }} onAuthorityFailure={handleManagerRequestFailure} />
+          <ManagerCustomerConfigurationDetail
+            customer={managerCustomer}
+            onBack={() => navigate({ name: "manager-home" })}
+            onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
+            onAuthorityFailure={handleManagerRequestFailure}
+            onViewServiceVisit={(jobId) => navigate({ name: "manager-service-visit", jobId })}
+            onViewFinalReport={(jobId) => navigate({ name: "manager-final-report", jobId })}
+            onDownloadFinalReport={async (jobId) => {
+              try {
+                await downloadFinalReport(jobId, "/api/manager/service-visits");
+              } catch (error) {
+                handleManagerReportDownloadFailure(error);
+              }
+            }}
+          />
         ) : (
           <><ManagerHome
             visits={managerVisits}

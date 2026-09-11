@@ -22,6 +22,7 @@ import {
   type ManagerLocations,
   type ManagerSystemConfigurationSchema
 } from "./managerApi";
+import { ManagerCustomerServiceHistory } from "./ManagerCustomerServiceHistory";
 
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
   customers: ManagerCustomer[]; loading: boolean; message: string; onRefresh: () => Promise<void>; onManage: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
@@ -43,7 +44,10 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   </section>;
 }
 
-export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure }: { customer: ManagerCustomer; onBack: () => void; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void }) {
+export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport }: {
+  customer: ManagerCustomer; onBack: () => void; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+  onViewServiceVisit: (jobId: string) => void; onViewFinalReport: (jobId: string) => void; onDownloadFinalReport: (jobId: string) => Promise<void>;
+}) {
   const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
   const [newRiserMode, setNewRiserMode] = useState("");
   useEffect(() => { setKeys(customer.configuration.enabledSystems.map((system) => system.key)); setNewRiserMode(""); }, [customer]);
@@ -100,6 +104,13 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
       <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
       <ManagerCustomerLocations customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
     </section>
+    <ManagerCustomerServiceHistory
+      customer={customer}
+      onViewServiceVisit={onViewServiceVisit}
+      onViewFinalReport={onViewFinalReport}
+      onDownloadFinalReport={onDownloadFinalReport}
+      onAuthorityFailure={onAuthorityFailure}
+    />
   </section>;
 }
 

@@ -3,6 +3,80 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice B (read-only Manager service-history
+view on the customer configuration screen) — uncommitted working tree, owner does git.** Web-only,
+additive. NO backend/API file touched — `git diff --stat e30c649 -- apps/api` proves Slice A's
+apps/api diff is byte-identical to before this slice. Scope is customer + site (both, per the
+owner): the history section lives on the existing `manager-customer` page
+(`ManagerCustomerConfigurationDetail`), always filtered to that customer (`customerId`), with a
+"Site" dropdown built from `customer.sites` (All Sites default) covering the site scope. No new
+"site" page or route was invented.
+
+**What ships (STEP 3.2 slice B):** `apps/web/src/manager/managerApi.ts` (+1 fetcher,
+`loadManagerServiceHistory`), `apps/web/src/manager/ManagerCustomerServiceHistory.tsx` (new),
+`apps/web/src/manager/ManagerCustomerConfiguration.tsx` (threads 3 new props straight through to
+the new section — STEP 3.1's Assigned-Services / per-service-settings paths are byte-unchanged),
+`apps/web/src/App.tsx` (wires the 3 new props at the existing `manager-customer` render site,
+reusing the identical navigation/download mechanisms `ManagerHome` already uses a few lines
+below), `apps/web/tests/manager-customer-service-history.{html,spec.ts}` (new), and mocked-fetch
+fixes in two pre-existing harnesses, `apps/web/tests/manager-customer-configuration.html` and
+`apps/web/tests/manager-app-auth-transitions.html` (see below).
+* **`loadManagerServiceHistory(filters, signal)`.** GET `/api/manager/service-visits` with
+  `customerId` always in the query string, `siteId`/`status`/`cursor`/`limit` only when present
+  (absent fields omitted entirely — mirrors the conditional-spread style already used by
+  `activateManagerCustomerConfiguration`). Validates the body is a plain object with
+  `serviceVisits` an array and `nextCursor` either `null` or a string; same `ManagerApiError`
+  401/403→authorization, 400/404/409→domain, else→unavailable classification as every other
+  fetcher in the file. `systemKey`/`from`/`to` exist server-side (Slice A) but are **not wired to
+  any control in this slice** — left for a future slice.
+* **`ManagerCustomerServiceHistory`.** Its own `<section className="report-summary">`, rendered
+  inside `ManagerCustomerConfigurationDetail` right after "Per-service settings". A Site `<select>`
+  (All sites + one option per `customer.sites`) and a Status `<select>` (All/Open/Closed);
+  changing either resets the list and cursor and refetches from scratch. Rows reuse
+  `ManagerHome.tsx`'s `visitCard` semantics (status badge open="In Progress"/closed="Service
+  Completed", `formatMalaysiaDateTime(visit.createdAt)`, `inspectionProgress.accepted/required`,
+  `visit.reference`) minus the redundant "Customer" line, leading with `visit.site` instead.
+  Closed rows get "View Final Report" + "Download PDF" (same handlers `ManagerHome` uses); open
+  rows get a single "View Progress". "Load more" appends to the existing list (never replaces)
+  and disappears once `nextCursor` is `null`. Strictly read-only — no mutation call anywhere.
+  Reused existing classes throughout (`job-card-list`, `job-card`, `job-card-heading`,
+  `status-badge`, `job-card-meta`, `job-reference`, `job-card-label`, `inline-actions`,
+  `manager-report-actions`, `empty-state`, `form-message`) — **zero new CSS**;
+  `dist/assets/index-*.css` hash is unchanged (`index-C9TOXXcd.css`, same as slice A).
+* **Test-harness fallout, fixed.** Because `ManagerCustomerConfigurationDetail` now always
+  renders this section, its mount-time fetch also reaches every pre-existing Manager test
+  harness whose mocked `fetch` didn't anticipate a queried `/api/manager/service-visits?...`
+  call. Two fixes, both outside this slice's own file list but required to keep the existing
+  regression suite green:
+  * `manager-customer-configuration.html` — its generic `/api/manager/` → `{}` catch-all stub is
+    not a valid `ManagerServiceHistory` shape; added a specific
+    `/api/manager/service-visits` → `{ serviceVisits: [], nextCursor: null }` case ahead of it.
+  * `manager-app-auth-transitions.html` — ~10 scenario-local `fetch` mocks matched with
+    exact-string `url === "/api/manager/service-visits"` (no query string) and returned
+    `{ serviceVisits: [...] }` with no `nextCursor`, so the new queried call either 503'd (missed
+    the exact match) or failed shape validation (missing `nextCursor`). Both fixed at all ~10
+    sites: `url === "/api/manager/service-visits"` → `url.startsWith("/api/manager/service-visits")`,
+    and every `json({ serviceVisits: ... })` response there now carries `nextCursor: null`. Verified
+    this doesn't change any scenario's call-counting semantics (the one scenario that counts
+    `/api/manager/service-visits` calls to trigger a 403 — "C loaded data clears after 403" —
+    never navigates to `manager-customer`, so the new component never mounts there and the extra
+    match is a no-op for it).
+* **Tests.** New `manager-customer-service-history.{html,spec.ts}`: query-string assertions
+  (`customerId` always; `siteId`/`status` only when picked; `cursor` only on "Load more"); row
+  semantics (closed rows show both report buttons, open rows show only "View Progress"); "Load
+  more" appends and disappears once `nextCursor` is `null`; a 403-shaped response trips
+  `onAuthorityFailure` and never renders a domain form-message; an empty-filter state; zero crash
+  text. Gates green: web typecheck + build; `manager-customer-configuration` /
+  `manager-customer-service-history` / `manager-locations` / `manager-evidence-policy` /
+  `manager-system-configuration` / `manager-label-overrides` / `manager-final-report-navigation` /
+  `manager-app-auth-transitions` / `manager-navigation-request-count` / `manager-created-time` /
+  `manager-final-report-failure-matrix` Playwright specs (11, all green, 0 skips);
+  `test:v7-stale-evidence`; `final-ui-acceptance.test.tsx` (16). `git diff --stat e30c649 --
+  apps/api` confirms nothing under `apps/api` changed. DO-NOT-MODIFY list byte-identical to
+  `e30c649`.
+
+<details><summary>Previous — 2026-09-11 STEP 3.2 slice A (read-only Manager service-history filtering + pagination on the existing <code>GET /manager/service-visits</code>)</summary>
+
 **Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice A (read-only Manager service-history
 filtering + pagination on the existing `GET /manager/service-visits`) — uncommitted working tree,
 owner does git.** Backend-only, additive. NO new table, NO migration, NO seed change, NO write
@@ -61,6 +135,8 @@ and a new `managerServiceHistory.integration.test.ts`) only.
   the new `managerServiceHistory.integration.test.ts` (1, same cold DB); web typecheck + build
   (`dist/assets/index-C9TOXXcd.css` hash unchanged — no web file touched) +
   `test:v7-stale-evidence`. DO-NOT-MODIFY list byte-identical to `e30c649`.
+
+</details>
 
 <details><summary>Previous — 2026-09-11 STEP 3.1 final-polish P1 (summary/warning alignment on "zones/locations set")</summary>
 
@@ -1687,6 +1763,11 @@ field, add integration coverage, re-verify, Sol pass.
       - [x] slice A — read-only filtering/pagination on the existing `GET /manager/service-visits`
         (`customerId`, `siteId`, `status`, `systemKey`, `from`/`to`, keyset `cursor`/`limit`),
         both per-customer and per-site scope. No migration, no new table, no write path.
+      - [x] slice B — read-only service-history view on the `manager-customer` customer
+        configuration screen, scoped to that customer with a Site filter (All Sites default) and
+        a Status filter; "Load more" keyset pagination. Web-only, uses Slice A's filters
+        as-is. `systemKey`/`from`/`to` are left unwired — no date-range or system-key control in
+        this slice.
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)
 - [ ] 4.1 HTTPS on LAN/phone with a trusted cert; production credentials; security checklist.
