@@ -10,6 +10,17 @@ validated since slice A but left out of the UI by slice B) are now wired into
 `ManagerCustomerServiceHistory`, and every page of a filtered list now reports its true total
 match count without a second query.
 
+**STEP 4.1 (partial, interim HTTPS tunnel for phone/PWA testing) — also uncommitted, owner does
+git.** `scripts/Start-DevTunnel.ps1` starts a Cloudflare quick tunnel (`cloudflared`, no account/
+domain needed) against Caddy's existing HTTPS listener, giving phone testing a real
+`https://*.trycloudflare.com` origin without touching Caddy config or `PUBLIC_HOSTNAME`. Documented
+in `docs/architecture/06-deployment-runbook.md`'s "Temporary HTTPS Testing" section (prerequisite,
+usage, warnings). Session-scoped only — no URL is ever recorded here or anywhere else, since it's
+regenerated every run. This is not the production HTTPS path (client domain/static IP/router is a
+separate, later item). Verified end-to-end: tunnel starts, `/` and `/api/health` both return the
+real origin content through it, `POST /api/auth/login` succeeds through the tunnel with a normal
+session cookie (auth not bypassed), and the process tree exits cleanly on stop.
+
 **What ships (STEP 3.2 slice C):**
 `apps/api/src/routes/managerServiceVisits.ts` (+ its unit test and
 `managerServiceHistory.integration.test.ts`), `apps/web/src/manager/managerApi.ts`,

@@ -28,6 +28,63 @@ Temporary phone/PWA testing must use a stable HTTPS origin distinct from final p
 
 `http://localhost` is only acceptable on the host PC. `http://LAN-IP` is not a valid production PWA phone test.
 
+This is an interim testing path only. It is not the production HTTPS path — that requires the
+client's own domain, static public IPv4, and router port-forwarding per the Final Hosting Model
+above, and is a separate, later deployment item.
+
+### Prerequisite
+
+Install `cloudflared` on the Windows PC:
+
+```powershell
+winget install --id Cloudflare.cloudflared -e
+```
+
+No Cloudflare account, domain, or DNS record is required for this path — it uses Cloudflare's
+anonymous "quick tunnel" mode.
+
+### Running the tunnel
+
+With the compose stack already up (`docker compose ps` shows `proxy` running):
+
+```powershell
+.\scripts\Start-DevTunnel.ps1
+```
+
+The script confirms `cloudflared` is installed and the `proxy` service is running, then starts
+`cloudflared tunnel --url https://localhost:443 --no-tls-verify --http-host-header localhost` and
+prints the assigned
+`https://<random-words>.trycloudflare.com` URL once cloudflared reports it. It does not touch the
+Caddy configuration or `PUBLIC_HOSTNAME` — cloudflared connects to Caddy's existing HTTPS listener
+on port 443, and Cloudflare's edge is what terminates the publicly-trusted certificate the phone
+sees. Caddy's plain port-80 listener is not used: the Caddyfile's site block is implicit-HTTPS, so
+port 80 only ever issues a redirect to `https`, never serves content — pointing a tunnel at it
+would loop. `--no-tls-verify` covers only the cloudflared-to-Caddy leg, which uses Caddy's
+local/self-signed certificate for `localhost`; it has no effect on the publicly-trusted certificate
+Cloudflare's edge presents to the phone. `--http-host-header localhost` is needed because
+cloudflared otherwise forwards the public tunnel hostname as the Host header, and Caddy's site
+block only matches `Host: localhost` — any other Host gets Caddy's empty default response.
+
+### What the URL is good for
+
+The `https://*.trycloudflare.com` URL is a real, publicly-trusted HTTPS origin, so it satisfies the
+"stable HTTPS origin" requirement for phone testing that plain `http://LAN-IP` cannot. Use it to run
+the offline-first-pwa skill's Required Acceptance Test from an actual phone: open the URL, confirm
+Offline Ready, add to the home screen, then turn off networking and confirm the installed PWA still
+works and queues Pending Sync records.
+
+### Warnings
+
+- **Session-scoped only.** The tunnel exists only while `cloudflared` is running in the foreground.
+  Stop it with Ctrl+C as soon as you are done testing — do not leave a public tunnel to a dev/client
+  PC running unattended.
+- **No new exposure.** The app is still fully behind its existing login/session authentication over
+  the tunnel. This path does not bypass auth or serve anything auth would otherwise block; it only
+  changes how the browser reaches Caddy's existing HTTPS listener.
+- **The URL is not a secret, but it is not a fixture either.** It is regenerated on every run and
+  expires when the tunnel stops. Never commit a specific `trycloudflare.com` URL anywhere in the
+  repo or in documentation — it will be stale and misleading the next time anyone reads it.
+
 ## Stale-Cache Update Strategy
 
 Vite emits hashed JavaScript and CSS assets. Existing installed PWAs may hold cached HTML that references older hashed chunks. Updates must avoid deleting the assets that old HTML references.
