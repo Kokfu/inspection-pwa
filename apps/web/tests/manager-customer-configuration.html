@@ -29,6 +29,10 @@ const policyId = id(810);
 //  - co2_fire_extinguisher  -> label overrides SET, zones+locations SET
 //  - automatic_sprinkler    -> evidence policy SET, label overrides NOT set
 //  - dry_wet_riser          -> system settings NOT set
+//  - wet_chemical           -> ONE zone, ZERO locations (STEP 3.1 final-polish
+//    lone-zone case: the server permits saving a zone with no locations, and the
+//    summary chip + the untick-drops-config warning must now agree it is real,
+//    droppable config).
 const customer = {
   customer: { id: customerId, code: "C800", displayName: "Consolidated Customer" },
   sites: [{ id: id(801), code: "S", displayName: "Primary Site" }],
@@ -48,6 +52,11 @@ const customer = {
       {
         key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3,
         systemConfiguration: {}, zones: [], locations: []
+      },
+      {
+        key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 4,
+        zones: [{ id: id(841), key: "wz1", displayName: "Wet Zone 1" }],
+        locations: []
       }
     ]
   },
@@ -57,7 +66,10 @@ const customer = {
   supportedSystems: [
     { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: false, unavailableReason: "Location configuration required" },
     { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 2, assignable: true },
-    { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true }
+    { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true },
+    // Assignable so the lone-zone untick assertion can re-tick to restore state,
+    // and so it adds no second "editor below" pointer (that check stays scoped).
+    { key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 4, assignable: true }
   ]
 };
 
@@ -116,7 +128,7 @@ document.querySelector("#run").onclick = async () => {
 
     // 2. At-a-glance summary reads set / not set / n/a straight off enabledSystems.
     const labels = flagLabels();
-    ok("summary lists a row per enabled system", view.querySelectorAll(".manager-per-service-summary > li").length === 3);
+    ok("summary lists a row per enabled system", view.querySelectorAll(".manager-per-service-summary > li").length === 4);
     ok("co2 label overrides -> set", labels.includes("CO2 Fire Extinguisher System — Field labels: set"));
     ok("co2 zones & locations -> set", labels.includes("CO2 Fire Extinguisher System — Zones & locations: set"));
     ok("co2 evidence policy -> n/a", labels.includes("CO2 Fire Extinguisher System — Evidence policy: n/a"));
@@ -125,12 +137,16 @@ document.querySelector("#run").onclick = async () => {
     ok("sprinkler label overrides -> not set", labels.includes("Automatic Sprinkler System — Field labels: not set"));
     ok("riser system settings -> not set", labels.includes("Dry / Wet Riser System — System settings: not set"));
     ok("riser zones & locations -> n/a", labels.includes("Dry / Wet Riser System — Zones & locations: n/a"));
+    // STEP 3.1 final-polish P1: a lone zone with no locations counts as "set" —
+    // the summary chip now uses the same OR test as the untick-drops-config
+    // warning (`enabledSystemHasSavedSettings`).
+    ok("lone-zone wet_chemical zones & locations -> set", labels.includes("Wet Chemical System — Zones & locations: set"));
     const setChips = [...view.querySelectorAll(".manager-per-service-summary .manager-config-flag--set")];
-    ok("set chips carry the shared 'set' tone class", setChips.length === 3);
+    ok("set chips carry the shared 'set' tone class", setChips.length === 4);
 
     // 3. Unified per-system collapsible affordance across all four editors.
     const t = toggles();
-    ok("five per-system toggles (2 label + 1 config + 1 evidence + 1 locations)", t.length === 5);
+    ok("seven per-system toggles (3 label + 1 config + 1 evidence + 2 locations)", t.length === 7);
     ok("every toggle uses the Edit … — <system> pattern", t.every((b) => /^Edit .+ — .+$/.test(b.textContent.trim())));
     ok("every toggle starts collapsed with aria-expanded=false", t.every((b) => b.getAttribute("aria-expanded") === "false"));
     ok("toggle nouns are the consolidated set", t.map((b) => b.textContent.trim()).sort().join("|") ===
@@ -138,8 +154,10 @@ document.querySelector("#run").onclick = async () => {
         "Edit evidence policy — Automatic Sprinkler System",
         "Edit field labels — Automatic Sprinkler System",
         "Edit field labels — CO2 Fire Extinguisher System",
+        "Edit field labels — Wet Chemical System",
         "Edit system settings — Dry / Wet Riser System",
-        "Edit zones & locations — CO2 Fire Extinguisher System"
+        "Edit zones & locations — CO2 Fire Extinguisher System",
+        "Edit zones & locations — Wet Chemical System"
       ].sort().join("|"));
 
     // Expand the co2 label-overrides editor -> toggle flips, unified line shows.
@@ -187,6 +205,27 @@ document.querySelector("#run").onclick = async () => {
     sprinklerCheckbox.click(); // restore the original selection
     await wait(() => !view.textContent.includes("previous settings are not restored"), "untick warning clears on re-tick");
     ok("re-ticking clears the untick warning without an authority failure", authorityFailures === 0);
+
+    // ---- STEP 3.1 final-polish P1: the summary chip and the untick-drops-config
+    // warning must AGREE on a lone-zone location-dependent system (one zone, zero
+    // locations — a state the server permits). Before the fix the chip read
+    // "Zones & locations: not set" while unticking still fired the warning: two
+    // contradictory signals on one screen. Now both say "has something".
+    const wetOption = optionFor("Wet Chemical System");
+    const wetCheckbox = wetOption.querySelector("input[type=checkbox]");
+    const wetChipSet = () => flagLabels().includes("Wet Chemical System — Zones & locations: set");
+    ok("lone-zone wet_chemical checkbox starts ticked and interactive", wetCheckbox.checked && !wetCheckbox.disabled);
+    ok("lone-zone wet_chemical: summary chip reads 'set' before any untick", wetChipSet());
+    wetCheckbox.click();
+    await wait(() => view.textContent.includes("previous settings are not restored"), "lone-zone untick warning shown");
+    const wetWarning = [...view.querySelectorAll("form.report-summary p")].find((p) => p.textContent.includes("previous settings are not restored"));
+    const wetWarningFires = !!wetWarning && wetWarning.textContent.includes("Wet Chemical System");
+    ok("lone-zone wet_chemical: unticking fires the drop-config warning naming it", wetWarningFires);
+    ok("lone-zone wet_chemical: summary chip and untick warning agree (both 'has something')",
+      wetChipSet() && wetWarningFires);
+    wetCheckbox.click(); // restore the original selection
+    await wait(() => !view.textContent.includes("previous settings are not restored"), "lone-zone untick warning clears on re-tick");
+    ok("lone-zone wet_chemical: re-ticking clears the warning without an authority failure", authorityFailures === 0);
   } catch (error) {
     checks.push({ name: "harness error: " + (error?.message ?? error), value: false });
   }

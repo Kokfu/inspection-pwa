@@ -3,10 +3,11 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-10 — **Phase 8H STEP 3.1 final polish (the "Assigned Services"
-tick-list UX) — uncommitted working tree, owner does git.** Web-only, copy/UX. NO new route, NO
-`managerApi.ts` request/guard change, NO backend change, NO migration, NO `app.css` change. The
-"Assigned Services" (`submitConfiguration`) save path is byte-unchanged for every existing case;
+**Last updated:** 2026-09-11 — **Phase 8H STEP 3.1 final-polish P1 (summary/warning alignment on
+"zones/locations set") — uncommitted working tree, owner does git.** Web-only, copy/UX. NO new
+route, NO `managerApi.ts` request/guard change, NO backend change, NO migration, NO `app.css`
+change (`dist/assets/index-C9TOXXcd.css` hash unchanged). The "Assigned Services"
+(`submitConfiguration`) save path is byte-unchanged for every existing case;
 `copySelectedConfiguration` and every `parse*` helper are untouched.
 
 **What ships (STEP 3.1 final polish):** `apps/web/src/manager/ManagerCustomerConfiguration.tsx`
@@ -37,9 +38,25 @@ tick-list UX) — uncommitted working tree, owner does git.** Web-only, copy/UX.
   that has any saved per-service config (`enabledSystemHasSavedSettings`, mirroring
   `ManagerPerServiceSummary`'s per-flag test), because `copySelectedConfiguration` only
   forward-copies config for keys still selected. No behaviour change to the save path.
+* **P1 — summary/warning alignment on "zones/locations set".** `ManagerPerServiceSummary`'s
+  "Zones & locations" `set` test was `zones.length > 0 && locations.length > 0` while
+  `enabledSystemHasSavedSettings` used `zones || locations`. The server permits saving a lone
+  zone with no locations (`apps/api/src/inspections/locationConfiguration.ts:133`), so the
+  summary chip could read "not set" while unticking still fired the drop-config warning — two
+  contradictory signals on one screen. Fix: widen the summary's `set` clause to
+  `zones.length > 0 || locations.length > 0` so "set" == "the Manager entered something here",
+  and both signals agree a lone zone is real, droppable config. `enabledSystemHasSavedSettings`'s
+  body was already `|| zones || locations`; its docstring is reworded to state the
+  clause-for-clause match explicitly. Chosen over tightening the warning to `&&` because the
+  warning's own copy ("drops … zones and locations") should fire for any entered zone/location
+  config, not only a fully-configured pair.
 * **Tests:** `tests/manager-customer-configuration.{html,spec.ts}` gain the 1a/1b/1c assertions
   (co2 flipped to `assignable:false` in the harness fixture to exercise the 1a pointer; the spec
-  pins the new checks by name). The four `tests/manager-{label-overrides,system-configuration,
+  pins the new checks by name), plus a P1 lone-zone case — a fourth enabled system `wet_chemical`
+  with `zones.length === 1`, `locations.length === 0`: the harness asserts the summary chip reads
+  "Zones & locations: set" AND unticking it fires the drop-config warning naming it (both signals
+  now agree). Fixture-count assertions bumped accordingly (4 summary rows, 4 "set" chips, 7
+  per-system toggles). The four `tests/manager-{label-overrides,system-configuration,
   evidence-policy,locations}` harnesses render single sub-editors and never touch the picker, so
   they are unchanged — all four re-run green (`--workers=1`, 0 skips) as regression proof.
   `apps/web` typecheck + build green; `test:v7-stale-evidence` + `final-ui-acceptance` green.
@@ -1599,6 +1616,10 @@ field, add integration coverage, re-verify, Sol pass.
         control also surfaces for an already-enabled riser with an unset mode (server
         `RISER_MODE_REQUIRED` 400 is the documented fallback); untick-drops-config warning.
         Web-only copy/UX; save path byte-unchanged.
+      - [x] final-polish P1 — summary/warning alignment: `ManagerPerServiceSummary`'s "Zones &
+        locations" `set` test widened to `zones.length > 0 || locations.length > 0` to match
+        `enabledSystemHasSavedSettings`, so a lone zone with no locations no longer reads "not
+        set" on the chip while the untick-drops-config warning fires for it. Web-only.
 - [ ] 3.2 Manager review of completed reports / service history (partly exists).
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)

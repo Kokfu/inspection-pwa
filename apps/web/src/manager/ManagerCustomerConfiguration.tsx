@@ -147,7 +147,12 @@ function ManagerPerServiceSummary({ customer }: { customer: ManagerCustomer }) {
         {
           label: "Zones & locations",
           applies: locationConfigurableSystemKeys.has(system.key),
-          set: system.zones.length > 0 && system.locations.length > 0
+          // "set" == the Manager has entered *something* here. A lone zone with
+          // no locations yet is still real, droppable config (the server allows
+          // saving it — apps/api/src/inspections/locationConfiguration.ts), so it
+          // counts, and the untick-drops-config warning
+          // (`enabledSystemHasSavedSettings`) agrees clause-for-clause.
+          set: system.zones.length > 0 || system.locations.length > 0
         }
       ]
     };
@@ -179,9 +184,12 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 /**
  * STEP 3.1 final polish: does one enabled system carry any saved per-service
  * configuration that `copySelectedConfiguration` would NOT restore if the system
- * were unticked now and re-added later? Mirrors `ManagerPerServiceSummary`'s
- * per-flag "set" test (label overrides / system configuration / evidence policy
- * / zones+locations), read straight off `customer.configuration.enabledSystems`.
+ * were unticked now and re-added later? Each clause below is the exact same
+ * "set" test `ManagerPerServiceSummary` applies to its matching flag — label
+ * overrides / system configuration / evidence policy / zones-or-locations
+ * (a lone zone with no locations still counts as entered config) — read straight
+ * off `customer.configuration.enabledSystems`. The summary chip and this warning
+ * therefore never disagree about whether a system "has something".
  */
 const enabledSystemHasSavedSettings = (
   system: ManagerCustomer["configuration"]["enabledSystems"][number]

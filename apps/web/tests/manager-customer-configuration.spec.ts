@@ -19,6 +19,12 @@ import { expect, test } from "@playwright/test";
  *    rejected server-side with `RISER_MODE_REQUIRED` before any revision write);
  *  - 1c unticking a system that has saved per-service settings shows a
  *    display-only warning that re-adding it will NOT restore that config.
+ *
+ * DoD (STEP 3.1 final-polish P1 — chip/warning alignment): on a location-dependent
+ * system with one zone and zero locations (a state the server permits), the
+ * "Zones & locations" summary chip and the untick-drops-config warning must agree
+ * that it is real, droppable config — the summary's "set" test was widened to the
+ * same OR test `enabledSystemHasSavedSettings` uses.
  */
 test("Manager customer configuration: consolidated per-service frame, summary badges, unified collapsible", async ({ page }) => {
   await page.goto("/tests/manager-customer-configuration.html");
@@ -45,7 +51,12 @@ test("Manager customer configuration: consolidated per-service frame, summary ba
     "untick warning names the removed system",
     "untick warning enumerates the settings that are dropped",
     "no untick warning while co2 (unchanged) is still ticked",
-    "re-ticking clears the untick warning without an authority failure"
+    "re-ticking clears the untick warning without an authority failure",
+    "lone-zone wet_chemical zones & locations -> set",
+    "lone-zone wet_chemical: summary chip reads 'set' before any untick",
+    "lone-zone wet_chemical: unticking fires the drop-config warning naming it",
+    "lone-zone wet_chemical: summary chip and untick warning agree (both 'has something')",
+    "lone-zone wet_chemical: re-ticking clears the warning without an authority failure"
   ]) {
     expect(byName[name], name).toBe(true);
   }
