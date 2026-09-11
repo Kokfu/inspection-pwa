@@ -3,6 +3,67 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice A (read-only Manager service-history
+filtering + pagination on the existing `GET /manager/service-visits`) — uncommitted working tree,
+owner does git.** Backend-only, additive. NO new table, NO migration, NO seed change, NO write
+path, NO change to `/:jobId`, `/final-report`, or `/final-report.pdf`. Zero query params still
+produce byte-identical rows/order/shape to before this slice, plus one new sibling response key.
+
+**What ships (STEP 3.2 slice A):** `apps/api/src/routes/managerServiceVisits.ts` (+ its unit test
+and a new `managerServiceHistory.integration.test.ts`) only.
+* **Filters, all optional and additive.** `customerId` / `siteId` (UUID; both given AND —
+  a site of a different customer yields `[]`), `status` (`open`/`closed`), `systemKey` (validated
+  against `isImplementedSystemKey`; matched via a parameterized `jsonb_array_elements(...
+  enabledSystems) EXISTS` predicate against the frozen `configuration_snapshot` — never loaded
+  into JS and filtered there), `from`/`to` (inclusive `service_date`, real-calendar-date
+  validated so `2026-02-30` 400s instead of silently rolling over; `from > to` →
+  `INVALID_DATE_RANGE`), `limit` (default 50, hard max 200). Every value is bound as its own
+  `$n` — never string-interpolated. A malformed param 400s with a stable code
+  (`INVALID_CUSTOMER_ID` / `INVALID_SITE_ID` / `INVALID_STATUS` / `INVALID_SYSTEM_KEY` /
+  `INVALID_FROM_DATE` / `INVALID_TO_DATE` / `INVALID_DATE_RANGE` / `INVALID_LIMIT` /
+  `INVALID_CURSOR`), no stack leak. A well-formed but unknown/foreign `customerId`/`siteId` is
+  `200 []` — same existence-oracle discipline as `loadManagerServiceVisit`'s single-job lookup.
+* **Keyset pagination**, mirroring `masterSystemInspections.ts`'s cursor discipline (strict
+  base64url JSON, exact key set). Cursor encodes the last row's
+  `(serviceDate | null, jobReference, id)`; a tampered/garbage cursor 400s
+  (`INVALID_CURSOR`). The existing total order (`service_date DESC NULLS LAST, job_reference
+  DESC, id DESC`) is preserved; the "after cursor" predicate correctly handles the NULL
+  boundary (a non-null cursor's "after" set includes every NULL-date row; a NULL cursor only
+  tie-breaks among other NULL-date rows). Response gains exactly one new sibling key:
+  `nextCursor: string | null`; `serviceVisits` keeps its exact existing shape (no roll-up
+  fields — that needs the Final Report and is a later slice).
+* **Authority unchanged.** Still `requireRole("admin")`, still excludes `is_sample` in SQL,
+  still reads only the frozen `configuration_snapshot` + `loadJobCompletion`'s accepted
+  authority, still `Cache-Control: private, no-store`.
+* **Indexes confirmed, not assumed.** `customer_id` (migration 004) and `site_id` (migration
+  010) both hit their existing B-tree indexes via `EXPLAIN` against ~4,000 synthetic rows
+  spread over ~4,000 distinct customers/sites (a handful of real rows is too small for the
+  planner to prefer an index over a sequential scan regardless of the index's existence) —
+  `Bitmap Index Scan on idx_inspection_jobs_customer_id` / `idx_inspection_jobs_site_id`, no
+  `Seq Scan on inspection_jobs` on either scoped path.
+* **Tests.** `managerServiceVisits.test.ts` gains: a pure-function `parseServiceVisitFilters`
+  validation matrix (every malformed-param code, boundary `limit` values, a reversed/tampered
+  cursor); a `buildOperationalListQuery` parameterization proof (exact `$n` positions, no
+  interpolated values, zero-filter SQL contains none of the filter fragments); a hand-rolled
+  in-memory filtering mock proving each filter narrows correctly, the customer+site AND, and
+  the foreign/unknown-id `200 []` cases; a 4-row keyset walk (two real dates plus two
+  NULL-`service_date` rows) proving no dup/gap and the NULL boundary; two HTTP round-trip tests
+  (400 wiring through the real route, and `nextCursor` round-tripping through an actual query
+  string). New `managerServiceHistory.integration.test.ts` (disposable PG,
+  `phase6_seed_integration`) seeds one customer, two sites, a mix of open/closed jobs across
+  both (plus a same-site sample job and an unrelated second customer/site), and proves every
+  filter, the AND, the sample exclusion, the 401/403/200 admin matrix, the foreign-site `[]`,
+  and the two `EXPLAIN` index assertions above — all against real PostgreSQL. Gates green:
+  api typecheck + build; `historical-matrix` (20) / `v6-evidence` (9) /
+  `wet-chemical-definition` (2) / `v7EvidenceContracts` + `env` (11);
+  `managerServiceVisits.test.ts` (10); the full V7 integration set — `co2V7` /
+  `wetChemicalV7` / `fireAlarmV7` / `v7EvidenceRace` (9, cold `phase6_seed_integration`) — and
+  the new `managerServiceHistory.integration.test.ts` (1, same cold DB); web typecheck + build
+  (`dist/assets/index-C9TOXXcd.css` hash unchanged — no web file touched) +
+  `test:v7-stale-evidence`. DO-NOT-MODIFY list byte-identical to `e30c649`.
+
+<details><summary>Previous — 2026-09-11 STEP 3.1 final-polish P1 (summary/warning alignment on "zones/locations set")</summary>
+
 **Last updated:** 2026-09-11 — **Phase 8H STEP 3.1 final-polish P1 (summary/warning alignment on
 "zones/locations set") — uncommitted working tree, owner does git.** Web-only, copy/UX. NO new
 route, NO `managerApi.ts` request/guard change, NO backend change, NO migration, NO `app.css`
@@ -60,6 +121,8 @@ change (`dist/assets/index-C9TOXXcd.css` hash unchanged). The "Assigned Services
   evidence-policy,locations}` harnesses render single sub-editors and never touch the picker, so
   they are unchanged — all four re-run green (`--workers=1`, 0 skips) as regression proof.
   `apps/web` typecheck + build green; `test:v7-stale-evidence` + `final-ui-acceptance` green.
+
+</details>
 
 <details><summary>Previous — 2026-09-10 STEP 3.1 slice 3b (Manager customer-configuration screen: cosmetic / summary consolidation)</summary>
 
@@ -1620,7 +1683,10 @@ field, add integration coverage, re-verify, Sol pass.
         locations" `set` test widened to `zones.length > 0 || locations.length > 0` to match
         `enabledSystemHasSavedSettings`, so a lone zone with no locations no longer reads "not
         set" on the chip while the untick-drops-config warning fires for it. Web-only.
-- [ ] 3.2 Manager review of completed reports / service history (partly exists).
+- [~] 3.2 Manager review of completed reports / service history (partly exists).
+      - [x] slice A — read-only filtering/pagination on the existing `GET /manager/service-visits`
+        (`customerId`, `siteId`, `status`, `systemKey`, `from`/`to`, keyset `cursor`/`limit`),
+        both per-customer and per-site scope. No migration, no new table, no write path.
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)
 - [ ] 4.1 HTTPS on LAN/phone with a trusted cert; production credentials; security checklist.
