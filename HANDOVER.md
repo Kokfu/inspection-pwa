@@ -3,45 +3,68 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-11 — **STEP 4.2 close-out (live-mount guard bug fix, incl. a Sol-found
-second bypass, + real runbook validation pass) — uncommitted working tree, owner does git.** Two
-closing pieces of STEP 4.2:
-* **Bug fix — `scripts/Restore-Uploads.ps1`'s live-mount guard, fixed twice.** First bug: the
-  guard that refuses to extract into the live uploads bind mount without `-OverwriteLiveUploads`
-  used `Resolve-Path`, which errors/no-ops on a path that doesn't exist yet — so on a PC where
-  `C:\InspectionSystem\runtime\uploads` hasn't been created, passing `-DestinationPath` equal to
-  the live path with no override flag silently bypassed the guard. Fixed by comparing
-  `[System.IO.Path]::GetFullPath(...)` on both sides instead of requiring both paths to exist
-  first. **Sol review found a second bypass in that fix:** `GetFullPath` does not collapse the
-  Windows extended-length path prefix (`\\?\`) or its `\\?\UNC\` variant, so
-  `-DestinationPath '\\?\C:\InspectionSystem\runtime\uploads'` against the ordinary live path
-  string compared unequal and slipped past the guard. Fixed by stripping both prefixes before
-  comparing (`Get-NormalizedRestorePath`, `scripts/Restore-Uploads.ps1:36-48`). Both bypasses
-  reproduced live: pre-fix comparison logic returns `False` for each aliased pair (confirming
-  each bypass existed before its fix), post-fix the guard throws `REFUSED: ...` for both, and a
-  legitimate staging-path restore still succeeds throughout.
-* **On-premise-windows-deployment skill's Validation Checklist — run for real, then corrected by
-  Sol review.** `docs/architecture/06-deployment-runbook.md`'s "Validation Checklist Results
-  (2026-09-11)" section: 8 of 10 items are real PASSes with live evidence (`docker compose
-  config`, live `docker port`/`docker inspect` output, `curl` through Caddy). The remaining 2 are
-  honestly marked PARTIAL, both caught on review rather than self-reported the first time: item 7
-  ("data survives container recreation") initially claimed PASS from recreating only `proxy`,
-  which owns neither the Postgres volume nor the uploads bind mount — that test doesn't actually
-  exercise the containers that own the data, and recreating `postgres`/`api` to do so properly
-  was outside what this task authorized without asking first, so it's now flagged instead of
-  claimed; item 10 (Windows startup/sleep policy) is documented-but-unverified-on-real-hardware,
-  since the client's physical PC doesn't exist yet. Item 8's wording was also corrected — the
-  Postgres dump briefly exists container-local before `docker compose cp` copies it out, so
-  "only ever exists on the host filesystem" overstated it.
+**Last updated:** 2026-09-12 — **STEP 4.2 close-out, after two Sol review rounds — six real
+script defects found and fixed, plus a runbook validation pass corrected twice — commit `a36db33`
+covers round 1, round 2 fixes are uncommitted, owner does git.** This closed out with real back-
+and-forth: round 1 fixed the original bug + ran the validation checklist; round 2 review found the
+round-1 fix for that same bug was itself still bypassable, plus five more real defects elsewhere in
+the same backup/restore scripts (not just documentation wording). All are now fixed and
+re-reproduced. Full detail lives in `docs/architecture/06-deployment-runbook.md`'s "Second review
+round (2026-09-12)" note; summary:
+* **`scripts/Restore-Uploads.ps1` live-mount guard — three rounds to close.** (1) Original bug:
+  `Resolve-Path`-based comparison silently passed when the live path didn't exist yet on disk.
+  (2) Round-1 fix (`GetFullPath` string compare) missed the `\\?\` extended-length path prefix.
+  (3) Round-2 review found the real underlying problem: no *lexical* string compare can catch an
+  NTFS junction, a `subst`-mapped drive, or an 8.3 short name aliasing the live path — a cold
+  junction fixture bypassed the guard. Fixed by resolving both sides to their canonical filesystem
+  identity via `GetFinalPathNameByHandle` (walking up to the nearest existing ancestor when the
+  destination doesn't exist yet, failing closed if no identity can be established). Reproduced: a
+  `\\?\` alias, a `subst` drive, and a real junction are all now refused; staging/relative/empty
+  inputs still behave correctly.
+* **`scripts/Restore-Database.ps1` — two real defects found by round-2 review, not present in
+  round 1.** The forbidden-container block compared only the literal name
+  `inspection_pwa-postgres-1`; passing the live container's actual Docker ID (full or abbreviated)
+  bypassed it and reached the copy/restore calls — fixed by resolving both sides to canonical
+  Docker container IDs before comparing. Separately, a failed `pg_restore` only warned, then the
+  script printed "Restore complete" and returned success anyway — fixed to throw on any nonzero
+  `docker cp`/`pg_restore` exit, so success is only ever reported after it actually happened. Both
+  reproduced against disposable containers (never the runtime one): the live container's ID is
+  now refused pre-copy; an intentionally invalid dump now throws instead of reporting success; a
+  genuinely valid restore still completes and reports so correctly.
+* **`scripts/Backup-Database.ps1` — two real defects.** Read `$env:POSTGRES_USER`/`$env:POSTGRES_DB`
+  from the host shell, which Compose's `.env` never populates (confirmed both empty in a normal
+  shell) — `pg_dump` was running with null credentials. Fixed to resolve them from the running
+  container via `printenv`. Separately, no native command's exit code was checked, so a silently
+  failed `docker compose cp` would proceed to delete the container-local dump before the failure
+  was ever detected — fixed to gate every step and only delete the container-local copy after the
+  host copy is verified to exist and be non-empty. Reproduced against a disposable Postgres
+  container with a confirmed-empty host environment: fixed script resolves real credentials and
+  produces a valid, verified dump.
+* **`scripts/Backup-Uploads.ps1` — hidden files silently dropped and undercounted to match.**
+  `Compress-Archive`'s wildcard expansion skips Hidden-attribute items, and the separate file-count
+  query used the same non-`-Force` enumeration, so the manifest agreed with the incomplete archive
+  instead of catching it. Also found: `Compress-Archive` fails on a hidden file even when handed
+  its exact path explicitly (an internal `Get-Item` call without `-Force`), so simply switching to
+  a `-Force` enumeration wasn't enough on its own. Rebuilt on `System.IO.Compression.ZipFile`
+  directly, driven by one `-Force` file list used for both archiving and counting. Reproduced: a
+  visible file + a Hidden-attribute file + a nested subfolder now all archive, count, and
+  round-trip correctly through `Restore-Uploads.ps1` (previously silently dropped the hidden one).
+* **On-premise-windows-deployment skill's Validation Checklist — corrected twice.** 8 of 10 items
+  are real PASSes with live evidence; the remaining 2 are honestly PARTIAL: item 7 ("data survives
+  container recreation") initially claimed PASS from recreating only `proxy`, which owns neither
+  the Postgres volume nor the uploads bind mount, so that test doesn't actually exercise the
+  data-owning containers; item 10 (Windows startup/sleep policy) is documented-but-unverified-on-
+  real-hardware, since the client's physical PC doesn't exist yet. Item 8's wording was also
+  corrected for the container-local-dump-window point above.
 * **Documentation honesty — retention/off-device copy.** New subsection in
   `docs/architecture/05-backup-and-recovery.md` making explicit that nothing in `scripts/`
   automates or enforces retention or off-device copy (no pruning script exists); the suggested
   daily/weekly/monthly policy stays a suggestion, not an implemented or client-approved policy.
   No retention/pruning script was built — that stays separate, client-gated work.
-* **Verified untouched throughout, including through the Sol review pass:** runtime Postgres
-  (`inspection_jobs` count unchanged across the proxy recreation) and the live uploads folder
-  (SHA-256 of all files identical before/after) — same proof pattern as the STEP 4.2 first-half
-  drill below.
+* **Verified untouched throughout both review rounds:** runtime Postgres (`inspection_jobs` count
+  unchanged, 54 before and after every test) and the live uploads folder (47 files, SHA-256
+  identical before/after) — every script fix was reproduced and verified against disposable
+  fixtures/containers, never the runtime ones.
 
 **Last updated:** 2026-09-11 — **STEP 4.2 first half (real backup verification + real restore
 scripts, one live drill) — uncommitted working tree, owner does git.** `scripts/Backup-Database.ps1`

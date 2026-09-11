@@ -190,8 +190,8 @@ below states which part of that distinction applies.
 | 5 | `/api/health` works through Caddy | **PASS** | `curl -sk https://localhost/api/health` returns `200` with body `{"status":"ok","service":"inspection-api","phase":"foundation"}` — reachable through Caddy's `/api` reverse-proxy rule, and the body reveals no secrets, stack traces, or internal paths (matches the Health Checks rule in `backend-api-security/SKILL.md`). |
 | 6 | Runtime bind mounts point outside Git | **PASS** | `.env` (git-ignored — `git check-ignore -v .env` confirms; `git ls-files .env` returns nothing) sets `INSPECTION_UPLOADS_PATH`, `INSPECTION_API_LOGS_PATH`, `INSPECTION_PROXY_LOGS_PATH`, `INSPECTION_RESTORE_STAGING_PATH`, `INSPECTION_OPERATIONAL_PATH` all under `C:/InspectionSystem/runtime/...`, outside the repo root (`C:\PWA_OfflineRecordWebApp`). Confirmed against the *live* containers, not just the file: `docker inspect inspection_pwa-api-1 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'` shows `C:/InspectionSystem/runtime/uploads -> /srv/uploads`, `.../logs/api -> /srv/logs`, `.../restore-staging -> /srv/restore-staging`, `.../operational -> /srv/operational`; `inspection_pwa-proxy-1`'s mounts show `.../logs/proxy -> /var/log/caddy` and `.../releases -> /srv/releases`. `docker-compose.yml`'s defaults (lines 19-20, 44-47) point the same way even with no `.env` present. |
 | 7 | Data survives container recreation | **PARTIAL — proxy recreation only; does not cover the data-owning containers** | Picked `proxy` per the brief's own example. Baseline before recreation: `SELECT count(*) FROM inspection_jobs;` → `54`; `find .../uploads -type f \| wc -l` → `47` files, SHA-256 of every file captured. Ran `docker compose up -d --no-deps --force-recreate proxy` (proxy container recreated — new container ID, ~16s old immediately after; `api`/`postgres` untouched, same age as before). After recreation: `inspection_jobs` count still `54`; uploads still `47` files; a full `diff` of the before/after SHA-256 file lists is empty (byte-identical). `/api/health` and `/` both still return `200` through the recreated proxy. **This is not, by itself, valid evidence that the checklist item is satisfied.** `proxy` owns neither the PostgreSQL data (the `postgres_data` named volume, mounted only into the `postgres` container) nor the uploads bind mount (mounted only into the `api` container) — a broken `postgres_data` volume or a misconfigured uploads mount would still pass this exact check, because the containers that actually own that data were never recreated. It only proves that recreating an unrelated container cannot corrupt data it never touches, which is already guaranteed by Docker's per-container filesystem isolation and doesn't need a live drill to establish. It also is not a read-only step against the container itself — `--force-recreate` replaces the `proxy` container (new container ID) and briefly interrupts traffic through it, even though it never touches Postgres or the uploads bind mount. Per the brief's own instruction ("if validating this requires anything beyond `docker compose up -d --no-deps --force-recreate proxy` ..., stop and say why instead of improvising"): a real test of this item would mean recreating `postgres` (to prove the named volume survives) and/or `api` (to prove the uploads bind mount survives on the container side), both of which are outside what this task authorized without checking first — flagged here rather than done unasked. |
-| 8 | Backups are created outside the database container | **PASS (structural, from STEP 4.2 slice 1), wording corrected** | `scripts/Backup-Database.ps1:19-21` runs `pg_dump` to a temp file *inside* the `postgres` container's own filesystem (`/tmp/inspection-<timestamp>.dump`) first, then `docker compose cp` copies those exact bytes out to the host (`$OutputRoot`, default `C:\InspectionSystem\runtime\backups\postgres`), then deletes the container-local temp file. The finished backup artifact ends up host-only, but it is not accurate to say it "only ever exists on the host filesystem" — for the window between the `pg_dump` line and the `docker compose cp` line it exists solely inside the container, and the script does not check `docker compose cp`'s exit code before proceeding to delete that container-local copy on the next line. If the copy silently failed, the script would still reach `Get-Item -LiteralPath $outputFile` (line 24) and throw there since the host file wouldn't exist, so a failed copy is not reported as success — but it does mean the container-local dump is deleted before that failure is ever detected, losing the run's only copy rather than leaving it recoverable. `scripts/Backup-Uploads.ps1` archives the host-mounted uploads bind mount directly and never reaches into a container, so it doesn't share this window. Both write a manifest (`sha256`, size, file count) alongside the backup — see `docs/architecture/05-backup-and-recovery.md`'s "Implementation Status" section. |
-| 9 | Restore process is documented | **PASS** | `docs/architecture/05-backup-and-recovery.md`'s "Restore Outline" and "Implementation Status" sections describe the flow; `scripts/Restore-Database.ps1` and `scripts/Restore-Uploads.ps1` implement it — both verify the manifest checksum before restoring (`Restore-Database.ps1:50-55`, `Restore-Uploads.ps1:29-34`), both refuse to target the live runtime by default (`Restore-Database.ps1:24-27` hard-blocks the literal live container name with no override; `Restore-Uploads.ps1`'s live-mount guard, fixed in this task — see the "Restore-Uploads.ps1 guard fix" note below), and both were proven end-to-end on 2026-09-11 per `HANDOVER.md`'s STEP 4.2 entry (real runtime dump + uploads backup, restored into a disposable Postgres container and `restore-staging\uploads`, row counts / sample query / file checksums matched, runtime DB and uploads confirmed untouched throughout). |
+| 8 | Backups are created outside the database container | **PASS (structural, from STEP 4.2 slice 1), wording corrected, copy-failure gap closed** | `scripts/Backup-Database.ps1` runs `pg_dump` to a temp file *inside* the `postgres` container's own filesystem (`/tmp/inspection-<timestamp>.dump`, line ~41) first, then `docker compose cp` copies those exact bytes out to the host (`$OutputRoot`, default `C:\InspectionSystem\runtime\backups\postgres`, line ~46). The finished backup artifact ends up host-only, but for the window between those two lines it exists solely inside the container. A second review round found the original script did not check `docker compose cp`'s exit code before deleting that container-local copy - a silently-failed copy would have deleted the run's only good copy before anyone noticed. Fixed: every native command in this path (`printenv` credential resolution, `pg_dump`, `docker compose cp`) now checks its exit code and throws immediately on failure, and the container-local temp file is only removed *after* the host copy is verified to exist and be non-empty - a failed copy leaves the container-local dump in place for manual recovery instead of destroying it. Same round also fixed a separate defect: the script previously read `$env:POSTGRES_USER`/`$env:POSTGRES_DB` from the host shell, which Compose's `.env` never populates (only the container's own environment gets those values), so a normal run passed `pg_dump -U -d` with both null; it now resolves them from the running container via `printenv`. `scripts/Backup-Uploads.ps1` archives the host-mounted uploads bind mount directly and never reaches into a container, so it doesn't share this window. Both write a manifest (`sha256`, size, file count) alongside the backup — see `docs/architecture/05-backup-and-recovery.md`'s "Implementation Status" section. |
+| 9 | Restore process is documented | **PASS, with two defects found and fixed by review** | `docs/architecture/05-backup-and-recovery.md`'s "Restore Outline" and "Implementation Status" sections describe the flow; `scripts/Restore-Database.ps1` and `scripts/Restore-Uploads.ps1` implement it — both verify the manifest checksum before restoring, both refuse to target the live runtime by default, and both were proven end-to-end on 2026-09-11 per `HANDOVER.md`'s STEP 4.2 entry. A second review round found and fixed two real defects in these refusal guards themselves — see the "Second review round" note below for both, with reproduction evidence. |
 | 10 | Windows startup and sleep policy are documented | **PARTIAL — documented, not verified on real hardware** | `docs/architecture/06-deployment-runbook.md`'s "Windows Startup Behavior" section (lines 15-24) lists what must be documented and tested: Docker Desktop start-on-login, Compose-after-Docker-ready ordering, sleep/hibernation disabled during service hours, Windows Update/restart policy, power-loss/BIOS-UEFI recovery. **None of this is yet configured or verified anywhere, including on this development machine** — checked as a proxy for "has anyone actually turned this into a real setting": `Get-Content "$env:APPDATA\Docker\settings-store.json"` on `DESKTOP-1S3EQ0P` shows `"AutoStart": false` (Docker Desktop does NOT start at login here), and `powercfg /query SCHEME_CURRENT SUB_SLEEP` shows the AC "Sleep after" timer active at `0x00000e10` (3600s = 1 hour) rather than disabled. No Windows Scheduled Task exists to start the Compose stack (`Get-ScheduledTask` has no Docker/Inspection/Compose-named entry among its 195 tasks). This is expected and not a defect — **the client's actual physical PC does not exist yet in this project**, so there is nothing to configure yet; the runbook section is the correct target state to apply once that hardware is provisioned, but it must be re-verified against the real client PC (its own `powercfg`, Docker Desktop settings, and a real reboot test) before go-live. Treat this line item as documentation-complete / hardware-verification-pending, not as a completed operational control. |
 
 **Honesty note on scope:** items 1-6 and 9 are evidence gathered against the actual running
@@ -201,14 +201,67 @@ where the initial pass overclaimed or conflated "documented" with "verified" —
 PARTIAL with the specific gap named, rather than presenting either the runbook's prose or an
 insufficiently-scoped test as proof.
 
-**Restore-Uploads.ps1 guard fix — one round of review found a second bypass.** The normalized-path
-comparison added for the "live path doesn't exist yet" case (`scripts/Restore-Uploads.ps1:36-48`)
-initially compared `[System.IO.Path]::GetFullPath(...)` output directly, which does not collapse
-the Windows extended-length path prefix (`\\?\`) or the `\\?\UNC\` UNC variant — so
-`-DestinationPath '\\?\C:\InspectionSystem\runtime\uploads'` against
-`-LiveUploadsPath 'C:\InspectionSystem\runtime\uploads'` did not compare equal, and the guard would
-have missed that alias of the live path. Fixed by stripping both prefixes before comparing
-(`Get-NormalizedRestorePath` in the same file). Reproduced against a cold scratch fixture: the
-pre-fix comparison logic returns `False` for the aliased pair (confirming the bypass existed), and
-the fixed guard now throws `REFUSED: ...` for the identical aliased-destination case, while a
-legitimate staging-path restore still succeeds.
+**Second review round (2026-09-12) — six defects found, all fixed and re-verified.** Two rounds of
+review after the initial validation pass each found real defects in the backup/restore scripts
+themselves, not just in this document's wording. All six are fixed in the current working tree:
+
+1. **`scripts/Restore-Uploads.ps1` live-mount guard — lexical comparison was never enough.**
+   First fix compared `[System.IO.Path]::GetFullPath(...)` directly, missed the `\\?\` /
+   `\\?\UNC\` extended-length path prefix. Second review found the deeper problem: *any*
+   lexical string compare misses an NTFS junction, a `subst`-mapped drive letter, or an 8.3
+   short name that resolves to the exact same physical directory as the live path while its
+   string form differs — a cold junction fixture bypassed the guard and would have extracted
+   into the live folder. Fixed by resolving both sides to their canonical filesystem identity via
+   `GetFinalPathNameByHandle` (`Get-CanonicalDirectoryPath`/`Get-CanonicalComparisonPath`,
+   `scripts/Restore-Uploads.ps1:63-128`) — the same API Windows itself uses to follow reparse
+   points and subst mappings when opening a path for real I/O — walking up to the nearest
+   existing ancestor when the destination doesn't exist yet, and failing closed (throwing) if no
+   identity can be established. Reproduced clean: a `\\?\` alias, a `subst`-mapped drive letter,
+   and a real NTFS junction pointing at the live path are all now refused; a legitimate staging
+   restore, a relative path, and an empty-string destination all still behave correctly. 8.3
+   short-name aliasing was not independently reproduced in this environment (`fsutil 8dot3name`
+   needs admin rights not available here), but is covered by the same resolution mechanism.
+2. **`scripts/Restore-Database.ps1` forbidden-container check — name-only, ID bypassed it.**
+   The hard block on the live runtime container compared only the literal name
+   `inspection_pwa-postgres-1`; Docker also accepts that container's full or unique-prefix ID as
+   a target for `docker exec`/`docker cp`, so passing the live container's actual ID (with
+   `-UseExistingContainer` + the acknowledgement flag) reached the copy/restore calls. Fixed by
+   resolving both the requested target and the forbidden name to their canonical Docker container
+   ID via `docker inspect` before comparing (`Resolve-DockerContainerId`,
+   `scripts/Restore-Database.ps1:29-40`). Reproduced: the live container's full ID and a
+   12-character abbreviated prefix are both now refused before reaching any copy/exec call.
+3. **`scripts/Restore-Database.ps1` — a failed restore was reported as complete.** A nonzero
+   `pg_restore` exit only produced a `Write-Warning`, after which the script unconditionally
+   printed "Restore complete" and returned success. Fixed: both `docker cp` (line ~122) and
+   `pg_restore` (line ~128) now throw immediately on any nonzero exit, so "Restore complete" is
+   only ever reached after a genuinely successful restore. Reproduced against a disposable
+   container: an intentionally invalid dump makes `pg_restore` exit 1 and the script now throws
+   instead of printing success; a genuinely valid dump still restores and reports completion
+   correctly.
+4. **`scripts/Backup-Database.ps1` — `pg_dump` ran with null credentials in a normal shell.**
+   The script read `$env:POSTGRES_USER`/`$env:POSTGRES_DB` from the host PowerShell process, but
+   Compose's `.env` only feeds substitution inside `docker-compose.yml` — it never populates the
+   host shell's own environment, so both were empty in a normal run. Fixed: resolves the values
+   the live container is actually running with via `docker compose exec -T postgres printenv ...`
+   (`scripts/Backup-Database.ps1:23-35`), throwing if either can't be resolved. Reproduced against
+   a disposable Postgres container with a confirmed-empty host shell environment: the fixed script
+   correctly resolves `testuser`/`testdb` from the container and produces a valid dump.
+5. **`scripts/Backup-Database.ps1` — a silent copy failure would have deleted the only copy.**
+   Covered under item 8 above.
+6. **`scripts/Backup-Uploads.ps1` — hidden files silently omitted, and undercounted to match.**
+   `Compress-Archive`'s `"*"` wildcard expansion skips Hidden-attribute items, and the separate
+   `Get-ChildItem -Recurse -File` used for the manifest's `fileCount` did too — so both the
+   archive and its own manifest agreed on an undercount, hiding the loss. Worse, even an explicit
+   `-LiteralPath` to a hidden file fails inside `Compress-Archive`'s own implementation (it reads
+   entry metadata via an internal `Get-Item` call without `-Force`), so simply enumerating with
+   `-Force` and handing the paths to `Compress-Archive` was not sufficient either. Fixed by
+   building the zip directly with `System.IO.Compression.ZipFile`
+   (`scripts/Backup-Uploads.ps1:15-40`), driven by one `-Force` enumeration that both archives and
+   counts the identical file list, including hidden files at any depth. Reproduced: a fixture with
+   one visible file, one Hidden-attribute file, and a nested subfolder now archives and counts all
+   three (previously archived/counted 1), and round-trips correctly through
+   `Restore-Uploads.ps1` with the hidden file and folder structure intact.
+
+A prior draft of this note also had two stale file:line citations (`Restore-Uploads.ps1:36-48`)
+left over from before the junction-fix rewrite moved that code — the citations above were taken
+fresh from the current file contents rather than copied forward.
