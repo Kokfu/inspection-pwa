@@ -3,6 +3,67 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-11 — **STEP 4.2 close-out (live-mount guard bug fix, incl. a Sol-found
+second bypass, + real runbook validation pass) — uncommitted working tree, owner does git.** Two
+closing pieces of STEP 4.2:
+* **Bug fix — `scripts/Restore-Uploads.ps1`'s live-mount guard, fixed twice.** First bug: the
+  guard that refuses to extract into the live uploads bind mount without `-OverwriteLiveUploads`
+  used `Resolve-Path`, which errors/no-ops on a path that doesn't exist yet — so on a PC where
+  `C:\InspectionSystem\runtime\uploads` hasn't been created, passing `-DestinationPath` equal to
+  the live path with no override flag silently bypassed the guard. Fixed by comparing
+  `[System.IO.Path]::GetFullPath(...)` on both sides instead of requiring both paths to exist
+  first. **Sol review found a second bypass in that fix:** `GetFullPath` does not collapse the
+  Windows extended-length path prefix (`\\?\`) or its `\\?\UNC\` variant, so
+  `-DestinationPath '\\?\C:\InspectionSystem\runtime\uploads'` against the ordinary live path
+  string compared unequal and slipped past the guard. Fixed by stripping both prefixes before
+  comparing (`Get-NormalizedRestorePath`, `scripts/Restore-Uploads.ps1:36-48`). Both bypasses
+  reproduced live: pre-fix comparison logic returns `False` for each aliased pair (confirming
+  each bypass existed before its fix), post-fix the guard throws `REFUSED: ...` for both, and a
+  legitimate staging-path restore still succeeds throughout.
+* **On-premise-windows-deployment skill's Validation Checklist — run for real, then corrected by
+  Sol review.** `docs/architecture/06-deployment-runbook.md`'s "Validation Checklist Results
+  (2026-09-11)" section: 8 of 10 items are real PASSes with live evidence (`docker compose
+  config`, live `docker port`/`docker inspect` output, `curl` through Caddy). The remaining 2 are
+  honestly marked PARTIAL, both caught on review rather than self-reported the first time: item 7
+  ("data survives container recreation") initially claimed PASS from recreating only `proxy`,
+  which owns neither the Postgres volume nor the uploads bind mount — that test doesn't actually
+  exercise the containers that own the data, and recreating `postgres`/`api` to do so properly
+  was outside what this task authorized without asking first, so it's now flagged instead of
+  claimed; item 10 (Windows startup/sleep policy) is documented-but-unverified-on-real-hardware,
+  since the client's physical PC doesn't exist yet. Item 8's wording was also corrected — the
+  Postgres dump briefly exists container-local before `docker compose cp` copies it out, so
+  "only ever exists on the host filesystem" overstated it.
+* **Documentation honesty — retention/off-device copy.** New subsection in
+  `docs/architecture/05-backup-and-recovery.md` making explicit that nothing in `scripts/`
+  automates or enforces retention or off-device copy (no pruning script exists); the suggested
+  daily/weekly/monthly policy stays a suggestion, not an implemented or client-approved policy.
+  No retention/pruning script was built — that stays separate, client-gated work.
+* **Verified untouched throughout, including through the Sol review pass:** runtime Postgres
+  (`inspection_jobs` count unchanged across the proxy recreation) and the live uploads folder
+  (SHA-256 of all files identical before/after) — same proof pattern as the STEP 4.2 first-half
+  drill below.
+
+**Last updated:** 2026-09-11 — **STEP 4.2 first half (real backup verification + real restore
+scripts, one live drill) — uncommitted working tree, owner does git.** `scripts/Backup-Database.ps1`
+and `scripts/Backup-Uploads.ps1` now write a manifest (file name, SHA-256, size, and for uploads a
+file count) next to each backup; `scripts/Verify-Backup.ps1` checks that manifest/checksum, not
+just presence/size; `scripts/Restore-Database.ps1` and `scripts/Restore-Uploads.ps1` are real
+(previously print-only skeletons) — both verify the manifest checksum before restoring, and both
+default to a disposable/staging target (never the runtime `inspection_pwa-postgres-1` container or
+the live uploads bind mount), requiring an explicit non-default parameter with a loud warning to
+target anything else. Proven with one real end-to-end drill: backed up the live runtime Postgres DB
+and uploads folder, restored the dump into a disposable Postgres container and the uploads archive
+into `restore-staging\uploads`, and confirmed row counts, a sample query, and file checksums
+matched the runtime source exactly, while the runtime DB's row counts / write counters / latest
+timestamp and the live uploads folder were unchanged before vs. after (proving the drill never
+wrote to either). Also fixed a real pre-existing bug found by the drill:
+`Backup-Database.ps1`'s original `pg_dump ... > $outputFile` let PowerShell re-encode the binary
+custom-format dump and prepend a UTF-8 BOM, corrupting every dump it ever produced — pg_dump now
+writes inside the container and `docker compose cp` copies the bytes out untouched. Still
+outstanding for STEP 4.2's full scope: a documented retention/off-device-copy policy (client
+decision per `docs/architecture/05-backup-and-recovery.md`) and the separate on-prem Windows
+deployment runbook validation.
+
 **Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice C (systemKey/from/to filters + a
 "X of Y visits" total-count chip on the Manager service-history view) — uncommitted working tree,
 owner does git.** STEP 3.2 is now fully closed: Slice A's `systemKey`/`from`/`to` filters (server-
@@ -1878,7 +1939,20 @@ field, add integration coverage, re-verify, Sol pass.
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)
 - [ ] 4.1 HTTPS on LAN/phone with a trusted cert; production credentials; security checklist.
-- [ ] 4.2 Backup + restore drill; on-prem Windows deployment runbook validation.
+- [~] 4.2 Backup + restore drill; on-prem Windows deployment runbook validation.
+      - [x] real backup manifests/checksums, real restore scripts (DB + uploads), one live
+        end-to-end drill proven against the runtime DB and uploads folder without touching either.
+      - [x] on-prem Windows deployment runbook validation — real point-by-point pass against this
+        repo's actual state, see `docs/architecture/06-deployment-runbook.md`'s "Validation
+        Checklist Results (2026-09-11)" section (8/10 real PASS; 2 honestly marked PARTIAL —
+        container-recreation coverage limited to `proxy`, not the Postgres/uploads-owning
+        containers; Windows startup/sleep policy documented-but-unverified-on-real-hardware
+        pending the client's actual PC. Both partials were tightened after a Sol review pass
+        caught the first draft overclaiming them as full PASSes).
+      - [ ] documented retention/off-device-copy policy (client decision) — still just a starting
+        suggestion in `docs/architecture/05-backup-and-recovery.md`; nothing in `scripts/`
+        automates or enforces it yet (no pruning/off-device-copy script exists). Stays unchecked
+        until the client decides and it gets built.
 
 **Rough total to "all client services on V7 + Manager mods" ≈ 6–9 weeks** of the Codex loop +
 owner reviews, gated on client input for C1/C2/2.3/2.4.
