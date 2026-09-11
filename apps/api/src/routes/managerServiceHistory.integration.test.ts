@@ -162,7 +162,11 @@ test("GET /manager/service-visits filters by customer/site/status/systemKey/date
         const idsFor = async (query: string) => {
           const response = await get(query);
           assert.equal(response.status, 200, query);
-          const body = await response.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null };
+          const body = await response.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null; totalCount: number };
+          // Every filtered set exercised below fits on one (default 50) page, so totalCount must
+          // equal the returned row count exactly — proving each filter narrows totalCount
+          // identically to the rows it returns.
+          assert.equal(body.totalCount, body.serviceVisits.length, `totalCount must match rows for ${query}`);
           return body.serviceVisits.map((v) => v.id);
         };
 
@@ -170,6 +174,39 @@ test("GET /manager/service-visits filters by customer/site/status/systemKey/date
         const scopedToCustomer = await idsFor(`?customerId=${customerId}`);
         assert.deepEqual(new Set(scopedToCustomer), new Set([jobAlphaHoseOpen, jobAlphaSprinklerClosed, jobBetaHoseClosed, jobBetaSprinklerOpen]));
         assert.ok(!scopedToCustomer.includes(sampleJob), "sample job is never returned");
+
+        // totalCount reflects the FULL filtered count (from the `summary` derived table, computed
+        // independently of the cursor+limit page) while serviceVisits.length stays capped at
+        // `limit`, and stays identical across every page of the same filtered set.
+        type ServiceVisitPage = { serviceVisits: Array<{ id: string; reference: string; serviceDate: string | null }>; nextCursor: string | null; totalCount: number };
+        const firstPage = await get(`?customerId=${customerId}&limit=2`);
+        assert.equal(firstPage.status, 200);
+        const firstPageBody = await firstPage.json() as ServiceVisitPage;
+        assert.equal(firstPageBody.serviceVisits.length, 2, "page is capped by limit");
+        assert.equal(firstPageBody.totalCount, 4, "totalCount reflects the FULL filtered count, not the page size");
+        assert.ok(firstPageBody.nextCursor);
+        const secondPage = await get(`?customerId=${customerId}&limit=2&cursor=${encodeURIComponent(firstPageBody.nextCursor!)}`);
+        assert.equal(secondPage.status, 200);
+        const secondPageBody = await secondPage.json() as ServiceVisitPage;
+        assert.equal(secondPageBody.serviceVisits.length, 2, "final page carries the remainder");
+        assert.equal(secondPageBody.totalCount, 4, "totalCount is identical on the second page of the same filtered set");
+        assert.equal(secondPageBody.nextCursor, null);
+
+        // Regression: a cursor positioned exactly at the true end of an otherwise non-empty
+        // filtered set (nothing sorts "after" it) produces a genuinely empty page against real
+        // PostgreSQL. totalCount must still be 4, not 0 — proving the `summary LEFT JOIN paged`
+        // placeholder row actually survives a real, empty `paged` result set, not just the
+        // in-memory mock's simulation of it.
+        const lastVisit = secondPageBody.serviceVisits[secondPageBody.serviceVisits.length - 1]!;
+        const pastEndCursor = Buffer.from(JSON.stringify({
+          serviceDate: lastVisit.serviceDate, jobReference: lastVisit.reference, id: lastVisit.id
+        })).toString("base64url");
+        const pastEnd = await get(`?customerId=${customerId}&limit=50&cursor=${encodeURIComponent(pastEndCursor)}`);
+        assert.equal(pastEnd.status, 200);
+        const pastEndBody = await pastEnd.json() as { serviceVisits: unknown[]; nextCursor: string | null; totalCount: number };
+        assert.deepEqual(pastEndBody.serviceVisits, [], "a cursor at the true end of the filtered set yields a genuinely empty page");
+        assert.equal(pastEndBody.totalCount, 4, "totalCount survives an empty page against real PostgreSQL — it must not silently become 0");
+        assert.equal(pastEndBody.nextCursor, null);
 
         // siteId scope.
         assert.deepEqual(new Set(await idsFor(`?siteId=${siteAlphaId}`)), new Set([jobAlphaHoseOpen, jobAlphaSprinklerClosed]));
@@ -207,7 +244,9 @@ test("GET /manager/service-visits filters by customer/site/status/systemKey/date
 
         // -- EXPLAIN: customer_id / site_id filters use the migrations 004/010 indexes, not a
         // sequential scan on inspection_jobs, once the table has enough (and selective enough)
-        // rows for the planner to prefer them. ------------------------------------------------
+        // rows for the planner to prefer them. `buildOperationalListQuery()`'s SQL now also
+        // carries the `filtered` CTE + `summary`/`paged` split for `totalCount`; this proves that
+        // structure does not force a plan change that drops the index scan. --------------------
         const decoyCount = 4000;
         const decoyCustomerIds = Array.from({ length: decoyCount }, () => randomUUID());
         const decoySiteIds = Array.from({ length: decoyCount }, () => randomUUID());

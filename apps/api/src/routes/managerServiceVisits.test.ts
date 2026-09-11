@@ -130,8 +130,8 @@ class OperationalDatabase {
     this.queries.push(sql);
     if (sql.includes("LEFT JOIN customer_sites")) {
       return { rows: [
-        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", serviceTime: "09:30", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer") },
-        { id: closedId, reference: "SV-CLOSED", title: "Closed site", status: "closed", createdAt: "2026-08-19T06:15:00.000Z", serviceDate: "2026-08-19", serviceTime: "14:15", site: { id: "site-closed", displayName: "Closed site" }, configurationSnapshot: snapshot("Closed Customer") }
+        { id: openId, reference: "SV-OPEN", title: "Open site", status: "open", createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", serviceTime: "09:30", site: { id: "site-open", displayName: "Open site" }, configurationSnapshot: snapshot("Open Customer"), totalCount: 2 },
+        { id: closedId, reference: "SV-CLOSED", title: "Closed site", status: "closed", createdAt: "2026-08-19T06:15:00.000Z", serviceDate: "2026-08-19", serviceTime: "14:15", site: { id: "site-closed", displayName: "Closed site" }, configurationSnapshot: snapshot("Closed Customer"), totalCount: 2 }
       ] };
     }
     if (sql.includes("FROM inspection_jobs job")) {
@@ -145,7 +145,7 @@ class OperationalDatabase {
 
 test("manager operational list is server-classified, includes open and closed visits, and excludes samples in SQL", async () => {
   const database = new OperationalDatabase();
-  const { serviceVisits: visits, nextCursor } = await listManagerServiceVisits(database as never);
+  const { serviceVisits: visits, nextCursor, totalCount } = await listManagerServiceVisits(database as never);
   assert.deepEqual(visits.map((visit) => [visit.reference, visit.status]), [["SV-OPEN", "open"], ["SV-CLOSED", "closed"]]);
   assert.deepEqual(visits.map((visit) => visit.serviceTime), ["09:30", "14:15"]);
   assert.deepEqual(visits.map((visit) => visit.createdAt), ["2026-08-20T01:30:00.000Z", "2026-08-19T06:15:00.000Z"]);
@@ -153,6 +153,7 @@ test("manager operational list is server-classified, includes open and closed vi
   // No-params baseline: identical rows/shape to the pre-filtering behaviour, plus nextCursor: null
   // because the whole (2-row) set fits on one default (50) page.
   assert.equal(nextCursor, null);
+  assert.equal(totalCount, 2, "zero-param totalCount matches the fixture's full unfiltered operational-job count");
   const collectionQuery = database.queries.find((query) => query.includes("LEFT JOIN customer_sites")) ?? "";
   assert.match(collectionQuery, /inspection_jobs\.is_sample = false/);
   assert.match(collectionQuery, /master_template_version_id IS NOT NULL/);
@@ -216,6 +217,9 @@ test("buildOperationalListQuery parameterizes every filter and never string-inte
   assert.match(sql, /inspection_jobs\.service_date >= \$5::date/);
   assert.match(sql, /inspection_jobs\.service_date <= \$6::date/);
   assert.match(sql, /LIMIT \$7/);
+  assert.match(sql, /\(SELECT count\(\*\)::int AS "totalCount" FROM filtered\) summary/);
+  assert.match(sql, /LEFT JOIN \(/);
+  assert.match(sql, /\) paged ON true/);
   // No caller-controlled value ever appears inlined in the SQL text itself.
   for (const value of [customerId, siteId, "hose_reel", "2026-08-01", "2026-08-31"]) {
     assert.ok(!sql.includes(value), `${value} must be bound as a parameter, not interpolated`);
@@ -223,8 +227,18 @@ test("buildOperationalListQuery parameterizes every filter and never string-inte
 
   const cursored = buildOperationalListQuery({ cursor: { serviceDate: null, jobReference: "SV-1", id: siteId }, limit: 10 });
   assert.deepEqual(cursored.values, [null, "SV-1", siteId, 11]);
-  assert.match(cursored.sql, /\$1::date IS NULL AND inspection_jobs\.service_date IS NULL/);
-  assert.match(cursored.sql, /\(inspection_jobs\.job_reference, inspection_jobs\.id\) < \(\$2, \$3::uuid\)/);
+  assert.match(cursored.sql, /\$1::date IS NULL AND "serviceDate" IS NULL/);
+  assert.match(cursored.sql, /\(reference, id\) < \(\$2, \$3::uuid\)/);
+  // The `summary` derived table (totalCount) reads only the `filtered` CTE — never the cursor
+  // predicate — and is textually independent of (appears before) the cursor-scoped `paged`
+  // subquery, proving the count can neither drift from the filters nor be lost by an empty page.
+  const summaryIndex = cursored.sql.indexOf("FROM filtered) summary");
+  const pagedCursorIndex = cursored.sql.indexOf("(reference, id) <");
+  assert.ok(summaryIndex > 0 && pagedCursorIndex > summaryIndex,
+    "totalCount's summary subquery must appear before, and be independent of, the cursor-filtered paged subquery");
+  // The final LEFT JOIN preserves the summary row even when `paged` matches nothing (id NULL is
+  // the placeholder discriminator) — proven behaviorally in listManagerServiceVisits's tests.
+  assert.match(cursored.sql, /LEFT JOIN \(/);
 
   const zero = buildOperationalListQuery({});
   assert.deepEqual(zero.values, [51]);
@@ -290,7 +304,11 @@ class FilterableServiceVisitDatabase {
         const to = remaining.shift() as string;
         matched = matched.filter((row) => row.serviceDate !== null && row.serviceDate <= to);
       }
-      if (sql.includes("inspection_jobs.job_reference, inspection_jobs.id) <")) {
+      // Mirrors the real `summary` derived table: computed over every row matching the
+      // FILTER-ONLY where clause (never the cursor predicate), so it is identical on every page
+      // of the same filtered set — never "matches remaining after this cursor".
+      const totalCount = matched.length;
+      if (sql.includes("(reference, id) <")) {
         const serviceDate = remaining.shift() as string | null;
         const jobReference = remaining.shift() as string;
         const id = remaining.shift() as string;
@@ -304,7 +322,15 @@ class FilterableServiceVisitDatabase {
         });
       }
       const limit = remaining.shift() as number;
-      return { rows: matched.slice(0, limit) };
+      const page = matched.slice(0, limit);
+      // Mirrors the real `summary LEFT JOIN paged ON true`: `summary` (a plain `count(*)`, no
+      // GROUP BY) always returns exactly one row, so even an empty `paged` page still yields one
+      // row carrying totalCount with every other column NULL. `id` is the discriminator.
+      return {
+        rows: page.length > 0
+          ? page.map((row) => ({ ...row, totalCount }))
+          : [{ id: null, totalCount }]
+      };
     }
     if (sql.includes("FROM inspection_jobs job")) {
       const id = values?.[0];
@@ -328,8 +354,13 @@ test("each filter narrows the operational list correctly", async () => {
     cannedRow({ id: "j-c", reference: "SV-C", serviceDate: "2026-07-01", customerId: "cust-2", site: { id: "site-3", displayName: "Site 3" }, status: "open", configurationSnapshot: { schemaVersion: 1, customer: { displayName: "Customer 2" }, enabledSystems: [{ systemKey: "hose_reel", displayName: "Hose Reel" }] } })
   ];
   const database = new FilterableServiceVisitDatabase(rows);
-  const ids = async (filters: Parameters<typeof listManagerServiceVisits>[1]) =>
-    (await listManagerServiceVisits(database as never, filters)).serviceVisits.map((visit) => visit.id);
+  const ids = async (filters: Parameters<typeof listManagerServiceVisits>[1]) => {
+    const result = await listManagerServiceVisits(database as never, filters);
+    // Every filtered set here fits on one (default 50) page, so totalCount must equal the
+    // returned row count exactly — proving each filter narrows totalCount identically to rows.
+    assert.equal(result.totalCount, result.serviceVisits.length, `totalCount must match rows for ${JSON.stringify(filters)}`);
+    return result.serviceVisits.map((visit) => visit.id);
+  };
 
   assert.deepEqual(await ids({ customerId: "cust-1" }), ["j-a", "j-b"]);
   assert.deepEqual(await ids({ siteId: "site-3" }), ["j-c"]);
@@ -341,6 +372,59 @@ test("each filter narrows the operational list correctly", async () => {
   assert.deepEqual(await ids({ from: "2026-08-01", to: "2026-08-15" }), ["j-b"]);
   assert.deepEqual(await ids({ customerId: "11110000-0000-4000-8000-000000000099" }), [], "well-formed but unknown/foreign customerId is 200 []");
   assert.deepEqual(await ids({ siteId: "22220000-0000-4000-8000-000000000099" }), [], "well-formed but unknown/foreign siteId is 200 []");
+});
+
+test("totalCount is exact for 0, 1, and more-than-limit matches, and identical across every page of the same filtered set", async () => {
+  const empty = new FilterableServiceVisitDatabase([]);
+  const emptyResult = await listManagerServiceVisits(empty as never, { customerId: "cust-absent" });
+  assert.deepEqual(emptyResult.serviceVisits, []);
+  assert.equal(emptyResult.totalCount, 0, "totalCount is 0 when the filtered set itself has no matches");
+  assert.equal(emptyResult.nextCursor, null);
+
+  const solo = new FilterableServiceVisitDatabase([
+    cannedRow({ id: "solo", reference: "SV-SOLO", serviceDate: "2026-08-01", customerId: "cust-solo" })
+  ]);
+  const soloResult = await listManagerServiceVisits(solo as never, { customerId: "cust-solo" });
+  assert.equal(soloResult.serviceVisits.length, 1);
+  assert.equal(soloResult.totalCount, 1);
+
+  // FilterableServiceVisitDatabase does not sort — its fixture rows must already be supplied in
+  // production ORDER BY order (service_date DESC), same convention as the other fixtures above.
+  const manyRows = Array.from({ length: 5 }, (_, index) =>
+    cannedRow({ id: `many-${index}`, reference: `SV-MANY-${index}`, serviceDate: `2026-08-${14 - index}`, customerId: "cust-many" })
+  );
+  const many = new FilterableServiceVisitDatabase(manyRows);
+  const pageFilters = { customerId: "cust-many", limit: 2 };
+
+  const page1 = await listManagerServiceVisits(many as never, pageFilters);
+  assert.equal(page1.serviceVisits.length, 2, "page size is bounded by limit");
+  assert.equal(page1.totalCount, 5, "totalCount is the full match count, not the page size");
+  assert.ok(page1.nextCursor);
+
+  const page2 = await listManagerServiceVisits(many as never, { ...pageFilters, cursor: decodeForTest(page1.nextCursor!) });
+  assert.equal(page2.serviceVisits.length, 2);
+  assert.equal(page2.totalCount, 5, "totalCount is identical on every page of the same filtered set");
+  assert.ok(page2.nextCursor);
+
+  const page3 = await listManagerServiceVisits(many as never, { ...pageFilters, cursor: decodeForTest(page2.nextCursor!) });
+  assert.equal(page3.serviceVisits.length, 1, "final page carries the remainder");
+  assert.equal(page3.totalCount, 5, "totalCount is unaffected by cursor position");
+  assert.equal(page3.nextCursor, null);
+
+  // Regression: a valid cursor whose own tuple is the LAST row in the filtered set (nothing sorts
+  // "after" it) produces a genuinely empty page — reachable via a concurrent delete between two
+  // requests, or simply a cursor equal to (or past) the true end. totalCount must still reflect
+  // the full filtered set, not 0 — a prior implementation read totalCount off the (now absent)
+  // first page row and silently lost it whenever the cursor+limit slice itself had no rows.
+  const lastRow = manyRows[manyRows.length - 1]!;
+  const pastEnd = await listManagerServiceVisits(many as never, {
+    ...pageFilters,
+    limit: 10,
+    cursor: { serviceDate: lastRow.serviceDate, jobReference: lastRow.reference, id: lastRow.id }
+  });
+  assert.deepEqual(pastEnd.serviceVisits, [], "the page itself is genuinely empty");
+  assert.equal(pastEnd.totalCount, 5, "totalCount survives an empty page — it must not silently become 0");
+  assert.equal(pastEnd.nextCursor, null);
 });
 
 test("keyset cursor walk visits every row exactly once, in order, including a NULL-service_date boundary", async () => {
@@ -391,7 +475,11 @@ test("GET /manager/service-visits validates query params and returns stable 400 
     const badCursor = await get("?cursor=not-valid-base64url!!");
     assert.equal(badCursor.status, 400);
     assert.deepEqual(await badCursor.json(), { error: "INVALID_CURSOR" });
-    assert.equal((await get("")).status, 200, "zero params still succeeds");
+    const zeroParams = await get("");
+    assert.equal(zeroParams.status, 200, "zero params still succeeds");
+    const zeroBody = await zeroParams.json() as { serviceVisits: unknown[]; nextCursor: string | null; totalCount: number };
+    assert.deepEqual(Object.keys(zeroBody).sort(), ["nextCursor", "serviceVisits", "totalCount"], "zero-param response is exactly {serviceVisits, nextCursor, totalCount}");
+    assert.equal(zeroBody.totalCount, 2, "totalCount matches the fixture's full unfiltered operational-job count");
   } finally { await close(server); }
 });
 
@@ -413,14 +501,16 @@ test("GET /manager/service-visits nextCursor round-trips through the query strin
   try {
     const first = await get("?limit=1");
     assert.equal(first.status, 200);
-    const firstBody = await first.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null };
+    const firstBody = await first.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null; totalCount: number };
     assert.deepEqual(firstBody.serviceVisits.map((visit) => visit.id), [job1]);
     assert.ok(firstBody.nextCursor);
+    assert.equal(firstBody.totalCount, 2, "totalCount is the full match count, not the page size");
     const second = await get(`?limit=1&cursor=${encodeURIComponent(firstBody.nextCursor!)}`);
     assert.equal(second.status, 200);
-    const secondBody = await second.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null };
+    const secondBody = await second.json() as { serviceVisits: Array<{ id: string }>; nextCursor: string | null; totalCount: number };
     assert.deepEqual(secondBody.serviceVisits.map((visit) => visit.id), [job2]);
     assert.equal(secondBody.nextCursor, null);
+    assert.equal(secondBody.totalCount, 2, "totalCount is identical on the second page of the same filtered set");
   } finally { await close(server); }
 });
 

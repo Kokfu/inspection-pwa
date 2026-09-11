@@ -86,25 +86,31 @@ export type ManagerServiceHistoryFilters = {
   customerId: string;
   siteId?: string;
   status?: "open" | "closed";
+  systemKey?: string;
+  from?: string;
+  to?: string;
   cursor?: string;
   limit?: number;
 };
 
 /**
- * STEP 3.2 slice B: filtered, keyset-paginated service history for the Manager
+ * STEP 3.2 slice C: filtered, keyset-paginated service history for the Manager
  * customer-configuration screen. Reuses Slice A's `GET /manager/service-visits`
- * filters (`customerId`/`siteId`/`status`/`cursor`/`limit`); `systemKey`/`from`/`to`
- * are out of scope for this slice's UI. Absent fields are omitted from the query
- * string entirely — same conditional-inclusion style as `activateManagerCustomerConfiguration`.
+ * filters (`customerId`/`siteId`/`status`/`systemKey`/`from`/`to`/`cursor`/`limit`).
+ * Absent fields are omitted from the query string entirely — same conditional-inclusion
+ * style as `activateManagerCustomerConfiguration`.
  */
 export async function loadManagerServiceHistory(
   filters: ManagerServiceHistoryFilters,
   signal?: AbortSignal
-): Promise<{ serviceVisits: ManagerServiceVisit[]; nextCursor: string | null }> {
+): Promise<{ serviceVisits: ManagerServiceVisit[]; nextCursor: string | null; totalCount: number }> {
   const query = new URLSearchParams({
     customerId: filters.customerId,
     ...(filters.siteId ? { siteId: filters.siteId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.systemKey ? { systemKey: filters.systemKey } : {}),
+    ...(filters.from ? { from: filters.from } : {}),
+    ...(filters.to ? { to: filters.to } : {}),
     ...(filters.cursor ? { cursor: filters.cursor } : {}),
     ...(filters.limit !== undefined ? { limit: String(filters.limit) } : {})
   });
@@ -112,10 +118,15 @@ export async function loadManagerServiceHistory(
   try { response = await fetch(`/api/manager/service-visits?${query}`, { credentials: "same-origin", cache: "no-store", signal }); }
   catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
   const data = await readBody(response);
-  if (!Array.isArray(data.serviceVisits) || !(data.nextCursor === null || typeof data.nextCursor === "string")) {
+  if (!Array.isArray(data.serviceVisits) || !(data.nextCursor === null || typeof data.nextCursor === "string")
+    || typeof data.totalCount !== "number") {
     throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   }
-  return { serviceVisits: data.serviceVisits as ManagerServiceVisit[], nextCursor: data.nextCursor as string | null };
+  return {
+    serviceVisits: data.serviceVisits as ManagerServiceVisit[],
+    nextCursor: data.nextCursor as string | null,
+    totalCount: data.totalCount
+  };
 }
 
 /** Systems whose per-customer display labels a Manager may override. Mirrors the

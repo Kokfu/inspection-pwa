@@ -16,7 +16,19 @@ type OperationalJobRow = {
   serviceTime: string | null;
   site: { id: string; displayName: string } | null;
   configurationSnapshot: unknown;
+  totalCount: number;
 };
+
+/**
+ * The row shape `buildOperationalListQuery`'s SQL actually returns. `totalCount` is read off a
+ * `summary` derived table that always has exactly one row (a plain `count(*)` has no GROUP BY, so
+ * it never returns zero rows) LEFT JOINed onto the cursor+limit-scoped `paged` rows. When `paged`
+ * itself is empty — a valid cursor positioned at or past the end of an otherwise non-empty
+ * filtered set, which can legitimately happen (a concurrent delete, or simply the last page) —
+ * the LEFT JOIN still yields exactly one row: `totalCount` populated, every other column NULL.
+ * `id` is the discriminator for that placeholder row, since a real job's `id` is never null.
+ */
+type OperationalListRow = Omit<OperationalJobRow, "id"> & { id: string | null };
 
 export type ManagerServiceVisit = {
   id: string;
@@ -106,27 +118,33 @@ async function presentOperationalJob(
 export type ManagerServiceVisitList = {
   serviceVisits: ManagerServiceVisit[];
   nextCursor: string | null;
+  totalCount: number;
 };
 
 /**
  * Admin-only business view. Samples/regression fixtures are excluded in SQL. Filters are
  * optional and additive: zero filters produce the exact same rows, order, and shape as before
- * this slice, plus a `nextCursor` that is `null` whenever the whole set fits on one page.
+ * this slice, plus a `nextCursor` that is `null` whenever the whole set fits on one page, and a
+ * `totalCount` — the full count of rows matching the filters, independent of `cursor`/`limit`, so
+ * it can never drift from (and never be lost by) the list's own pagination. See
+ * `OperationalListRow` for why the placeholder (`id === null`) row must be filtered out first.
  */
 export async function listManagerServiceVisits(
   database: Pick<typeof pool, "query"> = pool,
   filters: ManagerServiceVisitFilters = {}
 ): Promise<ManagerServiceVisitList> {
   const { sql, values, limit } = buildOperationalListQuery(filters);
-  const result = await database.query<OperationalJobRow>(sql, values);
-  const hasMore = result.rows.length > limit;
-  const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+  const result = await database.query<OperationalListRow>(sql, values);
+  const totalCount = result.rows[0]?.totalCount ?? 0;
+  const pagedRows = result.rows.filter((row): row is OperationalListRow & { id: string } => row.id !== null);
+  const hasMore = pagedRows.length > limit;
+  const rows = hasMore ? pagedRows.slice(0, limit) : pagedRows;
   const serviceVisits = await Promise.all(rows.map((job) => presentOperationalJob(job, database)));
   const lastRow = rows[rows.length - 1];
   const nextCursor = hasMore && lastRow
     ? encodeServiceVisitCursor({ serviceDate: lastRow.serviceDate, jobReference: lastRow.reference, id: lastRow.id })
     : null;
-  return { serviceVisits, nextCursor };
+  return { serviceVisits, nextCursor, totalCount };
 }
 
 /** Returns undefined for any non-operational or unknown job, preventing ID probing. */
@@ -258,60 +276,79 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
 /**
  * Builds the parameterized SQL for the filtered, keyset-paginated operational list. Every
  * caller-controlled value is bound as its own `$n` parameter — never string-interpolated.
+ *
+ * `totalCount` must read the same value on every page of the same filtered set, INCLUDING a page
+ * whose cursor+limit slice is itself empty (the last page, or a cursor positioned past the end of
+ * an otherwise non-empty filtered set — both reachable in normal operation, not just adversarial
+ * input). A plain `COUNT(*) OVER()` on the paginated rows cannot satisfy this: if the cursor
+ * predicate filters out every row, there is no row left to carry the window value on.
+ *
+ * So `totalCount` is computed by a `summary` derived table — `count(*)` with no `GROUP BY`, which
+ * therefore always returns exactly one row, even over zero matches — LEFT JOINed onto the
+ * cursor+limit-scoped `paged` rows. Both `summary` and `paged` read the SAME `filtered` CTE (the
+ * filter-only WHERE, never the cursor), so the count can never drift from the list's own filters,
+ * and it is never lost just because a particular page happens to be empty. `paged.id` is `NULL`
+ * on the LEFT JOIN's placeholder row when `paged` is empty; `id` is never `NULL` for a real job,
+ * so it is the caller's discriminator (see `OperationalListRow`). Still exactly one round trip —
+ * one `SELECT`, with `filtered` referenced twice and materialized once.
  */
 export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
   const values: unknown[] = [];
-  const conditions: string[] = [operationalWhere];
+  const filterConditions: string[] = [operationalWhere];
 
   if (filters.customerId) {
     values.push(filters.customerId);
-    conditions.push(`inspection_jobs.customer_id = $${values.length}`);
+    filterConditions.push(`inspection_jobs.customer_id = $${values.length}`);
   }
   if (filters.siteId) {
     values.push(filters.siteId);
-    conditions.push(`inspection_jobs.site_id = $${values.length}`);
+    filterConditions.push(`inspection_jobs.site_id = $${values.length}`);
   }
   if (filters.status) {
     values.push(filters.status);
-    conditions.push(`inspection_jobs.status = $${values.length}`);
+    filterConditions.push(`inspection_jobs.status = $${values.length}`);
   }
   if (filters.systemKey) {
     values.push(filters.systemKey);
-    conditions.push(`EXISTS (
+    filterConditions.push(`EXISTS (
       SELECT 1 FROM jsonb_array_elements(inspection_jobs.configuration_snapshot -> 'enabledSystems') AS enabled_system
       WHERE enabled_system ->> 'systemKey' = $${values.length}
     )`);
   }
   if (filters.from) {
     values.push(filters.from);
-    conditions.push(`inspection_jobs.service_date >= $${values.length}::date`);
+    filterConditions.push(`inspection_jobs.service_date >= $${values.length}::date`);
   }
   if (filters.to) {
     values.push(filters.to);
-    conditions.push(`inspection_jobs.service_date <= $${values.length}::date`);
+    filterConditions.push(`inspection_jobs.service_date <= $${values.length}::date`);
   }
+
+  let cursorCondition = "";
   if (filters.cursor) {
     values.push(filters.cursor.serviceDate, filters.cursor.jobReference, filters.cursor.id);
     const serviceDateParam = values.length - 2;
     const jobReferenceParam = values.length - 1;
     const idParam = values.length;
-    // Mirrors ORDER BY service_date DESC NULLS LAST, job_reference DESC, id DESC: rows with a
-    // NULL service_date sort after every non-null date, so a non-null cursor's "after" set
+    // Mirrors ORDER BY "serviceDate" DESC NULLS LAST, reference DESC, id DESC: rows with a
+    // NULL service date sort after every non-null date, so a non-null cursor's "after" set
     // includes all NULL-date rows; a NULL cursor only tie-breaks among other NULL-date rows.
-    conditions.push(`(
+    // References the inner subquery's OUTPUT columns (unqualified / quoted aliases), since this
+    // predicate is applied in the outer query, over the already-projected rows.
+    cursorCondition = `(
       (
         $${serviceDateParam}::date IS NOT NULL AND (
-          (inspection_jobs.service_date IS NOT NULL AND inspection_jobs.service_date < $${serviceDateParam}::date)
-          OR (inspection_jobs.service_date = $${serviceDateParam}::date
-              AND (inspection_jobs.job_reference, inspection_jobs.id) < ($${jobReferenceParam}, $${idParam}::uuid))
-          OR inspection_jobs.service_date IS NULL
+          ("serviceDate" IS NOT NULL AND "serviceDate"::date < $${serviceDateParam}::date)
+          OR ("serviceDate"::date = $${serviceDateParam}::date
+              AND (reference, id) < ($${jobReferenceParam}, $${idParam}::uuid))
+          OR "serviceDate" IS NULL
         )
       )
       OR (
-        $${serviceDateParam}::date IS NULL AND inspection_jobs.service_date IS NULL
-        AND (inspection_jobs.job_reference, inspection_jobs.id) < ($${jobReferenceParam}, $${idParam}::uuid)
+        $${serviceDateParam}::date IS NULL AND "serviceDate" IS NULL
+        AND (reference, id) < ($${jobReferenceParam}, $${idParam}::uuid)
       )
-    )`);
+    )`;
   }
 
   const limit = filters.limit ?? defaultServiceVisitPageSize;
@@ -319,23 +356,32 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
   const limitParam = values.length;
 
   const sql = `
-    SELECT
-      inspection_jobs.id,
-      inspection_jobs.job_reference AS reference,
-      inspection_jobs.title,
-      inspection_jobs.status,
-      inspection_jobs.created_at AS "createdAt",
-      inspection_jobs.service_date::text AS "serviceDate",
-      to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
-      inspection_jobs.configuration_snapshot AS "configurationSnapshot",
-      CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
-        'id', site.id, 'displayName', site.display_name
-      ) END AS site
-    FROM inspection_jobs
-    LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY inspection_jobs.service_date DESC NULLS LAST, inspection_jobs.job_reference DESC, inspection_jobs.id DESC
-    LIMIT $${limitParam}
+    WITH filtered AS MATERIALIZED (
+      SELECT
+        inspection_jobs.id,
+        inspection_jobs.job_reference AS reference,
+        inspection_jobs.title,
+        inspection_jobs.status,
+        inspection_jobs.created_at AS "createdAt",
+        inspection_jobs.service_date::text AS "serviceDate",
+        to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
+        inspection_jobs.configuration_snapshot AS "configurationSnapshot",
+        CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'id', site.id, 'displayName', site.display_name
+        ) END AS site
+      FROM inspection_jobs
+      LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
+      WHERE ${filterConditions.join(" AND ")}
+    )
+    SELECT summary."totalCount", paged.*
+    FROM (SELECT count(*)::int AS "totalCount" FROM filtered) summary
+    LEFT JOIN (
+      SELECT * FROM filtered
+      ${cursorCondition ? `WHERE ${cursorCondition}` : ""}
+      ORDER BY "serviceDate" DESC NULLS LAST, reference DESC, id DESC
+      LIMIT $${limitParam}
+    ) paged ON true
+    ORDER BY paged."serviceDate" DESC NULLS LAST, paged.reference DESC NULLS LAST, paged.id DESC NULLS LAST
   `;
   return { sql, values, limit };
 }
@@ -388,8 +434,8 @@ export function createManagerServiceVisitsRouter({
       throw error;
     }
     response.setHeader("Cache-Control", "private, no-store");
-    const { serviceVisits, nextCursor } = await listManagerServiceVisits(database, filters);
-    response.json({ serviceVisits, nextCursor });
+    const { serviceVisits, nextCursor, totalCount } = await listManagerServiceVisits(database, filters);
+    response.json({ serviceVisits, nextCursor, totalCount });
   } catch (error) {
     next(error);
   }

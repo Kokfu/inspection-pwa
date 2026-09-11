@@ -5,10 +5,10 @@ import { formatMalaysiaDateTime } from "../uiPresentation";
 type StatusFilter = "" | "open" | "closed";
 
 /**
- * STEP 3.2 slice B: read-only service-history list on the customer configuration
- * screen. Always scoped to `customer` (Slice A's `customerId` filter); the "Site"
- * select narrows to one of `customer.sites` (All Sites default). `systemKey` /
- * `from` / `to` are supported server-side but out of scope for this slice's UI.
+ * STEP 3.2 slice C: read-only service-history list on the customer configuration
+ * screen. Always scoped to `customer` (Slice A's `customerId` filter); the "Site",
+ * "System", "From", and "To" filters narrow further, all server-validated (an
+ * invalid date range surfaces the server's own domain-error message inline).
  * Strictly read-only — no mutation call anywhere in this component.
  */
 export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onAuthorityFailure }: {
@@ -20,8 +20,12 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
 }) {
   const [siteId, setSiteId] = useState("");
   const [status, setStatus] = useState<StatusFilter>("");
+  const [systemKey, setSystemKey] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [visits, setVisits] = useState<ManagerServiceVisit[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
@@ -34,11 +38,15 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
         const result = await loadManagerServiceHistory({
           customerId: customer.customer.id,
           ...(siteId ? { siteId } : {}),
-          ...(status ? { status } : {})
+          ...(status ? { status } : {}),
+          ...(systemKey ? { systemKey } : {}),
+          ...(from ? { from } : {}),
+          ...(to ? { to } : {})
         });
         if (!current) return;
         setVisits(result.serviceVisits);
         setNextCursor(result.nextCursor);
+        setTotalCount(result.totalCount);
       } catch (reason) {
         if (!current) return;
         if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -49,7 +57,7 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
     })();
     return () => { current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer.customer.id, siteId, status]);
+  }, [customer.customer.id, siteId, status, systemKey, from, to]);
 
   const loadMore = async () => {
     if (!nextCursor) return;
@@ -59,10 +67,14 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
         customerId: customer.customer.id,
         ...(siteId ? { siteId } : {}),
         ...(status ? { status } : {}),
+        ...(systemKey ? { systemKey } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
         cursor: nextCursor
       });
       setVisits((current) => [...current, ...result.serviceVisits]);
       setNextCursor(result.nextCursor);
+      setTotalCount(result.totalCount);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "Service history could not be loaded.");
@@ -100,7 +112,10 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
   );
 
   return <section className="report-summary" aria-labelledby="manager-service-history-title">
-    <h3 id="manager-service-history-title">Service history</h3>
+    <div className="list-heading">
+      <h3 id="manager-service-history-title">Service history</h3>
+      {visits.length > 0 || loading ? <span>{visits.length} of {totalCount} visits</span> : null}
+    </div>
     <div className="inline-actions">
       <label>Site
         <select aria-label="Site" value={siteId} onChange={(event) => setSiteId(event.target.value)}>
@@ -114,6 +129,18 @@ export function ManagerCustomerServiceHistory({ customer, onViewServiceVisit, on
           <option value="open">Open</option>
           <option value="closed">Closed</option>
         </select>
+      </label>
+      <label>System
+        <select aria-label="System" value={systemKey} onChange={(event) => setSystemKey(event.target.value)}>
+          <option value="">All systems</option>
+          {customer.supportedSystems.map((system) => <option key={system.key} value={system.key}>{system.displayName}</option>)}
+        </select>
+      </label>
+      <label>From
+        <input aria-label="From" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+      </label>
+      <label>To
+        <input aria-label="To" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
       </label>
     </div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}

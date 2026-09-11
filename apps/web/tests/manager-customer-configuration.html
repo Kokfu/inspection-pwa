@@ -88,12 +88,12 @@ window.fetch = async (input, init) => {
       overrides: { "checklist.a.b": "Renamed Field" }
     });
   }
-  // STEP 3.2 slice B: ManagerCustomerConfigurationDetail now always renders a
+  // STEP 3.2 slice C: ManagerCustomerConfigurationDetail now always renders a
   // service-history section that fetches on mount. This harness's checks are
   // about the per-service editors above it, so give that fetch a valid (empty)
   // shape rather than falling into the generic `{}` stub below, which is not a
   // valid ManagerServiceHistory response and would trip onAuthorityFailure.
-  if (url.includes("/api/manager/service-visits")) return json({ serviceVisits: [], nextCursor: null });
+  if (url.includes("/api/manager/service-visits")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
   if (url.includes("/api/manager/")) return json({});
   return realFetch(input, init);
 };

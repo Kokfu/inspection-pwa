@@ -9,17 +9,21 @@ import "/src/styles/app.css";
 import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
 
 /**
- * DoD (STEP 3.2 slice B): a read-only "Service history" section on the customer
- * configuration screen, always scoped to `customerId`, with a "Site" select
- * (All Sites default, built from `customer.sites`) and a Status select (All /
- * Open / Closed). Changing either filter resets the list and cursor and
- * refetches from scratch. Rows reuse ManagerHome's visitCard semantics (status
- * badge, formatted created time, inspection progress, reference) but lead with
- * `visit.site` instead of a redundant "Customer" line. Closed rows show
- * "View Final Report" + "Download PDF"; open rows show only "View Progress".
- * "Load more" appends (never replaces) and disappears once `nextCursor` is
- * `null`. A 403-shaped response trips `onAuthorityFailure`, never a domain
- * error message. Strictly read-only — no mutation call anywhere.
+ * DoD (STEP 3.2 slice C): a read-only "Service history" section on the customer
+ * configuration screen, always scoped to `customerId`, with "Site", "Status",
+ * "System", "From", and "To" filters (All Sites / All / All systems defaults).
+ * Changing any filter resets the list and cursor and refetches from scratch,
+ * and `loadMore` carries the same active filters as page 1. Rows reuse
+ * ManagerHome's visitCard semantics (status badge, formatted created time,
+ * inspection progress, reference) but lead with `visit.site` instead of a
+ * redundant "Customer" line. Closed rows show "View Final Report" +
+ * "Download PDF"; open rows show only "View Progress". "Load more" appends
+ * (never replaces) and disappears once `nextCursor` is `null`. A 403-shaped
+ * response trips `onAuthorityFailure`, never a domain error message. An
+ * INVALID_DATE_RANGE 400 surfaces inline via the existing domain-error path.
+ * A "{visits.length} of {totalCount} visits" chip renders next to the heading
+ * except on the empty state, and updates on Load More and on any filter
+ * change. Strictly read-only — no mutation call anywhere.
  */
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const customerId = id(900);
@@ -37,7 +41,10 @@ const customer = {
     { id: site4, code: "S4", displayName: "Site Four (empty)" }
   ],
   configuration: { id: id(905), revision: 1, enabledSystems: [] },
-  supportedSystems: []
+  supportedSystems: [
+    { key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, assignable: true },
+    { key: "automatic_sprinkler", displayName: "Automatic Sprinkler", sortOrder: 2, assignable: true }
+  ]
 };
 
 const baseVisit = (n, overrides) => ({
@@ -54,6 +61,8 @@ const visitClosed2 = baseVisit(912, { status: "closed", inspectionProgress: { ac
 const visitSite2 = baseVisit(913, { site: "Site Two" });
 const visitOpenOnly = baseVisit(914, { status: "open" });
 const visitClosedOnly = baseVisit(915, { status: "closed", inspectionProgress: { accepted: 4, required: 4 } });
+const visitSystemFiltered = baseVisit(916, { systems: ["Automatic Sprinkler System"] });
+const visitDateFiltered = baseVisit(917, { serviceDate: "2026-08-15" });
 
 const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 
@@ -67,12 +76,15 @@ window.fetch = async (input, init) => {
   capturedQueries.push(params.toString());
   await new Promise((resolve) => setTimeout(resolve, 10));
   if (params.get("siteId") === site3) return json({ error: "FORBIDDEN" }, 403);
-  if (params.get("siteId") === site4) return json({ serviceVisits: [], nextCursor: null });
-  if (params.get("cursor") === "cursor-page2") return json({ serviceVisits: [visitClosed2], nextCursor: null });
-  if (params.get("siteId") === site2) return json({ serviceVisits: [visitSite2], nextCursor: null });
-  if (params.get("status") === "open") return json({ serviceVisits: [visitOpenOnly], nextCursor: null });
-  if (params.get("status") === "closed") return json({ serviceVisits: [visitClosedOnly], nextCursor: null });
-  return json({ serviceVisits: [visitOpen1, visitClosed1], nextCursor: "cursor-page2" });
+  if (params.get("siteId") === site4) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
+  if (params.get("cursor") === "cursor-page2") return json({ serviceVisits: [visitClosed2], nextCursor: null, totalCount: 3 });
+  if (params.get("siteId") === site2) return json({ serviceVisits: [visitSite2], nextCursor: null, totalCount: 1 });
+  if (params.get("status") === "open") return json({ serviceVisits: [visitOpenOnly], nextCursor: null, totalCount: 1 });
+  if (params.get("status") === "closed") return json({ serviceVisits: [visitClosedOnly], nextCursor: null, totalCount: 1 });
+  if (params.get("systemKey") === "automatic_sprinkler") return json({ serviceVisits: [visitSystemFiltered], nextCursor: null, totalCount: 1 });
+  if (params.get("from") === "2026-08-20" && params.get("to") === "2026-08-01") return json({ error: "INVALID_DATE_RANGE" }, 400);
+  if (params.get("from") === "2026-08-01" && params.get("to") === "2026-08-31") return json({ serviceVisits: [visitDateFiltered], nextCursor: null, totalCount: 1 });
+  return json({ serviceVisits: [visitOpen1, visitClosed1], nextCursor: "cursor-page2", totalCount: 3 });
 };
 
 const view = document.querySelector("#view");
@@ -85,7 +97,13 @@ const historySection = () => view.querySelector("#manager-service-history-title"
 const rows = () => [...(historySection()?.querySelectorAll(".job-card-list > li") ?? [])];
 const siteSelect = () => historySection().querySelector('select[aria-label="Site"]');
 const statusSelect = () => historySection().querySelector('select[aria-label="Status"]');
+const systemSelect = () => historySection().querySelector('select[aria-label="System"]');
+const fromInput = () => historySection().querySelector('input[aria-label="From"]');
+const toInput = () => historySection().querySelector('input[aria-label="To"]');
+const chip = () => historySection().querySelector(".list-heading span");
 const loadMoreButton = () => [...historySection().querySelectorAll("button")].find((b) => b.textContent.includes("Load more"));
+const nativeInputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+const setInput = (element, value) => { nativeInputValueSetter.call(element, value); element.dispatchEvent(new Event("input", { bubbles: true })); };
 
 document.querySelector("#run").onclick = async () => {
   const checks = [];
@@ -113,6 +131,10 @@ document.querySelector("#run").onclick = async () => {
     ok("initial request has no siteId (All sites default)", !capturedQueries[0].includes("siteId="));
     ok("initial request has no status (All default)", !capturedQueries[0].includes("status="));
     ok("initial request has no cursor", !capturedQueries[0].includes("cursor="));
+    ok("initial request has no systemKey (All systems default)", !capturedQueries[0].includes("systemKey="));
+    ok("initial request has no from/to (unset by default)", !capturedQueries[0].includes("from=") && !capturedQueries[0].includes("to="));
+    ok("System select offers the customer's full supported-system catalog", [...systemSelect().options].map((o) => o.textContent).join("|") === "All systems|Hose Reel|Automatic Sprinkler");
+    ok("visits chip shows X of Y visits after initial load", chip()?.textContent === "2 of 3 visits");
 
     // 2. Row semantics: open row shows only View Progress; closed row shows both report buttons.
     const openRow = rows().find((row) => row.textContent.includes("SV-910"));
@@ -139,6 +161,7 @@ document.querySelector("#run").onclick = async () => {
     await wait(() => rows().length === 3, "Load more appended a third row");
     ok("Load more appended (original rows still present)", rows().some((r) => r.textContent.includes("SV-910")) && rows().some((r) => r.textContent.includes("SV-911")));
     ok("Load more request carried the cursor", capturedQueries.some((q) => q.includes("cursor=cursor-page2")));
+    ok("visits chip updates after Load More", chip()?.textContent === "3 of 3 visits");
     await wait(() => !loadMoreButton(), "Load more disappears once nextCursor is null");
     ok("Load more is gone once nextCursor is null", !loadMoreButton());
 
@@ -153,6 +176,7 @@ document.querySelector("#run").onclick = async () => {
     ok("site filter request carries customerId", siteQuery.includes(`customerId=${customerId}`));
     ok("site filter reset the cursor (no cursor on the new request)", !siteQuery.includes("cursor="));
     ok("site filter reset removed the previously loaded rows (replace, not append)", rows().length === 1);
+    ok("visits chip updates after a filter change", chip()?.textContent === "1 of 1 visits");
 
     // 5. Status filter, independently of the site filter.
     siteSelect().value = "";
@@ -174,6 +198,37 @@ document.querySelector("#run").onclick = async () => {
     statusSelect().dispatchEvent(new Event("change", { bubbles: true }));
     await wait(() => rows().length === 2, "status reset back to All");
 
+    // 5b. System filter narrows the fetched query string and resets the list.
+    systemSelect().value = "automatic_sprinkler";
+    systemSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 1 && rows()[0].textContent.includes("SV-916"), "system filter applied");
+    ok("system filter request carries systemKey=", capturedQueries[capturedQueries.length - 1].includes("systemKey=automatic_sprinkler"));
+
+    systemSelect().value = "";
+    systemSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await wait(() => rows().length === 2, "system reset back to All systems");
+
+    // 5c. From/To filters narrow the fetched query string and resets the list.
+    setInput(fromInput(), "2026-08-01");
+    setInput(toInput(), "2026-08-31");
+    await wait(() => rows().length === 1 && rows()[0].textContent.includes("SV-917"), "from/to filter applied");
+    const dateQuery = capturedQueries[capturedQueries.length - 1];
+    ok("date filter request carries from=", dateQuery.includes("from=2026-08-01"));
+    ok("date filter request carries to=", dateQuery.includes("to=2026-08-31"));
+
+    // 5d. An invalid range (from after to) surfaces the server's own message inline, via the
+    // existing domain-error path — never onAuthorityFailure.
+    const authorityFailuresBeforeRange = authorityFailures;
+    setInput(fromInput(), "2026-08-20");
+    setInput(toInput(), "2026-08-01");
+    await wait(() => historySection().querySelector(".form-message"), "invalid date range surfaces inline");
+    ok("invalid date range surfaces the server message inline", historySection().querySelector(".form-message").textContent === "INVALID_DATE_RANGE");
+    ok("invalid date range does not trip onAuthorityFailure", authorityFailures === authorityFailuresBeforeRange);
+
+    setInput(fromInput(), "");
+    setInput(toInput(), "");
+    await wait(() => rows().length === 2, "from/to reset back to unset");
+
     // 6. A 403-shaped response trips onAuthorityFailure, never a domain-error message.
     const authorityFailuresBefore = authorityFailures;
     siteSelect().value = site3;
@@ -188,6 +243,7 @@ document.querySelector("#run").onclick = async () => {
     await wait(() => historySection().textContent.includes("No service history for the selected filter."), "empty state shown");
     ok("empty state shown for a filter with zero matches", historySection().textContent.includes("No service history for the selected filter."));
     ok("empty state clears previously rendered rows", rows().length === 0);
+    ok("visits chip absent on the empty state", !chip());
 
     // 8. No crash text.
     ok("no crash text", !/TypeError|Cannot read/.test(view.textContent));

@@ -3,6 +3,100 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice C (systemKey/from/to filters + a
+"X of Y visits" total-count chip on the Manager service-history view) — uncommitted working tree,
+owner does git.** STEP 3.2 is now fully closed: Slice A's `systemKey`/`from`/`to` filters (server-
+validated since slice A but left out of the UI by slice B) are now wired into
+`ManagerCustomerServiceHistory`, and every page of a filtered list now reports its true total
+match count without a second query.
+
+**What ships (STEP 3.2 slice C):**
+`apps/api/src/routes/managerServiceVisits.ts` (+ its unit test and
+`managerServiceHistory.integration.test.ts`), `apps/web/src/manager/managerApi.ts`,
+`apps/web/src/manager/ManagerCustomerServiceHistory.tsx`, and
+`apps/web/tests/manager-customer-service-history.{html,spec.ts}`. Two pre-existing test harnesses
+also needed a one-line mock fix (see below) since `totalCount` is now a required field of the
+`GET /manager/service-visits` response shape-guard.
+* **`totalCount` on `GET /manager/service-visits`, no second query.** `buildOperationalListQuery`
+  computes `totalCount` from a `summary` derived table (`count(*)` with no `GROUP BY`, so it
+  always returns exactly one row) LEFT JOINed onto the cursor+limit-scoped `paged` rows; both
+  `summary` and `paged` read the same `filtered` CTE (materialized once, scoped only to
+  `customerId`/`siteId`/`status`/`systemKey`/`from`/`to` — never the cursor), so the count can
+  never drift from the list's own filters. `listManagerServiceVisits` reads `totalCount` off
+  `result.rows[0]`, and filters out the LEFT JOIN's placeholder row (`paged.id IS NULL`, since a
+  real job's `id` is never null) before presenting the page. **Sol P1 fix:** the first cut used a
+  plain `COUNT(*) OVER()` scoped to a filter-only inner subquery with the cursor applied as an
+  outer `WHERE` — correct for "same value on every page", but wrong the moment a valid
+  cursor+limit page is itself empty (the true last page, or a cursor at/past the end of an
+  otherwise non-empty filtered set — both reachable, not just adversarial): with no row left to
+  carry the window value, `totalCount` silently read back as `0`. The `summary LEFT JOIN paged`
+  structure fixes this — `summary` always has a row, so `totalCount` survives an empty page.
+  Regression proven both in-memory (`managerServiceVisits.test.ts`) and against real PostgreSQL
+  (`managerServiceHistory.integration.test.ts`, cursor set to the true last row's own tuple).
+  `ManagerServiceVisitList` / the route body gain the sibling key `totalCount: number`; zero query
+  params still returns byte-identical `serviceVisits`/`nextCursor` to before this slice, plus this
+  one field.
+* **`systemKey`/`from`/`to` wired into `ManagerCustomerServiceHistory`.** A "System" `<select>`
+  built from `customer.supportedSystems` (the full catalog, not just `enabledSystems` — history
+  can include a system the customer no longer has assigned), and `<input type="date">` "From"/"To"
+  controls. No client-side range validation — an invalid range (`from > to`) surfaces the server's
+  `INVALID_DATE_RANGE` inline through the existing domain-error `setError` path, same as every
+  other filter here. All five filters (site/status/systemKey/from/to) are in the load effect's
+  dependency array and are threaded through `loadMore`, so page 2+ carries the same active filters
+  as page 1.
+* **"X of Y visits" chip.** Lives in a `.list-heading` div next to the "Service history" heading
+  (the same heading+count convention `TechnicianHome`/`ManagerHome` already use — reused, no new
+  CSS). Hidden only on the exact empty state (`visits.length === 0 && !loading`); otherwise tracks
+  `visits.length`/`totalCount` and updates on every Load More and filter change. Deliberately NOT
+  given the row-status-badge classes (`status-badge status-badge--draft` is already the "In
+  Progress" row badge; reusing it for the chip would make the two indistinguishable to a test —
+  and to a reader).
+* **Test-harness fallout, fixed.** `loadManagerServiceHistory`'s shape-guard now requires
+  `totalCount: number`; any pre-existing mock of `GET /manager/service-visits` returning a body
+  without it now fails closed (`ManagerApiError "unavailable"` → `onAuthorityFailure`). Two
+  harnesses mount `ManagerCustomerConfigurationDetail` (which always renders the service-history
+  section) with such mocks: `apps/web/tests/manager-customer-configuration.html` (one case) and
+  `apps/web/tests/manager-app-auth-transitions.html` (~10 scenario-local mocks) — both patched to
+  add `totalCount` to every `serviceVisits` response. Verified this changes no scenario's
+  assertions or call-counting semantics.
+* **Tests.** `managerServiceVisits.test.ts`: `totalCount` exact for 0/1/more-than-limit matches
+  and identical across every page of a filtered set (proving the `summary`/`paged` split, not just
+  the column's presence); **a dedicated empty-page regression** (cursor equal to the true last
+  row's own tuple — nothing sorts after it — yields `serviceVisits: []` with `totalCount` still the
+  full match count, not `0`); zero-param response is exactly `{serviceVisits, nextCursor,
+  totalCount}`; every existing per-filter assertion extended to also check `totalCount ===
+  serviceVisits.length` (whole set fits on one page). `managerServiceHistory.integration.test.ts`:
+  seeds 4 matching rows against `limit=2`, asserts `totalCount === 4` while `serviceVisits.length
+  === 2` on both pages, **the same empty-page regression against real PostgreSQL** (cursor at the
+  true end of the 4-row set → `[]` + `totalCount: 4`), and re-confirms the `customer_id`/`site_id`
+  `EXPLAIN` index-scan assertions still hold (`CTE filtered` materialized once — `Bitmap Index Scan`
+  on `idx_inspection_jobs_customer_id`/`idx_inspection_jobs_site_id`, no `Seq Scan` — then scanned
+  twice: once by the `Aggregate` for `summary`, once by the `Limit`/`Sort` for `paged`, joined by a
+  `Nested Loop Left Join`).
+  `manager-customer-service-history.{html,spec.ts}`: System/From/To narrow the query string,
+  invalid range surfaces `INVALID_DATE_RANGE` inline (never `onAuthorityFailure`), the chip renders
+  and updates after Load More and after a filter change, and is absent on the empty state. Gates
+  green: api typecheck + build; `managerServiceVisits.test.ts` (13); `managerServiceHistory.
+  integration.test.ts` (1, cold `phase6_seed_integration`); `historical-matrix` (20) /
+  `v6-evidence` (9) / `wet-chemical-definition` (2) / `v7EvidenceContracts` + `env` (11) /
+  `v6-integration` (1) / the full V7 integration set — `co2V7`/`wetChemicalV7`/`fireAlarmV7`/
+  `v7EvidenceRace` (9, cold) — all unaffected; web typecheck + build (CSS hash unchanged, zero new
+  class names); `manager-customer-configuration` / `manager-customer-service-history` /
+  `manager-locations` / `manager-evidence-policy` / `manager-system-configuration` /
+  `manager-label-overrides` / `manager-final-report-navigation` / `manager-app-auth-transitions`
+  Playwright specs (8, all green, 0 skips); `test:v7-stale-evidence`; `final-ui-acceptance.test.tsx`
+  (16). DO-NOT-MODIFY list byte-identical to `e30c649`.
+* **Sol round-2 P1 (test-only, no behavior change).** The empty-page regression added in
+  `managerServiceHistory.integration.test.ts` read `lastVisit.serviceDate`/`.reference` off a
+  locally-typed response shape that only declared `{ id: string }`, so `npm run typecheck`/`build`
+  failed TS2339. Fixed by widening that test-local type to the three fields the cursor actually
+  needs. Also cleaned up a few comments in both test files that still described the rejected
+  `COUNT(*) OVER()` approach instead of the shipped `summary`/`paged` split (Sol P2). Re-verified:
+  api typecheck + build green; `managerServiceVisits.test.ts` (13) and
+  `managerServiceHistory.integration.test.ts` (1, cold, EXPLAIN unchanged) both still green.
+
+<details><summary>Previous — 2026-09-11 STEP 3.2 slice B (read-only Manager service-history view on the customer configuration screen)</summary>
+
 **Last updated:** 2026-09-11 — **Phase 8H STEP 3.2 slice B (read-only Manager service-history
 view on the customer configuration screen) — uncommitted working tree, owner does git.** Web-only,
 additive. NO backend/API file touched — `git diff --stat e30c649 -- apps/api` proves Slice A's
@@ -74,6 +168,8 @@ fixes in two pre-existing harnesses, `apps/web/tests/manager-customer-configurat
   `test:v7-stale-evidence`; `final-ui-acceptance.test.tsx` (16). `git diff --stat e30c649 --
   apps/api` confirms nothing under `apps/api` changed. DO-NOT-MODIFY list byte-identical to
   `e30c649`.
+
+</details>
 
 <details><summary>Previous — 2026-09-11 STEP 3.2 slice A (read-only Manager service-history filtering + pagination on the existing <code>GET /manager/service-visits</code>)</summary>
 
