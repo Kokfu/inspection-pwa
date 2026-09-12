@@ -3,6 +3,70 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-12 — **Security-checklist cleanup pass (closes the two loose ends the
+2026-09-12 checklist run flagged) — uncommitted working tree, owner does git.** Removed the dead
+`authRequired`/`allowPhase2UnauthenticatedSync` fields from `apps/api/src/config/env.ts` (zero
+other references anywhere in `apps/api/src`, confirmed by grep before touching anything — real
+enforcement is 100% per-route `requireRole`/`requireAuthenticated`) and the now-pointless
+`AUTH_REQUIRED`/`ALLOW_PHASE2_UNAUTHENTICATED_SYNC` entries from `docker-compose.yml`'s api
+service (`AUTH_REQUIRED` never existed in `.env.example`; only its
+`ALLOW_PHASE2_UNAUTHENTICATED_SYNC` placeholder + misleading comment came out of that file).
+Rewrote `apps/api/src/audit/README.md` to describe what audit logging actually
+covers (login/logout in `routes/auth.ts`, sync writes in `routes/sync.ts`, every manager
+configuration write transaction-scoped in `routes/managerCustomers.ts:497-1026`) instead of
+describing it as a future requirement; backup/restore stays correctly un-audited since those
+PowerShell scripts run on the host and are never exposed via an API route. Also flipped STEP 3.1
+and STEP 3.2 below from `[~]` to `[x]` — every one of their own sub-bullets was already `[x]`, the
+top-level marker was just stale. No runtime behavior changed; Postgres/uploads untouched.
+
+**Last updated:** 2026-09-12 — **STEP 4.1 security-checklist pass (real point-by-point run of
+`backend-api-security`'s Public Deployment Gate) — one real dependency CVE found and fixed,
+`apps/api/package.json`/`package-lock.json` uncommitted, owner does git.** Full results in
+`docs/architecture/04-security-and-access.md`'s "Security Checklist Results (2026-09-12)"
+section. Every route file was read directly (not sampled) to confirm auth/authz coverage, and
+live requests were made against the running Caddy-fronted stack.
+* **9 of 12 gate items are real PASSes**, each with live evidence or direct code citation: every
+  protected route carries explicit `requireRole`/`requireAuthenticated` (confirmed unauthenticated
+  `401` on `/inspection-jobs`, `/sync`, `/manager/customers` live through Caddy); no CORS headers
+  are ever set anywhere in the codebase (confirmed live — a cross-origin `Origin` header gets zero
+  `Access-Control-*` response headers, so the browser's own same-origin policy is what actually
+  blocks it, not a configurable allow-list); Postgres still not public (re-confirmed); destructive
+  writes are role-gated and roll back to zero rows on rejection
+  (`managerCustomers.integration.test.ts`, re-run, PASS); audit logging covers login/logout/sync
+  writes/every manager configuration write, transaction-scoped so the audit row commits or rolls
+  back atomically with the change (`routes/managerCustomers.ts:497-1026`); the health check leaks
+  nothing; no hardcoded/default credentials exist anywhere in source (`createAdmin.ts` requires
+  explicit env vars + a 12-char minimum, no default seeded admin); secrets stay outside Git
+  (re-confirmed `.env` untracked, `.env.example` placeholder-only, no sensitive-data logging
+  anywhere).
+* **2 items are honestly PARTIAL, not silently passed.** HTTPS: the interim Cloudflare tunnel is
+  proven end-to-end, but real production HTTPS still needs the client's domain/static
+  IP/router — same gap STEP 4.1's checklist line already names, not new. Dependency
+  vulnerabilities: found and fixed one real HIGH-severity issue (see below); one moderate issue
+  remains, genuinely blocked upstream, documented rather than force-fixed.
+* **Real fix — `sharp` HIGH-severity CVE in the untrusted-image-upload path.** `npm audit` on
+  `apps/api` found `sharp <0.35.4` (libheif CVEs) sitting directly in
+  `attachments/attachmentStorage.ts`'s `normalizeAttachmentImage`, which real-decodes every
+  uploaded inspection photo. Fixed: bumped to `0.35.4`, already inside the declared `^0.35.3`
+  range (a lockfile-only change — no `package.json` version-range edit needed beyond the bump
+  itself). Re-ran `test:v6-evidence` (9/9 PASS, attachment-storage tests included) to confirm no
+  regression. Left as a documented, deferred risk: `qs`/`body-parser`/`express` (moderate,
+  DoS-class) — the fix requires a `qs` version outside what `express@4.22.2` allows, and the only
+  real path is an Express 5 migration, out of scope for a checklist pass. `apps/web`'s flagged
+  packages (`postcss`/`nanoid`/`fast-uri`) were traced with `npm ls` to `vite`/`vite-plugin-pwa`
+  only — both `devDependencies`, never shipped in the built bundle, not a real exposure.
+* **One structural finding, not a vulnerability.** `config/env.ts` computes
+  `authRequired`/`allowPhase2UnauthenticatedSync` from env vars, but grepping the whole
+  `apps/api/src` tree shows neither is ever read anywhere else — dead config. Not exploitable
+  (real enforcement is 100% per-route middleware, confirmed above), but `.env.example`'s comment
+  on `ALLOW_PHASE2_UNAUTHENTICATED_SYNC` reads as if it's a live, environment-gated bypass when
+  it does nothing in any environment — worth wiring up or removing so it doesn't look like a real
+  control that isn't one. `audit/README.md` is also stale (describes audit logging as a "future"
+  requirement when it's substantially already built).
+* **Runtime untouched.** All testing used a disposable Postgres (`phase6_seed_integration` on
+  `127.0.0.1:55432`, torn down after) — never the runtime `inspection_pwa-postgres-1`. No app code
+  was changed beyond the one dependency bump.
+
 **Last updated:** 2026-09-12 — **STEP 4.2 close-out, after two Sol review rounds — six real
 script defects found and fixed, plus a runbook validation pass corrected twice — commit `a36db33`
 covers round 1, round 2 fixes are uncommitted, owner does git.** This closed out with real back-
@@ -1922,7 +1986,7 @@ field, add integration coverage, re-verify, Sol pass.
       on the deployed image since rebuild #2.
 
 ### STEP 3 — Manager administration  (Phase 8H)
-- [~] 3.1 Manager UI for per-customer `customer_enabled_systems` configuration.
+- [x] 3.1 Manager UI for per-customer `customer_enabled_systems` configuration.
       - [x] slice 1 — `system_configuration` vertical (backend API + Manager web UI) for
         `dry_wet_riser` (`riserMode`), via the slice 1a-i `label_overrides` mechanism. Fresh
         `dry_wet_riser` customers can now be stood up through the UI. No migration.
@@ -1950,7 +2014,7 @@ field, add integration coverage, re-verify, Sol pass.
         locations" `set` test widened to `zones.length > 0 || locations.length > 0` to match
         `enabledSystemHasSavedSettings`, so a lone zone with no locations no longer reads "not
         set" on the chip while the untick-drops-config warning fires for it. Web-only.
-- [~] 3.2 Manager review of completed reports / service history (partly exists).
+- [x] 3.2 Manager review of completed reports / service history (partly exists).
       - [x] slice A — read-only filtering/pagination on the existing `GET /manager/service-visits`
         (`customerId`, `siteId`, `status`, `systemKey`, `from`/`to`, keyset `cursor`/`limit`),
         both per-customer and per-site scope. No migration, no new table, no write path.
@@ -1961,7 +2025,17 @@ field, add integration coverage, re-verify, Sol pass.
         this slice.
 
 ### STEP 4 — Production / real-device readiness  (Phase 9)
-- [ ] 4.1 HTTPS on LAN/phone with a trusted cert; production credentials; security checklist.
+- [~] 4.1 HTTPS on LAN/phone with a trusted cert; production credentials; security checklist.
+      - [x] trusted-cert LAN/phone testing — interim Cloudflare tunnel (`Start-DevTunnel.ps1`),
+        verified end-to-end including a real login through it. Not the production path.
+      - [x] security checklist — real point-by-point pass of `backend-api-security`'s Public
+        Deployment Gate, see `docs/architecture/04-security-and-access.md`'s "Security Checklist
+        Results (2026-09-12)" section (9/12 real PASS; 1 real HIGH-severity dependency CVE found
+        and fixed; 2 honestly marked PARTIAL — HTTPS blocked on client infrastructure, one
+        moderate dependency issue blocked upstream by Express 4.x).
+      - [ ] real production HTTPS (client domain + static public IP + router forwarding) and
+        production credentials — both blocked on the client's actual infrastructure, which
+        doesn't exist yet. Nothing to build until that's provisioned.
 - [~] 4.2 Backup + restore drill; on-prem Windows deployment runbook validation.
       - [x] real backup manifests/checksums, real restore scripts (DB + uploads), one live
         end-to-end drill proven against the runtime DB and uploads folder without touching either.

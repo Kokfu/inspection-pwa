@@ -129,10 +129,14 @@ function Get-CanonicalComparisonPath {
 
 $normalizedDestination = Get-CanonicalComparisonPath $DestinationPath
 $normalizedLive = Get-CanonicalComparisonPath $LiveUploadsPath
-$destinationMatchesLive = $normalizedDestination -eq $normalizedLive
+# Equality alone is not enough: a destination like "$LiveUploadsPath\inspections" is a
+# subdirectory INSIDE the live bind mount, not equal to it, but Expand-Archive -Force would still
+# overwrite live files there. Block the live root itself and every descendant of it.
+$destinationMatchesLive = ($normalizedDestination -eq $normalizedLive) -or
+    $normalizedDestination.StartsWith("$normalizedLive\", [StringComparison]::OrdinalIgnoreCase)
 
 if ($destinationMatchesLive -and -not $OverwriteLiveUploads) {
-    throw "REFUSED: destination '$DestinationPath' resolves to the live uploads bind mount ($LiveUploadsPath) but -OverwriteLiveUploads was not passed. Aborting."
+    throw "REFUSED: destination '$DestinationPath' resolves to or is contained within the live uploads bind mount ($LiveUploadsPath) but -OverwriteLiveUploads was not passed. Aborting."
 }
 
 $target = $DestinationPath
