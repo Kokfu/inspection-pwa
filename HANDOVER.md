@@ -3,6 +3,22 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-17 — **Service-visit idempotent replay now compares the cover
+fields.** A retry with the same `requestId` but a different service call number, arrival time
+or departure time previously returned idempotent success and silently kept the original values.
+Both replay branches in `apps/api/src/jobs/serviceVisits.ts` now select and compare those three
+fields (absent/`null`/blank equal; trimmed; `HH:MM`), so any change is the existing 409
+`IDEMPOTENCY_MISMATCH`, while an exact retry stays idempotent. No migration, route-shape or web
+change. New coverage: 10 unit tests in `serviceVisits.test.ts` (each replay branch: exact retry,
+each of the 3 fields changed/dropped/added, absent vs `null` vs blank) and 1 real-PostgreSQL
+test in `serviceVisits.integration.test.ts` (including the HTTP 409, no overwrite, and a
+concurrent differing first attempt). With the fix reverted in a scratch copy, 6 unit tests and
+the new integration test fail. `scripts/Test-ManagerScheduling.ps1` now also runs
+`test:job-progress`; a cold run of it exited 0: 110 backend tests (was 99; includes the 10 V6/V7
+integration tests), 1 stale-evidence test, 8 job-progress tests, 10 Playwright tests, zero
+skips, protected files identical to `e30c649`, `git diff --check` clean. This refreshes the
+API gate result the 2026-09-16 entry flagged as stale. No staging or commits.
+
 **Last updated:** 2026-09-16 — **Documented and tested the sprinkler-progress guard Sol
 found riding along in the scheduling change; corrected the 029–030 bundling paper trail.**
 `deriveAutomaticSprinklerServerProgress` in `apps/web/src/jobs/jobProgress.ts` now carries a

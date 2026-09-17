@@ -36,7 +36,8 @@ and the original-only working-tree requirement.
 ## Findings and limits
 
 - P0 remaining: 0. P1 remaining: 0 within the implemented feature and exercised checks.
-- P2: Vite reports the existing large-bundle warning (approximately 953 kB before gzip).
+- P2: Vite reports the existing large-bundle warning (main JS chunk 1,477.58 kB before
+  gzip, 328.07 kB gzip, per the 2026-09-17 production build).
   Deferred to frontend performance/release work; it does not block this feature checkpoint.
 - The shared workspace includes separately authored changes. Validation covers builds,
   the named standard gates, and focused regressions; this is not an independent review
@@ -101,6 +102,18 @@ its own disposable container. It does not perform the manual UI click-through.
 Final cold-run totals: 99 backend tests, 1 frontend stale-evidence test, and 10
 Playwright tests passed. The latter includes the 24-case Manager auth harness.
 Verdict: **READY FOR REVIEW: YES.** No staging or commit performed.
+
+### 2026-09-17 note: service-visit replay compares cover fields
+
+Both idempotent-replay branches in `apps/api/src/jobs/serviceVisits.ts` (the locked
+existing-row lookup and the lost-insert-race lookup) now also compare service call number,
+arrival time and departure time against the retry, not just customer, site and systems.
+Absent, `null` and blank are the same value; text is trimmed; times compare as `HH:MM`.
+A changed, dropped or newly added cover field returns the existing 409
+`IDEMPOTENCY_MISMATCH` and never overwrites the stored visit. No migration, route or web
+change. The script now also runs `npm run test:job-progress` (8 tests). Cold rerun:
+110 backend tests (was 99: +10 unit, +1 integration; includes the 10 V6/V7 integration tests),
+1 stale-evidence test, 8 job-progress tests, and 10 Playwright tests passed with zero skips.
 
 ## Working-tree snapshot
 

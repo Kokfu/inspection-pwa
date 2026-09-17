@@ -258,3 +258,72 @@ test("service call number, arrival, and departure persist on real PostgreSQL and
     await database.end();
   }
 });
+
+test("service-visit replay compares cover fields on real PostgreSQL: exact retry is idempotent, any change is a 409", {
+  skip: !databaseUrl
+}, async () => {
+  assert.equal(new URL(databaseUrl!).pathname, "/phase6_seed_integration");
+  const database = new pg.Pool({ connectionString: databaseUrl });
+  const create = async (input: Parameters<typeof createServiceVisit>[1], actor: number) => {
+    const client = await database.connect();
+    try { return await createServiceVisit(client, input, actor); }
+    finally { client.release(); }
+  };
+  const isMismatch = (error: unknown) => error instanceof ServiceVisitError
+    && error.code === "IDEMPOTENCY_MISMATCH" && error.status === 409;
+  const countFor = async (id: string) => (await database.query<{ count: string }>(
+    "SELECT count(*)::text AS count FROM inspection_jobs WHERE creation_request_id = $1", [id])).rows[0]?.count;
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    await runMigrations(database);
+    const users = await database.query<{ id: number }>(`
+      INSERT INTO users (username, password_hash, role) VALUES ('cover-replay-tech', 'not-used', 'inspector') RETURNING id`);
+    const actor = Number(users.rows[0]!.id);
+    const base = { customerId, siteId, systemKeys: ["portable_fire_extinguisher"] };
+    const cover = { serviceCallNumber: "SC-7734", arrivalTime: "09:15", departureTime: "11:45" };
+
+    const withCover = { ...base, ...cover, requestId: "51000000-0000-4000-8000-000000000020" };
+    const created = await create(withCover, actor);
+    assert.equal(created.idempotent, false);
+    assert.deepEqual(await create(withCover, actor), { id: created.id, idempotent: true }, "exact retry");
+    assert.deepEqual(await create({ ...withCover, serviceCallNumber: "  SC-7734 " }, actor),
+      { id: created.id, idempotent: true }, "trimmed service call number is the same request");
+    for (const [field, changed] of [["serviceCallNumber", "SC-9999"], ["arrivalTime", "10:15"], ["departureTime", "12:45"]] as const) {
+      await assert.rejects(() => create({ ...withCover, [field]: changed }, actor), isMismatch, `${field} changed`);
+      await assert.rejects(() => create({ ...withCover, [field]: null }, actor), isMismatch, `${field} dropped`);
+    }
+    const routeChanged = await retryThroughRoute(database, actor, { ...withCover, arrivalTime: "10:15" });
+    assert.equal(routeChanged.response.status, 409);
+    assert.equal((await routeChanged.response.json() as { error: string }).error, "IDEMPOTENCY_MISMATCH");
+    assert.equal(await countFor(withCover.requestId), "1");
+    assert.deepEqual((await database.query(`
+      SELECT service_call_number AS "serviceCallNumber", to_char(arrival_time, 'HH24:MI') AS "arrivalTime",
+        to_char(departure_time, 'HH24:MI') AS "departureTime" FROM inspection_jobs WHERE id = $1`, [created.id])).rows[0],
+      cover, "a rejected retry never overwrites the original cover fields");
+
+    const withoutCover = { ...base, requestId: "51000000-0000-4000-8000-000000000021" };
+    const blank = await create(withoutCover, actor);
+    assert.equal(blank.idempotent, false);
+    for (const variant of [{}, { serviceCallNumber: null, arrivalTime: null, departureTime: null },
+      { serviceCallNumber: "", arrivalTime: "", departureTime: "" }]) {
+      assert.deepEqual(await create({ ...withoutCover, ...variant }, actor), { id: blank.id, idempotent: true }, JSON.stringify(variant));
+    }
+    const routeBlank = await retryThroughRoute(database, actor, { ...withoutCover, serviceCallNumber: " ", arrivalTime: "", departureTime: null });
+    assert.equal(routeBlank.response.status, 200, "blank cover fields through the route replay idempotently");
+    for (const [field, value] of Object.entries(cover)) {
+      await assert.rejects(() => create({ ...withoutCover, [field]: value }, actor), isMismatch, `${field} added on retry`);
+    }
+    assert.equal(await countFor(withoutCover.requestId), "1");
+
+    // Concurrent first attempts that differ only in a cover field: exactly one wins and the
+    // loser is rejected, whichever replay branch it reaches.
+    const raced = { ...base, ...cover, requestId: "51000000-0000-4000-8000-000000000022" };
+    const outcomes = await Promise.allSettled([create(raced, actor), create({ ...raced, departureTime: "13:00" }, actor)]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    const loser = outcomes.find((outcome) => outcome.status === "rejected");
+    assert.ok(loser && isMismatch(loser.reason));
+    assert.equal(await countFor(raced.requestId), "1");
+  } finally {
+    await database.end();
+  }
+});

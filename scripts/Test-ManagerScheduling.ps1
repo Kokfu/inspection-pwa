@@ -38,6 +38,7 @@ try {
     Invoke-Checked { npm run typecheck }
     Invoke-Checked { npm run build }
     Invoke-Checked { npm run test:v7-stale-evidence }
+    Invoke-Checked { npm run test:job-progress }
     Invoke-Checked { npx playwright test tests/manager-technicians.spec.ts tests/manager-dashboard-navigation.spec.ts tests/manager-upcoming-services.spec.ts tests/manager-app-auth-transitions.spec.ts tests/manager-navigation-request-count.spec.ts tests/manager-created-time.spec.ts tests/manager-final-report-navigation.spec.ts tests/new-service-visit-schedule.spec.ts --workers=1 }
     Set-Location $repo
     Invoke-Checked { git diff --check }

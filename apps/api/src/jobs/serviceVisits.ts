@@ -58,6 +58,32 @@ function sameSystems(snapshot: unknown, requested: string[]) {
     && actual.every((key) => typeof key === "string" && requested.includes(key));
 }
 
+type CoverFields = { serviceCallNumber: string | null; arrivalTime: string | null; departureTime: string | null };
+
+// Absent, null and blank all mean "not provided", mirroring the route's parser, so a
+// retry is compared against exactly what the first request stored.
+function coverText(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function coverFields(input: CreateServiceVisitInput): CoverFields {
+  return {
+    serviceCallNumber: coverText(input.serviceCallNumber),
+    arrivalTime: coverText(input.arrivalTime),
+    departureTime: coverText(input.departureTime)
+  };
+}
+
+// A replay is idempotent only when every client-supplied value matches the stored visit.
+function sameReplay(row: Record<string, unknown>, input: CreateServiceVisitInput, cover: CoverFields) {
+  return row.customerId === input.customerId && row.siteId === input.siteId
+    && sameSystems(row.configurationSnapshot, input.systemKeys)
+    && row.serviceCallNumber === cover.serviceCallNumber
+    && row.arrivalTime === cover.arrivalTime
+    && row.departureTime === cover.departureTime;
+}
+
 async function activeConfiguration(client: Queryable, customerId: string) {
   const result = await client.query<ConfigurationRow>(`
     SELECT revision.id AS "revisionId", revision.revision AS "revisionNumber",
@@ -171,6 +197,7 @@ async function buildSnapshot(
 export async function createServiceVisit(
   client: PoolClient, input: CreateServiceVisitInput, actorUserId: number
 ): Promise<CreatedServiceVisit> {
+  const cover = coverFields(input);
   await client.query("BEGIN");
   try {
     // A 010-era row has no server-owned proof of its creator. Never bind it to
@@ -193,13 +220,15 @@ export async function createServiceVisit(
         job.service_date::text AS "serviceDate", job.site_id AS "siteId",
         to_char(job.service_time, 'HH24:MI') AS "serviceTime",
         site.display_name AS "siteDisplayName", job.customer_id AS "customerId",
-        job.configuration_snapshot AS "configurationSnapshot"
+        job.configuration_snapshot AS "configurationSnapshot",
+        job.service_call_number AS "serviceCallNumber",
+        to_char(job.arrival_time, 'HH24:MI') AS "arrivalTime",
+        to_char(job.departure_time, 'HH24:MI') AS "departureTime"
       FROM inspection_jobs job INNER JOIN customer_sites site ON site.id = job.site_id
       WHERE job.creation_request_id = $1 AND job.created_by_user_id = $2 FOR UPDATE`, [input.requestId, actorUserId]);
     if (existing.rows[0]) {
       const row = existing.rows[0];
-      if (row.customerId !== input.customerId || row.siteId !== input.siteId
-        || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
+      if (!sameReplay(row, input, cover)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
       await client.query("COMMIT");
@@ -242,19 +271,21 @@ export async function createServiceVisit(
       RETURNING id`,
       [id, configuration.templateId, reference, site.displayName, customer.id, configuration.revisionId,
         JSON.stringify(snapshot), site.id, createdSchedule.serviceDate, createdSchedule.serviceTime, input.requestId, actorUserId,
-        input.serviceCallNumber ?? null, input.arrivalTime ?? null, input.departureTime ?? null]);
+        cover.serviceCallNumber, cover.arrivalTime, cover.departureTime]);
     if (inserted.rowCount === 0) {
       const concurrent = await client.query(`
         SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",
           job.service_date::text AS "serviceDate", job.site_id AS "siteId",
           to_char(job.service_time, 'HH24:MI') AS "serviceTime",
           site.display_name AS "siteDisplayName", job.customer_id AS "customerId",
-          job.configuration_snapshot AS "configurationSnapshot"
+          job.configuration_snapshot AS "configurationSnapshot",
+          job.service_call_number AS "serviceCallNumber",
+          to_char(job.arrival_time, 'HH24:MI') AS "arrivalTime",
+          to_char(job.departure_time, 'HH24:MI') AS "departureTime"
         FROM inspection_jobs job INNER JOIN customer_sites site ON site.id = job.site_id
         WHERE job.creation_request_id = $1 AND job.created_by_user_id = $2`, [input.requestId, actorUserId]);
       const row = concurrent.rows[0];
-      if (!row || row.customerId !== input.customerId || row.siteId !== input.siteId
-        || !sameSystems(row.configurationSnapshot, input.systemKeys)) {
+      if (!row || !sameReplay(row, input, cover)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
       await client.query("COMMIT");

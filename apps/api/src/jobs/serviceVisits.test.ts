@@ -43,14 +43,38 @@ class FakeServiceVisitDatabase {
   }
 }
 
+type StoredCover = { serviceCallNumber: string | null; arrivalTime: string | null; departureTime: string | null };
+const noCover: StoredCover = { serviceCallNumber: null, arrivalTime: null, departureTime: null };
+
+function storedVisit(cover: StoredCover) {
+  return { id: "30000000-0000-4000-8000-000000000001", customerId: ids.customer,
+    siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30",
+    configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] }, ...cover };
+}
+
 class ReplayServiceVisitDatabase extends FakeServiceVisitDatabase {
+  constructor(private readonly cover: StoredCover = noCover) { super(); }
+
   async query(sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.includes("WHERE job.creation_request_id") && values[1] === 7) {
-      return { rows: [{ id: "30000000-0000-4000-8000-000000000001", customerId: ids.customer,
-        siteId: ids.site, serviceDate: "2026-08-18", serviceTime: "09:30",
-        configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] } }], rowCount: 1 };
+      return { rows: [storedVisit(this.cover)], rowCount: 1 };
     }
+    return super.query(sql, values);
+  }
+}
+
+// Forces the concurrent-insert branch: the locked lookup sees nothing, the insert loses
+// the unique-key race, and the follow-up read finds the winner's row.
+class ConcurrentReplayServiceVisitDatabase extends FakeServiceVisitDatabase {
+  constructor(private readonly cover: StoredCover) { super(); }
+
+  async query(sql: string, values: unknown[] = []) {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    if (normalized.includes("WHERE job.creation_request_id") && !normalized.includes("FOR UPDATE")) {
+      return { rows: [storedVisit(this.cover)], rowCount: 1 };
+    }
+    if (normalized.startsWith("INSERT INTO inspection_jobs")) { this.inserts += 1; return { rows: [], rowCount: 0 }; }
     return super.query(sql, values);
   }
 }
@@ -162,6 +186,55 @@ test("idempotency is actor-scoped and rejects altered replay payloads", async ()
   const independentActor = await createServiceVisit(database as never, input, 8);
   assert.equal(independentActor.idempotent, false);
 });
+
+const storedCover: StoredCover = { serviceCallNumber: "SC-4821", arrivalTime: "09:15", departureTime: "11:45" };
+const replayBranches = [
+  ["existing-row", (cover: StoredCover) => new ReplayServiceVisitDatabase(cover)],
+  ["concurrent-insert", (cover: StoredCover) => new ConcurrentReplayServiceVisitDatabase(cover)]
+] as const;
+
+for (const [branch, makeDatabase] of replayBranches) {
+  test(`${branch} replay: an exact cover-field retry stays idempotent`, async () => {
+    const database = makeDatabase(storedCover);
+    const input = { requestId: ids.request, customerId: ids.customer, siteId: ids.site, systemKeys: ["hose_reel"] };
+    assert.deepEqual(await createServiceVisit(database as never, { ...input, ...storedCover }, 7),
+      { id: "30000000-0000-4000-8000-000000000001", idempotent: true });
+    assert.deepEqual(await createServiceVisit(database as never,
+      { ...input, serviceCallNumber: " SC-4821 ", arrivalTime: "09:15 ", departureTime: " 11:45" }, 7),
+      { id: "30000000-0000-4000-8000-000000000001", idempotent: true }, "trimmed text matches the stored value");
+  });
+
+  for (const field of ["serviceCallNumber", "arrivalTime", "departureTime"] as const) {
+    test(`${branch} replay: a changed ${field} is an idempotency mismatch`, async () => {
+      const database = makeDatabase(storedCover);
+      const changed = { serviceCallNumber: "SC-9999", arrivalTime: "10:15", departureTime: "12:45" }[field];
+      for (const value of [changed, null]) {
+        await assert.rejects(
+          () => createServiceVisit(database as never, { requestId: ids.request, customerId: ids.customer,
+            siteId: ids.site, systemKeys: ["hose_reel"], ...storedCover, [field]: value }, 7),
+          (error: unknown) => error instanceof ServiceVisitError && error.code === "IDEMPOTENCY_MISMATCH" && error.status === 409
+        );
+      }
+      const blankDatabase = makeDatabase(noCover);
+      await assert.rejects(
+        () => createServiceVisit(blankDatabase as never, { requestId: ids.request, customerId: ids.customer,
+          siteId: ids.site, systemKeys: ["hose_reel"], [field]: changed }, 7),
+        (error: unknown) => error instanceof ServiceVisitError && error.code === "IDEMPOTENCY_MISMATCH",
+        "adding a value on retry to a visit stored without one is also a mismatch"
+      );
+    });
+  }
+
+  test(`${branch} replay: absent, explicit null and blank cover fields are the same request`, async () => {
+    const database = makeDatabase(noCover);
+    const input = { requestId: ids.request, customerId: ids.customer, siteId: ids.site, systemKeys: ["hose_reel"] };
+    for (const cover of [{}, { serviceCallNumber: null, arrivalTime: null, departureTime: null },
+      { serviceCallNumber: "", arrivalTime: "", departureTime: "" }, { serviceCallNumber: "  ", arrivalTime: " ", departureTime: "" }]) {
+      assert.deepEqual(await createServiceVisit(database as never, { ...input, ...cover }, 7),
+        { id: "30000000-0000-4000-8000-000000000001", idempotent: true }, JSON.stringify(cover));
+    }
+  });
+}
 
 test("an unresolved legacy request id fails closed without creating or exposing a job", async () => {
   const database = new UnresolvedLegacyServiceVisitDatabase();
