@@ -34,6 +34,9 @@ export async function createServiceVisit(input: {
   customerId: string;
   siteId: string;
   systemKeys: string[];
+  serviceCallNumber?: string;
+  arrivalTime?: string;
+  departureTime?: string;
 }) {
   const response = await fetch("/api/inspection-jobs/service-visits", {
     method: "POST", credentials: "same-origin",

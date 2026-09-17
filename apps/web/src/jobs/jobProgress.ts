@@ -39,6 +39,8 @@ export function deriveAutomaticSprinklerServerProgress(
   // A caller must use deriveNoLocalSystemProgress for a confirmed complete
   // response with no inspection. Here, an absent sprinkler summary means the
   // evidence metadata was unavailable or could not be trusted.
+  // Offline-first: a summary cached before this auth/load state was known cannot be trusted for display (same gate as deriveNoLocalSystemProgress above).
+  if (authStatus !== "verified" || serverSummaryState !== "loaded") return "Unknown / Not Cached";
   if (!summary) return "Unknown / Not Cached";
   if (summary.evidenceState === "not-required" || summary.evidenceState === "complete") return "Completed";
   if (summary.evidenceState === "failed" || summary.evidenceState === "invalid") return "Needs Attention";

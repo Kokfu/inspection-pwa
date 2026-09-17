@@ -30,7 +30,6 @@ import {
   inspectionStatusLabel,
   inspectionStatusTone,
   inspectionActionLabel,
-  formatClientDate,
   formatClientDateTime,
   formatMalaysiaDateTime,
   isRoutineJobCountMessage,

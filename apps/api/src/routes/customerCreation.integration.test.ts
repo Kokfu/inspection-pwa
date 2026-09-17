@@ -131,5 +131,29 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
       const retry = await fetch(`http://127.0.0.1:${retryAddress.port}/customers`, { method: "POST", headers: { "Content-Type": "application/json", "x-actor": "a" }, body: JSON.stringify(failedInput) });
       assert.equal(retry.status, 201, "same request ID may create after its failed transaction rolled back");
     } finally { await close(retryServer); }
+
+    const contactApp = application(database, users);
+    const contactServer = contactApp.listen(0, "127.0.0.1"); await once(contactServer, "listening");
+    const contactAddress = contactServer.address() as { port: number };
+    try {
+      const withContact = await fetch(`http://127.0.0.1:${contactAddress.port}/customers`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-actor": "a" },
+        body: JSON.stringify({ ...input(uuid("6"), "Customer With Contact Details"), contactPhone: "  012-3456789  ", contactPerson: "  Jane Tan  " })
+      });
+      assert.equal(withContact.status, 201);
+      const withContactBody = await withContact.json() as { customer: { customer: { id: string; contactPhone?: string | null; contactPerson?: string | null } } };
+      assert.equal(withContactBody.customer.customer.contactPhone, "012-3456789", "contact phone is trimmed and returned");
+      assert.equal(withContactBody.customer.customer.contactPerson, "Jane Tan", "contact person is trimmed and returned");
+      assert.deepEqual((await database.query("SELECT contact_phone AS \"contactPhone\", contact_person AS \"contactPerson\" FROM customers WHERE id=$1", [withContactBody.customer.customer.id])).rows[0], { contactPhone: "012-3456789", contactPerson: "Jane Tan" });
+
+      const withoutContact = await fetch(`http://127.0.0.1:${contactAddress.port}/customers`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-actor": "a" },
+        body: JSON.stringify(input(uuid("7"), "Customer Without Contact Details"))
+      });
+      assert.equal(withoutContact.status, 201);
+      const withoutContactBody = await withoutContact.json() as { customer: { customer: { contactPhone?: string | null; contactPerson?: string | null } } };
+      assert.equal(withoutContactBody.customer.customer.contactPhone, null, "omitted contact phone stays null, not required");
+      assert.equal(withoutContactBody.customer.customer.contactPerson, null, "omitted contact person stays null, not required");
+    } finally { await close(contactServer); }
   } finally { await database.end(); }
 });

@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { PoolClient } from "pg";
 import { pool } from "../db/pool.js";
 import { isV7EvidenceFinding, parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256, v7EvidenceManifestFailureMessage } from "../inspections/evidence/v7EvidenceContracts.js";
 import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
@@ -87,14 +86,6 @@ function validResponses(responses: Value, controls: ReturnType<typeof resolveFir
     ids.add(row.rowUuid);
   }
   return true;
-}
-
-function existingResult(client: PoolClient, payload: Payload, fingerprint: string, actorUserId: number) {
-  return client.query<{ request_fingerprint: string; synced_by_user_id: string }>("SELECT request_fingerprint,synced_by_user_id FROM master_system_form_instances WHERE client_uuid=$1 FOR UPDATE", [payload.clientUuid]).then((found) => {
-    if (!found.rowCount) return undefined;
-    if (found.rows[0]!.synced_by_user_id !== String(actorUserId)) return fail(payload.clientUuid, "JOB_ACCESS_DENIED", "This V7 form is not available to this actor");
-    return found.rows[0]!.request_fingerprint === fingerprint ? "duplicate" as const : fail(payload.clientUuid, "IDEMPOTENCY_CONFLICT", "This inspection UUID belongs to different accepted authority");
-  });
 }
 
 export function isFireAlarmV7Payload(item: SyncItem) { return record(item.payload) && record(item.payload.masterTemplate) && item.payload.masterTemplate.version === 7; }

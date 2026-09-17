@@ -10,9 +10,12 @@ export type CreateServiceVisitInput = {
   customerId: string;
   siteId: string;
   systemKeys: string[];
+  serviceCallNumber?: string | null;
+  arrivalTime?: string | null;
+  departureTime?: string | null;
 };
 
-type CustomerRow = { id: string; code: string; displayName: string };
+type CustomerRow = { id: string; code: string; displayName: string; contactPhone: string | null; contactPerson: string | null };
 type SiteRow = { id: string; customerId: string; displayName: string };
 type ConfigurationRow = {
   revisionId: string; revisionNumber: number; templateId: string;
@@ -204,7 +207,8 @@ export async function createServiceVisit(
     }
 
     const customerResult = await client.query<CustomerRow>(`SELECT id, customer_code AS code,
-      display_name AS "displayName" FROM customers WHERE id = $1 AND is_active = true FOR SHARE`, [input.customerId]);
+      display_name AS "displayName", contact_phone AS "contactPhone", contact_person AS "contactPerson"
+      FROM customers WHERE id = $1 AND is_active = true FOR SHARE`, [input.customerId]);
     const customer = customerResult.rows[0];
     if (!customer) throw new ServiceVisitError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
     const siteResult = await client.query<SiteRow>(`SELECT id, customer_id AS "customerId",
@@ -231,12 +235,14 @@ export async function createServiceVisit(
       INSERT INTO inspection_jobs (
         id, template_id, master_template_version_id, job_reference, title, status, is_sample,
         customer_id, customer_configuration_revision_id, configuration_snapshot,
-        site_id, service_date, service_time, creation_request_id, created_by_user_id
-      ) VALUES ($1, NULL, $2, $3, $4, 'open', false, $5, $6, $7, $8, $9::date, $10::time, $11, $12)
+        site_id, service_date, service_time, creation_request_id, created_by_user_id,
+        service_call_number, arrival_time, departure_time
+      ) VALUES ($1, NULL, $2, $3, $4, 'open', false, $5, $6, $7, $8, $9::date, $10::time, $11, $12, $13, $14::time, $15::time)
       ON CONFLICT (created_by_user_id, creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
       RETURNING id`,
       [id, configuration.templateId, reference, site.displayName, customer.id, configuration.revisionId,
-        JSON.stringify(snapshot), site.id, createdSchedule.serviceDate, createdSchedule.serviceTime, input.requestId, actorUserId]);
+        JSON.stringify(snapshot), site.id, createdSchedule.serviceDate, createdSchedule.serviceTime, input.requestId, actorUserId,
+        input.serviceCallNumber ?? null, input.arrivalTime ?? null, input.departureTime ?? null]);
     if (inserted.rowCount === 0) {
       const concurrent = await client.query(`
         SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",

@@ -9,7 +9,6 @@ import {
 import { parseInspectionCatalog } from "./referenceDataTypes";
 import type {
   CustomerConfigurationResponse,
-  InspectionCatalog,
   ReferenceCustomer
 } from "./referenceDataTypes";
 

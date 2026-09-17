@@ -3,6 +3,47 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-16 — **Documented and tested the sprinkler-progress guard Sol
+found riding along in the scheduling change; corrected the 029–030 bundling paper trail.**
+`deriveAutomaticSprinklerServerProgress` in `apps/web/src/jobs/jobProgress.ts` now carries a
+one-line note explaining why a summary cached before the auth/load state was known must not be
+trusted for display — the same gate `deriveNoLocalSystemProgress` above it already applied. New
+`apps/web/tests/jobProgress.test.ts` pins both functions: 8 tests, 96 assertions across the full
+authStatus × serverSummaryState × summary matrix, plus the unchanged `deriveNoLocalSystemProgress`
+behaviour so the two siblings' coverage is symmetric. Deleting the guard turns 3 of the 8 red,
+confirming the coverage is real and not merely co-passing. Added `test:job-progress` to
+`apps/web/package.json`; the test lives in `tests/` rather than `src/` because `apps/web` has no
+resolvable `@types/node` and `src` sits inside the tsconfig `include`, so a test there fails
+`npm run typecheck`. The 2026-09-13 entry below and `docs/manager-scheduling-validation.md` now
+state plainly that the product owner authorized bundling migrations 029–030 into that change,
+replacing the vague “on resuming, the owner explicitly chose” framing.
+
+Web typecheck, production build, `test:job-progress` (8 tests), and `test:v7-stale-evidence`
+(1 test) pass; protected historical files remain identical to `e30c649`; `git diff --check` clean.
+**The API gate set has not been re-run since 2026-09-13** — this pass touched no API file, but it
+is carrying a stale result forward and should be treated as unverified until a cold re-run. Working
+tree is 19 new and 37 modified files; `docs/manager-scheduling-validation.md`'s “Files changed by
+this task” inventory is deliberately left scoped to the original task and does not list this pass's
+three files. No staging or commits.
+
+**Last updated:** 2026-09-13 — **Manager dashboard, technician management, and manual
+next-service scheduling implemented; combined workspace validation.** Admin-only
+technician creation/list/deactivation includes transactional audit and a real
+session-invalidation integration proof. Home now links to Technicians, Services,
+Customers, Current Services Done, and Next Upcoming Service; due dates are manually
+editable and sorted. The product owner authorized bundling the contact-person/phone
+(migration 029) and service-visit cover-field (migration 030) work into this change,
+including removal of contact email from 028. No staging or commits.
+
+Builds, standard historical/evidence gates, 47 focused backend tests, the 10-test
+V6/V7 integration set, and 10 Playwright tests pass. The manual disposable-instance
+check confirmed technician status changes, saved date ordering, and closed visits
+across Mak Siti and Hokuden. Protected historical files remain identical to `e30c649`.
+Full DoD, file inventory, limitations, and final cold-script result are in
+[manager-scheduling-validation.md](docs/manager-scheduling-validation.md).
+Reproduce automated verification with `scripts/Test-ManagerScheduling.ps1`;
+production customer data and deployment configuration were not changed by this task.
+
 **Last updated:** 2026-09-12 — **Security-checklist cleanup pass (closes the two loose ends the
 2026-09-12 checklist run flagged) — uncommitted working tree, owner does git.** Removed the dead
 `authRequired`/`allowPhase2UnauthenticatedSync` fields from `apps/api/src/config/env.ts` (zero

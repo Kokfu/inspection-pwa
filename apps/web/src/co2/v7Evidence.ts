@@ -1,6 +1,6 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
-import type { Co2Responses, MasterSystemFormInstanceRecord, SuppressionSystemKey } from "./co2Types";
+import type { Co2Responses, MasterSystemFormInstanceRecord } from "./co2Types";
 
 export type V7SuppressionFieldPath =
   | `charger_batteries.charger_battery_checks.${"main_supply" | "battery" | "charger"}`

@@ -48,9 +48,14 @@ export function NewServiceVisit({ onCreated, onCancel }: {
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
   const [newSiteName, setNewSiteName] = useState("");
+  const [newCustomerTelephone, setNewCustomerTelephone] = useState("");
+  const [newCustomerContact, setNewCustomerContact] = useState("");
   const [newCustomerSystems, setNewCustomerSystems] = useState<string[]>([]);
   const [newCustomerRequestId, setNewCustomerRequestId] = useState(() => crypto.randomUUID());
   const [serviceFormatOptions, setServiceFormatOptions] = useState<ServiceFormatOption[]>([]);
+  const [serviceCallNumber, setServiceCallNumber] = useState("");
+  const [arrivalTime, setArrivalTime] = useState("");
+  const [departureTime, setDepartureTime] = useState("");
   // Keep the same mutation identity for a retry after a lost response. It is
   // not a job identity; the server alone allocates the job and reference.
   const [requestId] = useState(() => crypto.randomUUID());
@@ -120,11 +125,13 @@ export function NewServiceVisit({ onCreated, onCancel }: {
         requestId: newCustomerRequestId,
         displayName: newCustomerName,
         siteDisplayName: newSiteName,
-        systemKeys: newCustomerSystems
+        systemKeys: newCustomerSystems,
+        ...(newCustomerTelephone.trim() ? { contactPhone: newCustomerTelephone.trim() } : {}),
+        ...(newCustomerContact.trim() ? { contactPerson: newCustomerContact.trim() } : {})
       });
       setCustomers((current) => [...current.filter((value) => value.id !== customer.id), customer]
         .sort((left, right) => left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id)));
-      setAddingCustomer(false); setNewCustomerName(""); setNewSiteName(""); setNewCustomerSystems([]);
+      setAddingCustomer(false); setNewCustomerName(""); setNewSiteName(""); setNewCustomerTelephone(""); setNewCustomerContact(""); setNewCustomerSystems([]);
       selectCustomer(customer.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer could not be created.");
@@ -135,7 +142,12 @@ export function NewServiceVisit({ onCreated, onCancel }: {
     if (!canCreate) return;
     setCreating(true); setMessage("");
     try {
-      const job = await createServiceVisit({ requestId, customerId, siteId, systemKeys });
+      const job = await createServiceVisit({
+        requestId, customerId, siteId, systemKeys,
+        ...(serviceCallNumber.trim() ? { serviceCallNumber: serviceCallNumber.trim() } : {}),
+        ...(arrivalTime.trim() ? { arrivalTime: arrivalTime.trim() } : {}),
+        ...(departureTime.trim() ? { departureTime: departureTime.trim() } : {})
+      });
       if (!hasRealJobId(job)) throw new Error("Service visit could not be created.");
       await onCreated(job);
     } catch (error) {
@@ -152,9 +164,14 @@ export function NewServiceVisit({ onCreated, onCancel }: {
         <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
       </div>
-      {addingCustomer ? <section className="report-summary" aria-labelledby="new-customer-title"><h3 id="new-customer-title">Add New Customer</h3><p>This creates a shared customer and its first service format on the server.</p><div className="setup-fields"><div className="form-field"><label htmlFor="new-customer-name">Customer Name</label><input id="new-customer-name" maxLength={160} value={newCustomerName} onChange={(event) => setNewCustomerName(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-site">Primary Site</label><input id="new-customer-site" maxLength={160} value={newSiteName} onChange={(event) => setNewSiteName(event.target.value)} disabled={creating} /></div></div><fieldset className="system-picker" disabled={creating}><legend>Initial Service Format</legend><div className="system-picker-grid">{serviceFormatOptions.map((system) => <label key={system.key} className={`system-check-row ${newCustomerSystems.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={newCustomerSystems.includes(system.key)} onChange={() => setNewCustomerSystems((current) => current.includes(system.key) ? current.filter((key) => key !== system.key) : [...current, system.key])} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset><div className="inline-actions"><button type="button" className="secondary-command" disabled={creating} onClick={() => { setAddingCustomer(false); setMessage(""); }}>Cancel</button><button type="button" disabled={creating || !newCustomerName.trim() || !newSiteName.trim() || newCustomerSystems.length === 0} onClick={() => void createCustomer()}>{creating ? "Creating…" : "Create Customer"}</button></div></section> : null}
+      {addingCustomer ? <section className="report-summary" aria-labelledby="new-customer-title"><h3 id="new-customer-title">Add New Customer</h3><p>This creates a shared customer and its first service format on the server.</p><div className="setup-fields"><div className="form-field"><label htmlFor="new-customer-name">Customer Name</label><input id="new-customer-name" maxLength={160} value={newCustomerName} onChange={(event) => setNewCustomerName(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-site">Primary Site</label><input id="new-customer-site" maxLength={160} value={newSiteName} onChange={(event) => setNewSiteName(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-telephone">Telephone No</label><input id="new-customer-telephone" maxLength={40} value={newCustomerTelephone} onChange={(event) => setNewCustomerTelephone(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-contact">Contact</label><input id="new-customer-contact" maxLength={160} value={newCustomerContact} onChange={(event) => setNewCustomerContact(event.target.value)} disabled={creating} /></div></div><fieldset className="system-picker" disabled={creating}><legend>Initial Service Format</legend><div className="system-picker-grid">{serviceFormatOptions.map((system) => <label key={system.key} className={`system-check-row ${newCustomerSystems.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={newCustomerSystems.includes(system.key)} onChange={() => setNewCustomerSystems((current) => current.includes(system.key) ? current.filter((key) => key !== system.key) : [...current, system.key])} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset><div className="inline-actions"><button type="button" className="secondary-command" disabled={creating} onClick={() => { setAddingCustomer(false); setMessage(""); }}>Cancel</button><button type="button" disabled={creating || !newCustomerName.trim() || !newSiteName.trim() || newCustomerSystems.length === 0} onClick={() => void createCustomer()}>{creating ? "Creating…" : "Create Customer"}</button></div></section> : null}
       <fieldset className="system-picker" disabled={!customerId || loading || creating}><legend>Applicable Fire Systems</legend><div className="system-picker-grid">{serviceAvailability ? <p role="status">{serviceAvailability}</p> : systems.map((system) => <label key={system.id} className={`system-check-row ${systemKeys.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset>
       {configurationMatchesCustomer && systems.length ? <button type="button" className="secondary-command" disabled={creating} onClick={() => setSystemKeys(systems.map((system) => system.key))}>Reuse Previous Service Format</button> : null}
+      <div className="setup-fields">
+        <div className="form-field"><label htmlFor="service-call-number">Service Call No</label><input id="service-call-number" maxLength={80} value={serviceCallNumber} onChange={(event) => setServiceCallNumber(event.target.value)} disabled={creating} /></div>
+        <div className="form-field"><label htmlFor="service-arrival">Arrival</label><input id="service-arrival" type="time" value={arrivalTime} onChange={(event) => setArrivalTime(event.target.value)} disabled={creating} /></div>
+        <div className="form-field"><label htmlFor="service-departure">Departure</label><input id="service-departure" type="time" value={departureTime} onChange={(event) => setDepartureTime(event.target.value)} disabled={creating} /></div>
+      </div>
       {systemKeys.length ? <p className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"} and ready to create.</p> : null}
       {message ? <p className="operational-message operational-message--warning" role="status">{message}</p> : null}
       <button className="setup-submit" type="button" onClick={() => void submit()} disabled={!canCreate}>{creating ? "Creating…" : "Create Service Visit"}</button>

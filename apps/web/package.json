@@ -20,6 +20,7 @@
     "test:v6-draft-browser": "playwright test tests/fire-alarm-v6-draft-reload.spec.ts",
     "test:v7-stale-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7EvidenceStaleManifest.test.ts",
     "test:repeatable-rows": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/repeatableRows.test.ts",
+    "test:job-progress": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/jobProgress.test.ts",
     "test:historical-draft": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/historicalDraftCompatibility.test.ts",
     "test:v7-catalog-contract": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7CatalogContractResolution.test.ts",
     "test:v7-cross-instance-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/co2V7CrossInstanceEvidence.test.ts",
@@ -33,6 +34,9 @@
     "test:v7-smoke-ventilation-browser": "playwright test tests/smoke-ventilation-v7-offline.spec.ts",
     "test:v7-fire-intercom-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireIntercomV7SubmissionIssues.test.ts",
     "test:v7-fire-intercom-browser": "playwright test tests/fire-intercom-v7-offline.spec.ts",
+    "test:manager-technicians": "playwright test tests/manager-technicians.spec.ts",
+    "test:manager-dashboard-navigation": "playwright test tests/manager-dashboard-navigation.spec.ts",
+    "test:manager-upcoming-services": "playwright test tests/manager-upcoming-services.spec.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
     "preview": "vite preview"
   },

@@ -49,11 +49,15 @@ export type FinalReportSection = { systemKey: string; label: string; location?: 
 export type FinalReportSystemCondition = "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED";
 export type FinalServiceReport = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
+  telephone?: string; contact?: string; serviceCallNumber?: string; arrival?: string; departure?: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: FinalReportSystemCondition; conditionDetail: string; locations: string[] }>;
   sections: FinalReportSection[];
 };
 
-type ReportJobRow = CompletionJobRow & { reference: string; title: string; service_date: string | null };
+type ReportJobRow = CompletionJobRow & {
+  reference: string; title: string; service_date: string | null;
+  service_call_number: string | null; arrival_time: string | null; departure_time: string | null;
+};
 type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
 const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom"]);
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,6 +68,13 @@ const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.m
     : JSON.stringify(value);
 const text = (value: unknown, maximum = 4000): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= maximum;
 function requiredText(value: unknown, maximum: number, message: string): string {
+  if (!text(value, maximum)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, message);
+  return value;
+}
+// Cover-page fields that predate this feature (or were left blank) are absent, not invalid -
+// distinct from requiredText, this only fails closed on a malformed present value.
+function optionalReportText(value: unknown, maximum: number, message: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
   if (!text(value, maximum)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, message);
   return value;
 }
@@ -563,7 +574,7 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
     const prefix = `Alarm Device Row ${index + 1} (${row.location})`;
     const assetReference = optionalAssetReference(row.assetReference);
     if (assetReference) add(`${prefix} - ${context.controls.secondaryAlarmDeviceRows.assetReference.label}`, assetReference);
-    for (const [key, item] of [["alarmBell", context.controls.secondaryAlarmDeviceRows.alarmBell], ["manualCallPoint", context.controls.secondaryAlarmDeviceRows.manualCallPoint]] as const) {
+    for (const key of ["alarmBell", "manualCallPoint"] as const) {
       const result = v6Result(row[key]); if (!result) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
       add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"}`, result);
       if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`, row.fieldRemarks[key], 1);
@@ -700,7 +711,8 @@ export async function loadFinalServiceReport(
     : "job.technician_visible = true AND job.is_sample = false";
   const jobResult = await database.query<ReportJobRow>(`SELECT job.id, job.status, job.configuration_snapshot, job.completed_at, job.completed_by_user_id,
       job.completed_by_display_name, NULL::text AS completed_by_username,
-      job.job_reference AS reference, job.title, job.service_date::text AS service_date
+      job.job_reference AS reference, job.title, job.service_date::text AS service_date,
+      job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time, to_char(job.departure_time, 'HH24:MI') AS departure_time
     FROM inspection_jobs job
     WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL
       AND ${accessClause}
@@ -713,10 +725,17 @@ export async function loadFinalServiceReport(
   const frozen = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenCustomer = frozen && isRecord(frozen.customer) ? frozen.customer.displayName : undefined;
   const frozenSite = frozen && isRecord(frozen.site) ? frozen.site.displayName : undefined;
+  const frozenTelephone = frozen && isRecord(frozen.customer) ? frozen.customer.contactPhone : undefined;
+  const frozenContact = frozen && isRecord(frozen.customer) ? frozen.customer.contactPerson : undefined;
   const customer = requiredText(frozenCustomer, 250, "Completed service visit details are incomplete and cannot be reported.");
   const site = requiredText(frozenSite, 300, "Completed service visit details are incomplete and cannot be reported.");
   const reference = requiredText(job.reference, 250, "Completed service visit details are incomplete and cannot be reported.");
   const serviceDate = requiredText(job.service_date, 10, "Completed service visit details are incomplete and cannot be reported.");
+  const telephone = optionalReportText(frozenTelephone, 40, "Completed service visit details are incomplete and cannot be reported.");
+  const contact = optionalReportText(frozenContact, 160, "Completed service visit details are incomplete and cannot be reported.");
+  const serviceCallNumber = optionalReportText(job.service_call_number, 80, "Completed service visit details are incomplete and cannot be reported.");
+  const arrival = job.arrival_time ?? undefined;
+  const departure = job.departure_time ?? undefined;
   const rows = (await database.query<ReportInstanceRow>(`SELECT instance.id AS form_instance_id, inspection.system_key, instance.instance_key, instance.zone_id, instance.location_id, instance.display_sequence, instance.client_uuid,
       instance.master_template_version_id, instance.customer_configuration_revision_id,
       instance.evidence_policy_id, instance.evidence_policy_version, instance.evidence_policy_snapshot, instance.evidence_policy_sha256,
@@ -766,6 +785,7 @@ export async function loadFinalServiceReport(
   }
   return { customer, site, serviceDate, jobReference: reference,
     completedAt: job.completed_at instanceof Date ? job.completed_at.toISOString() : job.completed_at!, completedBy: job.completed_by_display_name!,
+    telephone, contact, serviceCallNumber, arrival, departure,
     systems: completion.systems.map((item) => {
       const { condition, conditionDetail } = deriveSystemCondition(sections.filter((section) => section.systemKey === item.systemKey));
       return { systemKey: item.systemKey, label: item.systemLabel, status: "Accepted" as const, condition, conditionDetail, locations: item.units.map((unit) => unit.label) };
@@ -790,7 +810,22 @@ export async function renderFinalServiceReportPdf(report: FinalServiceReport): P
   const pageBreakFor = (height: number) => { if (document.y + height > document.page.height - document.page.margins.bottom) { document.addPage(); header(); } };
   const paragraph = (value: string, options: PDFKit.Mixins.TextOptions = {}) => { const height = document.heightOfString(value, { width: document.page.width - document.page.margins.left - document.page.margins.right, ...options }); pageBreakFor(height); document.text(value, options); };
   header();
-  for (const [key, value] of [["Customer", report.customer], ["Site", report.site], ["Service Date", report.serviceDate], ["Job Reference", report.jobReference], ["Service Status", "Completed"], ["Completed Date", report.completedAt], ["Completed By", report.completedBy]]) paragraph(`${key}: ${value}`);
+  const coverFields: Array<[string, string]> = [
+    ["Customer", report.customer],
+    ...(report.telephone ? [["Telephone", report.telephone]] as [string, string][] : []),
+    ...(report.contact ? [["Contact", report.contact]] as [string, string][] : []),
+    ["Site", report.site],
+    ["Service Date", report.serviceDate],
+    ...(report.serviceCallNumber ? [["Service Call No", report.serviceCallNumber]] as [string, string][] : []),
+    ...(report.arrival ? [["Arrival", report.arrival]] as [string, string][] : []),
+    ...(report.departure ? [["Departure", report.departure]] as [string, string][] : []),
+    ["Job Reference", report.jobReference],
+    ["Service Status", "Completed"],
+    ["Completed Date", report.completedAt],
+    ["Completed By", report.completedBy],
+    ["Systems", report.systems.map((system) => system.label).join(", ")]
+  ];
+  for (const [key, value] of coverFields) paragraph(`${key}: ${value}`);
   document.moveDown(0.5); paragraph("Summary of Testing", { underline: true });
   report.systems.forEach((system, index) => {
     paragraph(`${index + 1}. ${system.label} — ${system.condition}`, { indent: 10 });

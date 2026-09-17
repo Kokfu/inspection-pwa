@@ -98,18 +98,49 @@ inspectionJobsRouter.get(
   }
 );
 
+const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// Optional cover-page fields: undefined/null/"" all mean "not provided" (the paper form marks
+// no header field mandatory - docs/paper-forms/README.md:102-103). Returns `undefined` as a
+// sentinel for "the field was present but malformed", distinct from `null` ("validly absent"),
+// so the caller can still fail closed on a genuinely bad value.
+function optionalTrimmedText(value: unknown, maxLength: number): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length > maxLength) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function optionalTime(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  return timePattern.test(trimmed) ? trimmed : undefined;
+}
+
 export function parseCreateServiceVisit(value: unknown): CreateServiceVisitInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const body = value as Record<string, unknown>;
-  const expected = ["requestId", "customerId", "siteId", "systemKeys"];
-  if (Object.keys(body).length !== expected.length || !expected.every((key) => key in body)
+  const required = ["requestId", "customerId", "siteId", "systemKeys"];
+  const optional = ["serviceCallNumber", "arrivalTime", "departureTime"];
+  if (!required.every((key) => key in body) || Object.keys(body).some((key) => !required.includes(key) && !optional.includes(key))
     || typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)
     || typeof body.customerId !== "string" || !uuidPattern.test(body.customerId)
     || typeof body.siteId !== "string" || !uuidPattern.test(body.siteId)
     || !Array.isArray(body.systemKeys) || body.systemKeys.length === 0
     || body.systemKeys.some((key) => typeof key !== "string" || !/^[a-z][a-z0-9_]{1,63}$/.test(key))
     || new Set(body.systemKeys).size !== body.systemKeys.length) return undefined;
-  return body as CreateServiceVisitInput;
+
+  const serviceCallNumber = optionalTrimmedText(body.serviceCallNumber, 80);
+  const arrivalTime = optionalTime(body.arrivalTime);
+  const departureTime = optionalTime(body.departureTime);
+  if (serviceCallNumber === undefined || arrivalTime === undefined || departureTime === undefined) return undefined;
+
+  return {
+    requestId: body.requestId, customerId: body.customerId, siteId: body.siteId, systemKeys: body.systemKeys,
+    serviceCallNumber, arrivalTime, departureTime
+  } as CreateServiceVisitInput;
 }
 
 type ServiceVisitRouteDependencies = {

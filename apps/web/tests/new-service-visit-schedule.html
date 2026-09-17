@@ -24,13 +24,17 @@
     document.querySelector("#run").onclick = async () => { const originalFetch = globalThis.fetch; globalThis.fetch = transport; const root = ReactDom.createRoot(mount); try {
       root.render(React.createElement(NewServiceVisit, { onCreated: async job => { receivedJob = job; }, onCancel: () => undefined }));
       await waitFor(() => mount.querySelector("#service-customer")?.options.length === 2, "customers");
-      check("no editable date/time controls", !mount.querySelector("input[type=date], input[type=time]"));
+      // No control lets the browser set the job's CREATION date/time (that stays
+      // server-derived) - Arrival/Departure are a separate, legitimately
+      // client-supplied concept (when the technician was physically on site),
+      // so they're excluded from this check by id rather than by input type.
+      check("no editable creation date/time controls", !mount.querySelector("input[type=date], input[type=time]:not(#service-arrival):not(#service-departure)"));
       check("automatic authority copy is visible", mount.textContent.includes("recorded automatically by the server"));
       setValue("#service-customer", customer.id); await waitFor(() => mount.textContent.includes("Hose Reel"), "configuration");
       setValue("#service-site", "site-a"); mount.querySelector("fieldset.system-picker input[type=checkbox]").click();
       Array.from(mount.querySelectorAll("button")).find(button => button.textContent === "Create Service Visit")?.click();
       await waitFor(() => Boolean(receivedJob), "created job");
-      check("request excludes browser date/time", Object.keys(requestBody).sort().join(",") === "customerId,requestId,siteId,systemKeys");
+      check("request excludes browser-controlled creation date/time, and cover fields left blank are omitted", Object.keys(requestBody).sort().join(",") === "customerId,requestId,siteId,systemKeys");
       check("server-created timestamp is accepted unchanged", receivedJob.createdAt === "2026-08-26T08:56:00.000Z");
       result.textContent = JSON.stringify({ status: checks.every(item => item.pass) ? "PASS" : "FAIL", checks }, null, 2);
     } catch (error) { result.textContent = JSON.stringify({ status: "FAIL", error: String(error), checks }, null, 2); } finally { root.unmount(); globalThis.fetch = originalFetch; mount.replaceChildren(); } };

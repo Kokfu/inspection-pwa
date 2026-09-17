@@ -462,9 +462,9 @@ export async function syncPendingRecords() {
       .filter((item) =>
         item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && shouldSync(item)
       );
-    let items = (await filterTerminalConflictWork(
+    let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
-    )).filter((item) => true);
+    );
     items = (await Promise.all(items.map(async (item) => await v6FormReady(item) && await v7FormReady(item) ? item : undefined))).filter((item): item is SyncOutboxItem => !!item);
 
     await testBoundaryHook?.("afterCandidatesCaptured");

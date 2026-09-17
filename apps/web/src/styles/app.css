@@ -1054,3 +1054,9 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
   .completion-metadata > div { grid-template-columns: 82px minmax(0, 1fr); }
   .server-inspection-detail .hose-check-row { grid-template-columns: 1fr; }
 }
+.manager-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.manager-dashboard-card { min-height: 110px; text-align: left; font-size: 1.1rem; }
+.manager-inline-form { display: grid; gap: 0.75rem; max-width: 440px; margin-bottom: 1.5rem; }
+.manager-technician-list, .manager-schedule-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+.manager-technician-list li, .manager-schedule-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid #d6dde5; border-radius: 8px; }
+.manager-schedule-list label { margin-left: auto; }

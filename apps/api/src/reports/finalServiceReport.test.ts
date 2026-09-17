@@ -49,7 +49,6 @@ const primary = (systemKey: string, clientUuid: string) => ({ system_key: system
   attachment_field_path: null, attachment_evidence_policy_id: null, attachment_mime_type: null, attachment_source_sha256: null, attachment_stored_sha256: null,
   attachment_source_size_bytes: null, attachment_stored_size_bytes: null, attachment_source_width: null, attachment_source_height: null, attachment_width: null, attachment_height: null });
 function form(systemKey: string, clientUuid: string, locationId: string | null = null) {
-  const system = configurationSnapshot.enabledSystems.find((item) => item.systemKey === systemKey)!;
   return { ...primary(systemKey, clientUuid), instance_key: locationId ? `location:${locationId}` : "primary", location_id: locationId, display_sequence: 1,
     master_template_version_id: ids[26], customer_configuration_revision_id: ids[25],
     inspection_snapshot: { schemaVersion: 1, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configurationSnapshot.customer, configuration: configurationSnapshot.configuration, template: { id: ids[26], code: "MFE-FSSR", version: 1 }, system: { key: systemKey, displayName: "CO2", definition: co2Definition, resolvedControls: co2Controls, repetitionMode: "per_location" }, instance: { instanceKey: `location:${locationId}`, displaySequence: 1, zone: null, location: { id: locationId, key: "co2-room", displayName: "CO2 Room", sortOrder: 1 } } }, response_payload: acceptedCo2Response,
@@ -403,6 +402,43 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   assert.ok(!extractPdfText(cleanPdf).includes("Remarks:"), "no finding anywhere -> no Remarks block");
   // Secondary: the findings + conditionDetail lines still add measurable rendered content.
   assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
+});
+
+test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Systems when present, and omits them cleanly when absent", async () => {
+  const base: FinalServiceReport = {
+    customer: "Cover Customer", site: "Cover Site", serviceDate: "2026-09-13", jobReference: "SV-COVER-1",
+    completedAt: "2026-09-13T00:00:00.000Z", completedBy: "inspector-one",
+    systems: [
+      { systemKey: "hose_reel", label: "Hose Reel System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["Primary inspection"] },
+      { systemKey: "co2_fire_extinguisher", label: "CO2 System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["CO2 Room"] }
+    ],
+    sections: []
+  };
+  const withCoverFields: FinalServiceReport = {
+    ...base,
+    telephone: "03-1234567", contact: "Ali Bin Ahmad", serviceCallNumber: "SC-4821", arrival: "09:15", departure: "11:45"
+  };
+  const withPdf = await renderFinalServiceReportPdf(withCoverFields);
+  assert.equal(withPdf.subarray(0, 5).toString("binary"), "%PDF-");
+  const withRendered = extractPdfText(withPdf);
+  assert.ok(withRendered.includes("Telephone: 03-1234567"), "PDF cover carries Telephone");
+  assert.ok(withRendered.includes("Contact: Ali Bin Ahmad"), "PDF cover carries Contact");
+  assert.ok(withRendered.includes("Service Call No: SC-4821"), "PDF cover carries Service Call No");
+  assert.ok(withRendered.includes("Arrival: 09:15"), "PDF cover carries Arrival");
+  assert.ok(withRendered.includes("Departure: 11:45"), "PDF cover carries Departure");
+  assert.ok(withRendered.includes("Systems: Hose Reel System, CO2 System"), "PDF cover derives the Systems checklist from report.systems");
+
+  // A historical job predating this feature has none of the five optional fields.
+  const withoutPdf = await renderFinalServiceReportPdf(base);
+  assert.equal(withoutPdf.subarray(0, 5).toString("binary"), "%PDF-");
+  const withoutRendered = extractPdfText(withoutPdf);
+  assert.ok(!withoutRendered.includes("Telephone:"), "no blank Telephone line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("Contact:"), "no blank Contact line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("Service Call No:"), "no blank Service Call No line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("Arrival:"), "no blank Arrival line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("Departure:"), "no blank Departure line for a job that never captured it");
+  // Systems is unconditional - it's always derivable from report.systems, old job or new.
+  assert.ok(withoutRendered.includes("Systems: Hose Reel System, CO2 System"), "Systems checklist still renders for a job predating this feature");
 });
 
 /* ------------------------------------------------------------------------- *

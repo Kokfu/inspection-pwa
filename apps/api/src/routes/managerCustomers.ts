@@ -199,7 +199,10 @@ type EnabledSystem = { id: string; key: string; displayName: string; sortOrder: 
 type Zone = { id: string; enabledSystemId: string; key: string; displayName: string; sortOrder: number };
 type Location = { id: string; enabledSystemId: string; zoneId: string | null; key: string; displayName: string; presetRowCount: number; rowPreset: unknown; sortOrder: number };
 type SupportedSystem = Pick<CatalogSystem, "key" | "displayName" | "sortOrder"> & { assignable: boolean; unavailableReason?: string };
-type CustomerCreationInput = { requestId: string; displayName: string; siteDisplayName: string; systemKeys: string[]; fingerprint: string };
+type CustomerCreationInput = {
+  requestId: string; displayName: string; siteDisplayName: string; systemKeys: string[];
+  contactPhone: string | null; contactPerson: string | null; fingerprint: string;
+};
 
 export class ManagerCustomerError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
@@ -223,6 +226,15 @@ function requiredText(value: unknown, field: string) {
   return value.trim();
 }
 
+function optionalText(value: unknown, field: string, maxLength: number) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.trim().length > maxLength) {
+    throw new ManagerCustomerError("INVALID_REQUEST", `${field} must be at most ${maxLength} characters.`);
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
 function systemKeys(value: unknown) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 32 || value.some((key) => typeof key !== "string")) {
     throw new ManagerCustomerError("INVALID_SYSTEM_KEYS", "Select one or more supported services.");
@@ -235,19 +247,23 @@ function systemKeys(value: unknown) {
 }
 
 function parseCustomerCreation(value: unknown): CustomerCreationInput {
-  const body = exactBody(value, ["requestId", "displayName", "siteDisplayName", "systemKeys"]);
+  const body = exactBody(value, ["requestId", "displayName", "siteDisplayName", "systemKeys", "contactPhone", "contactPerson"]);
   if (typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)) {
     throw new ManagerCustomerError("INVALID_REQUEST", "requestId must be a valid UUID.");
   }
   const displayName = requiredText(body.displayName, "displayName");
   const siteDisplayName = requiredText(body.siteDisplayName, "siteDisplayName");
   const keys = systemKeys(body.systemKeys);
+  const contactPhone = optionalText(body.contactPhone, "contactPhone", 40);
+  const contactPerson = optionalText(body.contactPerson, "contactPerson", 160);
   const fingerprint = createHash("sha256").update(JSON.stringify({
     displayName: displayName.toLocaleLowerCase("en-US"),
     siteDisplayName: siteDisplayName.toLocaleLowerCase("en-US"),
-    systemKeys: [...keys].sort()
+    systemKeys: [...keys].sort(),
+    contactPhone: contactPhone?.toLocaleLowerCase("en-US") ?? null,
+    contactPerson: contactPerson?.toLocaleLowerCase("en-US") ?? null
   })).digest("hex");
-  return { requestId: body.requestId, displayName, siteDisplayName, systemKeys: keys, fingerprint };
+  return { requestId: body.requestId, displayName, siteDisplayName, systemKeys: keys, contactPhone, contactPerson, fingerprint };
 }
 
 async function loadSupportedCatalog(database: Pick<PoolClient, "query">): Promise<CatalogSystem[]> {
@@ -385,8 +401,9 @@ async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: 
 }
 
 export async function loadManagerCustomer(customerId: string, database: Pick<Pool, "query"> = pool) {
-  const customerResult = await database.query<{ id: string; code: string; displayName: string }>(`
-    SELECT id, customer_code AS code, display_name AS "displayName" FROM customers
+  const customerResult = await database.query<{ id: string; code: string; displayName: string; nextServiceDueDate: string | null; contactPhone: string | null; contactPerson: string | null }>(`
+    SELECT id, customer_code AS code, display_name AS "displayName", next_service_due_date::text AS "nextServiceDueDate",
+      contact_phone AS "contactPhone", contact_person AS "contactPerson" FROM customers
     WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
   const customer = customerResult.rows[0];
   if (!customer) return undefined;
@@ -535,10 +552,10 @@ async function createCustomer(
   const customerId = randomUUID();
   const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const inserted = await client.query<{ id: string }>(`
-    INSERT INTO customers (id, customer_code, display_name, is_demo, is_active)
-    VALUES ($1,$2,$3,false,true)
+    INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person)
+    VALUES ($1,$2,$3,false,true,$4,$5)
     ON CONFLICT ((lower(btrim(display_name)))) WHERE is_active DO NOTHING
-    RETURNING id`, [customerId, code, input.displayName]);
+    RETURNING id`, [customerId, code, input.displayName, input.contactPhone, input.contactPerson]);
   if (!inserted.rows[0]) {
     throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
   }
@@ -584,6 +601,53 @@ export function createManagerCustomersRouter(
   router.get("/manager/customers", requireRole("admin"), async (_request, response, next) => {
     try { response.setHeader("Cache-Control", "private, no-store"); response.json({ customers: await listManagerCustomers(database) }); } catch (error) { next(error); }
   });
+  router.get("/manager/customers/upcoming-service", requireRole("admin"), async (_request, response, next) => {
+    try {
+      const result = await database.query(`SELECT id, customer_code AS code, display_name AS "displayName", next_service_due_date::text AS "nextServiceDueDate"
+        FROM customers WHERE is_active=true AND is_demo=false ORDER BY next_service_due_date ASC NULLS LAST, display_name, id`);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ customers: result.rows.filter((row) => row.nextServiceDueDate !== null), unscheduledCustomers: result.rows.filter((row) => row.nextServiceDueDate === null) });
+    } catch (error) { next(error); }
+  });
+  router.put("/manager/customers/:customerId/next-service-due-date", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      const value = exactBody(request.body, ["nextServiceDueDate"]).nextServiceDueDate;
+      if (value !== null && (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)
+        || value.startsWith("0000") || !Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+        || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) {
+        throw new ManagerCustomerError("INVALID_NEXT_SERVICE_DUE_DATE", "Use a valid YYYY-MM-DD date or null.");
+      }
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(`UPDATE customers SET next_service_due_date=$2 WHERE id=$1 AND is_active=true AND is_demo=false RETURNING id`, [customerId, value]);
+      if (!result.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_customer_next_service_due_date_updated", "customer", customerId);
+      await client.query("COMMIT");
+      response.json({ customer: await loadManagerCustomer(customerId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+  router.put("/manager/customers/:customerId/contact-details", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      const body = exactBody(request.body, ["contactPhone", "contactPerson"]);
+      const contactPhone = optionalText(body.contactPhone, "contactPhone", 40);
+      const contactPerson = optionalText(body.contactPerson, "contactPerson", 160);
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(`UPDATE customers SET contact_phone=$2, contact_person=$3 WHERE id=$1 AND is_active=true AND is_demo=false RETURNING id`, [customerId, contactPhone, contactPerson]);
+      if (!result.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_customer_contact_details_updated", "customer", customerId);
+      await client.query("COMMIT");
+      response.json({ customer: await loadManagerCustomer(customerId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
   router.get("/manager/customers/:customerId", requireRole("admin"), async (request, response, next) => {
     try {
       const customerId = request.params.customerId;
@@ -606,14 +670,15 @@ export function createManagerCustomersRouter(
     let client: PoolClient | undefined;
     try {
       client = await database.connect();
-      const body = exactBody(request.body, ["displayName", "siteDisplayName", "systemKeys"]);
+      const body = exactBody(request.body, ["displayName", "siteDisplayName", "systemKeys", "contactPhone", "contactPerson"]);
       const displayName = requiredText(body.displayName, "displayName"); const siteDisplayName = requiredText(body.siteDisplayName, "siteDisplayName"); const keys = systemKeys(body.systemKeys);
+      const contactPhone = optionalText(body.contactPhone, "contactPhone", 40); const contactPerson = optionalText(body.contactPerson, "contactPerson", 160);
       await client.query("BEGIN"); await requireSupportedKeys(client, keys);
       assertLocationDependentAssignments(keys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
       const duplicate = await client.query(`SELECT id FROM customers WHERE is_active = true AND lower(btrim(display_name)) = lower(btrim($1)) LIMIT 1 FOR UPDATE`, [displayName]);
       if (duplicate.rows[0]) throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
       const customerId = randomUUID(); const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-      await client.query(`INSERT INTO customers (id, customer_code, display_name, is_demo, is_active) VALUES ($1,$2,$3,false,true)`, [customerId, code, displayName]);
+      await client.query(`INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person) VALUES ($1,$2,$3,false,true,$4,$5)`, [customerId, code, displayName, contactPhone, contactPerson]);
       await client.query(`INSERT INTO customer_sites (id, customer_id, site_code, display_name, is_active) VALUES ($1,$2,'PRIMARY',$3,true)`, [randomUUID(), customerId, siteDisplayName]);
       const revisionId = randomUUID();
       await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1,$2,(SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$3 AND publication_status='published'),1,'active')`, [revisionId, customerId, customerCatalogVersion]);

@@ -97,6 +97,35 @@ test("create service visit rejects client-controlled creation date and time", ()
   assert.equal(parseCreateServiceVisit({ ...input, systemKeys: [] }), undefined);
 });
 
+test("create service visit accepts optional cover fields and rejects malformed ones", () => {
+  const input = { requestId: ids.request, customerId: ids.customer, siteId: ids.site, systemKeys: ["hose_reel"] };
+  // Absent entirely: all three normalize to null, no field is mandatory.
+  const withoutCoverFields = parseCreateServiceVisit(input);
+  assert.equal(withoutCoverFields?.serviceCallNumber, null);
+  assert.equal(withoutCoverFields?.arrivalTime, null);
+  assert.equal(withoutCoverFields?.departureTime, null);
+  // Present and valid.
+  const withCoverFields = parseCreateServiceVisit({
+    ...input, serviceCallNumber: " SC-4821 ", arrivalTime: "09:15", departureTime: "11:45"
+  });
+  assert.equal(withCoverFields?.serviceCallNumber, "SC-4821");
+  assert.equal(withCoverFields?.arrivalTime, "09:15");
+  assert.equal(withCoverFields?.departureTime, "11:45");
+  // Empty string normalizes to null, same as absent (no field is mandatory).
+  const withBlankCoverFields = parseCreateServiceVisit({
+    ...input, serviceCallNumber: "  ", arrivalTime: "", departureTime: null
+  });
+  assert.equal(withBlankCoverFields?.serviceCallNumber, null);
+  assert.equal(withBlankCoverFields?.arrivalTime, null);
+  assert.equal(withBlankCoverFields?.departureTime, null);
+  // Malformed values are rejected outright, not silently dropped.
+  assert.equal(parseCreateServiceVisit({ ...input, arrivalTime: "24:00" }), undefined);
+  assert.equal(parseCreateServiceVisit({ ...input, arrivalTime: "9:30" }), undefined);
+  assert.equal(parseCreateServiceVisit({ ...input, departureTime: "not-a-time" }), undefined);
+  assert.equal(parseCreateServiceVisit({ ...input, serviceCallNumber: "x".repeat(81) }), undefined);
+  assert.equal(parseCreateServiceVisit({ ...input, arrivalTime: 930 }), undefined);
+});
+
 test("new service visit is server-identified, scheduled, blank, and leaves completed history untouched", async () => {
   const database = new FakeServiceVisitDatabase();
   const result = await createServiceVisit(database as never, {

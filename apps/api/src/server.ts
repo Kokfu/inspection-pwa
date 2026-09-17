@@ -13,6 +13,7 @@ import { stagedEvidenceRouter } from "./routes/stagedEvidence.js";
 import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
 import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { managerCustomersRouter } from "./routes/managerCustomers.js";
+import { managerTechniciansRouter } from "./routes/managerTechnicians.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -32,6 +33,7 @@ app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
 app.use(managerServiceVisitsRouter);
 app.use(managerCustomersRouter);
+app.use(managerTechniciansRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);
 app.use(stagedEvidenceRouter);

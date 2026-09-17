@@ -200,3 +200,61 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
     await database.end();
   }
 });
+
+test("service call number, arrival, and departure persist on real PostgreSQL and are readable by the final-report cover query", {
+  skip: !databaseUrl
+}, async () => {
+  assert.equal(new URL(databaseUrl!).pathname, "/phase6_seed_integration");
+  const database = new pg.Pool({ connectionString: databaseUrl });
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    await runMigrations(database);
+    const users = await database.query<{ id: number }>(`
+      INSERT INTO users (username, password_hash, role) VALUES ('cover-fields-tech', 'not-used', 'inspector') RETURNING id`);
+    const actor = Number(users.rows[0]!.id);
+
+    const withCoverFields = await retryThroughRoute(database, actor, {
+      requestId: "51000000-0000-4000-8000-000000000010", customerId, siteId, systemKeys: ["portable_fire_extinguisher"],
+      serviceCallNumber: "SC-7734", arrivalTime: "09:15", departureTime: "11:45"
+    });
+    assert.equal(withCoverFields.response.status, 201);
+    const withCoverFieldsJob = (await withCoverFields.response.json() as { job: { id: string } }).job;
+    assert.deepEqual((await database.query(`
+      SELECT service_call_number AS "serviceCallNumber", to_char(arrival_time, 'HH24:MI') AS "arrivalTime", to_char(departure_time, 'HH24:MI') AS "departureTime"
+      FROM inspection_jobs WHERE id = $1`, [withCoverFieldsJob.id])).rows[0],
+      { serviceCallNumber: "SC-7734", arrivalTime: "09:15", departureTime: "11:45" },
+      "cover fields persist exactly as sent through the real HTTP route"
+    );
+    // Same SELECT shape finalServiceReport.ts uses to read these columns for the PDF cover.
+    assert.deepEqual((await database.query(`
+      SELECT job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time, to_char(job.departure_time, 'HH24:MI') AS departure_time
+      FROM inspection_jobs job WHERE job.id = $1`, [withCoverFieldsJob.id])).rows[0],
+      { service_call_number: "SC-7734", arrival_time: "09:15", departure_time: "11:45" },
+      "finalServiceReport.ts's own SELECT shape reads the same values back"
+    );
+
+    // Omitted entirely: all three stay null, matching "no header field is mandatory".
+    const withoutCoverFields = await retryThroughRoute(database, actor, {
+      requestId: "51000000-0000-4000-8000-000000000011", customerId, siteId, systemKeys: ["portable_fire_extinguisher"]
+    });
+    assert.equal(withoutCoverFields.response.status, 201);
+    const withoutCoverFieldsJob = (await withoutCoverFields.response.json() as { job: { id: string } }).job;
+    assert.deepEqual((await database.query(`
+      SELECT service_call_number AS "serviceCallNumber", arrival_time AS "arrivalTime", departure_time AS "departureTime"
+      FROM inspection_jobs WHERE id = $1`, [withoutCoverFieldsJob.id])).rows[0],
+      { serviceCallNumber: null, arrivalTime: null, departureTime: null }
+    );
+
+    // Malformed arrival time is rejected before any row is written.
+    const malformed = await retryThroughRoute(database, actor, {
+      requestId: "51000000-0000-4000-8000-000000000012", customerId, siteId, systemKeys: ["portable_fire_extinguisher"], arrivalTime: "24:99"
+    });
+    assert.equal(malformed.response.status, 400);
+    assert.equal((await database.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM inspection_jobs WHERE creation_request_id = $1",
+      ["51000000-0000-4000-8000-000000000012"]
+    )).rows[0]?.count, "0", "a malformed cover field never reaches the database");
+  } finally {
+    await database.end();
+  }
+});

@@ -24,7 +24,7 @@ export type ManagerServiceVisit = {
 };
 
 export type ManagerCustomer = {
-  customer: { id: string; code: string; displayName: string };
+  customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null };
   sites: Array<{ id: string; code: string; displayName: string }>;
   configuration: {
     id: string;
@@ -41,6 +41,64 @@ export type ManagerCustomer = {
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+export type ManagerTechnician = { id: number; username: string; isActive: boolean; createdAt: string };
+export type ScheduledCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string | null };
+export type UpcomingServices = { customers: ScheduledCustomer[]; unscheduledCustomers: ScheduledCustomer[] };
+
+function unavailable(): never { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); }
+function isTechnician(value: unknown): value is ManagerTechnician {
+  return isPlainObject(value) && Number.isSafeInteger(value.id) && Number(value.id) > 0
+    && typeof value.username === "string" && typeof value.isActive === "boolean"
+    && typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt));
+}
+function isDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !value.startsWith("0000")
+    && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+function isScheduledCustomer(value: unknown): value is ScheduledCustomer {
+  return isPlainObject(value) && typeof value.id === "string" && typeof value.code === "string"
+    && typeof value.displayName === "string" && (value.nextServiceDueDate === null || isDate(value.nextServiceDueDate));
+}
+export async function loadManagerTechnicians(signal?: AbortSignal): Promise<ManagerTechnician[]> {
+  const result = await managerRequest<unknown>("/api/manager/technicians", "GET", "technicians", undefined, signal);
+  if (!Array.isArray(result) || !result.every(isTechnician) || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
+  return result;
+}
+export async function createManagerTechnician(input: { username: string; password: string }): Promise<ManagerTechnician> {
+  const result = await managerRequest<unknown>("/api/manager/technicians", "POST", "technician", input);
+  if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive) unavailable();
+  return result;
+}
+export async function deactivateManagerTechnician(id: number): Promise<ManagerTechnician> {
+  const result = await managerRequest<unknown>(`/api/manager/technicians/${id}/deactivate`, "POST", "technician");
+  if (!isTechnician(result) || result.id !== id || result.isActive) unavailable();
+  return result;
+}
+export async function saveCustomerNextServiceDueDate(id: string, nextServiceDueDate: string | null): Promise<ManagerCustomer> {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/next-service-due-date`, "PUT", "customer", { nextServiceDueDate });
+  if (!isManagerCustomer(result) || result.customer.id !== id || result.customer.nextServiceDueDate !== nextServiceDueDate) unavailable();
+  return result;
+}
+export async function saveCustomerContactDetails(
+  id: string, contactPhone: string | null, contactPerson: string | null
+): Promise<ManagerCustomer> {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/contact-details`, "PUT", "customer", { contactPhone, contactPerson });
+  if (!isManagerCustomer(result) || result.customer.id !== id
+    || (result.customer.contactPhone ?? null) !== contactPhone
+    || (result.customer.contactPerson ?? null) !== contactPerson) unavailable();
+  return result;
+}
+export async function loadUpcomingServices(signal?: AbortSignal): Promise<UpcomingServices> {
+  const result = await managerRequest<Record<string, unknown>>("/api/manager/customers/upcoming-service", "GET", null, undefined, signal);
+  const { customers, unscheduledCustomers } = result;
+  if (!Array.isArray(customers) || !Array.isArray(unscheduledCustomers)
+    || !customers.every((row) => isScheduledCustomer(row) && row.nextServiceDueDate !== null)
+    || !unscheduledCustomers.every((row) => isScheduledCustomer(row) && row.nextServiceDueDate === null)) unavailable();
+  const ids = [...customers, ...unscheduledCustomers].map((row: ScheduledCustomer) => row.id);
+  if (new Set(ids).size !== ids.length) unavailable();
+  return { customers, unscheduledCustomers };
+}
 
 async function readBody(response: Response): Promise<Record<string, unknown>> {
   if (response.status === 401 || response.status === 403) {
@@ -83,7 +141,7 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
 }
 
 export type ManagerServiceHistoryFilters = {
-  customerId: string;
+  customerId?: string;
   siteId?: string;
   status?: "open" | "closed";
   systemKey?: string;
@@ -105,7 +163,7 @@ export async function loadManagerServiceHistory(
   signal?: AbortSignal
 ): Promise<{ serviceVisits: ManagerServiceVisit[]; nextCursor: string | null; totalCount: number }> {
   const query = new URLSearchParams({
-    customerId: filters.customerId,
+    ...(filters.customerId ? { customerId: filters.customerId } : {}),
     ...(filters.siteId ? { siteId: filters.siteId } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.systemKey ? { systemKey: filters.systemKey } : {}),
@@ -153,7 +211,7 @@ export type ManagerLabelOverrides = {
   overrides: Record<string, string>;
 };
 
-async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT", key: string, body?: unknown, signal?: AbortSignal) {
+async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT", key: string | null, body?: unknown, signal?: AbortSignal) {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -161,7 +219,7 @@ async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT", k
       ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
     });
   } catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
-  return readResponse<T>(response, key);
+  return key === null ? await readBody(response) as T : readResponse<T>(response, key);
 }
 
 export async function loadManagerCustomers(signal?: AbortSignal) {
@@ -174,7 +232,10 @@ export function loadManagerCustomer(customerId: string, signal?: AbortSignal) {
   return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}`, "GET", "customer", undefined, signal);
 }
 
-export function createManagerCustomer(input: { displayName: string; siteDisplayName: string; systemKeys: string[] }) {
+export function createManagerCustomer(input: {
+  displayName: string; siteDisplayName: string; systemKeys: string[];
+  contactPhone?: string; contactPerson?: string;
+}) {
   return managerRequest<ManagerCustomer>("/api/manager/customers", "POST", "customer", input);
 }
 
@@ -434,6 +495,8 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
     || !isPlainObject(value.customer)
       || typeof value.customer.id !== "string" || typeof value.customer.code !== "string"
       || typeof value.customer.displayName !== "string"
+      || (value.customer.contactPhone !== undefined && value.customer.contactPhone !== null && typeof value.customer.contactPhone !== "string")
+      || (value.customer.contactPerson !== undefined && value.customer.contactPerson !== null && typeof value.customer.contactPerson !== "string")
     || !isPlainObject(value.configuration)
       || typeof value.configuration.id !== "string"
       || typeof value.configuration.revision !== "number"

@@ -22,6 +22,8 @@ async function close(server: Server) {
 }
 
 test("manager customer transaction integration", { skip: !databaseUrl }, async () => {
+  assert.equal(new URL(databaseUrl!).hostname, "127.0.0.1");
+  assert.equal(new URL(databaseUrl!).port, "55432");
   assert.equal(new URL(databaseUrl!).pathname, "/phase6_seed_integration", "manager integration only permits its dedicated database");
   const database = new pg.Pool({ connectionString: databaseUrl });
   try {
@@ -38,7 +40,7 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       else response.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
     });
     const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const address = server.address() as { port: number };
-    const request = async (path: string, method: "GET" | "POST", role?: "admin" | "inspector", body?: unknown) => fetch(`http://127.0.0.1:${address.port}${path}`, { method, headers: { ...(role ? { "x-role": role } : {}), ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const request = async (path: string, method: "GET" | "POST" | "PUT", role?: "admin" | "inspector", body?: unknown) => fetch(`http://127.0.0.1:${address.port}${path}`, { method, headers: { ...(role ? { "x-role": role } : {}), ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     try {
       const allPaths: Array<[string, "GET" | "POST", unknown?]> = [
         ["/manager/customers", "GET"], ["/manager/customers/00000000-0000-4000-8000-000000000830", "GET"],
@@ -80,10 +82,46 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       const malformed = await request(`/customers/${makSitiId}/configuration`, "GET", "admin");
       assert.deepEqual((await malformed.json() as { configuration: { enabledSystems: Array<{ key: string }> } }).configuration.enabledSystems.map((system) => system.key), ["hose_reel", "fire_alarm_detector", "portable_fire_extinguisher"], "technician endpoint omits malformed legacy CO2 while retaining valid systems");
 
-      const create = await request("/manager/customers", "POST", "admin", { displayName: "  Integration Customer  ", siteDisplayName: "Primary Service Site", systemKeys: ["fire_alarm_detector"] });
-      assert.equal(create.status, 201); const created = await create.json() as { customer: { customer: { id: string; displayName: string } } }; const createdId = created.customer.customer.id;
+      const create = await request("/manager/customers", "POST", "admin", { displayName: "  Integration Customer  ", siteDisplayName: "Primary Service Site", systemKeys: ["fire_alarm_detector"], contactPhone: " 03-1234567 ", contactPerson: " Ali Bin Ahmad " });
+      assert.equal(create.status, 201); const created = await create.json() as { customer: { customer: { id: string; displayName: string; contactPhone?: string | null; contactPerson?: string | null } } }; const createdId = created.customer.customer.id;
       assert.equal(created.customer.customer.displayName, "Integration Customer");
+      assert.equal(created.customer.customer.contactPhone, "03-1234567", "manager create trims and returns contact phone");
+      assert.equal(created.customer.customer.contactPerson, "Ali Bin Ahmad", "manager create trims and returns contact person");
       assert.deepEqual((await database.query(`SELECT (SELECT count(*)::int FROM customers WHERE id=$1) customer, (SELECT count(*)::int FROM customer_sites WHERE customer_id=$1) site, (SELECT count(*)::int FROM customer_configuration_revisions WHERE customer_id=$1 AND revision=1 AND status='active') revision, (SELECT count(*)::int FROM audit_events WHERE entity_id=$1::text AND action='manager_customer_created') audit`, [createdId])).rows[0], { customer: 1, site: 1, revision: 1, audit: 1 });
+      // Contact details are customer authority, editable independent of configuration/history.
+      const contactPath = '/manager/customers/' + createdId + '/contact-details';
+      assert.equal((await request(contactPath, "PUT", undefined, { contactPhone: null, contactPerson: null })).status, 401);
+      assert.equal((await request(contactPath, "PUT", "inspector", { contactPhone: null, contactPerson: null })).status, 403);
+      assert.equal((await request('/manager/customers/71000000-0000-4000-8000-000000000099/contact-details', "PUT", "admin", { contactPhone: null, contactPerson: null })).status, 404);
+      const savedContact = await request(contactPath, "PUT", "admin", { contactPhone: "04-9998888", contactPerson: "Siti Nur" });
+      assert.equal(savedContact.status, 200);
+      const savedContactBody = await savedContact.json() as { customer: { customer: { contactPhone?: string | null; contactPerson?: string | null } } };
+      assert.equal(savedContactBody.customer.customer.contactPhone, "04-9998888");
+      assert.equal(savedContactBody.customer.customer.contactPerson, "Siti Nur");
+      assert.deepEqual((await database.query("SELECT contact_phone AS \"contactPhone\", contact_person AS \"contactPerson\" FROM customers WHERE id=$1", [createdId])).rows[0], { contactPhone: "04-9998888", contactPerson: "Siti Nur" });
+      const clearedContact = await request(contactPath, "PUT", "admin", { contactPhone: null, contactPerson: null });
+      assert.equal(clearedContact.status, 200);
+      assert.equal((await clearedContact.json() as { customer: { customer: { contactPhone?: string | null } } }).customer.customer.contactPhone, null, "explicit null clears a previously-set contact field");
+      assert.equal((await request(contactPath, "PUT", "admin", { contactPhone: "x".repeat(41), contactPerson: null })).status, 400, "over-length contact phone is rejected");
+      // Manual scheduling is customer authority, independent of configuration/history.
+      const duePath = '/manager/customers/' + createdId + '/next-service-due-date';
+      assert.equal((await request(duePath, "PUT", undefined, { nextServiceDueDate: null })).status, 401);
+      assert.equal((await request(duePath, "PUT", "inspector", { nextServiceDueDate: null })).status, 403);
+      for (const value of ["2026-02-30", "2026-13-01", "2026-1-01", "0000-01-01", 12, "tomorrow"]) assert.equal((await request(duePath, "PUT", "admin", { nextServiceDueDate: value })).status, 400);
+      assert.equal((await request('/manager/customers/71000000-0000-4000-8000-000000000099/next-service-due-date', "PUT", "admin", { nextServiceDueDate: null })).status, 404);
+      const savedDue = await request(duePath, "PUT", "admin", { nextServiceDueDate: "2026-10-10" }); assert.equal(savedDue.status, 200);
+      assert.equal((await savedDue.json() as { customer: { customer: { nextServiceDueDate: string } } }).customer.customer.nextServiceDueDate, "2026-10-10");
+      assert.equal((await (await request('/manager/customers/' + createdId, "GET", "admin")).json() as { customer: { customer: { nextServiceDueDate: string } } }).customer.customer.nextServiceDueDate, "2026-10-10");
+      assert.equal((await request('/manager/customers/' + makSitiId + '/next-service-due-date', "PUT", "admin", { nextServiceDueDate: "2026-09-01" })).status, 200);
+      const upcoming = await request('/manager/customers/upcoming-service', "GET", "admin"); assert.equal(upcoming.status, 200);
+      const schedule = await upcoming.json() as { customers: Array<{ id: string; nextServiceDueDate: string }>; unscheduledCustomers: Array<{ id: string; nextServiceDueDate: null }> };
+      assert.deepEqual(schedule.customers.map(c => c.id), [makSitiId, createdId]); assert.ok(schedule.unscheduledCustomers.length > 0); assert.ok(schedule.unscheduledCustomers.every(c => c.nextServiceDueDate === null));
+      assert.equal((await request(duePath, "PUT", "admin", { nextServiceDueDate: null })).status, 200);
+      assert.ok((await (await request('/manager/customers/upcoming-service', "GET", "admin")).json() as typeof schedule).unscheduledCustomers.some(c => c.id === createdId));
+      await database.query("UPDATE customers SET is_active=false WHERE id=$1", [createdId]);
+      assert.equal((await request(duePath, "PUT", "admin", { nextServiceDueDate: "2026-10-10" })).status, 404);
+      await database.query("UPDATE customers SET is_active=true WHERE id=$1", [createdId]);
+      assert.equal((await database.query("SELECT count(*)::int AS n FROM audit_events WHERE action='manager_customer_next_service_due_date_updated' AND entity_id=$1", [createdId])).rows[0].n, 2);
       const createdConfigurationBeforeSite = await database.query<{ id: string; systems: string[] }>(`SELECT revision.id, array_agg(enabled.system_key ORDER BY enabled.sort_order) AS systems FROM customer_configuration_revisions revision INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id=revision.id WHERE revision.customer_id=$1 AND revision.status='active' GROUP BY revision.id`, [createdId]);
       const createdPrimarySite = (await database.query<{ id: string }>("SELECT id FROM customer_sites WHERE customer_id=$1 AND site_code='PRIMARY'", [createdId])).rows[0]!.id;
       const createdVisitClient = await database.connect(); let createdVisitId: string;

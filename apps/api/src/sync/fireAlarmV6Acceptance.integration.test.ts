@@ -17,7 +17,6 @@ import { stagedEvidenceRouter } from "../routes/stagedEvidence.js";
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const uuid = () => randomUUID();
 const time = "2026-08-27T00:00:00.000Z";
-const uuidLike = (index: number) => `81000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 
 test("V6 reservations and acceptance are isolated and atomic on PostgreSQL", { skip: !databaseUrl }, async () => {
   assert.equal(new URL(databaseUrl!).port, "55432", "test requires the dedicated isolated PostgreSQL port");
@@ -76,7 +75,6 @@ test("V6 reservations and acceptance are isolated and atomic on PostgreSQL", { s
     const concurrent = await Promise.all([acceptFireAlarmV6Inspection(item, actors[0]), acceptFireAlarmV6Inspection(item, actors[0])]);
     assert.equal(concurrent.filter((result) => result.acceptedIds.includes(inspectionX)).length, 1, "one concurrent request creates authority");
     assert.equal(concurrent.filter((result) => result.duplicateIds.includes(inspectionX)).length, 1, "other concurrent request is an exact duplicate");
-    const accepted = concurrent.find((result) => result.acceptedIds.includes(inspectionX))!;
     const evidence = await database.query<{ status: string; form_instance_id: string | null }>(`SELECT status,form_instance_id FROM staged_inspection_evidence WHERE photo_uuid=$1`, [photoUuid]); assert.equal(evidence.rows[0]?.status, "accepted"); assert.ok(evidence.rows[0]?.form_instance_id);
     const stored = (await database.query<{ storage_relative_path: string }>(`SELECT storage_relative_path FROM staged_inspection_evidence WHERE photo_uuid=$1`, [photoUuid])).rows[0]!;
     const binary = await sharp({ create: { width: 1, height: 1, channels: 3, background: "white" } }).jpeg().toBuffer();

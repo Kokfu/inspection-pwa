@@ -20,7 +20,6 @@ const demoCo2SiteId = "00000000-0000-4000-8000-000000000663";
 const demoV7CustomerId = "00000000-0000-4000-8000-000000000900";
 // Operational V5 customer WITHOUT co2_fire_extinguisher — used for the fresh-enable path.
 const makSitiId = "00000000-0000-4000-8000-000000000830";
-const makSitiSiteId = "00000000-0000-4000-8000-000000000832";
 
 async function close(server: Server) {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

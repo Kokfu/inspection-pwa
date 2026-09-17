@@ -30,6 +30,23 @@ The fixed header defines customer, service date, telephone, contact, service cal
 
 Legal conditions, result legend, and report footer identity are template-owned metadata. They are not editable inspection transaction fields.
 
+### Implementation status (2026-09-13)
+
+Customer, service date, telephone, contact, service call number, arrival, departure, and
+applicable systems are now captured and rendered on the final report's cover page. Telephone and
+Contact are static per-customer fields (`customers.contact_phone`, `customers.contact_person`,
+migration `029_customer_contact_details.sql`), entered when a Manager or Technician adds a new
+customer (`apps/api/src/routes/managerCustomers.ts`) and editable later by a Manager
+(`PUT /manager/customers/:customerId/contact-details`). Service call number, arrival, and
+departure are per-visit fields (`inspection_jobs.service_call_number`/`arrival_time`/
+`departure_time`, migration `030_service_visit_cover_fields.sql`), entered when a Technician
+creates a service visit (`apps/api/src/jobs/serviceVisits.ts`, `POST
+/inspection-jobs/service-visits`) — not a permanent customer-level default, since they genuinely
+differ on every visit. All are optional, matching the paper form's own rule that no header field
+is mandatory. `apps/api/src/reports/finalServiceReport.ts` renders each only when present, so jobs
+created before this feature print exactly as before. Description, completion status beyond
+Accepted/Completed, technician confirmation date, and customer confirmation remain unimplemented.
+
 ## System Structure
 
 The schema intentionally supports only five structural blocks: checklist, measurement, repeatable table, quantity summary, and comments. A measurement row preserves one or more numeric values with their units plus the row's Good/Poor result and optional remarks. This keeps combined source rows such as Jockey Pump Cut In/Cut Out together without inventing separate result marks.

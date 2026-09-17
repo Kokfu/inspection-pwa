@@ -77,7 +77,9 @@
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "role selection");
         clickContaining("Manager");
         auth.resolve(json({ user: admin }));
-        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title") && mount.textContent.includes(visit.customer), "Manager Operations");
+        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard");
+        clickContaining("Services");
+        await waitFor(() => window.location.hash === "#/manager-operations" && mount.querySelector("#manager-home-title") && mount.textContent.includes(visit.customer), "Manager Operations");
 
         clickContaining(visit.customer);
         await waitFor(() => window.location.hash === "#/manager-service-visit/" + visit.id && mount.querySelector("#manager-detail-title"), "Operations detail navigation");
@@ -85,13 +87,13 @@
         const clickAbortedDetailRequests = abortedDetailRequests;
         if (clickDetailRequests !== 1 || clickAbortedDetailRequests !== 0) throw new Error("Operations click created duplicate or aborted detail fetches");
 
-        window.location.hash = "#/manager";
-        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager", "hashchange back to Operations");
+        window.location.hash = "#/manager-operations";
+        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager-operations", "hashchange back to Operations");
         window.location.hash = "#/manager-service-visit/" + visit.id;
         await waitFor(() => mount.querySelector("#manager-detail-title") && window.location.hash === "#/manager-service-visit/" + visit.id, "hashchange to Manager detail");
         if (detailRequests !== 2) throw new Error("hashchange did not create the expected single Manager detail request");
-        window.location.hash = "#/manager";
-        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager", "final hashchange back to Operations");
+        window.location.hash = "#/manager-operations";
+        await waitFor(() => mount.querySelector("#manager-home-title") && window.location.hash === "#/manager-operations", "final hashchange back to Operations");
         return { status: "PASS", clickDetailRequests, clickAbortedDetailRequests, hashchangeDetailRequests: detailRequests };
       } finally {
         root.unmount();

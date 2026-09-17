@@ -6,6 +6,30 @@ import type { Server } from "node:http";
 import { createManagerCustomersRouter, loadManagerCustomer, ManagerCustomerError } from "./managerCustomers.js";
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
 
+test("due date routes gate authority and reject malformed dates without database work", async () => {
+  let touched = false;
+  const database = { query() { touched = true; throw Error(); }, connect() { touched = true; throw Error(); } };
+  const app = express(); app.use(express.json());
+  app.use((request, _response, next) => { const role = request.headers["x-role"]; if (role === "admin" || role === "inspector") request.currentUser = { id: 1, username: role, role }; next(); });
+  app.use(createManagerCustomersRouter(database as never));
+  app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    response.status(error instanceof SyntaxError ? 400 : error instanceof ManagerCustomerError ? error.status : 500).json({ error: error instanceof ManagerCustomerError ? error.code : "INTERNAL_SERVER_ERROR" });
+  });
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const { port } = server.address() as { port: number };
+  const path = "/manager/customers/71000000-0000-4000-8000-000000000001/next-service-due-date";
+  const request = (url: string, method: string, role: string, body?: unknown) => fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { "x-role": role, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  try {
+    for (const role of ["", "inspector"]) {
+      assert.equal((await request(path, "PUT", role, { nextServiceDueDate: null })).status, role ? 403 : 401);
+      assert.equal((await request("/manager/customers/upcoming-service", "GET", role)).status, role ? 403 : 401);
+    }
+    for (const body of [{}, [], null, { nextServiceDueDate: "2026-02-30" }, { nextServiceDueDate: "2025-02-29" }, { nextServiceDueDate: "0000-01-01" }, { nextServiceDueDate: "2026-09-12T00:00:00Z" }, { nextServiceDueDate: null, extra: true }]) {
+      assert.equal((await request(path, "PUT", "admin", body)).status, 400);
+    }
+    assert.equal(touched, false);
+  } finally { await close(server); }
+});
+
 async function close(server: Server) {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }

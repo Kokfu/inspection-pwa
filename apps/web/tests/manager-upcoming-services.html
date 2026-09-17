@@ -1,0 +1,7 @@
+<!doctype html><html><body><div id="view"></div><pre id="failure"></pre><script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ManagerUpcomingServices } from "/src/manager/ManagerUpcomingServices.tsx";
+createRoot(document.getElementById("view")).render(React.createElement(ManagerUpcomingServices, {onAuthorityFailure: error => document.getElementById("failure").textContent=error.message}));
+</script></body></html>

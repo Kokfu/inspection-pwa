@@ -79,6 +79,15 @@ const v7FireIntercomEvidenceMigrationUrl = new URL(
 const customerLabelOverridesMigrationUrl = new URL(
   "../../migrations/027_customer_label_overrides.sql", import.meta.url
 );
+const managerSchedulingMigrationUrl = new URL(
+  "../../migrations/028_manager_technicians_and_scheduling.sql", import.meta.url
+);
+const customerContactDetailsMigrationUrl = new URL(
+  "../../migrations/029_customer_contact_details.sql", import.meta.url
+);
+const serviceVisitCoverFieldsMigrationUrl = new URL(
+  "../../migrations/030_service_visit_cover_fields.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -438,6 +447,31 @@ export async function runMigrations(
   );
   if (!labelOverridesConstraint.rows[0]?.exists) {
     await database.query(await readFile(customerLabelOverridesMigrationUrl, "utf8"));
+  }
+  // Migration 028 is atomic; its due-date column is the replay marker.
+  const managerScheduling = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='customers'::regclass
+      AND attname='next_service_due_date' AND NOT attisdropped) AS exists`
+  );
+  if (!managerScheduling.rows[0]?.exists) {
+    await database.query(await readFile(managerSchedulingMigrationUrl, "utf8"));
+  }
+  // Migration 029 adds `customers.contact_person`; its presence is the replay marker.
+  const customerContactDetails = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='customers'::regclass
+      AND attname='contact_person' AND NOT attisdropped) AS exists`
+  );
+  if (!customerContactDetails.rows[0]?.exists) {
+    await database.query(await readFile(customerContactDetailsMigrationUrl, "utf8"));
+  }
+  // Migration 030 adds `inspection_jobs.service_call_number`/`arrival_time`/
+  // `departure_time`; presence of the first column is the replay marker.
+  const serviceVisitCoverFields = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='inspection_jobs'::regclass
+      AND attname='service_call_number' AND NOT attisdropped) AS exists`
+  );
+  if (!serviceVisitCoverFields.rows[0]?.exists) {
+    await database.query(await readFile(serviceVisitCoverFieldsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

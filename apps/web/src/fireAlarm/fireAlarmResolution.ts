@@ -1,7 +1,6 @@
 import type { AuthUser } from "../auth/authApi";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
-import { localDatabase } from "../db/localDatabase";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
 import { fireAlarmJobSystemKey, getFireAlarmInspection, getOrCreateFireAlarmInspection, loadFireAlarmInspection } from "./fireAlarmRepository";
 import type { FireAlarmInspectionRecord } from "./fireAlarmTypes";

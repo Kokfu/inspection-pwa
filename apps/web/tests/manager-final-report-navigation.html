@@ -85,14 +85,14 @@
         auth.resolve(json({ user: admin }));
         await waitFor(() => mount.textContent.includes("Canvas Hose") && mount.textContent.includes("Download PDF"), "authoritative Final Report presentation");
         clickExact("Back to Operations");
-        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title") && mount.textContent.includes("Operations") && mount.textContent.includes(visit.customer), "direct Operations navigation");
+        await waitFor(() => window.location.hash === "#/manager-operations" && mount.querySelector("#manager-home-title") && mount.textContent.includes("Operations") && mount.textContent.includes(visit.customer), "direct Operations navigation");
         if (detailRequests !== 0 || calls.includes("/api/manager/service-visits/" + visit.id)) throw new Error("Final Report back navigated through manager-service-visit");
 
         clickContaining(visit.customer);
         await waitFor(() => window.location.hash === "#/manager-service-visit/" + visit.id && mount.querySelector("#manager-detail-title"), "Manager service-visit detail");
         if (detailRequests !== 1) throw new Error("Manager detail did not load exactly once");
         clickExact("Back to Operations");
-        await waitFor(() => window.location.hash === "#/manager" && mount.querySelector("#manager-home-title"), "Manager detail back to Operations");
+        await waitFor(() => window.location.hash === "#/manager-operations" && mount.querySelector("#manager-home-title"), "Manager detail back to Operations");
         return { status: "PASS", calls, detailRequests };
       } finally {
         root.unmount();
