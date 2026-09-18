@@ -1,11 +1,12 @@
 import type { ManagerServiceVisit } from "./managerApi";
 import { formatMalaysiaDateTime } from "../uiPresentation";
 
-export function ManagerOperations({ visits, loading, message, selectedVisit, onRefresh, onSelect, onBack, onViewReport, onDownloadReport }: {
+export function ManagerOperations({ visits, loading, message, selectedVisit, backLabel = "Back to Operations", onRefresh, onSelect, onBack, onViewReport, onDownloadReport }: {
   visits: ManagerServiceVisit[];
   loading: boolean;
   message: string;
   selectedVisit?: ManagerServiceVisit;
+  backLabel?: string;
   onRefresh: () => Promise<void>;
   onSelect: (visit: ManagerServiceVisit) => void;
   onBack: () => void;
@@ -13,7 +14,7 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, onR
   onDownloadReport: (visit: ManagerServiceVisit) => Promise<void>;
 }) {
   if (selectedVisit) return <section className="manager-home" aria-labelledby="manager-detail-title">
-    <button type="button" className="secondary-command" onClick={onBack}>Back to Operations</button>
+    <button type="button" className="secondary-command" onClick={onBack}>{backLabel}</button>
     <div className="workspace-heading"><div><p className="eyebrow">Service visit</p><h2 id="manager-detail-title">{selectedVisit.customer}</h2></div>
       <span className={`status-badge status-badge--${selectedVisit.status === "closed" ? "complete" : "draft"}`}>{selectedVisit.status === "closed" ? "Service Completed" : "In Progress"}</span></div>
     <dl className="job-facts"><div><dt>Site</dt><dd>{selectedVisit.site}</dd></div><div><dt>Created Date & Time</dt><dd>{formatMalaysiaDateTime(selectedVisit.createdAt)}</dd></div><div><dt>Job Reference</dt><dd>{selectedVisit.reference}</dd></div><div><dt>Inspection Progress</dt><dd>{selectedVisit.inspectionProgress.accepted}/{selectedVisit.inspectionProgress.required} complete</dd></div></dl>

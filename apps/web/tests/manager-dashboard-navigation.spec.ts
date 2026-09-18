@@ -30,5 +30,6 @@ test("dashboard has five working App hash routes and no dashboard data fetch", a
     await page.getByRole("button", { name: "Back to Home", exact: true }).click();
     await expect(page).toHaveURL(/#\/manager$/);
   }
-  expect(requests).toContain("/api/manager/service-visits?status=closed");
+  // Services Done is customer-first: it never fetches a flat service-visit list before a customer is chosen.
+  expect(requests.filter((r) => r.startsWith("/api/manager/service-visits?"))).toEqual([]);
 });

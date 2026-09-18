@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createManagerTechnician, deactivateManagerTechnician, loadManagerTechnicians, ManagerApiError, type ManagerTechnician } from "./managerApi";
 
-export function ManagerTechnicians({ onAuthorityFailure }: { onAuthorityFailure: (error: unknown) => void }) {
+export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthorityFailure: (error: unknown) => void; onOpen?: (technician: ManagerTechnician) => void }) {
   const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +37,9 @@ export function ManagerTechnicians({ onAuthorityFailure }: { onAuthorityFailure:
     {message && <p role="alert" className="form-message">{message}</p>}
     {busy && <p role="status">Updating technicians…</p>}
     <ul className="manager-technician-list">{technicians.map((technician) => <li key={technician.id}>
-      <strong>{technician.username}</strong>
+      {onOpen
+        ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
+        : <strong>{technician.username}</strong>}
       <span className={`status-badge status-badge--${technician.isActive ? "complete" : "attention"}`}>{technician.isActive ? "Active" : "Inactive"}</span>
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         if (window.confirm("Deactivate this technician? They will no longer be able to log in.")) void mutate(() => deactivateManagerTechnician(technician.id));

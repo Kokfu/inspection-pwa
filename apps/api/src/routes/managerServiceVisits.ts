@@ -15,9 +15,13 @@ type OperationalJobRow = {
   serviceDate: string | null;
   serviceTime: string | null;
   site: { id: string; displayName: string } | null;
+  technician?: ManagerServiceVisitTechnician | null;
   configurationSnapshot: unknown;
   totalCount: number;
 };
+
+/** The service visit's creating user (`inspection_jobs.created_by_user_id`); null for legacy NULL-creator rows. */
+export type ManagerServiceVisitTechnician = { id: number; displayName: string };
 
 /**
  * The row shape `buildOperationalListQuery`'s SQL actually returns. `totalCount` is read off a
@@ -39,6 +43,7 @@ export type ManagerServiceVisit = {
   serviceDate: string | null;
   serviceTime: string | null;
   status: "open" | "closed";
+  technician: ManagerServiceVisitTechnician | null;
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
   completion: NonNullable<Awaited<ReturnType<typeof loadJobCompletion>>>;
@@ -62,9 +67,13 @@ function operationalJobQuery(byId = false) {
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
-      ) END AS site
+      ) END AS site,
+      CASE WHEN creator.id IS NULL THEN NULL ELSE jsonb_build_object(
+        'id', creator.id::int, 'displayName', creator.username
+      ) END AS technician
     FROM inspection_jobs
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
+    LEFT JOIN users creator ON creator.id = inspection_jobs.created_by_user_id
     WHERE ${operationalWhere}${byId ? " AND inspection_jobs.id = $1" : ""}
     ORDER BY inspection_jobs.service_date DESC NULLS LAST, inspection_jobs.job_reference DESC, inspection_jobs.id DESC
   `;
@@ -106,6 +115,7 @@ async function presentOperationalJob(
     serviceDate: job.serviceDate,
     serviceTime: job.serviceTime,
     status: job.status,
+    technician: job.technician ?? null,
     systems: presentation.systems,
     inspectionProgress: {
       accepted: completion.acceptedUnitCount,
@@ -172,6 +182,7 @@ export type ManagerServiceVisitCursor = { serviceDate: string | null; jobReferen
 export type ManagerServiceVisitFilters = {
   customerId?: string;
   siteId?: string;
+  technicianId?: number;
   status?: "open" | "closed";
   systemKey?: string;
   from?: string;
@@ -224,6 +235,12 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
   if (siteIdRaw !== undefined && (typeof siteIdRaw !== "string" || !uuidPattern.test(siteIdRaw))) {
     throw new ManagerServiceVisitQueryError("INVALID_SITE_ID", "siteId must be a valid UUID.");
   }
+  const technicianIdRaw = query.technicianId;
+  // Same positive-integer rule as the technician deactivate route (users.id is BIGSERIAL, capped to int4 there).
+  if (technicianIdRaw !== undefined && (typeof technicianIdRaw !== "string" || !/^[1-9]\d*$/.test(technicianIdRaw)
+    || Number(technicianIdRaw) > 2147483647)) {
+    throw new ManagerServiceVisitQueryError("INVALID_TECHNICIAN_ID", "technicianId must be a positive numeric ID.");
+  }
   const statusRaw = query.status;
   if (statusRaw !== undefined && statusRaw !== "open" && statusRaw !== "closed") {
     throw new ManagerServiceVisitQueryError("INVALID_STATUS", 'status must be "open" or "closed".');
@@ -264,6 +281,7 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
   return {
     ...(typeof customerIdRaw === "string" ? { customerId: customerIdRaw } : {}),
     ...(typeof siteIdRaw === "string" ? { siteId: siteIdRaw } : {}),
+    ...(typeof technicianIdRaw === "string" ? { technicianId: Number(technicianIdRaw) } : {}),
     ...(statusRaw === "open" || statusRaw === "closed" ? { status: statusRaw } : {}),
     ...(typeof systemKeyRaw === "string" ? { systemKey: systemKeyRaw } : {}),
     ...(typeof fromRaw === "string" ? { from: fromRaw } : {}),
@@ -323,6 +341,11 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
     values.push(filters.to);
     filterConditions.push(`inspection_jobs.service_date <= $${values.length}::date`);
   }
+  if (filters.technicianId !== undefined) {
+    // An unknown technician simply matches nothing; NULL-creator legacy visits never match.
+    values.push(filters.technicianId);
+    filterConditions.push(`inspection_jobs.created_by_user_id = $${values.length}::bigint`);
+  }
 
   let cursorCondition = "";
   if (filters.cursor) {
@@ -368,9 +391,13 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
         inspection_jobs.configuration_snapshot AS "configurationSnapshot",
         CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id', site.id, 'displayName', site.display_name
-        ) END AS site
+        ) END AS site,
+        CASE WHEN creator.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'id', creator.id::int, 'displayName', creator.username
+        ) END AS technician
       FROM inspection_jobs
       LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
+      LEFT JOIN users creator ON creator.id = inspection_jobs.created_by_user_id
       WHERE ${filterConditions.join(" AND ")}
     )
     SELECT summary."totalCount", paged.*

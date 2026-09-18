@@ -3,7 +3,16 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-18 — **Slice A Sol findings remediated; full-suite baseline
+**Last updated:** 2026-09-18 — **Slice B (manager technician view + customer-first Services
+Done) implemented, uncommitted.** Admin list gains `technicianId` filter and per-item
+`technician` (null for legacy NULL-creator visits); Technician detail screen with In Progress /
+Completed tabs; Services Done searches a customer first, then groups that customer's visits by
+site with date/status/technician filters remembered for the session. No migration. Cold
+`.\scripts\Test-ManagerScheduling.ps1` exit **0**: **161 backend, 1 stale-evidence,
+8 job-progress, 26 Playwright; zero skips**. Revert proof (predicate removed, scratch copy
+outside repo): filter test FAILS. Details: [validation note](docs/manager-scheduling-validation.md).
+
+Previous entry, 2026-09-18: **Slice A Sol findings remediated; full-suite baseline
 failures explicitly retained.** PFE resolves its table inside each function after login;
 the scan of 169 web source files found no other eager module-level database capture.
 The three ownership-aware API fixtures and per-user connectivity fixture now run in the

@@ -18,6 +18,8 @@ export type ManagerServiceVisit = {
   serviceDate: string | null;
   serviceTime: string | null;
   status: "open" | "closed";
+  /** Creating technician; null for legacy visits with no recorded creator. */
+  technician?: { id: number; displayName: string } | null;
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
   completion: JobCompletion;
@@ -143,6 +145,7 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
 export type ManagerServiceHistoryFilters = {
   customerId?: string;
   siteId?: string;
+  technicianId?: number;
   status?: "open" | "closed";
   systemKey?: string;
   from?: string;
@@ -165,6 +168,7 @@ export async function loadManagerServiceHistory(
   const query = new URLSearchParams({
     ...(filters.customerId ? { customerId: filters.customerId } : {}),
     ...(filters.siteId ? { siteId: filters.siteId } : {}),
+    ...(filters.technicianId !== undefined ? { technicianId: String(filters.technicianId) } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.systemKey ? { systemKey: filters.systemKey } : {}),
     ...(filters.from ? { from: filters.from } : {}),

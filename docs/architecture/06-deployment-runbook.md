@@ -12,6 +12,30 @@
 - PostgreSQL is not exposed publicly.
 - API authentication is complete before public deployment.
 
+## Slice A ownership upgrade precondition (2026-09-18)
+
+Before deploying this upgrade, bring **every device and browser profile online** on
+the existing release. Have each technician review drafts, submit completed work,
+and sync all pending/failed work and evidence until the server confirms it. Verify
+there is no unsynced work left on any device; postpone deployment if a device is
+unavailable or work cannot be reconciled. Do not clear browser storage or uninstall
+the PWA to resolve a sync failure.
+
+After deployment, each technician must sign in online and refresh jobs/reference
+data once before returning to the field. The upgrade uses a separate IndexedDB
+workspace per user. A first launch while offline cannot establish ownership of the
+old shared cache: the user's new workspace can appear empty, with old jobs, drafts
+and Pending items absent from the UI and sync queue. This is quarantine, not deletion.
+Reconnect and complete the ownership-scoped refresh to recover attributable work.
+Once bootstrapped, that user's cached workspace remains available offline.
+
+Legacy work on jobs the technician did **not create**, and work on NULL-creator or
+otherwise unattributable jobs, remains quarantined even after refreshing. It is not
+automatically assigned to the currently signed-in technician. Resolve such work before
+deployment while the old release can still sync it; if discovered afterward, preserve
+the original device and storage and arrange an authorized recovery review. Logging in
+as another technician or clearing storage is not a recovery procedure.
+
 ## Windows Startup Behavior
 
 Document and test:

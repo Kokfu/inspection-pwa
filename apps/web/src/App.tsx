@@ -91,6 +91,8 @@ import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerHome } from "./manager/ManagerHome";
 import { ManagerOperations } from "./manager/ManagerOperations";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
+import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
+import { readManagerReturn, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
@@ -174,6 +176,7 @@ type AppRoute =
   | { name: "final-report"; jobId: string }
   | { name: "manager-home" }
   | { name: "manager-technicians" }
+  | { name: "manager-technician"; technicianId: string }
   | { name: "manager-customers" }
   | { name: "manager-operations" }
   | { name: "manager-services-done" }
@@ -198,6 +201,7 @@ function routeFromHash(): AppRoute {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "manager-technicians") return { name: "manager-technicians" };
+  if (parts[0] === "manager-technician" && parts[1]) return { name: "manager-technician", technicianId: parts[1] };
   if (parts[0] === "manager-customers") return { name: "manager-customers" };
   if (parts[0] === "manager-operations") return { name: "manager-operations" };
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
@@ -226,6 +230,7 @@ function routeFromHash(): AppRoute {
 function hashForRoute(route: AppRoute) {
   if (route.name === "development") return "#/development";
   if (route.name === "manager-technicians") return "#/manager-technicians";
+  if (route.name === "manager-technician") return `#/manager-technician/${encodeURIComponent(route.technicianId)}`;
   if (route.name === "manager-customers") return "#/manager-customers";
   if (route.name === "manager-operations") return "#/manager-operations";
   if (route.name === "manager-services-done") return "#/manager-services-done";
@@ -964,6 +969,9 @@ export function App() {
   const managerExperience = selectedExperience === "manager"
     && authState.status === "verified"
     && currentUser?.role === "admin";
+  const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
+    ? readManagerReturn()
+    : null;
 
   function selectExperience(role: ProductRole) {
     setRoleMessage("");
@@ -1042,6 +1050,26 @@ export function App() {
       return;
     }
     failClosedManagerOperations(message, false);
+  }
+
+  /** Opens a Manager visit/report; `returnTo` (null = Operations) decides where its Back goes. */
+  function openManagerVisit(name: "manager-service-visit" | "manager-final-report", jobId: string, returnTo: ManagerReturnRoute | null) {
+    rememberManagerReturn(returnTo);
+    navigate({ name, jobId });
+  }
+
+  function backFromManagerVisit() {
+    const target = readManagerReturn();
+    if (target) window.location.hash = target.hash;
+    else navigate({ name: "manager-operations" });
+  }
+
+  async function downloadManagerReport(jobId: string) {
+    try {
+      await downloadFinalReport(jobId, "/api/manager/service-visits");
+    } catch (error) {
+      handleManagerReportDownloadFailure(error);
+    }
   }
 
   async function refreshManagerVisits() {
@@ -2065,20 +2093,31 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       ) : managerExperience ? (
         !route.name.startsWith("manager-") ? <p role="status">Opening Manager Home…</p>
         : route.name === "manager-home" ? <ManagerHome navigate={navigate} />
-        : route.name === "manager-technicians" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-technicians" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
+        : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
+          ? <ManagerTechnicianDetail
+            key={`${authAuthorityGuard.current.currentGeneration}:${route.technicianId}`}
+            technicianId={Number(route.technicianId)}
+            onBack={() => navigate({ name: "manager-technicians" })}
+            onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Technician" })}
+            onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Technician" })}
+            onDownloadReport={downloadManagerReport}
+            onAuthorityFailure={handleManagerRequestFailure}
+          />
+          : <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-technicians" })}>Back to Technicians</button><p className="empty-state">Technician not found.</p></>)
         : route.name === "manager-upcoming-services" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerUpcomingServices key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-customers" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCustomerConfiguration customers={managerCustomers} loading={managerLoading} message={managerMessage} onRefresh={refreshManagerVisits} onManage={(customer) => navigate({ name: "manager-customer", customerId: customer.customer.id })} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onBack={() => navigate({ name: "manager-home" })} onSelect={(visit) => navigate({ name: "manager-service-visit", jobId: visit.id })} onViewReport={(visit) => navigate({ name: "manager-final-report", jobId: visit.id })} onDownloadReport={async (visit) => { try { await downloadFinalReport(visit.id, "/api/manager/service-visits"); } catch (error) { handleManagerReportDownloadFailure(error); } }} /></>
+        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
-          <ManagerFinalReportView jobId={route.jobId} onBack={() => navigate({ name: "manager-operations" })} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
+          <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-customer" && managerCustomer ? (
           <ManagerCustomerConfigurationDetail
             customer={managerCustomer}
             onBack={() => navigate({ name: "manager-customers" })}
             onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
             onAuthorityFailure={handleManagerRequestFailure}
-            onViewServiceVisit={(jobId) => navigate({ name: "manager-service-visit", jobId })}
-            onViewFinalReport={(jobId) => navigate({ name: "manager-final-report", jobId })}
+            onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, null)}
+            onViewFinalReport={(jobId) => openManagerVisit("manager-final-report", jobId, null)}
             onDownloadFinalReport={async (jobId) => {
               try {
                 await downloadFinalReport(jobId, "/api/manager/service-visits");
@@ -2094,9 +2133,10 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             message={managerMessage}
             selectedVisit={route.name === "manager-service-visit" ? managerVisit : undefined}
             onRefresh={refreshManagerVisits}
-            onSelect={(visit) => navigate({ name: "manager-service-visit", jobId: visit.id })}
-            onBack={() => navigate({ name: "manager-operations" })}
-            onViewReport={(visit) => navigate({ name: "manager-final-report", jobId: visit.id })}
+            backLabel={route.name === "manager-service-visit" ? managerReturn?.label : undefined}
+            onSelect={(visit) => openManagerVisit("manager-service-visit", visit.id, null)}
+            onBack={backFromManagerVisit}
+            onViewReport={(visit) => openManagerVisit("manager-final-report", visit.id, null)}
             onDownloadReport={async (visit) => {
               try {
                 await downloadFinalReport(visit.id, "/api/manager/service-visits");

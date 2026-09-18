@@ -4,8 +4,9 @@ import { FinalReportPresentation } from "../jobs/FinalReportPresentation";
 
 const managerEndpointBase = "/api/manager/service-visits";
 
-export function ManagerFinalReportView({ jobId, onBack, onAuthorizationFailure, onServerUnavailable }: {
+export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations", onBack, onAuthorizationFailure, onServerUnavailable }: {
   jobId: string;
+  backLabel?: string;
   onBack: () => void;
   onAuthorizationFailure: (message: string) => void;
   onServerUnavailable: (message: string) => void;
@@ -62,7 +63,7 @@ export function ManagerFinalReportView({ jobId, onBack, onAuthorizationFailure, 
   };
 
   return <section className="final-report" aria-labelledby="manager-final-report-title">
-    <button type="button" className="secondary-command" onClick={onBack}>Back to Operations</button>
+    <button type="button" className="secondary-command" onClick={onBack}>{backLabel}</button>
     <div className="workspace-heading">
       <div><p className="eyebrow">Completed service visit</p><h2 id="manager-final-report-title">Final Report</h2></div>
       {report ? <button type="button" disabled={downloading} onClick={() => void handleDownload()}>{downloading ? "Downloading PDF…" : "Download PDF"}</button> : null}

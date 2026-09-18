@@ -35,6 +35,74 @@ Page numbers on the sample run 1–20 (per the Summary), but **the supplied PDF 
 (Manual Break Glass). Pages 15–20 (CO2 ×3, Wet Riser, Fire Roller Shutter, Sprinkler Flow Test)
 are referenced but not included.
 
+> **AI reader: you do not need to open the PDF.** §1 + §1A are the format spec, §2 is the
+> verbatim content of every page, §3 maps it to MFE's model, §4 is the gap against MFE's current
+> generator. The scans were re-checked against this file on 2026-09-17.
+
+---
+
+## 1A. Feature specification — what a "complete, formal" MFE PDF must have
+
+Every feature seen in the sample, with an ID so build prompts and reviews can cite it
+(`implement F-C3`). "Sample evidence" names the page(s) in §2. Where MFE differs on purpose
+(MFE branding, photos) it says so.
+
+### Document-wide (F-D)
+
+| ID | Feature | Rule | Sample evidence |
+|---|---|---|---|
+| F-D1 | Paper | A4 **landscape** for all pages, cover included. | all |
+| F-D2 | Running header | Customer name, UPPERCASE, right-aligned, light grey, top of **every** page. No contractor name in the running header. | all |
+| F-D3 | Running footer | `N \| P a g e` (page number bold, then a vertical bar, then letter-spaced "Page"), bottom-right, every page. | all |
+| F-D4 | Grid tables everywhere | All content is ruled tables with 1 px black borders; no free-floating `Label: value` text. Header row bold UPPERCASE. | 3–14 |
+| F-D5 | UPPERCASE content | Labels **and** values printed in capitals. | all |
+| F-D6 | Merged cells | Allowed both across columns (one value for several units, e.g. `NOT REQUIRED FOR ELECTRIC PUMP`, `MANUAL OFF`, `CLEARED`) and down rows (group label in `DESCRIPTION` spanning its sub-rows). | 3, 6, 10 |
+| F-D7 | Literal values | Status cells hold the real reading/word (`ON`, `OK`, `N/A`, `OPENED`, `SAFETY SEAL`, `25.5`, `1/2`, `FAILED`), never a tick mark. Empty/unknown = `-`. | 3–14 |
+| F-D8 | Table page flow | A system table may continue on the next page; its header row repeats. A new system always starts on a new page. | 13, 14 |
+| F-D9 | Photos (MFE addition) | Sample has none. MFE keeps V7 photo evidence, placed after that system's `REMARK` block, each with a caption. | — |
+
+### Cover page — page 1 (F-C)
+
+| ID | Feature | Rule | Sample evidence |
+|---|---|---|---|
+| F-C1 | Letterhead | Company legal name + registration no. (bold), full address, `Tel : … Fax : …`, centred, plus the company **logo** centred above/beside it. For MFE: MFE's own name, reg. no., address, logo. | 1 |
+| F-C2 | Document title | `FIRE PROTECTION SYSTEM MAINTENANCE CHECKLIST`, bold, centred, under the letterhead. | 1 |
+| F-C3 | Client-info table | 2-column label/value table, 11 rows in this order: `CLIENT` (bold) · `ADDRESS` · `PHONE & FAX` · `CONTRACT NO.` · `FREQUENCY` · `DATE OF SERVICE` · `REPORT NO.` · `CONTACT PERSON` · `TEST LEADER` · `FC EXPIRED DATE` · `DELIVERY ORDER`. Blank rows still print. | 1 |
+| F-C4 | Confirmation statement | Bold underlined line: `WE HEREBY CONFIRM THAT THE ATTACHED LIST WAS TRUE DURING INSPECTION / TESTING.` | 1 |
+| F-C5 | Signature table | 3 equal columns with bold headers: `TECHNICIAN (<CONTRACTOR>)` · `<CONTRACTOR>` · `<CUSTOMER NAME>`. Tall body row: technician names listed in col 1; contractor signature + company stamp + name underlined + company in brackets in col 2; col 3 left empty for customer signature & stamp. MFE can place captured e-signatures here. | 1 |
+| F-C6 | `NOTE :-` list | Bulleted standard terms (report delivery, consumables replaced on site, extra work charged separately, no liability for areas not accessible, complaint hotline with name). Text is company-configurable. | 1 |
+| F-C7 | Customer satisfaction row | Table: title row `Customer satisfaction/comment`, then 3 equal cells `Excellent` · `Satisfactory` · `Not satisfactory` (tick boxes). | 1 |
+
+### Summary page — page 2 (F-S)
+
+| ID | Feature | Rule | Sample evidence |
+|---|---|---|---|
+| F-S1 | Title | `SUMMARY OF TESTING`, bold, top-left. | 2 |
+| F-S2 | Index table | Columns `NO. \| TEST DESCRIPTION \| PAGE \| FREQUENCY \| CONDITION`. One row **per system instance page** (e.g. `CO2 SYSTEM – 1/2/3` are three rows). `PAGE` = real page number where that system starts (needs two-pass render or pre-computed page map). | 2 |
+| F-S3 | Per-row frequency | Each row has its own frequency (`QUARTERLY`, `ANNUALLY`) — not one value for the report. | 2 |
+| F-S4 | Condition vocabulary | Exactly `GOOD CONDITIONS` / `REFER DETAIL PAGE` / `FAILED`, optionally followed by a free-text tail (`MAJOR FAILED-MAIN VALVE CLOSED-NO WATER SPRINKLER DURING EMERGENCY`). | 2 |
+| F-S5 | FAILED highlighted | On the paper copy every `FAILED` cell is hand-circled. Generator equivalent: `FAILED` bold + red (and `REFER DETAIL PAGE` bold/amber). | 2 |
+| F-S6 | `REMARK :-` list | Numbered standing advice for the customer (italic): battery change, CO2 weigh test, don't block equipment/exits, emergency/exit lights, don't use fire water, don't isolate panels, reopen valves after renovation, refill extinguishers. Company-configurable. | 2 |
+| F-S7 | Condition legend | Last remark item = `SUMMARY REMARK INDICATOR :` with the 3 definitions (see §2 page 2 item 9). Always printed. | 2 |
+
+### Per-system page — pages 3–14 (F-P)
+
+| ID | Feature | Rule | Sample evidence |
+|---|---|---|---|
+| F-P1 | System title | Bold UPPERCASE title with location in brackets, e.g. `MAIN FIRE ALARM PANEL (GUARD HOUSE)`, `DELUGE PREACTION VALVE – 01 (FINISHED GOODS)`. (On the scan this title sits at the bottom of the previous sheet — a Word page-flow artefact; generate it at the **top** of the system's own page.) | 2→3, 6→7 |
+| F-P2 | Safety advisory bullets | Optional italic grey `*` bullet lines above the table (e.g. panel: don't isolate switches, don't downsize battery Ah, don't remove cards, no EOL resistor at panel). Per system type. | 3 |
+| F-P3 | Layout A — checklist grid | `DESCRIPTION \| INSPECTION & TEST \| REQUIRED/UNIT \| STATUS`. DESCRIPTION = merged group cell; INSPECTION & TEST may split into a nested sub-column (`FAULT TEST` → `AC FAILED / CHARGER FAILED / BATTERY FAILED`). | 3, 4, 8, 9 |
+| F-P4 | Required vs actual | `REQUIRED/UNIT` holds the expected value (`ON`, `OK`, `OPENED`, `FULL`) **or** the unit (`VDC`, `AMPERE`, `(psi)`, `BAR`, `UNIT/MIN`, `AH`); printed **bold**. `STATUS` holds the observed value. `-` when neither applies. | 3, 6 |
+| F-P5 | Layout B — multi-unit columns | `DESCRIPTION \| REQUIRED/UNIT \| <UNIT 1> \| <UNIT 2> \| <UNIT 3>` (pumps: JOCKEY / DUTY / STANDBY). Rows that don't apply to some units → merged cell with a reason. | 6, 7 |
+| F-P6 | Layout C — asset header + valve table | Top label/value block (`TYPE OF TANK`, `DIMENSION OF TANK`, `CAPACITY`), then `NO \| VALVE \| OPENED \| CLOSED \| SEALED/LOCKED \| LEAKAGE STATUS \| REMARK`. Non-valve rows (float valve, water level, ladder) merge the middle columns. | 10, 11 |
+| F-P7 | Layout D — device register | One row per point: `NO \| LOCATION \| ACCESSIBLE \| <component columns…> \| REMARK`, with grouped super-headers (`RUBBER INTACT` over `VALVE \| HOSE`). Per-row `REMARK` = row verdict (`GOOD CONDITIONS` / `FAILED` / short text). | 12, 13, 14 |
+| F-P8 | Ratio cells | Component condition as `good/total` (`1/2`, `0/1`). | 12 |
+| F-P9 | Layout E — two-block page | Several small tables on one page with their own header rows (`POWER SYSTEM \| ACTUAL \| TEST` then `ZONE & LOCATION \| ZONE \| TEST`). | 5 |
+| F-P10 | `REMARK :` block | Always printed under the table (blank if nothing). Numbered list of either defect notes/actions (`PLEASE REFILL DIESEL OIL`) or a **parts-needed tally** `<PART> X <qty>` (`HOSE X 15`, `NOZZLE X 4`), alphabetical. | 3–14 |
+| F-P11 | Inspection strip | Table at the bottom of every system page: row 1 `INSPECTION DATE :` + date; row 2 = technician name columns (all team members) + spare blank columns for initials. | 3–14 |
+| F-P12 | Row numbering | Register tables number rows `1..n` continuously, across page breaks. | 13, 14 |
+| F-P13 | Bell-only / N/A rows | Rows that don't apply fill with `-` rather than being omitted, so the register matches the site's device list. | 14 |
+
 ---
 
 ## 2. Page-by-page transcription
@@ -527,7 +595,32 @@ Footer of page 14 names the next (missing) page: **`GAS EXTINGUISHING SYSTEM –
 - This sample has **no photos**. MFE V7 embeds offline photo evidence — keep that; it is additive
   to this layout.
 
-## 4. Provenance
+## 4. Gap against MFE's current generator (as of 2026-09-17)
+
+Renderer: `renderFinalServiceReportPdf` in `apps/api/src/reports/finalServiceReport.ts`
+(PDFKit, DejaVuSans). Data: `FinalServiceReport` type in the same file.
+
+| Feature | Current state | Needed |
+|---|---|---|
+| F-D1 landscape | Portrait A4, 46 pt margin | `layout: "landscape"` |
+| F-D2 / F-D3 header, footer | Repeats `MFE SERVICES SDN. BHD.` + `Field Service Inspection Report` at top; no page numbers | Customer name right-aligned header; `N \| Page` footer (PDFKit `bufferPages: true`, stamp after layout) |
+| F-D4 tables | Everything is `Label: value` paragraphs, indented by depth | Table drawing helper (borders, merged cells, header-row repeat, row-height measure) |
+| F-C1 letterhead + logo | Text company name only | MFE logo asset, reg. no., address, tel/fax |
+| F-C3 client info | Customer, telephone, contact, site, service date, service call no., arrival, departure, job ref, completed date/by, systems | **Missing data:** address, fax, contract no., frequency, report no., test leader, FC expiry date, delivery order |
+| F-C4/C5 confirmation + signatures | None | Technician list, MFE signatory, customer sign box (needs signature capture or blank boxes) |
+| F-C6 notes, F-S6 remarks | None | Configurable text blocks |
+| F-C7 satisfaction | None | Tick row (blank, or captured value) |
+| F-S2 summary table | `Summary of Testing` exists as numbered lines `1. <label> — <condition>` + detail line | Real table with PAGE and FREQUENCY columns; per-instance rows |
+| F-S4 condition | Done: `deriveSystemCondition` → `GOOD CONDITIONS` / `REFER DETAIL PAGE` / `FAILED` (+ first finding as detail) | Keep; show detail as the free-text tail |
+| F-S5 highlight / F-S7 legend | None | Colour FAILED; print indicator legend |
+| F-P1 system page | Sections run on continuously, title underlined | New page per system, bold title with location |
+| F-P3–P9 layouts | Generic flattened field list for every system | Per-system table layouts (A–E) mapped from V7 templates |
+| F-P4 required/unit | No data for it | Needs expected value / unit per template field |
+| F-P10 remarks | `Remarks:` only when findings exist (`sectionRemarkLines`) | Always print block; add parts-tally style option |
+| F-P11 inspection strip | None | Inspection date + technician names per system page |
+| F-D9 photos | Done — evidence image after each section | Keep, move after REMARK block |
+
+## 5. Provenance
 
 - Source file: `C:\Users\kokfu\Downloads\Project\Sample\PDF Sample Format.pdf` (SHA / size:
   1,041,484 bytes, 14 pages, scanned images, rotated 90°).

@@ -115,6 +115,32 @@ change. The script now also runs `npm run test:job-progress` (8 tests). Cold rer
 110 backend tests (was 99: +10 unit, +1 integration; includes the 10 V6/V7 integration tests),
 1 stale-evidence test, 8 job-progress tests, and 10 Playwright tests passed with zero skips.
 
+### 2026-09-18 note: Slice B — manager technician view and customer-first Services Done
+
+`GET /api/manager/service-visits` accepts an optional `technicianId` (positive int4, else
+400 `INVALID_TECHNICIAN_ID`; bound as `$n::bigint` on `inspection_jobs.created_by_user_id`;
+combines with every other filter and the keyset cursor). A well-formed unknown id returns an
+empty page. Each item, list and detail, now carries `technician: { id, displayName } | null`,
+from a LEFT JOIN on `users`; legacy NULL-creator visits get `null` and never match a technician filter.
+Admin-only as before; inspector still gets 403. No migration.
+
+Web: Technician List rows open `#/manager-technician/:id` (In Progress / Completed tabs with
+server counts, 20-per-page Load more, View Report / Download PDF, Back to Technicians).
+Services Done is now customer-first: search customers by name or code (client-side, since
+`/manager/customers` is unpaginated), then that customer's visits grouped by site with
+From / To / Status / Technician + Apply / Clear filters. It reuses
+`ManagerCustomerServiceHistory` (new `variant="services-done"`); the Customer Configuration
+variant is unchanged. The customer, filters and technician tab are kept in sessionStorage,
+and Back from a report returns to the screen that opened it.
+`manager-dashboard-navigation.spec.ts` no longer expects the old flat `?status=closed` fetch;
+it now asserts that no filtered list request is made.
+
+New tests in the focused sets: `managerTechnicianVisits.integration.test.ts` (1) and
+`manager-technician-services-done.spec.ts` (2). Revert proof: in a scratch copy outside the repo
+with the predicate block removed, `technicianId=A` returned 8 rows instead of 5 (FAIL).
+Cold rerun (exit 0): 161 backend tests (20 / 9 / 2 / 11 / 108 / 11), 1 stale-evidence test,
+8 job-progress tests, 26 Playwright tests; zero skips.
+
 ## Working-tree snapshot
 
 This snapshot includes the newer changes preserved at the owner's request.
