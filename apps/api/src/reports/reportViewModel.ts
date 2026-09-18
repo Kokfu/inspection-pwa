@@ -179,6 +179,8 @@ const bySortOrder = (items: readonly unknown[]) => items.filter(isRecord).map((i
 type BuildContext = {
   systemKey: string; response: RecordValue; label: (key: string, fallback: string) => string;
   located: number; remarks: Array<{ text: string; result: ReportResult }>; parts: Map<string, number>;
+  /** Page-level Comments text, once per bound field key even when several blocks bind it. */
+  comments: Map<string, string | null>;
 };
 
 /** Response keys are unique within a system: look in every top-level object group, then at the top level. */
@@ -255,7 +257,7 @@ function measurementBlock(context: BuildContext, head: BlockHead, items: RecordV
     if (found) context.located += 1;
     const measurements = Array.isArray(item.measurements) ? item.measurements.filter(isRecord) : [];
     const values = isRecord(value) && isRecord(value.values) ? value.values : {};
-    const present = measurements.map((measurement) => ({ label: String(measurement.label ?? measurement.key), value: values[String(measurement.key)] }))
+    const present = measurements.map((measurement) => ({ label: context.label(String(measurement.key), String(measurement.label ?? measurement.key)), value: values[String(measurement.key)] }))
       .filter((entry) => typeof entry.value === "number" && Number.isFinite(entry.value));
     const reading = present.length === 0 ? null
       : measurements.length === 1 ? String(present[0]!.value)
@@ -292,7 +294,7 @@ function registerBlock(context: BuildContext, head: BlockHead, blockKey: string,
   const rows: RegisterRow[] = (Array.isArray(source) ? source : []).filter(isRecord).map((row, index) => {
     const no = index + 1;
     const fieldRemarks = isRecord(row.fieldRemarks) ? row.fieldRemarks : {};
-    const locationColumn = columns.findIndex((column) => column.key === "location");
+    const locationColumn = columns.findIndex((column) => column.key === "location" || column.key === "locationText");
     const location = locationColumn >= 0 ? nonEmpty(row[responseKey(row, columns[locationColumn]!) ?? ""]) : null;
     const rowLabel = `No. ${no}${location ? ` (${location})` : ""}`;
     const cells = columns.map((column): RegisterCell => {
@@ -335,10 +337,12 @@ function commentsBlock(context: BuildContext, head: BlockHead, field: unknown): 
   const key = isRecord(field) && typeof field.key === "string" ? field.key : "comments";
   const { found, value } = locate(context, key);
   if (found) context.located += 1;
-  return { kind: "comments", ...head, text: nonEmpty(value) };
+  const text = nonEmpty(value);
+  if (!context.comments.has(key)) context.comments.set(key, text);
+  return { kind: "comments", ...head, text };
 }
 
-type StructuredResult = { blocks: ReportBlock[]; remarks: Array<{ text: string; result: ReportResult }>; parts: Map<string, number> };
+type StructuredResult = { blocks: ReportBlock[]; remarks: Array<{ text: string; result: ReportResult }>; parts: Map<string, number>; comments: string[] };
 
 function structuredBlocks(section: FinalReportSection): StructuredResult | undefined {
   const source = section.source;
@@ -350,7 +354,7 @@ function structuredBlocks(section: FinalReportSection): StructuredResult | undef
   const context: BuildContext = {
     systemKey: section.systemKey, response: source.response,
     label: (key, fallback) => lookup?.get(key) ?? fallback,
-    located: 0, remarks: [], parts: new Map()
+    located: 0, remarks: [], parts: new Map(), comments: new Map()
   };
   const blocks: ReportBlock[] = [];
   for (const definitionSection of bySortOrder(snapshot.system.definition.sections)) {
@@ -374,7 +378,8 @@ function structuredBlocks(section: FinalReportSection): StructuredResult | undef
   }
   // Nothing in the response lines up with the definition: never print an all-blank page.
   if (context.located === 0) return undefined;
-  return { blocks, remarks: context.remarks, parts: context.parts };
+  const comments = [...context.comments.values()].filter((text): text is string => text !== null);
+  return { blocks, remarks: context.remarks, parts: context.parts, comments };
 }
 
 /* ------------------------------------------------------------------ legacy */
@@ -427,8 +432,7 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
     let condition: FinalReportSystemCondition; let conditionDetail: string;
     let partsTally: PartsTallyLine[] = [];
     if (structured) {
-      const commentTexts = structured.blocks.flatMap((block) => block.kind === "comments" && block.text !== null ? [block.text] : []);
-      page = { blocks: structured.blocks, remarks: structured.remarks.map((remark, remarkIndex) => ({ no: remarkIndex + 1, ...remark })), comments: commentTexts.length ? commentTexts.join("\n") : null };
+      page = { blocks: structured.blocks, remarks: structured.remarks.map((remark, remarkIndex) => ({ no: remarkIndex + 1, ...remark })), comments: structured.comments.length ? structured.comments.join("\n") : null };
       // Same 4->3 rule as deriveSystemCondition, over the structured results.
       const failed = structured.remarks.find((remark) => remark.result.tone === "bad");
       const refer = structured.remarks.find((remark) => remark.result.value === "complete_repair");

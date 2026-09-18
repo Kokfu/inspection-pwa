@@ -184,6 +184,51 @@ test("Automatic Sprinkler V7: measurement rows carry the PSI unit and reading; p
   assert.equal(model.systemPages[0]!.condition, "GOOD CONDITIONS");
 });
 
+test("label override: frozen cut_in / cut_out overrides reach the measurement reading (Sprinkler and Hose Reel)", () => {
+  const labelOverrides = {
+    "measurements.jockey_pump_pressure.values.cut_in": "Start Pressure",
+    "measurements.jockey_pump_pressure.values.cut_out": "Stop Pressure"
+  };
+  const hose = buildReportViewModel(reportOf([v7Section("hose_reel", "Hose Reel System", hoseReelResponse(), { frozenSystem: { systemKey: "hose_reel", labelOverrides } })]));
+  assert.equal(blockOf(hose, "checklist", "pump_pressure_measurements").rows[0]!.reading, "Start Pressure 80 / Stop Pressure 100");
+
+  const controls = resolveAutomaticSprinklerControls(v7("automatic_sprinkler"), "MFE-FSSR", 7);
+  const response = {
+    schemaVersion: 2, checklist: {},
+    measurements: Object.fromEntries(controls.measurements.map((row) => [row.key, { values: Object.fromEntries(row.values.map((value, index) => [value.key, 90 + index * 10])), unit: "PSI", result: "good", remarks: "" }])),
+    comments: ""
+  };
+  const sprinkler = buildReportViewModel(reportOf([v7Section("automatic_sprinkler", "Automatic Sprinkler System", response, { frozenSystem: { systemKey: "automatic_sprinkler", labelOverrides } })]));
+  assert.equal(blockOf(sprinkler, "checklist", "pump_pressure_measurements").rows.find((row) => row.key === "jockey_pump_pressure")!.reading, "Start Pressure 90 / Stop Pressure 100");
+  const base = buildReportViewModel(reportOf([v7Section("automatic_sprinkler", "Automatic Sprinkler System", response)]));
+  assert.equal(blockOf(base, "checklist", "pump_pressure_measurements").rows.find((row) => row.key === "jockey_pump_pressure")!.reading, "Cut In 90 / Cut Out 100");
+});
+
+/* ---------------------------------------------------------------- Smoke Ventilation */
+
+test("Smoke Ventilation V7: two comments blocks bind one field — both blocks kept, page comments printed once", () => {
+  const response = { schemaVersion: 1, rows: [], comments: "Fans run on test." };
+  const model = buildReportViewModel(reportOf([v7Section("smoke_ventilation", "Smoke Ventilation System", response)]));
+  const page = model.systemPages[0]!;
+  assert.deepEqual(page.blocks.filter((block) => block.kind === "comments").map((block) => [block.sectionKey, (block as Extract<ReportBlock, { kind: "comments" }>).text]), [
+    ["fan_schedule", "Fans run on test."], ["main_function_key", "Fans run on test."]
+  ]);
+  assert.equal(page.comments, "Fans run on test.");
+});
+
+/* ---------------------------------------------------------------- Dry / Wet Riser */
+
+test("Dry / Wet Riser V7: the locationText column labels the register row in REMARK lines", () => {
+  const response = {
+    schemaVersion: 1, comments: "",
+    riserOutlets: [{ rowUuid: uuid(30), assetReference: "R-1", locationText: "G/F Lobby", canvasHoseAt2Result: "not_good", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good", remarks: "" }]
+  };
+  const model = buildReportViewModel(reportOf([v7Section("dry_wet_riser", "Dry / Wet Riser System", response)]));
+  const remarks = model.systemPages[0]!.remarks;
+  assert.equal(remarks.length, 1);
+  assert.ok(remarks[0]!.text.includes("No. 1 (G/F Lobby)"), remarks[0]!.text);
+});
+
 /* ---------------------------------------------------------------- Portable Fire Extinguisher */
 
 test("Portable Fire Extinguisher (V7 template, schema-1 snapshot): quantity block with total and text rows", () => {
