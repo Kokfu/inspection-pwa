@@ -41,15 +41,18 @@
     "validate-hose-reel": "node dist/cli/validateHoseReel.js",
     "validate-co2": "node dist/cli/validateCo2.js",
     "validate-server-summary-pagination": "node dist/cli/validateServerSummaryPagination.js",
-    "validate-sync-http": "node dist/cli/validateSyncHttp.js"
+    "validate-sync-http": "node dist/cli/validateSyncHttp.js",
+    "test:report-pdf-engine": "tsx --test src/reports/pdf/htmlToPdf.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",
     "argon2": "^0.44.0",
     "busboy": "^1.6.0",
     "express": "^4.21.2",
+    "pdf-lib": "^1.17.1",
     "pdfkit": "^0.17.2",
     "pg": "^8.13.1",
+    "puppeteer-core": "^25.11.0",
     "sharp": "^0.35.4"
   },
   "devDependencies": {

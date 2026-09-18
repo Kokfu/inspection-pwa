@@ -6,6 +6,7 @@ export type ApiConfig = {
   customerCatalogVersion: number;
   nodeEnv: string;
   uploadsPath: string;
+  reportChromiumPath: string;
 };
 
 export function loadConfig(): ApiConfig {
@@ -20,6 +21,7 @@ export function loadConfig(): ApiConfig {
     sessionDurationHours: Number(process.env.SESSION_DURATION_HOURS ?? 12),
     customerCatalogVersion: Number(process.env.INSPECTION_CUSTOMER_CATALOG_VERSION ?? 7),
     nodeEnv,
-    uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads"
+    uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads",
+    reportChromiumPath: process.env.REPORT_CHROMIUM_PATH ?? "/usr/bin/chromium"
   };
 }

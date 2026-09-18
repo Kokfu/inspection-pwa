@@ -3,7 +3,15 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-18 — **Report R1: structured report view model (uncommitted, no visual change).**
+**Last updated:** 2026-09-18 — **Report R3: standalone Chromium PDF engine (uncommitted; not wired to reports).**
+`apps/api/src/reports/pdf/` provides queued HTML rendering, embedded fonts, and named-destination
+page resolution. Real Chromium proves three anchors resolve to pages 1/2/3; the approved sample
+prints exactly nine pages locally and inside the rebuilt Alpine image as `node`, with network off.
+Eight engine tests plus the task-brief API/web and disposable-Postgres gates pass, without skips.
+See `apps/api/src/reports/pdf/README.md` for evidence, image sizes, limits, and reproduction.
+V7 remains `good / not_good / complete_repair / na`; legacy V1–V6 remain unchanged.
+
+**Previously (2026-09-18): Report R1: structured report view model (uncommitted, no visual change).**
 `apps/api/src/reports/reportViewModel.ts` `buildReportViewModel(report)` builds company / cover /
 summary / per-system pages. Each page's blocks (checklist, units, register with N/T/I, quantity,
 comments) come from the frozen V7 definition + accepted response + frozen label overrides. Pre-V7
