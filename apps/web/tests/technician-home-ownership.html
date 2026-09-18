@@ -1,0 +1,66 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/styles/app.css"></head><body><div id="mount"></div><script type="module">
+import * as React from "react"; import * as ReactDom from "react-dom/client";
+import { App } from "/src/App.tsx";
+import { localDatabase, deviceDatabase, initializeLocalDatabase, activateUserWorkspace } from "/src/db/localDatabase.ts";
+import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+import { getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "/src/hoseReel/hoseReelRepository.ts";
+const id=n=>`41000000-0000-4000-8000-${String(n).padStart(12,"0")}`,ids={job:id(1),customer:id(2),revision:id(3),template:id(4),system:id(5),zone:id(6),location:id(7)},activeKey=`masterSystemInspection:create:${ids.job}`;
+const item=(key,sortOrder)=>({key,label:key,sortOrder,control:"good_poor",allowedValues:["good","poor"]}),definition={key:"hose_reel",sections:[{key:"water_tank",blocks:[{key:"water_tank_checks",items:[item("water_level",1)]}]},{key:"pump_house",blocks:[{key:"pump_house_checks",items:[item("pump_house_clean",1)]},{key:"pump_pressure_measurements",items:[{key:"jockey_pump_pressure",label:"Jockey",sortOrder:1,measurements:[{key:"cut_in",label:"In",unit:"PSI"},{key:"cut_out",label:"Out",unit:"PSI"}],result:{control:"good_poor",allowedValues:["good","poor"]}},{key:"standby_pump_cut_in",label:"Standby",sortOrder:2,measurements:[{key:"value",label:"Value",unit:"PSI"}],result:{control:"good_poor",allowedValues:["good","poor"]}}]}]},{key:"hose_reel_drum",blocks:[{key:"hose_reel_rows",columns:[{key:"drum",label:"Drum",sortOrder:1,control:"good_poor",allowedValues:["good","poor"]},{key:"hose",label:"Hose",sortOrder:2,control:"good_poor",allowedValues:["good","poor"]},{key:"nozzle",label:"Nozzle",sortOrder:3,control:"good_poor",allowedValues:["good","poor"]},{key:"valve",label:"Valve",sortOrder:4,control:"good_poor",allowedValues:["good","poor"]},{key:"nozzle_box",label:"Box",sortOrder:5,control:"good_poor",allowedValues:["good","poor"]}]},{key:"comments",field:{control:"remarks"}}]}]};
+const system={enabledSystemId:ids.system,systemKey:"hose_reel",displayName:"Hose Reel",sortOrder:1,definitionStatus:"confirmed",zones:[{id:ids.zone,enabledSystemId:ids.system,key:"a",displayName:"Zone A",sortOrder:1}],locations:[{id:ids.location,enabledSystemId:ids.system,zoneId:ids.zone,key:"main",displayName:"Main Floor",presetRowCount:2,rowPreset:{},sortOrder:1}]};const job={id:ids.job,reference:"HOSE-HARNESS",title:"Hose Harness",status:"open",createdAt:new Date().toISOString(),configurationSnapshot:{schemaVersion:1,customer:{id:ids.customer,code:"TEST",displayName:"Test"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:ids.template,code:"MFE-FSSR",name:"Test",version:1},enabledSystems:[system]}},catalog={id:ids.template,code:"MFE-FSSR",name:"Test",version:1,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:"hose_reel",displayName:"Hose Reel",sortOrder:1,definitionStatus:"confirmed",definition}]};
+const users=[{id:901,username:"tech-a",role:"inspector"},{id:902,username:"tech-b",role:"inspector"}];
+let actor=users[0]; const requests=[]; window.requests=requests;
+const first={...job, reference:"A-NEW", serviceDate:"2026-09-17",serviceTime:null,site:{id:id(50),displayName:"Site A"},createdAt:"2026-09-17T03:00:00.000Z",configurationSnapshot:{...job.configurationSnapshot,customer:{...job.configurationSnapshot.customer,displayName:"Customer A"}}};
+const older={...first,id:id(51),reference:"A-OLD",createdAt:"2026-09-16T03:00:00.000Z"};
+const done={...first,id:id(52),reference:"A-DONE",status:"closed"};
+const other={...first,id:id(53),reference:"B-ONLY",configurationSnapshot:{...first.configurationSnapshot,customer:{...first.configurationSnapshot.customer,displayName:"Customer B"}}};
+await initializeLocalDatabase();
+for (const user of users) {
+ await activateUserWorkspace(user.id);
+ const at=new Date().toISOString();
+ await localDatabase.referenceData.put({key:`inspection-jobs:user:${user.id}`,payload:user.id===901?[older,done,first]:[other],version:"1",fetchedAt:at,expiresAt:at});
+ await localDatabase.referenceData.put({key:"inspection-catalog:MFE-FSSR:1",payload:{template:catalog},version:"1",fetchedAt:at,expiresAt:at});
+}
+await activateUserWorkspace(901); await storeVerifiedIdentity(actor);
+let draft=await getOrCreateHoseReelInspection(first,system,catalog,actor);
+draft=await saveHoseReelDraft(draft,{...draft.responses,comments:"A unsynced draft survives"});
+const complete=r=>{const x=structuredClone(r.responses);for(const v of Object.values(x.checklist))v.result="good";Object.assign(x.measurements.jockey_pump_pressure,{values:{cut_in:10,cut_out:11},result:"good"});Object.assign(x.measurements.standby_pump_cut_in,{values:{value:12},result:"good"});for(const row of x.rows)Object.assign(row,{drumResult:"good",hoseResult:"good",nozzleResult:"good",valveResult:"good",nozzleBoxResult:"good"});return x};
+const pending=await getOrCreateHoseReelInspection(older,system,catalog,actor);
+await submitLocalHoseReel(pending,complete(pending));
+// Simulate a pre-upgrade shared database containing both technicians' work.
+const ownerWorkspace=localDatabase;
+await deviceDatabase.masterSystemInspections.bulkPut(await localDatabase.masterSystemInspections.toArray());
+await deviceDatabase.syncOutbox.bulkPut(await localDatabase.syncOutbox.toArray());
+await localDatabase.masterSystemInspections.clear(); await localDatabase.syncOutbox.clear();
+await activateUserWorkspace(902);
+const foreignDraft=await getOrCreateHoseReelInspection(other,system,catalog,users[1]);
+await deviceDatabase.masterSystemInspections.put(foreignDraft);
+await localDatabase.masterSystemInspections.clear();
+await activateUserWorkspace(901);
+window.readLegacyDrafts=async()=>await deviceDatabase.masterSystemInspections.toArray();
+window.readForeignDraft=async()=>await localDatabase.masterSystemInspections.get(foreignDraft.clientUuid);
+window.pendingId=pending.clientUuid;
+window.draftId=draft.clientUuid;
+window.readDraft=async()=>await localDatabase.masterSystemInspections.get(draft.clientUuid);
+const ownerDatabase=localDatabase;
+window.readOwnerDraft=async()=>await ownerDatabase.masterSystemInspections.get(draft.clientUuid);
+window.pendingCount=async()=>await localDatabase.syncOutbox.count();
+window.holdNextLocalTransaction=()=>{
+ const ownerDb=localDatabase, original=ownerDb.transaction;
+ let release; const gate=new Promise(resolve=>{release=resolve;});
+ window.releaseLocalTransaction=release;
+ ownerDb.transaction=function(...args){ownerDb.transaction=original;return gate.then(()=>original.apply(ownerDb,args));};
+};
+const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});
+window.fetch=async(input,options={})=>{
+ const url=new URL(typeof input==="string"?input:input.url,location.origin); requests.push({path:url.pathname,actor:actor?.id,body:options.body});
+ if(url.pathname==="/api/auth/me") return actor?json({user:actor}):json({},401);
+ if(url.pathname==="/api/auth/logout"){actor=undefined;return json({});}
+ if(url.pathname==="/api/auth/login"){actor=users.find(u=>u.username===JSON.parse(options.body).username);return actor?json({user:actor}):json({},401);}
+ if(url.pathname==="/api/inspection-jobs")return json({jobs:actor?.id===901?[older,done,first]:[other]});
+ if(url.pathname==="/api/master-system-inspections")return json({inspections:[],hasMore:false,nextCursor:null});
+ if(url.pathname.endsWith("/final-report"))return json({report:{customer:"Customer A",site:"Site A",serviceDate:"2026-09-17",jobReference:"A-DONE",completedAt:"2026-09-17T03:00:00.000Z",completedBy:"tech-a",systems:[],sections:[]}});
+ if(url.pathname==="/api/sync") {const items=JSON.parse(options.body).items;return json({acceptedIds:items.map(i=>i.entityId),duplicateIds:[],failed:[]});}
+ return json({},503);
+};
+ReactDom.createRoot(document.querySelector("#mount")).render(React.createElement(App));
+</script></body></html>

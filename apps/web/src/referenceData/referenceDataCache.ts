@@ -1,4 +1,4 @@
-import { localDatabase, type ReferenceCacheEntry } from "../db/localDatabase";
+import { recoverLegacyJobData, localDatabase, type ReferenceCacheEntry } from "../db/localDatabase";
 import { loadInspectionJobs } from "../jobs/jobApi";
 import type { InspectionJob } from "../jobs/jobTypes";
 import {
@@ -53,6 +53,7 @@ export async function refreshInspectionReferenceData(
     loadReferenceCustomers(),
     loadInspectionJobs()
   ]);
+  await recoverLegacyJobData(jobs.map((job) => job.id), userId, canCommit);
   const configurations = await Promise.all(
     customers.map((customer) => loadCustomerConfiguration(customer.id))
   );
@@ -107,6 +108,7 @@ export async function refreshCachedInspectionJobs(
   canCommit: () => boolean = () => true
 ) {
   const jobs = await loadInspectionJobs();
+  await recoverLegacyJobData(jobs.map((job) => job.id), userId, canCommit);
   if (!canCommit()) throw new Error("AUTH_OPERATION_SUPERSEDED");
   const fetchedAt = new Date().toISOString();
   await localDatabase.transaction("rw", localDatabase.referenceData, async () => {

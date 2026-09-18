@@ -1,3 +1,5 @@
+import { ownedMultipart, OwnershipUploadError } from "../jobs/ownedMultipart.js";
+import { requireExpectedActor, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -11,35 +13,36 @@ import { requireRole } from "../middleware/requireRole.js";
 
 export const stagedEvidenceRouter = Router();
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-stagedEvidenceRouter.post("/v6-evidence/stage", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.post("/v6-evidence/stage", requireRole("admin", "inspector"), requireExpectedActor("v6_evidence_stage", "stagedEvidence"), async (request, response, next) => {
   try {
-    const result = await stageFireAlarmV6Evidence(request, request.currentUser!.id);
+    const result = await stageFireAlarmV6Evidence(await ownedMultipart(request, "job"), request.currentUser!.id);
     await auditLog({ actorUserId: request.currentUser!.id, action: "v6_evidence_stage", entityType: "stagedEvidence", entityId: result.photoUuid, result: "success", reason: result.outcome });
     response.status(result.outcome === "staged" ? 201 : 200).json(result);
   } catch (error) {
-    if (error instanceof V6EvidenceError) {
+    if (error instanceof V6EvidenceError || error instanceof OwnershipUploadError) {
       await auditLog({ actorUserId: request.currentUser?.id, action: "v6_evidence_stage", entityType: "stagedEvidence", result: "failure", reason: error.code }).catch(() => undefined);
-      response.status(error.status).json({ error: error.code, message: error.message }); return;
+      response.status(error.status).json(error instanceof OwnershipUploadError ? { error: error.code } : { error: error.code, message: error.message }); return;
     }
     next(error);
   }
 });
-stagedEvidenceRouter.post("/v7-evidence/stage", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.post("/v7-evidence/stage", requireRole("admin", "inspector"), requireExpectedActor("v7_evidence_stage", "stagedEvidence"), async (request, response, next) => {
   try {
-    const result = await stageV7Evidence(request, request.currentUser!.id);
+    const result = await stageV7Evidence(await ownedMultipart(request, "job"), request.currentUser!.id);
     await auditLog({ actorUserId: request.currentUser!.id, action: "v7_evidence_stage", entityType: "stagedEvidence", entityId: result.photoUuid, result: "success", reason: result.outcome });
     response.status(result.outcome === "staged" ? 201 : 200).json(result);
   } catch (error) {
-    if (error instanceof V7EvidenceError) {
+    if (error instanceof V7EvidenceError || error instanceof OwnershipUploadError) {
       await auditLog({ actorUserId: request.currentUser?.id, action: "v7_evidence_stage", entityType: "stagedEvidence", result: "failure", reason: error.code }).catch(() => undefined);
-      response.status(error.status).json({ error: error.code, message: error.message }); return;
+      response.status(error.status).json(error instanceof OwnershipUploadError ? { error: error.code } : { error: error.code, message: error.message }); return;
     }
     next(error);
   }
 });
 
 /** Accepted-history read path. It intentionally excludes staged/unbound files. */
-stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -55,7 +58,8 @@ stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspecto
   } catch (error) { next(error); }
 });
 
-stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
   try {
     const photoUuid = request.params.photoUuid;
     if (typeof photoUuid !== "string" || !uuid.test(photoUuid)) { response.status(400).json({ error: "INVALID_ATTACHMENT_ID" }); return; }
@@ -81,7 +85,8 @@ stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole
 });
 
 /** V7 accepted evidence is readable only through a submitted per-location form. */
-stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -97,7 +102,8 @@ stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspecto
   } catch (error) { next(error); }
 });
 
-stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"), async (request, response, next) => {
+stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
   try {
     const photoUuid = request.params.photoUuid;
     if (typeof photoUuid !== "string" || !uuid.test(photoUuid)) { response.status(400).json({ error: "INVALID_ATTACHMENT_ID" }); return; }

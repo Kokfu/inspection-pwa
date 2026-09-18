@@ -100,7 +100,8 @@ export type TestRecord = {
   lastSyncError?: string;
 };
 
-export const localDatabase = new Dexie("inspection-pwa") as Dexie & {
+function createLocalDatabase(name: string) {
+const localDatabase = new Dexie(name) as Dexie & {
   drafts: EntityTable<LocalDraft, "id">;
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
@@ -237,6 +238,104 @@ localDatabase.version(9).stores({
   inspectionAttachments: "photoUuid, &[inspectionClientUuid+fieldPath], inspectionClientUuid, systemKey, syncStatus, localUpdatedAt, serverAttachmentId"
 });
 
+return localDatabase;
+}
+
+// Auth is device-wide; business tables live in a separate database per user.
+// The original database is retained, never wiped or silently assigned on login.
+export const deviceDatabase = createLocalDatabase("inspection-pwa");
+export let localDatabase = deviceDatabase;
+let workspaceUserId: number | undefined;
+
+export function currentWorkspaceUserId() {
+  return workspaceUserId;
+}
+
+export async function activateUserWorkspace(userId: number) {
+  if (workspaceUserId === userId) return false;
+  const next = createLocalDatabase(`inspection-pwa:user:${userId}`);
+  await next.open();
+  localDatabase = next;
+  workspaceUserId = userId;
+  return true;
+}
+
 export async function initializeLocalDatabase() {
-  await localDatabase.open();
+  await deviceDatabase.open();
+  const prior = await deviceDatabase.authState.get("device-auth");
+  if (prior?.userId) await activateUserWorkspace(prior.userId);
+  else {
+    workspaceUserId = undefined;
+    localDatabase = createLocalDatabase("inspection-pwa:locked");
+    await localDatabase.open();
+  }
+}
+
+/** Recover old shared-device records only after the server confirms job ownership.
+ * Source records stay intact; destination copies and import receipts commit together.
+ * Never trust the old cache or the last signed-in identity as proof of job ownership.
+ */
+// A copied row may have been mid-sync when the old build stopped. Interrupted-sync
+// recovery already ran for this workspace, so apply the same Failed (retryable) state here.
+const interruptedLegacyCopyMessage = "Recovered from the previous version while syncing; retry sync to confirm with the server";
+function withoutInterruptedSyncState(table: string, row: unknown) {
+  const value = row as Record<string, unknown>;
+  if (table === "syncOutbox" && value.status === "Syncing") {
+    return { ...value, status: "Failed", lastError: interruptedLegacyCopyMessage };
+  }
+  if (table === "inspectionAttachments" && value.syncStatus === "Uploading") {
+    return { ...value, syncStatus: "Failed", lastSyncError: interruptedLegacyCopyMessage };
+  }
+  if (table !== "syncOutbox" && table !== "drafts" && value.syncStatus === "Syncing") {
+    return { ...value, syncStatus: "Failed", lastSyncError: interruptedLegacyCopyMessage };
+  }
+  return row;
+}
+
+/** Recovery is inspector-only by design: an admin's job list contains every
+ * technician's jobs, so copying by that list would move other technicians'
+ * unsynced work into the admin workspace. Admin legacy rows stay quarantined.
+ */
+export async function recoverLegacyJobData(jobIds: readonly string[], userId: number, canCommit: () => boolean) {
+  const destination = localDatabase;
+  const identity = await deviceDatabase.authState.get("device-auth");
+  if (identity?.role !== "inspector" || identity.userId !== userId || identity.explicitLogout
+    || identity.serverLogoutPending || workspaceUserId !== userId || !canCommit()) return;
+  const ownedJobs = new Set(jobIds);
+  const [inspections, masters, groups, forms, photos, outbox, drafts] = await Promise.all([
+    deviceDatabase.inspectionRecords.toArray(), deviceDatabase.masterSystemInspections.toArray(),
+    deviceDatabase.masterSystemInspectionGroups.toArray(), deviceDatabase.masterSystemFormInstances.toArray(),
+    deviceDatabase.inspectionAttachments.toArray(), deviceDatabase.syncOutbox.toArray(), deviceDatabase.drafts.toArray()
+  ]);
+  const ownedInspections = inspections.filter((row) => ownedJobs.has(row.jobId));
+  const ownedMasters = masters.filter((row) => ownedJobs.has(row.jobId));
+  const ownedForms = forms.filter((row) => ownedJobs.has(row.jobId));
+  const parents = new Set([...ownedInspections, ...ownedMasters, ...ownedForms].map((row) => row.clientUuid));
+  const ownedPhotos = photos.filter((row) => parents.has(row.inspectionClientUuid));
+  const entities = new Set([...parents, ...ownedPhotos.map((row) => row.photoUuid)]);
+  const batches = [
+    { table: "inspectionRecords", key: "clientUuid", rows: ownedInspections },
+    { table: "masterSystemInspections", key: "clientUuid", rows: ownedMasters },
+    { table: "masterSystemInspectionGroups", key: "groupKey", rows: groups.filter((row) => ownedJobs.has(row.jobId)) },
+    { table: "masterSystemFormInstances", key: "clientUuid", rows: ownedForms },
+    { table: "inspectionAttachments", key: "photoUuid", rows: ownedPhotos },
+    { table: "syncOutbox", key: "operationId", rows: outbox.filter((row) => entities.has(row.entityId)) },
+    { table: "drafts", key: "id", rows: drafts.filter((row) => {
+      const payload = row.payload as { jobId?: unknown } | null;
+      return payload && typeof payload.jobId === "string" && ownedJobs.has(payload.jobId);
+    }) }
+  ];
+  await destination.transaction("rw", [...batches.map((batch) => destination.table(batch.table)), destination.referenceData], async () => {
+    for (const batch of batches) for (const row of batch.rows) {
+      if (destination !== localDatabase || workspaceUserId !== userId || !canCommit()) throw new Error("AUTH_OPERATION_SUPERSEDED");
+      const key = (row as unknown as Record<string, unknown>)[batch.key];
+      if (typeof key !== "string") throw new Error("Invalid legacy record identity; original retained");
+      const receipt = `workspace:legacy-copy:${batch.table}:${key}`;
+      if (await destination.referenceData.get(receipt)) continue;
+      // A newer per-user record always wins over its old shared-database copy.
+      if (!await destination.table(batch.table).get(key)) await destination.table(batch.table).put(withoutInterruptedSyncState(batch.table, row));
+      const at = new Date().toISOString();
+      await destination.referenceData.put({ key: receipt, payload: true, version: "1", fetchedAt: at, expiresAt: at });
+    }
+  });
 }

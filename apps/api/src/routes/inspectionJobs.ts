@@ -1,3 +1,4 @@
+import { requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { pool } from "../db/pool.js";
@@ -32,7 +33,8 @@ const uuidPattern =
 export const inspectionJobsRouter = Router();
 
 export async function listTechnicianInspectionJobs(
-  database: Pick<typeof pool, "query"> = pool
+  database: Pick<typeof pool, "query"> = pool,
+  ownerUserId?: number
 ) {
   const result = await database.query<InspectionJobRow>(`
     SELECT
@@ -51,8 +53,9 @@ export async function listTechnicianInspectionJobs(
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
     WHERE inspection_jobs.master_template_version_id IS NOT NULL
       AND inspection_jobs.technician_visible = true
-    ORDER BY inspection_jobs.job_reference, inspection_jobs.id
-  `);
+      AND ($1::bigint IS NULL OR inspection_jobs.created_by_user_id = $1)
+    ORDER BY inspection_jobs.created_at DESC, inspection_jobs.id
+  `, [ownerUserId ?? null]);
 
   return Promise.all(result.rows.map(async (job) => {
     const completion = await loadJobCompletion(job.id, database);
@@ -89,9 +92,9 @@ export async function loadCanonicalInspectionJob(
 inspectionJobsRouter.get(
   "/inspection-jobs",
   requireRole("admin", "inspector"),
-  async (_request, response, next) => {
+  async (request, response, next) => {
     try {
-      response.json({ jobs: await listTechnicianInspectionJobs() });
+      response.json({ jobs: await listTechnicianInspectionJobs(pool, request.currentUser!.role === "inspector" ? request.currentUser!.id : undefined) });
     } catch (error) {
       next(error);
     }
@@ -253,18 +256,21 @@ inspectionJobsRouter.post(
 inspectionJobsRouter.get(
   "/inspection-jobs/:jobId/final-report",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId),
   createFinalReportHandler()
 );
 
 inspectionJobsRouter.get(
   "/inspection-jobs/:jobId/final-report.pdf",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId),
   createFinalReportPdfHandler()
 );
 
 inspectionJobsRouter.get(
   "/inspection-jobs/:jobId/completion",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId),
   async (request, response, next) => {
     try {
       const jobId = request.params.jobId;
@@ -287,6 +293,7 @@ inspectionJobsRouter.get(
 inspectionJobsRouter.post(
   "/inspection-jobs/:jobId/close",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId, "inspection_job_close"),
   async (request, response, next) => {
     try {
       const jobId = request.params.jobId;
@@ -340,3 +347,13 @@ inspectionJobsRouter.post(
     }
   }
 );
+
+inspectionJobsRouter.get("/inspection-jobs/:jobId", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId),
+  async (request, response, next) => {
+    try {
+      const job = await loadCanonicalInspectionJob(String(request.params.jobId));
+      if (!job) { response.status(404).json({ error: "JOB_NOT_FOUND" }); return; }
+      response.json({ job });
+    } catch (error) { next(error); }
+  });

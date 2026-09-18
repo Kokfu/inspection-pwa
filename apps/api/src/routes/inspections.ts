@@ -15,7 +15,7 @@ export const inspectionsRouter = Router();
 inspectionsRouter.get(
   "/inspections",
   requireRole("admin", "inspector"),
-  async (_request, response, next) => {
+  async (request, response, next) => {
     try {
       const result = await pool.query<InspectionSummary>(
         `
@@ -27,10 +27,11 @@ inspectionsRouter.get(
             inspection.performed_at AS "performedAt"
           FROM inspections inspection
           INNER JOIN inspection_jobs job ON job.id = inspection.job_id
+          WHERE ($2::text = 'admin' OR job.created_by_user_id = $3)
           ORDER BY inspection.performed_at DESC, inspection.client_uuid ASC
           LIMIT $1
         `,
-        [100]
+        [100, request.currentUser!.role, request.currentUser!.id]
       );
       response.json({ inspections: result.rows });
     } catch (error) {

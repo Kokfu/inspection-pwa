@@ -66,6 +66,10 @@ test("GET /dry-wet-riser-inspections/:clientUuid returns 200 (not 404) for a rea
   const database = pool as unknown as { query: (sql: string, values?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number }> };
   const originalQuery = database.query;
   database.query = async (sql, values = []) => {
+    if (sql.includes("AND job.created_by_user_id = $2")) {
+      assert.deepEqual(values, [clientUuid, actorId], "ownership uses the authenticated actor and requested form");
+      return { rows: [{ id: jobId }], rowCount: 1 };
+    }
     if (/inspection\.system_key\s*=\s*\$2/.test(sql)) {
       // acceptedDetailRow(): the generic, ownership-scoped V7 row lookup.
       if (values[0] !== clientUuid || values[1] !== "dry_wet_riser") return { rows: [], rowCount: 0 };
@@ -126,7 +130,7 @@ test("GET /dry-wet-riser-inspections/:clientUuid still 404s when nothing is stor
     const origin = await listen(server);
     const response = await fetch(`${origin}/dry-wet-riser-inspections/${clientUuid}`);
     assert.equal(response.status, 404);
-    assert.deepEqual(await response.json(), { error: "INSPECTION_NOT_FOUND" });
+    assert.deepEqual(await response.json(), { error: "JOB_NOT_FOUND" });
   } finally {
     database.query = originalQuery;
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

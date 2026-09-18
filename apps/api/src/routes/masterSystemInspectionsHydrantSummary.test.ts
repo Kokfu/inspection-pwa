@@ -82,16 +82,22 @@ async function listen(server: Server) {
 
 test("real master-system summary route supports the authoritative Hydrant filter", async () => {
   const database = pool as unknown as {
-    query: (sql: string, values?: unknown[]) => Promise<{ rows: typeof summaries; rowCount: number }>;
+    query: (sql: string, values?: unknown[]) => Promise<{ rows: unknown[]; rowCount: number }>;
   };
   const originalQuery = database.query;
   let queryCount = 0;
   database.query = async (sql, values = []) => {
     queryCount += 1;
-    assert.match(sql, /job\.id = \$1/);
-    assert.match(sql, /inspection\.system_key = \$2/);
-    const rows = summaries.filter((summary) => summary.jobId === values[0] && summary.systemKey === values[1]
-      && (values[2] === undefined || summary.locationId === values[2]));
+    if (sql.includes("AND job.created_by_user_id = $2")) {
+      assert.deepEqual(values, [jobId, 42]);
+      return { rows: [{ id: jobId }], rowCount: 1 };
+    }
+    assert.equal(values[0], 42, "summaries bind authenticated ownership first");
+    assert.match(sql, /job\.created_by_user_id = \$1/);
+    assert.match(sql, /job\.id = \$2/);
+    assert.match(sql, /inspection\.system_key = \$3/);
+    const rows = summaries.filter((summary) => summary.jobId === values[1] && summary.systemKey === values[2]
+      && (values[3] === undefined || summary.locationId === values[3]));
     return { rows, rowCount: rows.length };
   };
 

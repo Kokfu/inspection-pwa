@@ -91,6 +91,10 @@ async function detailFor(labelOverrides: unknown | (() => never)) {
   const database = pool as unknown as Stub;
   const originalQuery = database.query;
   database.query = async (sql, values = []) => {
+    if (sql.includes("AND job.created_by_user_id = $2")) {
+      assert.deepEqual(values, [clientUuid, actorId], "ownership uses the authenticated actor and requested form");
+      return { rows: [{ id: jobId }], rowCount: 1 };
+    }
     if (/configured\.system->'labelOverrides'/.test(sql)) {
       if (typeof labelOverrides === "function") (labelOverrides as () => never)();
       assert.deepEqual(values, [jobId, "automatic_sprinkler"], "the frozen map is read for THIS job only");

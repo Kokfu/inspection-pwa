@@ -1,0 +1,31 @@
+<!doctype html><html><head><link rel="stylesheet" href="/src/styles/app.css"></head><body><div id="mount"></div><script type="module">
+import * as React from "react";
+import * as ReactDom from "react-dom/client";
+import { App } from "/src/App.tsx";
+import { localDatabase, deviceDatabase } from "/src/db/localDatabase.ts";
+const id=n=>`81000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const templateIdV7="00000000-0000-4000-8000-000000000807",templateIdV5="00000000-0000-4000-8000-000000000805";
+const definition={key:"portable_fire_extinguisher",displayName:"Portable Fire Extinguisher",sortOrder:9,definitionStatus:"confirmed",configuration:{supportsZones:false,supportsLocations:false,supportsPresetRows:false},sections:[{key:"extinguisher_quantities",title:"Portable Fire Extinguisher Quantities",sortOrder:1,blocks:[{key:"quantity_summary",title:"Quantity Summary",type:"quantity_summary",sortOrder:1,items:[{key:"total",label:"Total Fire Extinguisher",control:"count",required:false,sortOrder:1},{key:"dry_powder_9kg",label:"9KG Dry Powder Fire Extinguisher",control:"count",required:false,sortOrder:2},{key:"co2_2kg",label:"2KG CO2 Portable Fire Extinguisher",control:"count",required:false,sortOrder:3},{key:"others",label:"Others",control:"text",required:false,sortOrder:4}]},{key:"comments",title:"Comments",type:"comments",sortOrder:2,field:{key:"comments",label:"Comments",control:"remarks",required:false,sortOrder:1}}]}]};
+const fixture=()=>{const ids={job:id(1),customer:id(2),revision:id(3),system:id(4)};const system={enabledSystemId:ids.system,systemKey:"portable_fire_extinguisher",displayName:"Portable Fire Extinguisher",sortOrder:9,definitionStatus:"confirmed",zones:[],locations:[]};const templateV7={id:templateIdV7,code:"MFE-FSSR",name:"MFE",version:7,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:"portable_fire_extinguisher",displayName:"Portable Fire Extinguisher",sortOrder:9,definitionStatus:"confirmed",definition}]};const templateV5={id:templateIdV5,code:"MFE-FSSR",name:"MFE",version:5,selectionPolicy:"preset_only",headerDefinition:{},reportBoilerplate:{},systems:[{key:"portable_fire_extinguisher",displayName:"Portable Fire Extinguisher",sortOrder:9,definitionStatus:"confirmed",definition}]};return{ids,system,catalog:{template:{...templateV7,id:id(9),version:1,systems:[]},templates:[templateV7,templateV5]},job:{id:ids.job,reference:"PORTABLE-V7-BROWSER",title:"Portable V7 Browser",status:"open",createdAt:new Date().toISOString(),serviceDate:null,serviceTime:null,site:null,configurationSnapshot:{schemaVersion:1,customer:{id:ids.customer,code:"PFE",displayName:"Portable Customer"},configuration:{revisionId:ids.revision,revisionNumber:1},template:{id:templateIdV7,code:"MFE-FSSR",name:"MFE",version:7},enabledSystems:[system]}}}};
+const f=fixture(), user={id:903,username:"pfe-tech",role:"inspector"};
+f.catalog.templates.push(f.catalog.template);
+let actor, syncCount=0;
+window.inspectWorkspace=async()=>({name:localDatabase.name,records:await localDatabase.masterSystemInspections.toArray(),outbox:await localDatabase.syncOutbox.toArray(),legacyRecords:await deviceDatabase.masterSystemInspections.count(),legacyOutbox:await deviceDatabase.syncOutbox.count(),syncCount});
+const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});
+window.fetch=async(input,options={})=>{
+ const path=new URL(typeof input==="string"?input:input.url,location.origin).pathname;
+ if(path==="/api/auth/me")return actor?json({user:actor}):json({},401);
+ if(path==="/api/auth/login"){actor=user;return json({user});}
+ if(path==="/api/inspection-jobs")return json({jobs:[f.job]});
+ if(path==="/api/inspection-catalog")return json(f.catalog);
+ if(path==="/api/customers")return json({customers:[]});
+ if(path==="/api/master-system-inspections")return json({inspections:[],hasMore:false,nextCursor:null});
+ if(path==="/api/sync"){
+  syncCount++; const items=JSON.parse(options.body).items;
+  if(syncCount===1)return json({acceptedIds:[],duplicateIds:[],failed:items.map(x=>({id:x.entityId,code:"VALIDATION_ERROR",message:"Correct test quantity"}))});
+  return json({acceptedIds:items.map(x=>x.entityId),duplicateIds:[],failed:[]});
+ }
+ return json({},503);
+};
+ReactDom.createRoot(document.querySelector("#mount")).render(React.createElement(App));
+</script></body></html>

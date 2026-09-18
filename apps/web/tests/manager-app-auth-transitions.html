@@ -7,7 +7,7 @@
     import * as React from "react";
     import * as ReactDom from "react-dom/client";
     import { App } from "/src/App.tsx";
-    import { localDatabase } from "/src/db/localDatabase.ts";
+    import { localDatabase, deviceDatabase } from "/src/db/localDatabase.ts";
     import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
 
     const admin = { id: 801, username: "manager-admin", role: "admin" };
@@ -66,6 +66,7 @@
     }
     async function clearDatabase() {
       await localDatabase.open();
+      await deviceDatabase.authState.clear();
       await localDatabase.transaction("rw", localDatabase.drafts, localDatabase.testRecords, localDatabase.inspectionRecords,
         localDatabase.masterSystemInspections, localDatabase.masterSystemInspectionGroups, localDatabase.masterSystemFormInstances,
         localDatabase.syncOutbox, localDatabase.referenceData, localDatabase.authState, localDatabase.inspectionAttachments, async () => {

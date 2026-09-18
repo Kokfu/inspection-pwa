@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
@@ -124,6 +125,12 @@ export function TechnicianHome({
   onOpenCo2,
   onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom
 }: TechnicianHomeProps) {
+  const tabKey = `technician-home-tab:${"user" in authState ? authState.user?.id ?? "locked" : "locked"}`;
+  const [tab, setTab] = useState<"progress" | "completed">(() =>
+    sessionStorage.getItem(tabKey) === "completed" ? "completed" : "progress");
+  const selectTab = (value: "progress" | "completed") => {
+    setTab(value); sessionStorage.setItem(tabKey, value);
+  };
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
     .filter((system) => system.definitionStatus === "confirmed")
@@ -235,18 +242,23 @@ export function TechnicianHome({
   const operationalMessage = message && !isRoutineJobCountMessage(message, jobs.length)
     ? technicianOperationalMessage(message)
     : undefined;
-  const currentJobs = jobs.filter((job) => job.status !== "closed");
-  const serviceHistory = jobs.filter((job) => job.status === "closed");
+  const newestFirst = (a: InspectionJob, b: InspectionJob) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
+  const currentJobs = jobs.filter((job) => job.status !== "closed").sort(newestFirst);
+  const serviceHistory = jobs.filter((job) => job.status === "closed").sort(newestFirst);
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
     return <li key={job.id}>
       <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
         <div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div><span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span></div>
         <div className="job-service-line"><span className="job-card-label">Site / Service</span><strong>{job.site?.displayName ?? job.title}</strong></div>
-        <div className="job-card-meta"><span><small>Created Date & Time</small><strong>{formatMalaysiaDateTime(job.createdAt)}</strong></span><span><small>Inspection progress</small><strong>{progress.complete}/{progress.total} complete</strong></span></div>
+        <div className="job-card-meta"><span><small>Service date</small><strong>{job.serviceDate ?? formatMalaysiaDateTime(job.createdAt)}</strong></span><span><small>Inspection progress</small><strong>{progress.complete} of {progress.total} systems</strong></span></div>
         <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}><span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} /></div>
         <span className="job-reference">{job.reference}</span>
       </button>
+      {job.status === "closed" ? <button type="button" className="job-report-action"
+        aria-label={`View Report for ${job.reference}`} disabled={!canUseServer}
+        title={canUseServer ? undefined : "Reconnect to view the final report"}
+        onClick={() => onViewFinalReport(job)}>View Report</button> : null}
     </li>;
   };
 
@@ -257,7 +269,7 @@ export function TechnicianHome({
         <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
       </div>
       <div className="home-utility-actions">
-        <button type="button" onClick={onNewServiceVisit} disabled={!canUseServer || loading}>+ New Service Visit</button>
+        <button type="button" className="new-service-primary" onClick={onNewServiceVisit} disabled={!canUseServer || loading}>+ New Service Visit</button>
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
           {loading ? "Refreshing\u2026" : "Refresh"}
         </button>
@@ -390,10 +402,25 @@ export function TechnicianHome({
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
         <h3 className="visually-hidden" id="available-jobs-title">Available service jobs</h3>
-        {jobs.length === 0 ? <p className="empty-state">No service jobs are available on this device.</p> : <div className="job-groups">
-          <section aria-labelledby="current-service-jobs-title"><div className="list-heading"><h3 id="current-service-jobs-title">Current Service Jobs</h3><span>{currentJobs.length}</span></div>{currentJobs.length ? <ul className="job-card-list">{currentJobs.map(jobCard)}</ul> : <p className="empty-state">No current service jobs are available.</p>}</section>
-          <section aria-labelledby="service-history-title"><div className="list-heading"><h3 id="service-history-title">Service History</h3><span>{serviceHistory.length}</span></div>{serviceHistory.length ? <ul className="job-card-list">{serviceHistory.map(jobCard)}</ul> : <p className="empty-state">No completed service visits are available.</p>}</section>
-        </div>}
+        <div className="job-tabs" role="tablist" aria-label="Service visits">
+          {(["progress", "completed"] as const).map((value) => <button
+            key={value} type="button" role="tab" id={`jobs-tab-${value}`}
+            aria-selected={tab === value} aria-controls="jobs-tab-panel" tabIndex={tab === value ? 0 : -1}
+            onClick={() => selectTab(value)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? "progress" : event.key === "End" ? "completed" : tab === "progress" ? "completed" : "progress";
+              selectTab(next); document.getElementById(`jobs-tab-${next}`)?.focus();
+            }}>
+            {value === "progress" ? `In Progress (${currentJobs.length})` : `Completed (${serviceHistory.length})`}
+          </button>)}
+        </div>
+        <div id="jobs-tab-panel" role="tabpanel" aria-labelledby={`jobs-tab-${tab}`} tabIndex={0}>
+          {(tab === "progress" ? currentJobs : serviceHistory).length
+            ? <ul className="job-card-list">{(tab === "progress" ? currentJobs : serviceHistory).map(jobCard)}</ul>
+            : <p className="empty-state">{tab === "progress" ? "No visits in progress. Start a new service visit to begin." : "No completed service visits yet."}</p>}
+        </div>
       </section>
     ) : null}
   </section>;

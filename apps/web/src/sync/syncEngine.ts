@@ -1,4 +1,4 @@
-import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
+import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -59,7 +59,7 @@ async function syncPendingV6Evidence() {
     const at = new Date().toISOString();
     await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
     try {
-      const staged = await stageFireAlarmV6Evidence(attachment, record); const done = new Date().toISOString();
+      await assertSyncIdentity(); const staged = await stageFireAlarmV6Evidence(attachment, record, syncActorId); const done = new Date().toISOString();
       await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Synced", storedSha256: staged.storedSha256, lastSyncedAt: done, localUpdatedAt: done, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: done, lastError: undefined }); }); accepted += 1;
     } catch (error) { const message = failureMessage(error); const conflict = error instanceof AttachmentUploadError && ["IDEMPOTENCY_CONFLICT", "RESERVATION_CONFLICT", "JOB_ACCESS_DENIED", "CONTRACT_MISMATCH"].includes(error.code); await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: conflict ? "Conflict" : "Failed", localUpdatedAt: new Date().toISOString(), lastSyncError: message }); await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: message }); }); failed += 1; }
   }
@@ -76,7 +76,7 @@ async function syncPendingV7Evidence() {
     const at = new Date().toISOString();
     await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
     try {
-      const staged = await stageV7Evidence(attachment, record); const done = new Date().toISOString();
+      await assertSyncIdentity(); const staged = await stageV7Evidence(attachment, record, syncActorId); const done = new Date().toISOString();
       await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Synced", storedSha256: staged.storedSha256, lastSyncedAt: done, localUpdatedAt: done, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", activeKey: undefined, completedAt: done, lastError: undefined }); }); accepted += 1;
     } catch (error) { const message = failureMessage(error); const conflict = error instanceof AttachmentUploadError && ["IDEMPOTENCY_CONFLICT", "RESERVATION_CONFLICT", "JOB_ACCESS_DENIED", "CONTRACT_MISMATCH"].includes(error.code); await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: conflict ? "Conflict" : "Failed", localUpdatedAt: new Date().toISOString(), lastSyncError: message }); await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: message }); }); failed += 1; }
   }
@@ -191,7 +191,27 @@ async function filterTerminalConflictWork(items: SyncOutboxItem[]) {
   return valid;
 }
 
+let syncActorId: number | undefined;
+const identityChangedMessage = "Authentication changed; sign in as the owner to sync this workspace";
+async function assertSyncIdentity() {
+  const workspaceUserId = currentWorkspaceUserId();
+  // No signed-in identity and no user workspace: nothing account-bound can be sent.
+  if (syncActorId === undefined && workspaceUserId === undefined) return;
+  const identity = await deviceDatabase.authState.get("device-auth");
+  if (syncActorId === undefined || identity?.userId !== syncActorId || identity.explicitLogout
+    || identity.serverLogoutPending || (workspaceUserId !== undefined && workspaceUserId !== syncActorId)) {
+    throw new Error(identityChangedMessage);
+  }
+}
+/** The server rejects the request if the shared session cookie now belongs to someone else. */
+function expectedActorHeaders(): Record<string, string> {
+  return syncActorId === undefined ? {} : { "X-Expected-User-Id": String(syncActorId) };
+}
 let syncInProgress = false;
+const idleWaiters: Array<() => void> = [];
+export function waitForSyncIdle(): Promise<void> {
+  return syncInProgress ? new Promise((resolve) => idleWaiters.push(resolve)) : Promise.resolve();
+}
 export type SyncEngineTestBoundary = "afterCandidatesCaptured" | "afterSyncingItemsCapturedForFailure";
 let testBoundaryHook: ((boundary: SyncEngineTestBoundary) => Promise<void>) | undefined;
 /** Test-only deterministic boundary. Production leaves this undefined. */
@@ -384,7 +404,8 @@ async function syncPendingAttachments() {
     );
 
     try {
-      const result = await uploadInspectionAttachment(attachment);
+      await assertSyncIdentity();
+      const result = await uploadInspectionAttachment(attachment, syncActorId);
       const syncedAt = new Date().toISOString();
       await localDatabase.transaction(
         "rw",
@@ -440,16 +461,22 @@ async function syncPendingAttachments() {
   return { accepted, failed, pending: items.length - accepted - failed };
 }
 
-export async function syncPendingRecords() {
+export async function syncPendingRecords(actorUserId?: number) {
   if (syncInProgress) {
     return { started: false, message: "Sync already running" };
   }
 
   syncInProgress = true;
+  syncActorId = actorUserId;
   const startedAt = new Date().toISOString();
   let dispatchedItems: SyncOutboxItem[] = [];
 
   try {
+    if (syncActorId === undefined) {
+      const deviceIdentity = await deviceDatabase.authState.get("device-auth");
+      if (!deviceIdentity?.explicitLogout) syncActorId = deviceIdentity?.userId;
+    }
+    await assertSyncIdentity();
     await recoverInterruptedSync();
 
     const v6Evidence = await syncPendingV6Evidence();
@@ -522,9 +549,10 @@ export async function syncPendingRecords() {
     if (items.length === 0) return { started: true, message: "No pending records" };
     dispatchedItems = items;
 
+    await assertSyncIdentity();
     const response = await fetch("/api/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...expectedActorHeaders() },
       credentials: "same-origin",
       body: JSON.stringify({
         items: items.map((item) => ({
@@ -541,6 +569,10 @@ export async function syncPendingRecords() {
       throw new Error("Sign in required before server sync");
     }
 
+    if (response.status === 409) {
+      const body = await response.clone().json().catch(() => ({})) as { error?: unknown };
+      if (body.error === "IDENTITY_MISMATCH") throw new Error(identityChangedMessage);
+    }
     if (!response.ok) {
       throw new Error(`Sync request failed: ${response.status}`);
     }
@@ -707,6 +739,7 @@ export async function syncPendingRecords() {
     return { started: true, message };
   } finally {
     syncInProgress = false;
+    idleWaiters.splice(0).forEach((resolve) => resolve());
   }
 }
 

@@ -1,5 +1,5 @@
 import {
-  localDatabase,
+  deviceDatabase,
   type DeviceAuthState
 } from "../db/localDatabase";
 import type { AuthUser } from "./authApi";
@@ -13,7 +13,7 @@ export type CachedIdentity = {
 };
 
 export async function getDeviceAuthState() {
-  return localDatabase.authState.get(deviceAuthKey);
+  return deviceDatabase.authState.get(deviceAuthKey);
 }
 
 export function identityFromDeviceState(
@@ -44,8 +44,9 @@ export function identityFromDeviceState(
 }
 
 export async function storeVerifiedIdentity(user: AuthUser) {
+  const previous = await getDeviceAuthState();
   const lastVerifiedAt = new Date().toISOString();
-  await localDatabase.authState.put({
+  await deviceDatabase.authState.put({
     key: deviceAuthKey,
     schemaVersion: 1,
     userId: user.id,
@@ -56,20 +57,25 @@ export async function storeVerifiedIdentity(user: AuthUser) {
     explicitLogout: false,
     serverLogoutPending: false
   });
+  if (previous?.userId !== user.id || previous.explicitLogout) {
+    localStorage.setItem("inspection-auth-change", crypto.randomUUID());
+  }
   return lastVerifiedAt;
 }
 
 export async function clearLocalIdentity(serverLogoutPending = false) {
   if (serverLogoutPending) {
-    await localDatabase.authState.put({
+    await deviceDatabase.authState.put({
       key: deviceAuthKey,
       schemaVersion: 1,
       cachedAt: new Date().toISOString(),
       explicitLogout: true,
       serverLogoutPending: true
     });
+    localStorage.setItem("inspection-auth-change", crypto.randomUUID());
     return;
   }
 
-  await localDatabase.authState.delete(deviceAuthKey);
+  await deviceDatabase.authState.delete(deviceAuthKey);
+  localStorage.setItem("inspection-auth-change", crypto.randomUUID());
 }

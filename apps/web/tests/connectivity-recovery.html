@@ -8,7 +8,7 @@
       import * as React from "react";
       import * as ReactDom from "react-dom/client";
       import { App } from "/src/App.tsx";
-      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { localDatabase, activateUserWorkspace } from "/src/db/localDatabase.ts";
       import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
       import { submitLocal } from "/src/records/testRecordRepository.ts";
 
@@ -34,7 +34,7 @@
       };
 
       async function run() {
-        await localDatabase.open();
+        await activateUserWorkspace(user.id);
         await storeVerifiedIdentity(user);
         let pendingFixture;
         if (scenario === "outbox") {

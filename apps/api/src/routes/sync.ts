@@ -1,3 +1,4 @@
+import { technicianOwns, ownsExistingSyncIdentity, jobNotFound, requireExpectedActor } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -15,10 +16,13 @@ import { syncPortableFireExtinguishers } from "../sync/portableFireExtinguisherS
 import { guardCompletedJobSyncItems } from "../sync/jobStateGuard.js";
 
 export const syncRouter = Router();
+// Unsupported entity types never dispatch; they keep their per-item validation failure.
+const jobBoundEntityTypes = new Set(["inspection", "masterSystemInspection", "masterSystemFormInstance"]);
 
 syncRouter.post(
   "/sync",
   requireRole("admin", "inspector"),
+  requireExpectedActor("sync_write", "sync"),
   async (request, response, next) => {
     try {
       const { items } = request.body as { items?: unknown };
@@ -67,6 +71,17 @@ syncRouter.post(
         return;
       }
 
+      // Authorize every job before any idempotent replay or batch write.
+      for (const item of items) {
+        if (item && typeof item === "object" && jobBoundEntityTypes.has(item.entityType)
+          && (!await technicianOwns(request, "job", item.payload?.jobId)
+            || !await ownsExistingSyncIdentity(request, item.entityId)
+            || !await ownsExistingSyncIdentity(request, item.payload?.clientUuid))) {
+          await auditLog({ actorUserId: request.currentUser?.id, action: "sync_write",
+            entityType: "sync", result: "failure", reason: "JOB_NOT_FOUND" });
+          response.status(404).json(jobNotFound); return;
+        }
+      }
       const guarded = await guardCompletedJobSyncItems(items);
       const dispatchableItems = guarded.dispatchable;
       const testRecordItems = dispatchableItems.filter(

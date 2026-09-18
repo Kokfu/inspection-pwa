@@ -1,3 +1,4 @@
+import { requireTechnicianOwnership, technicianOwns, jobNotFound } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
@@ -122,7 +123,8 @@ function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: strin
   };
 }
 
-masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireRole("admin", "inspector"), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -139,7 +141,8 @@ masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireR
   } catch (error) { next(error); }
 });
 
-masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("admin", "inspector"), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -150,7 +153,8 @@ masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("a
   } catch (error) { next(error); }
 });
 
-masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requireRole("admin", "inspector"), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -164,6 +168,7 @@ masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requi
 masterSystemInspectionsRouter.get(
   "/fire-alarm-inspections/:clientUuid",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid=request.params.clientUuid;
@@ -181,6 +186,7 @@ masterSystemInspectionsRouter.get(
 masterSystemInspectionsRouter.get(
   "/dry-wet-riser-inspections/:clientUuid",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid = request.params.clientUuid;
@@ -287,9 +293,16 @@ masterSystemInspectionsRouter.get(
         return;
       }
 
+      if (jobId && !await technicianOwns(request, "job", jobId)) {
+        response.status(404).json(jobNotFound); return;
+      }
       const values: unknown[] = [];
       // Progress summaries intentionally include only accepted records.
       const filters: string[] = ["instance.status = 'submitted'"];
+      if (request.currentUser!.role === "inspector") {
+        values.push(request.currentUser!.id);
+        filters.push(`job.created_by_user_id = $${values.length}`);
+      }
       if (jobId) {
         values.push(jobId);
         filters.push(`job.id = $${values.length}`);
@@ -464,6 +477,7 @@ masterSystemInspectionsRouter.get(
 masterSystemInspectionsRouter.get(
   "/master-system-inspections/:clientUuid",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid = request.params.clientUuid;

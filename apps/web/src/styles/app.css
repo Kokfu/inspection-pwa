@@ -1060,3 +1060,17 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: #fff;
 .manager-technician-list, .manager-schedule-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
 .manager-technician-list li, .manager-schedule-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid #d6dde5; border-radius: 8px; }
 .manager-schedule-list label { margin-left: auto; }
+
+/* Technician visit overview */
+.technician-home { min-width: 0; }
+.new-service-primary { min-height: 48px; font-weight: 700; }
+.job-tabs { display: flex; gap: .5rem; margin: 1rem 0; }
+.job-tabs [role="tab"] { flex: 1; min-width: 0; padding: .8rem .5rem; }
+.job-tabs [aria-selected="false"] { background: #edf2f7; color: #243746; }
+.job-card { overflow-wrap: anywhere; min-width: 0; }
+.job-report-action { display: block; margin-top: .75rem; font-weight: 700; }
+@media (max-width: 480px) {
+  .home-utility-actions { width: 100%; flex-wrap: wrap; }
+  .home-utility-actions .new-service-primary { width: 100%; }
+  .job-card-list { grid-template-columns: minmax(0, 1fr); }
+}

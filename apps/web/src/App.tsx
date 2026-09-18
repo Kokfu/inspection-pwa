@@ -1,3 +1,4 @@
+import { beginWorkspaceActivity, waitForWorkspaceIdle } from "./db/workspaceActivity";
 import { useEffect, useRef, useState } from "react";
 import type { InspectionAttachmentRecord } from "./attachments/attachmentTypes";
 import { AutomaticSprinklerInspectionForm } from "./automaticSprinkler/AutomaticSprinklerInspectionForm";
@@ -97,7 +98,7 @@ import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManager
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { productRoleMatches } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
-import { initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
+import { activateUserWorkspace, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
 import { InspectionList } from "./inspections/InspectionList";
 import {
@@ -158,7 +159,7 @@ import {
 import {
   pruneCompletedOutboxItems,
   recoverInterruptedSync,
-  syncPendingTestRecords
+  syncPendingTestRecords, waitForSyncIdle
 } from "./sync/syncEngine";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
@@ -473,6 +474,26 @@ export function App() {
     setServerFireAlarm(undefined);
   }
 
+  async function prepareLocalWorkspace(user: AuthUser) {
+    await waitForSyncIdle();
+    await waitForWorkspaceIdle();
+    if (!await activateUserWorkspace(user.id)) return;
+    setJobs([]);
+    setActiveInspectionDraft(undefined); setActiveHoseReel(undefined);
+    setActiveCo2Form(undefined); setActiveAutomaticSprinkler(undefined);
+    setActiveDryWetRiser(undefined); setActiveFireAlarm(undefined);
+    setActiveHydrant(undefined); setActivePortable(undefined);
+    setActiveSmokeVentilation(undefined); setActiveFireIntercom(undefined);
+    setRecords(await listTestRecords());
+    setInspections(await listInspectionRecords());
+    setMasterSystemInspections(await localDatabase.masterSystemInspections.toArray());
+    setMasterSystemInspectionGroups(await localDatabase.masterSystemInspectionGroups.toArray());
+    setMasterSystemFormInstances(await localDatabase.masterSystemFormInstances.toArray());
+    setInspectionAttachments(await localDatabase.inspectionAttachments.toArray());
+    setReferenceCache(await getReferenceCacheSummary());
+    if (user.role === "inspector") navigate({ name: "jobs" });
+  }
+
   function prepareVerifiedAuthority(user: AuthUser, forceReplacement = false) {
     if (!forceReplacement && authAuthorityGuard.current.matches(user)) return false;
     invalidateServerDerivedAuthority();
@@ -481,6 +502,9 @@ export function App() {
   }
 
   function installVerifiedAuthority(user: AuthUser, preparedReplacement: boolean) {
+    // The authenticated UI can appear before reference refresh finishes.
+    // Connectivity changes during that refresh must still revalidate authority.
+    authRestorationReady.current = true;
     if (preparedReplacement) authAuthorityGuard.current.install(user);
     setAuthAuthorityGeneration(authAuthorityGuard.current.currentGeneration);
   }
@@ -540,7 +564,13 @@ export function App() {
     canContinue: () => boolean = () => true
   ) {
     const cachedJobs = await getCachedInspectionJobs(userId);
-    if (!isCurrentAuthOperation(operation)
+    const ownerDatabase = localDatabase;
+    const [localInspections, localMasters, localGroups, localForms, localPhotos] = await Promise.all([
+      ownerDatabase.inspectionRecords.toArray(), ownerDatabase.masterSystemInspections.toArray(),
+      ownerDatabase.masterSystemInspectionGroups.toArray(), ownerDatabase.masterSystemFormInstances.toArray(),
+      ownerDatabase.inspectionAttachments.toArray()
+    ]);
+    if (ownerDatabase !== localDatabase || !isCurrentAuthOperation(operation)
       || !canContinue()
       || (refresh && !isCurrentServerSummaryRefresh(refresh, operation))) {
       return undefined;
@@ -566,6 +596,9 @@ export function App() {
       setServerMasterSystemInspections([]);
       setServerMasterSystemProgressState("idle");
     }
+    setInspections(localInspections); setMasterSystemInspections(localMasters);
+    setMasterSystemInspectionGroups(localGroups); setMasterSystemFormInstances(localForms);
+    setInspectionAttachments(localPhotos);
     setJobs(cachedJobs);
     return { jobs: cachedJobs, refresh: currentRefresh };
   }
@@ -701,6 +734,7 @@ export function App() {
     const decision = decideAuthRestoration(cachedIdentity, probe);
     if (decision.kind === "verified") {
       const authorityReplacement = prepareVerifiedAuthority(decision.user);
+      await prepareLocalWorkspace(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
       if (!isCurrentReconciliation()) return undefined;
       installVerifiedAuthority(decision.user, authorityReplacement);
@@ -778,6 +812,9 @@ export function App() {
     const handleOnline = () => {
       if (authRestorationReady.current) beginOnlineConnectivityRecovery();
     };
+    const handleIdentityChange = (event: StorageEvent) => {
+      if (event.key === "inspection-auth-change") void revalidateAuthentication();
+    };
     const handleHashChange = () => {
       const nextRoute = routeFromHash();
       setRoute((current) => hashForRoute(current) === hashForRoute(nextRoute) ? current : nextRoute);
@@ -785,6 +822,7 @@ export function App() {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
     window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener("storage", handleIdentityChange);
     void initializeLocalDatabase().then(async () => {
       const recovered = await recoverInterruptedSync();
       setDatabaseReady(true);
@@ -810,6 +848,7 @@ export function App() {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("hashchange", handleHashChange);
+      window.removeEventListener("storage", handleIdentityChange);
     };
   }, []);
 
@@ -1128,14 +1167,24 @@ export function App() {
   }
 
   async function handleSaveDraft(values: TestRecordFormValues) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     await saveDraft(values);
     await refreshRecords();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSubmitLocal(values: TestRecordFormValues) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     await submitLocal(values);
     await refreshRecords();
     setSyncMessage("Record is pending sync");
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSync() {
@@ -1143,7 +1192,7 @@ export function App() {
       setSyncMessage("Reconnect to verify your session before syncing");
       return;
     }
-    const result = await syncPendingTestRecords();
+    const result = await syncPendingTestRecords(currentUser?.id);
     setSyncMessage(result.message);
     await refreshRecords();
     await refreshMasterSystemInspections();
@@ -1194,10 +1243,13 @@ export function App() {
           await clearLocalIdentity();
           if (!isCurrentAuthOperation(operation)) return undefined;
         }
+        await waitForSyncIdle();
+        await waitForWorkspaceIdle();
         return login(username, password);
       });
       if (!isCurrentAuthOperation(operation) || !user) return;
       const authorityReplacement = prepareVerifiedAuthority(user, true);
+      await prepareLocalWorkspace(user);
       const lastVerifiedAt = await storeVerifiedIdentity(user);
       if (!isCurrentAuthOperation(operation)) return;
       installVerifiedAuthority(user, authorityReplacement);
@@ -1232,6 +1284,8 @@ export function App() {
       setSelectedExperience(undefined);
       setRoleMessage("");
       navigate({ name: "jobs" });
+      await waitForSyncIdle();
+      await waitForWorkspaceIdle();
       await clearLocalIdentity(true);
       if (!isCurrentAuthOperation(operation)) return;
       setJobs([]);
@@ -1258,16 +1312,26 @@ export function App() {
   }
 
   async function handleSaveInspectionDraft(values: InspectionFormValues) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     const record = await saveInspectionDraft(values, activeInspectionDraft);
     setActiveInspectionDraft(record);
     await refreshInspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSubmitLocalInspection(values: InspectionFormValues) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     await submitLocalInspection(values, activeInspectionDraft);
     setActiveInspectionDraft(undefined);
     await refreshInspections();
     setInspectionSyncMessage("Inspection is pending sync");
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleInspectionSync() {
@@ -1275,7 +1339,7 @@ export function App() {
       setInspectionSyncMessage("Reconnect to verify your session before syncing");
       return;
     }
-    const result = await syncPendingTestRecords();
+    const result = await syncPendingTestRecords(currentUser?.id);
     setInspectionSyncMessage(result.message);
     await refreshInspections();
     await refreshRecords();
@@ -1285,6 +1349,9 @@ export function App() {
   }
 
   async function handleOpenHoseReel(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     try {
       if (authState.status === "verified") {
         const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
@@ -1300,9 +1367,14 @@ export function App() {
     } catch (error) {
       setJobMessage(error instanceof Error ? error.message : "Hose Reel inspection could not be opened");
     }
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleOpenCo2(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     try {
       if (job.status === "closed") {
         if (!canUseServer) throw new Error("This service visit is complete and read-only. Reconnect to view completed location details.");
@@ -1317,9 +1389,14 @@ export function App() {
     } catch (error) {
       setJobMessage(error instanceof Error ? error.message : "CO2 locations could not be opened");
     }
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleOpenAutomaticSprinkler(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     try {
       if (job.status === "closed" && !canUseServer) throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
       const catalog = await getCachedInspectionCatalog();
@@ -1344,72 +1421,227 @@ export function App() {
     } catch (error) {
       setJobMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be opened");
     }
+
+    } finally { finishLocalWork(); }
   }
-  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { setServerAcceptedDryWetRiserUuid(target.clientUuid); navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;} setServerAcceptedDryWetRiserUuid(undefined); setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); } }
-  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) { try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This completed Fire Alarm inspection is not available on this device. Reconnect to view it."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local" && job.status === "closed") { setJobMessage("This service visit is complete and read-only."); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); } }
-  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}}
-  async function handleSaveHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}}
-  async function handleSubmitHydrant(responses:HydrantResponses){if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}}
-  async function handleEditFailedHydrant(){if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}}
-  async function handleOpenSmokeVentilation(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveSmokeVentilationOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedSmokeVentilationUuid(target.clientUuid);navigate({name:"smoke-ventilation-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Smoke Ventilation inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedSmokeVentilationUuid(undefined);setActiveSmokeVentilation(target.record);await refreshMasterSystemInspections();navigate({name:"smoke-ventilation-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Smoke Ventilation inspection could not be opened");}}
-  async function handleSaveSmokeVentilation(responses:SmokeVentilationResponses){if(activeSmokeVentilation){setActiveSmokeVentilation(await saveSmokeVentilationDraft(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}}
-  async function handleSubmitSmokeVentilation(responses:SmokeVentilationResponses){if(activeSmokeVentilation){setActiveSmokeVentilation(await submitLocalSmokeVentilation(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}}
-  async function handleEditFailedSmokeVentilation(){if(activeSmokeVentilation){setActiveSmokeVentilation(await returnFailedSmokeVentilationToDraft(activeSmokeVentilation));await refreshMasterSystemInspections();}}
-  async function handleOpenFireIntercom(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveFireIntercomOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedFireIntercomUuid(target.clientUuid);navigate({name:"fire-intercom-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Fire Intercom inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedFireIntercomUuid(undefined);setActiveFireIntercom(target.record);await refreshMasterSystemInspections();navigate({name:"fire-intercom-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Fire Intercom inspection could not be opened");}}
-  async function handleSaveFireIntercom(responses:FireIntercomResponses){if(activeFireIntercom){setActiveFireIntercom(await saveFireIntercomDraft(activeFireIntercom,responses));await refreshMasterSystemInspections();}}
-  async function handleSubmitFireIntercom(responses:FireIntercomResponses){if(activeFireIntercom){setActiveFireIntercom(await submitLocalFireIntercom(activeFireIntercom,responses));await refreshMasterSystemInspections();}}
-  async function handleEditFailedFireIntercom(){if(activeFireIntercom){setActiveFireIntercom(await returnFailedFireIntercomToDraft(activeFireIntercom));await refreshMasterSystemInspections();}}
-  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}}
-  async function handleSavePortable(responses:PortableResponses){if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}}
-  async function handleSubmitPortable(responses:PortableResponses){if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}}
-  async function handleEditFailedPortable(){if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePortable));await refreshMasterSystemInspections();}}
-  async function handleSaveFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
-  async function handleSubmitFireAlarm(responses: FireAlarmResponses) { if (!activeFireAlarm) return; try { setActiveFireAlarm(await submitFireAlarmLocal(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
-  async function handleEditFailedFireAlarm() { if (!activeFireAlarm) return; try { setActiveFireAlarm(await returnFailedFireAlarmToDraft(activeFireAlarm)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; } }
-  async function handleSaveDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await saveDryWetRiserDraft(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
-  async function handleSubmitDryWetRiser(responses: DryWetRiserResponses) { if (!activeDryWetRiser) return; setActiveDryWetRiser(await submitLocalDryWetRiser(activeDryWetRiser, responses)); await refreshMasterSystemInspections(); }
-  async function handleEditFailedDryWetRiser() { if (!activeDryWetRiser) return; setActiveDryWetRiser(await returnFailedDryWetRiserToDraft(activeDryWetRiser)); await refreshMasterSystemInspections(); }
+  async function handleOpenDryWetRiser(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveDryWetRiserOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "server") { setServerAcceptedDryWetRiserUuid(target.clientUuid); navigate({ name: "riser-form", clientUuid: target.clientUuid }); return; } if (target.kind === "not-cached") { setJobMessage("This Dry/Wet Riser inspection is not cached on this device."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;} setServerAcceptedDryWetRiserUuid(undefined); setActiveDryWetRiser(target.record); await refreshMasterSystemInspections(); navigate({ name: "riser-form", clientUuid: target.record.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Dry/Wet Riser could not be opened"); }
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenFireAlarm(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ try { if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;} const target = await resolveFireAlarmOpenTarget(job, system, await getCachedInspectionCatalog(), currentUser, authState.status === "verified" ? "verified" : "offline-unverified"); if (target.kind === "not-cached") { setJobMessage("This completed Fire Alarm inspection is not available on this device. Reconnect to view it."); return; } if (target.kind === "server-unavailable") { setJobMessage(target.message); return; } if (target.kind === "local" && job.status === "closed") { setJobMessage("This service visit is complete and read-only."); return; } if (target.kind === "local") { setActiveFireAlarm(target.record); await refreshMasterSystemInspections(); } navigate({ name: "fire-alarm-form", jobId: job.id, clientUuid: target.kind === "local" ? target.record.clientUuid : target.clientUuid }); } catch (error) { setJobMessage(error instanceof Error ? error.message : "Fire Alarm inspection could not be opened"); }
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenHydrant(job:InspectionJob,system:JobSystemSnapshot){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveHydrantOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedHydrantUuid(target.clientUuid);navigate({name:"hydrant-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Hydrant inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedHydrantUuid(undefined);setActiveHydrant(target.record);await refreshMasterSystemInspections();navigate({name:"hydrant-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Hydrant inspection could not be opened");}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveHydrant(responses:HydrantResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeHydrant){setActiveHydrant(await saveHydrantDraft(activeHydrant,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitHydrant(responses:HydrantResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeHydrant){setActiveHydrant(await submitLocalHydrant(activeHydrant,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedHydrant(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeHydrant){setActiveHydrant(await returnFailedHydrantToDraft(activeHydrant));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenSmokeVentilation(job:InspectionJob,system:JobSystemSnapshot){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveSmokeVentilationOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedSmokeVentilationUuid(target.clientUuid);navigate({name:"smoke-ventilation-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Smoke Ventilation inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedSmokeVentilationUuid(undefined);setActiveSmokeVentilation(target.record);await refreshMasterSystemInspections();navigate({name:"smoke-ventilation-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Smoke Ventilation inspection could not be opened");}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveSmokeVentilation(responses:SmokeVentilationResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeSmokeVentilation){setActiveSmokeVentilation(await saveSmokeVentilationDraft(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitSmokeVentilation(responses:SmokeVentilationResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeSmokeVentilation){setActiveSmokeVentilation(await submitLocalSmokeVentilation(activeSmokeVentilation,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedSmokeVentilation(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeSmokeVentilation){setActiveSmokeVentilation(await returnFailedSmokeVentilationToDraft(activeSmokeVentilation));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenFireIntercom(job:InspectionJob,system:JobSystemSnapshot){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveFireIntercomOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedFireIntercomUuid(target.clientUuid);navigate({name:"fire-intercom-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Fire Intercom inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedFireIntercomUuid(undefined);setActiveFireIntercom(target.record);await refreshMasterSystemInspections();navigate({name:"fire-intercom-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Fire Intercom inspection could not be opened");}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveFireIntercom(responses:FireIntercomResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireIntercom){setActiveFireIntercom(await saveFireIntercomDraft(activeFireIntercom,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitFireIntercom(responses:FireIntercomResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireIntercom){setActiveFireIntercom(await submitLocalFireIntercom(activeFireIntercom,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedFireIntercom(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireIntercom){setActiveFireIntercom(await returnFailedFireIntercomToDraft(activeFireIntercom));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolvePortableOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedPortableUuid(target.clientUuid);navigate({name:"portable-fire-extinguisher-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Portable Fire Extinguisher inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedPortableUuid(undefined);setActivePortable(target.record);await refreshMasterSystemInspections();navigate({name:"portable-fire-extinguisher-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Portable Fire Extinguisher inspection could not be opened");}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSavePortable(responses:PortableResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activePortable){setActivePortable(await savePortableDraft(activePortable,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitPortable(responses:PortableResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activePortable){setActivePortable(await submitLocalPortable(activePortable,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedPortable(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePortable));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveFireAlarm(responses: FireAlarmResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeFireAlarm) return; try { setActiveFireAlarm(await saveFireAlarmDraft(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; }
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitFireAlarm(responses: FireAlarmResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeFireAlarm) return; try { setActiveFireAlarm(await submitFireAlarmLocal(activeFireAlarm, responses)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; }
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedFireAlarm() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeFireAlarm) return; try { setActiveFireAlarm(await returnFailedFireAlarmToDraft(activeFireAlarm)); await refreshMasterSystemInspections(); } catch (error) { if (error instanceof Error && error.message.includes("changed elsewhere")) await refreshMasterSystemInspections(); throw error; }
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveDryWetRiser(responses: DryWetRiserResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeDryWetRiser) return; setActiveDryWetRiser(await saveDryWetRiserDraft(activeDryWetRiser, responses)); await refreshMasterSystemInspections();
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitDryWetRiser(responses: DryWetRiserResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeDryWetRiser) return; setActiveDryWetRiser(await submitLocalDryWetRiser(activeDryWetRiser, responses)); await refreshMasterSystemInspections();
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedDryWetRiser() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+ if (!activeDryWetRiser) return; setActiveDryWetRiser(await returnFailedDryWetRiserToDraft(activeDryWetRiser)); await refreshMasterSystemInspections();
+    } finally { finishLocalWork(); }
+  }
 
   async function handleSaveCo2Draft(responses: Co2Responses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeCo2Form) return;
     setActiveCo2Form(await saveCo2Draft(activeCo2Form, responses));
     await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSubmitCo2(responses: Co2Responses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeCo2Form) return;
     setActiveCo2Form(await submitLocalCo2(activeCo2Form, responses));
     await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleEditFailedCo2() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeCo2Form) return;
     setActiveCo2Form(await returnFailedCo2ToDraft(activeCo2Form));
     await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSaveHoseReelDraft(responses: HoseReelResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeHoseReel) return;
     const record = await saveHoseReelDraft(activeHoseReel, responses);
     setActiveHoseReel(record);
     await refreshMasterSystemInspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSubmitHoseReel(responses: HoseReelResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeHoseReel) return;
     const record = await submitLocalHoseReel(activeHoseReel, responses);
     setActiveHoseReel(record);
     await refreshMasterSystemInspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleEditFailedHoseReel() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeHoseReel) return;
     const record = await editFailedHoseReel(activeHoseReel);
     setActiveHoseReel(record);
     await refreshMasterSystemInspections();
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSaveAutomaticSprinklerDraft(responses: AutomaticSprinklerResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeAutomaticSprinkler) return;
     try {
       const record = await saveAutomaticSprinklerDraft(activeAutomaticSprinkler, responses);
@@ -1421,9 +1653,14 @@ export function App() {
       }
       throw error;
     }
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleSubmitAutomaticSprinkler(responses: AutomaticSprinklerResponses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeAutomaticSprinkler) return;
     try {
       const record = await submitLocalAutomaticSprinkler(activeAutomaticSprinkler, responses);
@@ -1435,9 +1672,14 @@ export function App() {
       }
       throw error;
     }
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleEditFailedAutomaticSprinkler() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
     if (!activeAutomaticSprinkler) return;
     try {
       const record = await returnFailedAutomaticSprinklerToDraft(activeAutomaticSprinkler);
@@ -1449,6 +1691,8 @@ export function App() {
       }
       throw error;
     }
+
+    } finally { finishLocalWork(); }
   }
 
   async function handleLoadServerInspections() {

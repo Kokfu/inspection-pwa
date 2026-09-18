@@ -1,3 +1,5 @@
+import { ownedMultipart, OwnershipUploadError } from "../jobs/ownedMultipart.js";
+import { requireExpectedActor, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
@@ -311,7 +313,7 @@ function fingerprint(values: {
 }
 
 function uploadFailure(error: unknown) {
-  if (error instanceof UploadError) return error;
+  if (error instanceof UploadError || error instanceof OwnershipUploadError) return error;
   if (isRecord(error) && error.message === "JOB_CLOSED") {
     return new UploadError(409, "JOB_CLOSED", "This job is completed; new evidence is not accepted");
   }
@@ -330,6 +332,7 @@ export const inspectionAttachmentsRouter = Router();
 inspectionAttachmentsRouter.post(
   "/inspection-attachments",
   requireRole("admin", "inspector"),
+  requireExpectedActor("inspection_attachment_upload", "inspectionAttachment"),
   async (request, response, next) => {
     let sourcePath: string | undefined;
     let normalizedTempPath: string | undefined;
@@ -337,7 +340,7 @@ inspectionAttachmentsRouter.post(
     let finalFilePrepared = false;
     let photoUuid = "unknown";
     try {
-      const parsed = await parseMultipartUpload(request);
+      const parsed = await parseMultipartUpload(await ownedMultipart(request, "form"));
       sourcePath = parsed.sourcePath;
       const { fields } = parsed;
       photoUuid = fields.photoUuid;
@@ -645,7 +648,7 @@ inspectionAttachmentsRouter.post(
         result: "failure",
         reason: failure.code
       }).catch(() => undefined);
-      response.status(failure.status).json({
+      response.status(failure.status).json(failure instanceof OwnershipUploadError ? { error: failure.code } : {
         error: failure.code,
         message: failure.message
       });
@@ -659,6 +662,7 @@ inspectionAttachmentsRouter.post(
 inspectionAttachmentsRouter.get(
   "/inspection-attachments",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid),
   async (request, response, next) => {
     try {
       const inspectionClientUuid = request.query.inspectionClientUuid;
@@ -698,6 +702,7 @@ inspectionAttachmentsRouter.get(
 inspectionAttachmentsRouter.get(
   "/inspection-attachments/:photoUuid/content",
   requireRole("admin", "inspector"),
+  requireTechnicianOwnership("attachment", (request) => request.params.photoUuid),
   async (request, response, next) => {
     try {
       const photoUuid = request.params.photoUuid;

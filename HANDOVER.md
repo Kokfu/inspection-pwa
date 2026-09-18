@@ -3,6 +3,138 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-18 — **Slice A Sol findings remediated; full-suite baseline
+failures explicitly retained.** PFE resolves its table inside each function after login;
+the scan of 169 web source files found no other eager module-level database capture.
+The three ownership-aware API fixtures and per-user connectivity fixture now run in the
+focused gate. Multipart preflight rejects oversized Content-Length before reading, and
+legacy attachments retain HTTP 413. New regressions cover PFE Save Draft/Submit/Edit
+Failed/sync, header-only and chunked oversize requests, mixed owned/foreign batches
+without partial writes, and admin reaching uploader-mismatch 409.
+
+**Upgrade precondition:** sync every device/browser profile online before deploying;
+postpone deployment if work remains unsynced. After upgrading, each technician must
+sign in and refresh online once. An offline first launch may show an empty new workspace:
+legacy work is preserved but cannot be attributed until the server confirms ownership.
+Work on jobs the technician did not create, NULL-creator jobs and unattributable jobs
+stays quarantined. Do not clear browser storage. Resolve it before upgrade or arrange
+authorized recovery afterward; see [deployment runbook](docs/architecture/06-deployment-runbook.md).
+
+Cold `cd C:\PWA_OfflineRecordWebApp ; .\scripts\Test-ManagerScheduling.ps1` exited **0**:
+**158 backend tests, 1 stale-evidence test, 8 job-progress tests, 24 Playwright tests;
+zero skips**. Port 55432 was free; the script created and removed its own disposable
+`/phase6_seed_integration` database. API/web typechecks and builds passed.
+
+| Remediation DoD / standard gate | Result |
+|---|---|
+| P0 PFE dynamic database lookup and complete authenticated workflow | PASS — new mounted-App browser test |
+| Search remaining web module-level database captures | PASS — no other captures found |
+| P1 three route fixtures, connectivity fixture and focused-list additions | PASS — 6 route tests + 10 connectivity browser scenarios |
+| P1 deployment precondition, offline-first-launch and non-owned legacy quarantine | PASS — runbook and this entry |
+| P2 Content-Length before body, oversized attachment 413 | PASS — header-only and chunked HTTP regressions |
+| Mixed owned/foreign batch in both orders; valid owned item succeeds alone | PASS — no partial writes |
+| Admin still reaches immutable uploader-mismatch 409 | PASS — real staged evidence replay |
+| Historical matrix / V6 evidence / Wet Chemical definition | PASS — 20 / 9 / 2 tests |
+| V7 contracts and environment / focused API set / V6-V7 integrations | PASS — 11 / 105 / 11 tests |
+| API/web typechecks and builds | PASS |
+| Web stale-evidence / job progress / focused Playwright | PASS — 1 / 8 / 24 tests |
+| Full Playwright suite | FAIL — 55 passed, 2 failed, 0 skipped; same two failures at a760ae1 |
+| Baseline comparison outside repo | PASS — a760ae1: 51 passed, 2 failed, 0 skipped |
+| Historical/protected files vs e30c649; migrations and serviceVisits.ts unchanged | PASS |
+| git status --short and git diff --check | PASS — protected paths clean, no whitespace errors |
+
+The full-suite failures are `co2-v7-live-accepted-detail.spec.ts` requiring
+`CO2_V7_LIVE_BROWSER_FIXTURE_PATH` and `wet-chemical-v7-live-accepted-detail.spec.ts`
+requiring `WET_CHEMICAL_V7_LIVE_BROWSER_FIXTURE_PATH`. Both fail identically in the
+external a760ae1 archive; neither is counted as a pass. Live browser acceptance remains
+unverified without those fixtures. No unrelated baseline failure was changed.
+
+**Sol re-review P2 follow-ups (2026-09-18), fixed in the working tree:**
+1. `POST /sync` returned a batch-wide 404 for unsupported entity types. Only job-bound types
+   (`inspection`, `masterSystemInspection`, `masterSystemFormInstance`) are ownership-checked now;
+   unsupported types get their per-item `VALIDATION_ERROR` again. A batch that contains a foreign
+   job item still gets a whole-batch 404 with nothing written (intentional; no partial writes).
+2. The sync engine skipped its identity check when no user id was passed. It now binds to the
+   device's signed-in identity and refuses to sync a user workspace that belongs to someone else.
+3. Cross-tab session race: sync and every upload send `X-Expected-User-Id`. `POST /sync`,
+   `/v6-evidence/stage`, `/v7-evidence/stage` and `/inspection-attachments` return
+   409 `IDENTITY_MISMATCH` (audited) when the session belongs to a different user. The client
+   keeps the work and retries it after the owner signs back in.
+4. Legacy rows copied while `Syncing`/`Uploading` are stored as `Failed` (retryable), the same
+   state interrupted-sync recovery gives them, so they no longer wait for an app restart.
+5. Admin legacy recovery stays off **by design**: an admin's job list includes every
+   technician's jobs, so recovering by that list would move other technicians' unsynced work into
+   the admin workspace. Admin legacy rows stay quarantined (runbook covers pre-upgrade sync).
+6. A Completed card opens the job again (accepted details and Final Report button, as before
+   Slice A). "View Report" is a separate button and is disabled offline.
+Tests: 2 new ownership integration tests (unsupported entity type; identity mismatch on all four
+write routes) and the home spec now covers opening a completed job. Not covered by an automated
+test: the `Syncing` → `Failed` normalisation during legacy recovery (item 4). The V6 stager's
+uploader-mismatch 409 has no admin test (V7 is covered in co2V7.integration.test.ts).
+Cold gate after these fixes: PASS, backend 160, web unit 1 + 8, Playwright 24/24, zero skips.
+Full Playwright: 55 passed, same 2 live-fixture failures as a760ae1.
+
+**Reported findings remaining: P0 0, P1 0, P2 0.** This supersedes the incorrect
+pre-Sol blanket assessment below; two pre-existing full-suite verification failures remain
+explicitly open. **SAFE FOR SOL RE-REVIEW: Y; full-suite green: N.** No staging, commits,
+migrations, production access or deployment. The existing client-format-request edits
+were preserved. Changed files with reasons, baseline failures, verbatim cold output and
+final Git checks: [Slice A validation report](docs/technician-ownership-slice-a.md).
+
+**Last updated:** 2026-09-17 — **Slice A: technician ownership and technician home.**
+Inspectors now see only jobs they created, including all job/form-bound sync, accepted
+detail, report/PDF and evidence routes. Foreign, NULL-creator and missing identities return
+the same 404; existing failure audits remain. Admin access and serviceVisits.ts are unchanged.
+The technician home has remembered accessible In Progress/Completed tabs, newest-first
+cards, progress, service dates, direct report access and a prominent New Service Visit action.
+
+Business data uses separate IndexedDB databases per authenticated user with the existing
+schema. Switching identities drains local operations/sync and replaces rendered state;
+previous users' unsynced work survives. Legacy records are copied only after the server
+confirms job ownership, with atomic copy receipts; originals remain untouched. First recovery
+of pre-upgrade data requires an online refresh. Unattributable legacy records remain preserved
+and quarantined. Browser coverage uses the real App and IndexedDB with mocked HTTP;
+no physical-phone, installed-PWA force-close or deployment claim is made.
+
+Cold command `cd C:\PWA_OfflineRecordWebApp ; .\scripts\Test-ManagerScheduling.ps1`
+exited 0 with port 55432 initially free and a fresh disposable
+`127.0.0.1:55432/phase6_seed_integration` database. Exact totals: **148 backend tests,
+1 stale-evidence test, 8 job-progress tests, 13 Playwright tests; zero skips**.
+
+| Definition of Done | Result / evidence |
+|---|---|
+| API typecheck and build | PASS |
+| Historical matrix | PASS — 20 tests |
+| V6 evidence | PASS — 9 tests |
+| Wet Chemical definition | PASS — 2 tests |
+| V7 contracts and environment | PASS — 11 tests |
+| Focused backend integration/regression set | PASS — 96 tests, including 38 ownership tests |
+| V6/V7 acceptance and races | PASS — 10 tests |
+| Web typecheck and production build | PASS |
+| Stale-evidence and job-progress regressions | PASS — 1 + 8 tests |
+| Playwright regression set | PASS — 13 tests |
+| Every technician route inventoried and tested | PASS — linked report has file:line inventory and sync dispatch coverage |
+| A/B/admin/NULL-creator isolation and existing denial audits | PASS — disposable PostgreSQL HTTP integration |
+| External scratch revert proof | PASS — removing ownership causes 23 failures / 38 tests, exit 1, zero skips |
+| Home tab counts, keyboard/session behavior, report and 375px overflow | PASS — Playwright |
+| Same-browser user switch, hidden foreign work, draft recovery and owner sync | PASS — Playwright; includes suspended-save/logout race |
+| Focused script sets | PASS — only the two test file lists changed |
+| Historical/protected files against e30c649 | PASS — byte-identical; protected git status clean |
+| No migrations; serviceVisits.ts actor/legacy guards unchanged | PASS — baseline a760ae1 comparison |
+| V7 four-state model and Normal/Test/Isolation preserved | PASS — no template/control changes |
+| Dated handover and exact cold counts | PASS — this entry |
+| Final git status and diff --check | PASS — no protected files changed; no whitespace errors |
+
+**Pre-review assessment superseded by Sol:** the previous P0/P1/P2-zero claim was
+incorrect. Sol identified a P0 PFE module-load database capture, P1 stale fixtures and
+upgrade documentation, and a P2 upload-size regression/coverage gap. The dated
+remediation entry records the corrected outcome; the original focused run above did
+not establish that the full Playwright suite was green. No staging or commits.
+Full route inventory, persistence
+design, 27-file change list with reasons, actual revert output and reproducible commands:
+[technician-ownership-slice-a.md](docs/technician-ownership-slice-a.md).
+The two pre-existing client-format-request documentation edits were preserved.
+
 **Last updated:** 2026-09-17 — **Service-visit idempotent replay now compares the cover
 fields.** A retry with the same `requestId` but a different service call number, arrival time
 or departure time previously returned idempotent success and silently kept the original values.
