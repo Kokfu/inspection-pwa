@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadManagerServiceHistory, ManagerApiError, type ManagerCustomer, type ManagerServiceHistoryFilters, type ManagerServiceVisit, type ManagerTechnician } from "./managerApi";
 import { formatClientDate, formatMalaysiaDateTime } from "../uiPresentation";
 
@@ -72,6 +72,9 @@ export function ManagerCustomerServiceHistory({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  // Bumped by every filter/customer change and on unmount: a Load more response from an older
+  // generation must never append old-filter rows or an old cursor to the current list.
+  const requestGeneration = useRef(0);
 
   const fail = (reason: unknown) => {
     if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -80,7 +83,8 @@ export function ManagerCustomerServiceHistory({
 
   useEffect(() => {
     let current = true;
-    setLoading(true); setError(""); setVisits([]); setNextCursor(null);
+    requestGeneration.current += 1;
+    setLoading(true); setLoadingMore(false); setError(""); setVisits([]); setNextCursor(null);
     (async () => {
       try {
         const result = await loadManagerServiceHistory(toQuery(customer.customer.id, applied));
@@ -94,22 +98,25 @@ export function ManagerCustomerServiceHistory({
         if (current) setLoading(false);
       }
     })();
-    return () => { current = false; };
+    return () => { current = false; requestGeneration.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer.customer.id, applied.siteId, applied.status, applied.systemKey, applied.from, applied.to, applied.technicianId]);
 
   const loadMore = async () => {
     if (!nextCursor) return;
+    const generation = requestGeneration.current;
+    const isCurrent = () => generation === requestGeneration.current;
     setLoadingMore(true); setError("");
     try {
       const result = await loadManagerServiceHistory({ ...toQuery(customer.customer.id, applied), cursor: nextCursor });
+      if (!isCurrent()) return;
       setVisits((current) => [...current, ...result.serviceVisits]);
       setNextCursor(result.nextCursor);
       setTotalCount(result.totalCount);
     } catch (reason) {
-      fail(reason);
+      if (isCurrent()) fail(reason);
     } finally {
-      setLoadingMore(false);
+      if (isCurrent()) setLoadingMore(false);
     }
   };
 

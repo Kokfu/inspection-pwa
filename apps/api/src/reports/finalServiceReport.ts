@@ -33,7 +33,14 @@ export class FinalReportError extends Error {
 export type FinalReportField = { label: string; value: string; depth: number };
 export type FinalReportEvidence = { field: string; caption?: string; content: Buffer; width: number; height: number };
 export type FinalReportLocation = { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string };
-export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[] };
+/**
+ * R1: the raw accepted authority a section was built from, for the structured
+ * report view model (`reportViewModel.ts`). Attached by `loadFinalServiceReport`
+ * as a NON-ENUMERABLE property so `JSON.stringify(report.sections)` (pinned
+ * digests), `deepEqual` and the PDFKit renderer see exactly what they saw before.
+ */
+export type FinalReportSectionSource = { snapshot: unknown; response: unknown; frozenSystem: unknown };
+export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[]; source?: FinalReportSectionSource };
 /**
  * Derived, report-output-only per-system roll-up after the client's "Summary of
  * Testing" (docs/client-format-request/asiamost-sample-report-format.md §1,
@@ -106,7 +113,7 @@ function labelFor(key: string, lookup?: ReadonlyMap<string, string>) {
   return key.split(" - ").map((segment) => lookup.get(segment) ?? prettifyLabelSegment(segment)).join(" - ");
 }
 
-type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: ReadonlyMap<string, string> };
+export type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: ReadonlyMap<string, string> };
 
 /**
  * The accepted V7 response is intentionally not a serialization of the
@@ -123,7 +130,7 @@ type V7DisplayLabels = { display: ReadonlyMap<string, string>; definition: Reado
  * the bare key plus those three bounded segments points every rendered form of
  * the column at the frozen/overridden definition wording.
  */
-const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+export const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   hose_reel: {
     drum: ["drumResult"], hose: ["hoseResult"], nozzle: ["nozzleResult"], valve: ["valveResult"], nozzle_box: ["nozzleBoxResult"]
   },
@@ -167,7 +174,7 @@ const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Record<strin
  * tree whose every label survived unchanged with an empty map, or a resolver
  * failure.
  */
-function v7DisplayLabelLookup(systemKey: string, snapshot: unknown, frozenSystem: unknown): V7DisplayLabels | undefined {
+export function v7DisplayLabelLookup(systemKey: string, snapshot: unknown, frozenSystem: unknown): V7DisplayLabels | undefined {
   if (!isRecord(snapshot) || snapshot.schemaVersion !== 2 || !isRecord(snapshot.system) || !isRecord(snapshot.template)) return undefined;
   const definition = snapshot.system.definition;
   const version = snapshot.template.version;
@@ -780,7 +787,9 @@ export async function loadFinalServiceReport(
             ? await validatedV7SuppressionEvidence(database, primaryRow)
             : [];
       if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);
-      sections.push({ systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location, fields, evidence });
+      const section: FinalReportSection = { systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location, fields, evidence };
+      Object.defineProperty(section, "source", { value: { snapshot: primaryRow.inspection_snapshot, response: primaryRow.response_payload, frozenSystem: system } satisfies FinalReportSectionSource, enumerable: false });
+      sections.push(section);
     }
   }
   return { customer, site, serviceDate, jobReference: reference,

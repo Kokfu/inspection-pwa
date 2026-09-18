@@ -132,7 +132,10 @@ test("GET /manager/service-visits technicianId filter scopes to the creator, com
         const onlyA = await page(`?technicianId=${techA}`);
         assert.deepEqual(new Set(onlyA.serviceVisits.map((visit) => visit.id)), new Set(techAIds));
         assert.equal(onlyA.totalCount, 5);
-        for (const visit of onlyA.serviceVisits) assert.deepEqual(visit.technician, { id: techA, displayName: "slice-b-tech-a" });
+        for (const visit of onlyA.serviceVisits) {
+          assert.deepEqual(visit.technician, { id: techA, displayName: "slice-b-tech-a" });
+          assert.equal(typeof visit.technician!.id, "number", "list technician.id is a JSON number");
+        }
         assert.deepEqual(await ids(`?technicianId=${techB}`), new Set([bXOpen, bYOpen]));
 
         // Combined with customerId / status / siteId / date range.
@@ -194,7 +197,21 @@ test("GET /manager/service-visits technicianId filter scopes to the creator, com
         assert.equal(detail.status, 200);
         assert.equal((await detail.json() as { serviceVisit: Visit }).serviceVisit.technician, null);
         const detailA = await get(`/${aXOpen}`);
-        assert.deepEqual((await detailA.json() as { serviceVisit: Visit }).serviceVisit.technician, { id: techA, displayName: "slice-b-tech-a" });
+        const detailATechnician = (await detailA.json() as { serviceVisit: Visit }).serviceVisit.technician;
+        assert.deepEqual(detailATechnician, { id: techA, displayName: "slice-b-tech-a" });
+        assert.equal(typeof detailATechnician!.id, "number", "detail technician.id is a JSON number");
+
+        // A creator id above int4 must not 500 the list or detail (no ::int cast); it is still a JSON number.
+        const bigCreator = 3000000000;
+        await pool.query("INSERT INTO users(id,username,password_hash,role) VALUES($1,'slice-b-big-id','not-used','inspector')", [bigCreator]);
+        const bigJob = await insertJob(customerY, siteY, bigCreator, "2026-08-25", "open");
+        const bigList = await page(`?customerId=${customerY.customer.id}`);
+        const bigListed = bigList.serviceVisits.find((visit) => visit.id === bigJob);
+        assert.deepEqual(bigListed?.technician, { id: bigCreator, displayName: "slice-b-big-id" });
+        assert.equal(typeof bigListed!.technician!.id, "number");
+        const bigDetail = await get(`/${bigJob}`);
+        assert.equal(bigDetail.status, 200);
+        assert.deepEqual((await bigDetail.json() as { serviceVisit: Visit }).serviceVisit.technician, { id: bigCreator, displayName: "slice-b-big-id" });
       } finally {
         await close(server);
       }

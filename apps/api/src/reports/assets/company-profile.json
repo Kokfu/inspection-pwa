@@ -1,0 +1,13 @@
+{
+  "confirmed": false,
+  "legalName": "MFE SERVICES SDN. BHD.",
+  "registrationNo": "952723-P",
+  "address": "No. 2339, Jalan Raja, Mukim Sungai Raya, 84300 Muar, Johor Darul Ta'zim.",
+  "tel": "06-985 6988 / 985 8709",
+  "fax": "06-985 9806",
+  "email": "mfetsb@gmail.com",
+  "complaintHotline": "06-985 6988",
+  "logoFile": "mfe-logo.png",
+  "verifiedBy": { "name": "", "title": "" },
+  "reportNumberFormat": "MFE/SR/{YYYY}/{SEQ4}"
+}

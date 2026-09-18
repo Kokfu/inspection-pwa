@@ -69,7 +69,7 @@ function operationalJobQuery(byId = false) {
         'id', site.id, 'displayName', site.display_name
       ) END AS site,
       CASE WHEN creator.id IS NULL THEN NULL ELSE jsonb_build_object(
-        'id', creator.id::int, 'displayName', creator.username
+        'id', creator.id, 'displayName', creator.username
       ) END AS technician
     FROM inspection_jobs
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
@@ -393,7 +393,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
           'id', site.id, 'displayName', site.display_name
         ) END AS site,
         CASE WHEN creator.id IS NULL THEN NULL ELSE jsonb_build_object(
-          'id', creator.id::int, 'displayName', creator.username
+          'id', creator.id, 'displayName', creator.username
         ) END AS technician
       FROM inspection_jobs
       LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id

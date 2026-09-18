@@ -141,6 +141,56 @@ with the predicate block removed, `technicianId=A` returned 8 rows instead of 5 
 Cold rerun (exit 0): 161 backend tests (20 / 9 / 2 / 11 / 108 / 11), 1 stale-evidence test,
 8 job-progress tests, 26 Playwright tests; zero skips.
 
+**Slice B P2 remediation (2026-09-18, uncommitted, on top of `da93bdb`).** Stored return routes are now
+`manager-report-return:v2` `{ hash, label, jobId }`. `readManagerReturn(jobId)` returns null unless
+the job id matches. v1 values are ignored. A deep link, browser history into another job, or a
+missing/invalid value goes Back to Operations. `ManagerCustomerServiceHistory` and `ManagerTechnicianDetail`
+give each request a generation number. Filter, customer and technician changes and unmount bump it,
+so a stale Load more cannot change the list, cursor, count, error or loading state. `clearManagerSession()`
+removes `manager-report-return:*`, `manager-services-done:*`, `manager-technician-tab:*` and
+`manager-session-owner:*` on logout and in `handleLogin` right after `login()` succeeds (before the
+verified authority/state is installed, so an expired-session reload followed by another manager's login
+inherits nothing). Round 3 replaces the old post-render backstop effect, which ran too late, with a per-tab
+owner stamp. `manager-session-owner:v1` in sessionStorage holds the verified user id.
+`claimManagerSession(userId)` clears every Manager key when the stamp is missing, invalid or names another
+user, then writes the stamp. It runs synchronously before `prepareVerifiedAuthority` in the
+`reconcileAuthentication` verified branch (reload restore and cross-tab `inspection-auth-change`
+revalidation) and in `handleLogin` (after the unconditional clear). The IndexedDB device identity cannot
+detect the change, because another tab's sign-in overwrites it. A reload by the same manager keeps the
+remembered selection. It never touches `technician-home-tab:*` or local business data.
+The API no longer casts `creator.id::int` in either query. The `technicianId` int4 validation is unchanged.
+New Playwright tests (4, same spec): (a) deep link after Back to Technician, (b) a held Load more response
+released after Apply, (c) logout/login clears keys, (d) manager 900 selects Acme, `/api/auth/me` turns 401
+(no logout), reload, manager 901 signs in: no preselected customer, only the 901 owner stamp, `technician-home-tab:901` kept.
+Round 3 adds 3 more: (e) 900 selects Acme, `/api/auth/me` returns 901, reload onto `#/manager-services-done`
+(choose Manager): signed in as manager-b, no Acme, search shown, owner stamp 901, `technician-home-tab:901` kept;
+(f) same start, a second page in the same context loads the app and broadcasts `inspection-auth-change`: the
+first page becomes manager-b on `#/manager-services-done` with no Acme and no `manager-services-done:v1`;
+(g) 900 reloads as 900: Acme is still shown. Round 4 adds (d2): 900 selects Acme, `/api/auth/me` turns 401
+(no logout), reload, 900 signs in again: no Acme, only the owner stamp (900), `technician-home-tab:901` kept.
+(e), (f) and (d2) wait for "Loading customers…" to clear before asserting, because the search form also shows
+while a remembered selection is still loading; this makes their failing line deterministic. Existing exact-key expectations now include
+`manager-session-owner:v1` wherever a Manager session is live. The API integration test also asserts `technician.id`
+is a number on list and detail, including an id of 3000000000.
+Revert proofs, run in scratch copies outside the repo (node_modules via junction):
+- (a) jobId match removed: `Back to Technician` count expected 0, received 1 (`:298`). EXIT 1.
+- (b) guard removed: `.job-card` expected 27, received 32 (`:330`). EXIT 1.
+- (c) clear made a no-op: session keys expected `[]` (`:360`). (d) `:401`, (e) `:449`, (f) `:474` and
+  (d2) `:517` also fail: `Acme Towers` heading expected 0, received 1. EXIT 1 (5 failed).
+- (d) `handleLogin` clear **and** claim removed: (d) `Acme Towers` heading expected 0, received 1 (`:401`);
+  (c) exact keys at `:371` (owner stamp absent); (d2) `Acme Towers` expected 0, received 1 (`:517`).
+  EXIT 1 (3 failed). Before round 3 (Sol's rerun), (d) failed at the search-visibility line instead; that
+  unchanged test can still fail at either `:400` or `:401` depending on the customer-load timing.
+- (d2') only the `handleLogin` `clearManagerSession()` removed: (d2) `Acme Towers` heading expected 0,
+  received 1 (`:517`); all other tests pass. EXIT 1 (1 failed, 9 passed).
+- (e') `claimManagerSession` removed from the reconcile path: (e) `:449` and (f) `:474` `Acme Towers` heading
+  expected 0, received 1; plus (c) `:357`, (d) `:387` and (g) `:494` exact-key lists (owner stamp absent).
+  EXIT 1 (5 failed).
+- (g') `claimManagerSession` always clears: (g) `Acme Towers` heading not visible (`:492`). EXIT 1.
+c, d, d2' and e' were each run twice, with identical failing lines both times.
+Cold rerun (exit 0): 161 backend (20 / 9 / 2 / 11 / 108 / 11), 1 stale-evidence, 8 job-progress,
+34 Playwright (26 + 8); zero skips.
+
 ## Working-tree snapshot
 
 This snapshot includes the newer changes preserved at the owner's request.

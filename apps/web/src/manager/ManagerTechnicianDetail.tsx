@@ -30,6 +30,8 @@ export function ManagerTechnicianDetail({ technicianId, onBack, onViewServiceVis
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const mounted = useRef(false);
+  // Bumped on technicianId change and unmount: a stale Load more page must not land afterwards.
+  const requestGeneration = useRef(0);
 
   const fail = (reason: unknown) => {
     if (reason instanceof ManagerApiError && reason.kind === "domain") setError(reason.message);
@@ -38,8 +40,9 @@ export function ManagerTechnicianDetail({ technicianId, onBack, onViewServiceVis
 
   useEffect(() => {
     mounted.current = true;
+    requestGeneration.current += 1;
     const controller = new AbortController();
-    setLoading(true); setError("");
+    setLoading(true); setLoadingMore(false); setError("");
     void Promise.all([
       loadManagerTechnicians(controller.signal),
       loadManagerServiceHistory({ technicianId, status: "open", limit: pageSize }, controller.signal),
@@ -53,7 +56,7 @@ export function ManagerTechnicianDetail({ technicianId, onBack, onViewServiceVis
       });
     }).catch((reason: unknown) => { if (!controller.signal.aborted) fail(reason); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => { mounted.current = false; controller.abort(); };
+    return () => { mounted.current = false; requestGeneration.current += 1; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [technicianId]);
 
@@ -63,15 +66,17 @@ export function ManagerTechnicianDetail({ technicianId, onBack, onViewServiceVis
     const cursor = tabs[tab].nextCursor;
     if (!cursor) return;
     const current = tab;
+    const generation = requestGeneration.current;
+    const isCurrent = () => mounted.current && generation === requestGeneration.current;
     setLoadingMore(true); setError("");
     try {
       const result = await loadManagerServiceHistory({ technicianId, status: current, limit: pageSize, cursor });
-      if (!mounted.current) return;
+      if (!isCurrent()) return;
       setTabs((state) => ({ ...state, [current]: {
         visits: [...state[current].visits, ...result.serviceVisits], nextCursor: result.nextCursor, totalCount: result.totalCount
       } }));
-    } catch (reason) { if (mounted.current) fail(reason); }
-    finally { if (mounted.current) setLoadingMore(false); }
+    } catch (reason) { if (isCurrent()) fail(reason); }
+    finally { if (isCurrent()) setLoadingMore(false); }
   };
 
   const visitCard = (visit: ManagerServiceVisit) => <li key={visit.id}>

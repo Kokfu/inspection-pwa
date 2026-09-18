@@ -92,7 +92,7 @@ import { ManagerHome } from "./manager/ManagerHome";
 import { ManagerOperations } from "./manager/ManagerOperations";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
 import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
-import { readManagerReturn, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
+import { claimManagerSession, clearManagerSession, readManagerReturn, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
@@ -738,6 +738,9 @@ export function App() {
     if (!isCurrentReconciliation()) return undefined;
     const decision = decideAuthRestoration(cachedIdentity, probe);
     if (decision.kind === "verified") {
+      // Bind this tab's Manager session state to the verified user before any verified render; a
+      // restore or cross-tab revalidation that returns a different user starts clean.
+      claimManagerSession(decision.user.id);
       const authorityReplacement = prepareVerifiedAuthority(decision.user);
       await prepareLocalWorkspace(decision.user);
       const lastVerifiedAt = await storeVerifiedIdentity(decision.user);
@@ -970,7 +973,7 @@ export function App() {
     && authState.status === "verified"
     && currentUser?.role === "admin";
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
-    ? readManagerReturn()
+    ? readManagerReturn(route.jobId)
     : null;
 
   function selectExperience(role: ProductRole) {
@@ -1053,13 +1056,13 @@ export function App() {
   }
 
   /** Opens a Manager visit/report; `returnTo` (null = Operations) decides where its Back goes. */
-  function openManagerVisit(name: "manager-service-visit" | "manager-final-report", jobId: string, returnTo: ManagerReturnRoute | null) {
-    rememberManagerReturn(returnTo);
+  function openManagerVisit(name: "manager-service-visit" | "manager-final-report", jobId: string, returnTo: Omit<ManagerReturnRoute, "jobId"> | null) {
+    rememberManagerReturn(returnTo ? { ...returnTo, jobId } : null);
     navigate({ name, jobId });
   }
 
   function backFromManagerVisit() {
-    const target = readManagerReturn();
+    const target = managerReturn;
     if (target) window.location.hash = target.hash;
     else navigate({ name: "manager-operations" });
   }
@@ -1276,6 +1279,10 @@ export function App() {
         return login(username, password);
       });
       if (!isCurrentAuthOperation(operation) || !user) return;
+      // A credential login starts a fresh Manager session before any verified render, even when the
+      // previous identity ended without a logout (expired session, reload).
+      clearManagerSession();
+      claimManagerSession(user.id);
       const authorityReplacement = prepareVerifiedAuthority(user, true);
       await prepareLocalWorkspace(user);
       const lastVerifiedAt = await storeVerifiedIdentity(user);
@@ -1307,6 +1314,7 @@ export function App() {
   async function handleLogout() {
     const operation = beginExplicitAuthOperation();
     try {
+      clearManagerSession();
       revokeVerifiedAuthority();
       setAuthState({ status: "logged-out", message: "Signed out locally" });
       setSelectedExperience(undefined);

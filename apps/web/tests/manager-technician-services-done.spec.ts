@@ -7,12 +7,15 @@ type Visit = {
 
 const technicians = [
   { id: 11, username: "tech-alpha", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
-  { id: 12, username: "tech-bravo", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" }
+  { id: 12, username: "tech-bravo", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
+  { id: 13, username: "tech-charlie", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
+  { id: 14, username: "tech-delta", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" }
 ];
 const alpha = { id: 11, displayName: "tech-alpha" };
 const bravo = { id: 12, displayName: "tech-bravo" };
 const acme = "a0000000-0000-4000-8000-000000000001";
 const beacon = "a0000000-0000-4000-8000-000000000002";
+const crest = "a0000000-0000-4000-8000-000000000003";
 const customer = (id: string, code: string, displayName: string, sites: Array<[string, string]>) => ({
   customer: { id, code, displayName },
   sites: sites.map(([siteId, name]) => ({ id: siteId, code: name.toUpperCase(), displayName: name })),
@@ -21,7 +24,8 @@ const customer = (id: string, code: string, displayName: string, sites: Array<[s
 });
 const customers = [
   customer(acme, "ACM-001", "Acme Towers", [["s-north", "North Block"], ["s-south", "South Block"]]),
-  customer(beacon, "BCN-002", "Beacon Mall", [["s-beacon", "Beacon Main"]])
+  customer(beacon, "BCN-002", "Beacon Mall", [["s-beacon", "Beacon Main"]]),
+  customer(crest, "CRS-003", "Crest Plaza", [["s-crest", "Crest East"]])
 ];
 const visitId = (n: number) => `b0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const visits: Visit[] = [
@@ -33,6 +37,12 @@ const visits: Visit[] = [
   ...Array.from({ length: 21 }, (_, index): Visit => ({
     id: visitId(100 + index), reference: `SV-B${String(index).padStart(3, "0")}`, customerId: beacon, customer: "Beacon Mall",
     siteId: "s-beacon", site: "Beacon Main", serviceDate: `2026-07-${String(index + 1).padStart(2, "0")}`, status: "closed", technician: alpha
+  })),
+  // 55 Crest visits (more than the 50-row default page): even rows tech-charlie, odd rows tech-delta.
+  ...Array.from({ length: 55 }, (_, index): Visit => ({
+    id: visitId(200 + index), reference: `SV-C${String(index).padStart(3, "0")}`, customerId: crest, customer: "Crest Plaza",
+    siteId: "s-crest", site: "Crest East", serviceDate: `2026-${String(1 + Math.floor(index / 28)).padStart(2, "0")}-${String(1 + (index % 28)).padStart(2, "0")}`,
+    status: "closed", technician: index % 2 === 0 ? { id: 13, displayName: "tech-charlie" } : { id: 14, displayName: "tech-delta" }
   }))
 ];
 const present = (visit: Visit) => ({
@@ -48,18 +58,36 @@ const report = (visit: Visit) => ({
   sections: [{ systemKey: "hose_reel", label: "Hose Reel", fields: [{ label: `Report body ${visit.reference}`, value: "Good", depth: 1 }], evidence: [] }]
 });
 
-/** A stateless fake of the admin API that honours the same filters/keyset contract as the server. */
-async function mockManagerApi(page: Page) {
+const manager = { id: 900, username: "mobiletest", role: "admin" };
+const managerB = { id: 901, username: "manager-b", role: "admin" };
+type SessionUser = typeof manager;
+
+/**
+ * A fake of the admin API that honours the same filters/keyset contract as the server. The session
+ * is signed in as `session.user` until POST /api/auth/logout (or until a test sets
+ * `session.signedIn = false`, i.e. the server session expired); login signs in the matching account.
+ * `holdCursorPages`, when set, delays every cursor (Load more) response until it resolves.
+ */
+async function mockManagerApi(page: Page, options: { holdCursorPages?: Promise<void>; session?: { signedIn: boolean; user: SessionUser } } = {}) {
   const listQueries: string[] = [];
+  const session = options.session ?? { signedIn: true, user: manager };
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
-    if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: 900, username: "mobiletest", role: "admin" } } });
+    if (path === "/api/auth/me") return session.signedIn ? route.fulfill({ json: { user: session.user } }) : route.fulfill({ status: 401, json: { error: "UNAUTHENTICATED" } });
+    if (path === "/api/auth/logout") { session.signedIn = false; return route.fulfill({ json: {} }); }
+    if (path === "/api/auth/login") {
+      const username = (route.request().postDataJSON() as { username?: string } | null)?.username;
+      session.user = username === managerB.username ? managerB : manager;
+      session.signedIn = true;
+      return route.fulfill({ json: { user: session.user } });
+    }
     if (path === "/api/manager/technicians") return route.fulfill({ json: { technicians } });
     if (path === "/api/manager/customers") return route.fulfill({ json: { customers } });
     if (path === "/api/manager/service-visits") {
       listQueries.push(url.search);
       const q = url.searchParams;
+      if (q.get("cursor") && options.holdCursorPages) await options.holdCursorPages;
       const technicianId = q.get("technicianId");
       if (technicianId !== null && !/^[1-9]\d*$/.test(technicianId)) return route.fulfill({ status: 400, json: { error: "INVALID_TECHNICIAN_ID" } });
       const matching = visits.filter((visit) =>
@@ -246,4 +274,250 @@ test("Services Done is customer-first with search, site grouping, technician fil
   await page.getByRole("button", { name: "Change customer", exact: true }).click();
   await expect(page.getByLabel("Customer name or code")).toBeVisible();
   await expect(page.locator(".job-card")).toHaveCount(0);
+});
+
+const managerSessionKeys = () => Object.keys(sessionStorage).filter((key) =>
+  key.startsWith("manager-report-return:") || key.startsWith("manager-services-done:") || key.startsWith("manager-technician-tab:")
+  || key.startsWith("manager-session-owner:"));
+const managerOwner = () => sessionStorage.getItem("manager-session-owner:v1");
+
+test("a stored Back target applies only to its own report: a deep link to another report goes Back to Operations", async ({ page }) => {
+  await mockManagerApi(page);
+  await openManager(page);
+  await page.getByRole("button", { name: "Technician List", exact: true }).click();
+  await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
+  await page.getByRole("tab", { name: "Completed (22)" }).click();
+  await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();
+  await expect(page.getByText("Report body SV-0001")).toBeVisible();
+  await page.getByRole("button", { name: "Back to Technician", exact: true }).click();
+  await expect(page).toHaveURL(/#\/manager-technician\/11$/);
+
+  // Same tab, deep link to a different completed job's report.
+  await page.evaluate((jobId) => { window.location.hash = `#/manager-final-report/${jobId}`; }, visitId(100));
+  await expect(page.getByText("Report body SV-B000")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to Technician", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to Operations", exact: true }).click();
+  await expect(page).toHaveURL(/#\/manager-operations$/);
+  await expect(page.locator("#manager-home-title")).toBeVisible();
+});
+
+test("a Load more response that lands after Apply cannot append old-filter rows or a stale cursor", async ({ page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const listQueries = await mockManagerApi(page, { holdCursorPages: held });
+  await openManager(page);
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Customer name or code").fill("crest");
+  await page.getByLabel("Customer name or code").press("Enter");
+  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Crest Plaza/ }).click();
+  await expect(page.locator(".job-card")).toHaveCount(50);
+  await expect(page.getByText("50 of 55 visits")).toBeVisible();
+
+  // Load more is in flight (held) while a narrower filter is applied.
+  await page.getByRole("button", { name: "Load more", exact: true }).click();
+  await expect.poll(() => listQueries.filter((query) => query.includes("cursor=")).length).toBe(1);
+  await page.getByLabel("Technician").selectOption({ label: "tech-delta" });
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.locator(".job-card")).toHaveCount(27);
+  await expect(page.getByText("27 of 27 visits")).toBeVisible();
+  const staleResponse = page.waitForResponse((response) => response.url().includes("cursor="));
+  release();
+  // The released (stale) page reaches the browser; give React a moment to (not) apply it.
+  await staleResponse;
+  await page.waitForTimeout(300);
+
+  const deltaRefs = visits.filter((visit) => visit.customerId === crest && visit.technician?.id === 14).map((visit) => visit.reference);
+  await expect(page.locator(".job-card")).toHaveCount(27);
+  const shownRefs = await page.locator(".job-card .job-reference").allInnerTexts();
+  expect(shownRefs).toHaveLength(27);
+  expect(new Set(shownRefs)).toEqual(new Set(deltaRefs));
+  await expect(page.getByText("27 of 27 visits")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Load more", exact: true })).toHaveCount(0);
+  // Exactly one cursor request was ever made (the held one); no Load more with a stale cursor followed.
+  expect(listQueries.filter((query) => query.includes("cursor="))).toHaveLength(1);
+});
+
+test("logout clears every Manager session key; logging back in shows Services Done without a preselected customer", async ({ page }) => {
+  await mockManagerApi(page);
+  await openManager(page);
+  // Technician tab + report return route.
+  await page.getByRole("button", { name: "Technician List", exact: true }).click();
+  await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
+  await page.getByRole("tab", { name: "Completed (22)" }).click();
+  await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();
+  await expect(page.getByText("Report body SV-0001")).toBeVisible();
+  // Services Done selection.
+  await page.evaluate(() => { window.location.hash = "#/manager-services-done"; });
+  await page.getByLabel("Customer name or code").fill("acme");
+  await page.getByLabel("Customer name or code").press("Enter");
+  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Acme Towers/ }).click();
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
+  // A technician-workspace key that logout must NOT touch.
+  await page.evaluate(() => sessionStorage.setItem("technician-home-tab:901", "completed"));
+  expect((await page.evaluate(managerSessionKeys)).sort()).toEqual(["manager-report-return:v2", "manager-services-done:v1", "manager-session-owner:v1", "manager-technician-tab:11"]);
+
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await expect.poll(() => page.evaluate(managerSessionKeys)).toEqual([]);
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await page.getByLabel("Username", { exact: true }).fill("mobiletest");
+  await page.getByLabel("Password", { exact: true }).fill("test-only");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("#manager-dashboard-title")).toBeVisible();
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await expect(page.getByLabel("Customer name or code")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
+  await expect(page.locator(".job-card")).toHaveCount(0);
+  // Only the new session's owner stamp remains.
+  expect(await page.evaluate(managerSessionKeys)).toEqual(["manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("900");
+  expect(await page.evaluate(() => sessionStorage.getItem("technician-home-tab:901"))).toBe("completed");
+});
+
+test("a different manager signing in after an expired session (no logout) inherits no Manager session state", async ({ page }) => {
+  const session = { signedIn: true, user: manager };
+  await mockManagerApi(page, { session });
+  await openManager(page);
+  // Manager A (900) selects Acme in Services Done.
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Customer name or code").fill("acme");
+  await page.getByLabel("Customer name or code").press("Enter");
+  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Acme Towers/ }).click();
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
+  await page.evaluate(() => sessionStorage.setItem("technician-home-tab:901", "completed"));
+  expect((await page.evaluate(managerSessionKeys)).sort()).toEqual(["manager-services-done:v1", "manager-session-owner:v1"]);
+
+  // A's server session expires without any logout; the tab reloads.
+  session.signedIn = false;
+  await page.reload();
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await page.getByLabel("Username", { exact: true }).fill("manager-b");
+  await page.getByLabel("Password", { exact: true }).fill("test-only");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("#manager-dashboard-title")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => fetch("/api/auth/me").then((response) => response.json()).then((body) => body.user?.id))).toBe(901);
+
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await expect(page.getByLabel("Customer name or code")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
+  await expect(page.locator(".job-card")).toHaveCount(0);
+  expect(await page.evaluate(managerSessionKeys)).toEqual(["manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("901");
+  expect(await page.evaluate(() => sessionStorage.getItem("technician-home-tab:901"))).toBe("completed");
+});
+
+/**
+ * While customers load, Services Done shows the search form even if a selection is remembered; wait for
+ * the load to settle so the assertions that follow see the real (selected or unselected) state.
+ */
+async function servicesDoneSettled(page: Page) {
+  await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
+  await expect(page.getByText("Loading customers…")).toHaveCount(0);
+}
+
+/** After a reload the role chooser is shown (the chosen experience is in memory only); choose Manager and return to Services Done. */
+async function resumeManagerOnServicesDone(page: Page) {
+  await expect(page).toHaveURL(/#\/manager-services-done$/);
+  // Choosing Manager navigates Home only once verified; either way, return to Services Done.
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await page.evaluate(() => { window.location.hash = "#/manager-services-done"; });
+  await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
+}
+
+async function selectAcmeInServicesDone(page: Page) {
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Customer name or code").fill("acme");
+  await page.getByLabel("Customer name or code").press("Enter");
+  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Acme Towers/ }).click();
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(4);
+  await expect(page).toHaveURL(/#\/manager-services-done$/);
+}
+
+test("a reload restored to a different manager (no login, no logout) inherits no Services Done selection", async ({ page }) => {
+  const session = { signedIn: true, user: manager };
+  await mockManagerApi(page, { session });
+  await openManager(page);
+  await selectAcmeInServicesDone(page);
+  await page.evaluate(() => sessionStorage.setItem("technician-home-tab:901", "completed"));
+
+  // Manager B signed in elsewhere on the same cookie; this tab reloads onto Services Done.
+  session.user = managerB;
+  await page.reload();
+  await resumeManagerOnServicesDone(page);
+  await expect(page.locator(".app-account-name")).toHaveText("manager-b");
+  await servicesDoneSettled(page);
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Customer name or code")).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(0);
+  expect(await page.evaluate(managerSessionKeys)).toEqual(["manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("901");
+  expect(await page.evaluate(() => sessionStorage.getItem("technician-home-tab:901"))).toBe("completed");
+});
+
+test("a live cross-tab identity change (inspection-auth-change) clears the Services Done selection before the new manager sees it", async ({ page }) => {
+  const session = { signedIn: true, user: manager };
+  await mockManagerApi(page, { session });
+  await openManager(page);
+  await selectAcmeInServicesDone(page);
+
+  // Manager B is now the server session; a second tab in the same browser context loads the app,
+  // verifies 901 and broadcasts inspection-auth-change to this tab.
+  session.user = managerB;
+  const other = await page.context().newPage();
+  await mockManagerApi(other, { session });
+  await other.goto("/tests/manager-technician-services-done.html#/manager");
+
+  // This tab revalidates in place (no reload, no navigation) and becomes manager-b.
+  await expect(page.locator(".app-account-name")).toHaveText("manager-b");
+  await expect(page).toHaveURL(/#\/manager-services-done$/);
+  await servicesDoneSettled(page);
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Customer name or code")).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("manager-services-done:v1"))).toBeNull();
+  expect(await page.evaluate(managerSessionKeys)).toEqual(["manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("901");
+  await other.close();
+});
+
+test("a reload by the same manager keeps the remembered Services Done selection", async ({ page }) => {
+  const session = { signedIn: true, user: manager };
+  await mockManagerApi(page, { session });
+  await openManager(page);
+  await selectAcmeInServicesDone(page);
+
+  await page.reload();
+  await resumeManagerOnServicesDone(page);
+  await expect(page.locator(".app-account-name")).toHaveText("mobiletest");
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(4);
+  expect((await page.evaluate(managerSessionKeys)).sort()).toEqual(["manager-services-done:v1", "manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("900");
+});
+
+test("the same manager signing in again after an expired session (no logout) starts a fresh Manager session", async ({ page }) => {
+  const session = { signedIn: true, user: manager };
+  await mockManagerApi(page, { session });
+  await openManager(page);
+  await selectAcmeInServicesDone(page);
+  await page.evaluate(() => sessionStorage.setItem("technician-home-tab:901", "completed"));
+
+  // A's server session expires without any logout; the tab reloads and A signs in again.
+  session.signedIn = false;
+  await page.reload();
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await page.getByLabel("Username", { exact: true }).fill("mobiletest");
+  await page.getByLabel("Password", { exact: true }).fill("test-only");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.locator("#manager-dashboard-title")).toBeVisible();
+  await expect(page.locator(".app-account-name")).toHaveText("mobiletest");
+
+  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await servicesDoneSettled(page);
+  await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Customer name or code")).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(0);
+  expect(await page.evaluate(managerSessionKeys)).toEqual(["manager-session-owner:v1"]);
+  expect(await page.evaluate(managerOwner)).toBe("900");
+  expect(await page.evaluate(() => sessionStorage.getItem("technician-home-tab:901"))).toBe("completed");
 });

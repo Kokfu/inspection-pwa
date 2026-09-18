@@ -3,8 +3,30 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-18 — **Slice B (manager technician view + customer-first Services
-Done) implemented, uncommitted.** Admin list gains `technicianId` filter and per-item
+**Last updated:** 2026-09-18 — **Report R1: structured report view model (uncommitted, no visual change).**
+`apps/api/src/reports/reportViewModel.ts` `buildReportViewModel(report)` builds company / cover /
+summary / per-system pages. Each page's blocks (checklist, units, register with N/T/I, quantity,
+comments) come from the frozen V7 definition + accepted response + frozen label overrides. Pre-V7
+records fall back to one checklist block. `loadFinalServiceReport` now attaches each section's raw
+snapshot/response as a non-enumerable `source`, so pinned digests and the PDFKit PDF are unchanged.
+`reports/assets/company-profile.json` (`"confirmed": false`) is read at startup; a missing or invalid
+file gives blanks. Tests: `reportViewModel.test.ts`. Next: R2 HTML renderer (docs/report-template/README.md §6).
+
+**Previously (2026-09-18):** **Slice B P2 remediation (uncommitted, on top of da93bdb).**
+A stored Back target now applies only to the visit it was set for. A deep link or a different
+job goes Back to Operations. Stale Load more pages are dropped after a filter or technician change
+or unmount. Logout and every credential login (before the first verified render; round 2) clear
+every Manager session key. Round 3 adds a per-tab owner stamp (`manager-session-owner:v1`, sessionStorage).
+Every verified reconcile (reload restore, cross-tab `inspection-auth-change`) and every login claims it
+before the verified render. A different user clears the Manager keys; the same manager keeps them across a
+reload. Technician keys, IndexedDB, outbox and drafts are untouched. The API drops the `creator.id::int` cast, so a
+creator id above int4 no longer returns 500; `technician.id` is still a JSON number. Cold gate exit **0**:
+**161 backend, 1 stale-evidence, 8 job-progress, 34 Playwright (26 + 8); zero skips**. All seven revert
+proofs FAIL as intended: (d) removes the login clear and the claim; (d2') removes only the login clear and
+fails the new same-manager re-login test (d2). Not in scope: `technician` shows an admin creator's username.
+
+Previous entry, 2026-09-18: **Slice B (manager technician view + customer-first Services
+Done) implemented.** Admin list gains `technicianId` filter and per-item
 `technician` (null for legacy NULL-creator visits); Technician detail screen with In Progress /
 Completed tabs; Services Done searches a customer first, then groups that customer's visits by
 site with date/status/technician filters remembered for the session. No migration. Cold
