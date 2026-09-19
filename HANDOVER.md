@@ -3,6 +3,197 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-19 — **V7 live-spec test hardening (uncommitted; tests + one test script only).**
+**Wet Chemical checklist.** `tests/wet-chemical-v7-live-accepted-detail.spec.ts` now asserts the full
+paragraph with `toHaveText`, as CO2 does: `"Battery: Good"`, `"Charger: No Need Checking / N.A."`,
+`"Main Supply: Not Good — Runtime Wet Chemical Poor A"`. The Wet Chemical view separates the remark
+with an **em dash** (`ServerWetChemicalView.tsx:7`); CO2 uses ` - ` (`ServerCo2View.tsx:31`). The
+result text comes from `ServerWetChemicalView.tsx:5` and the labels from `:6`.
+**Detector rows (both live specs).** The detector assertions are now scoped to their row
+(`article.hose-row-card` holding the exact text `Row n`). The label is anchored with a regex
+(`/^Heat Detector:/`), each value is checked in full with `toHaveText` (for example
+`"Heat Detector: Normal, Test"`), and there must be exactly 2 rows. The old Wet Chemical locator
+`hasText: "Heat Detector:"` matched 4 paragraphs, including "Second Heat Detector".
+**Mutation proof.** A scratch copy outside the repo intercepted the real accepted-detail response.
+Wet Chemical Battery set to `not_good` fails with `Received: "Battery: Not Good"`. Each of the
+8 detector mutations (4 per system) fails at its own assertion. The unmutated control passes. The
+old assertions pass on the same mutated state.
+**Stale fixtures deleted.** `tests/wet-chemical-accepted-detail.html` and
+`tests/wet-chemical-authority-d1.html` had no references in tests/, src/, scripts/ or
+playwright.config.ts. Only the first used the `evidencePolicy*` shape; `authority-d1` was an
+orphan authority harness that no test loaded.
+**`scripts/Test-V7LiveBrowser.ps1`.** Native npx/node/docker calls now run through
+`Invoke-Native`, which sets a function-local `$ErrorActionPreference = 'Continue'`. Before this, a
+PS 5.1 in-process `*>&1` run threw on node's NO_COLOR stderr warning even when the run was green
+(reproduced with the pre-fix copy). `$LASTEXITCODE` and the Playwright JSON stats are still the
+only pass/fail authority. The gate exits 0 when run with `-File`, with `-File *>&1`, and in-process
+with `*>&1`. `-RevertProofBogusPhoto` still exits 1.
+
+**Last updated:** 2026-09-19 — **Wet Chemical V7 accepted detail fixed (P1 closed); CO2 live-spec result assertions tightened (P2 closed) (uncommitted; web only).**
+**Root cause, from the real route response.** A real `GET /wet-chemical-inspections/:id`, captured
+from a seeded disposable Postgres (55432), returns the shared suppression key set (the same as
+CO2): `clientUuid, serverFormInstanceId, jobId, jobReference, jobTitle, customerName, systemKey,
+systemLabel, instanceKey, zoneId, locationId, displaySequence, status, performedAt, receivedAt,
+template, configuration, responses, displayControls, deviceReportedCreatorUsername,
+verifiedOriginalCreatorUsername, syncedByUsername`. It has no `evidencePolicy*` keys. At HEAD the
+parser did not reject this key set: `normaliseDedicatedDetail` removed the five new keys
+**without checking them** and added null `evidencePolicy*` values. The failing check was the V7
+**4-state results** (`not_good` / `na`): the parser only allowed `good` / `poor` / `not_relevant`.
+The HEAD parser returns `undefined` for the captured payload; the fixed parser parses it.
+**Fix (`apps/web/src/wetChemical/serverWetChemicalApi.ts`, web only; API unchanged).** The parser
+now requires exactly the CO2 key set and checks it the same way as `parseServerCo2Detail`: uuid
+formats, `instanceKey === location:${locationId}`, zoneId null or uuid, displaySequence a safe
+integer ≥1, template exact `{id, code: "MFE-FSSR", version}`, configuration exact
+`{revisionId, revisionNumber}`, 6-digit-microsecond timestamps, and creator usernames null or
+text. One extra check: the frozen `displayControls.source.templateVersion` must match what the server
+freezes for `template.version` (7 for V7, otherwise 4), and `template.version` must be at least 4.
+**V5/V6 fix (Sol P1):** V5 and V6 carry the V4 Wet Chemical definition, so the server freezes
+source version 4 for them (`co2DefinitionControls.ts:97`); the earlier strict-equality check rejected
+those real details and now uses that mapping instead.
+The shim and the `evidencePolicy*` checks are removed; the view never read them, and accepted V7
+evidence still comes from `loadV7AcceptedEvidence`. The V4 good/poor and V7 4-state paths are
+kept, and Normal/Test/Isolation is unchanged (these came from the concurrent session's uncommitted edit).
+Unknown, missing or malformed input still returns `undefined`. The `ServerWetChemicalDetail` type
+and the view are unchanged. **V4:** the same parser serves V4. The V4 fixture renders
+identically to HEAD (2365 = 2365 characters, i.e. UTF-16 string length, in Asia/Kuala_Lumpur;
+2364 in UTC; parsed detail deep-equal). Byte counts depend on the timezone: 2382 bytes in
+Asia/Kuala_Lumpur, 2381 in UTC. V5/V6 re-stamps of the V4 fixture give the same detail and markup.
+**Tests.** New `tests/wetChemicalAcceptedDetailParser.test.ts` (`npm run test:wet-chemical-accepted-detail`,
+6/6) over `tests/wetChemicalAcceptedDetailPayloads.json`: the real WC V7 and CO2 V7 route payloads,
+plus a V4 payload built with the API resolver and validator. Cases: V7 parses; V4 parses and
+renders read-only; V5 and V6 re-stamps parse and render the same as V4; the version mapping is
+enforced (V7 controls with version 4/5/6, V4 controls with version 7, and version 3 are rejected); 22
+rejections on both V7 and V4, 44 in total (including evidencePolicyId, the legacy evidencePolicy*
+shape, extra key, missing zoneId, bad instanceKey, non-uuid locationId, wrong systemKey, and now
+non-uuid template id, an extra configuration key and revisionNumber 0); CO2 and Wet Chemical each rejected by the other's parser. Against the HEAD parser the
+test fails 3 of 6 (a, b3, c).
+**P2 closed.** In `tests/co2-v7-live-accepted-detail.spec.ts` the four result assertions changed from
+`toContainText(<result>)` to a full-text `toHaveText` of the label paragraph, for example
+`"Main Supply: Not Good - Runtime CO2 Browser Poor A"` and `"Charger: No Need Checking / N.A."`.
+The result is now fixed between the label and the ` - ` remark separator, so the remark can no
+longer satisfy it. Labels come from `co2DefinitionControls.ts:32` (V7 values from
+`masterServiceReportV7.ts:4`). Nothing else in the spec changed. The label change to "Not Good" /
+"No Need Checking / N.A." and the uncommitted edit to `tests/wet-chemical-v7-live-accepted-detail.spec.ts`
+come from the concurrent session and were kept as they were.
+**Gates.** `.\scripts\Test-V7LiveBrowser.ps1` exit 0: CO2 and Wet Chemical each expected=1,
+unexpected=0, skipped=0. Web: typecheck and build pass; Playwright 73 passed / 0 failed / 0 skipped;
+17 tsx scripts, 153 pass (147 + 6), 0 fail, 0 skip. API (the report tests need `REPORT_CHROMIUM_PATH` set to
+Playwright's `chromium.executablePath()`): typecheck, build, historical-matrix 20/20, v6-evidence 9/9,
+wet-chemical-definition 2/2, v7EvidenceContracts+env 12/12, v6-integration 1/1, and the V7
+integration set (co2V7, wetChemicalV7, fireAlarmV7, v7EvidenceRace) 10/10 from cold on 55432, run with
+`--import ./src/reports/pdf/testLifecycle.ts`.
+**Noted, not fixed:** `tests/wet-chemical-accepted-detail.html` / `wet-chemical-authority-d1.html`
+still use the old `evidencePolicy*` shape, but no spec loads them.
+
+**Last updated:** 2026-09-19 — **Manager form-shaped per-service editor (uncommitted).**
+The customer page's flat "Per-service settings" block is replaced by a **Services** area with one
+card per service. Each card shows chips for custom label count, preset rows and settings state.
+Enabled services are listed, plus any location-dependent service (CO2 / Wet Chemical) that is not
+assigned yet. Clicking a card opens `#/manager-customer/<id>/service/<systemKey>`
+(`apps/web/src/manager/ManagerServiceEditor.tsx`), which has a "Back to <customer>" button and
+accessible tabs (arrow/Home/End keys; the tab is remembered per customer+service in
+sessionStorage `manager-service-tab:*`, cleared with the other Manager keys). Only the tabs that
+apply are shown. **Form wording** is a disabled replica of the technician form: fieldsets with
+section headings, 4-state result buttons, measurement inputs with units, text boxes, and one
+sample row for repeatable tables. It is built from the label-override GET plus the shared
+`inspectionControls` components rendered read-only. It never mounts a technician form and never
+writes IndexedDB (proven by a spec). Clicking a label (a keyboard-reachable button) opens an
+inline editor with the new wording, the default wording, Reset to default, Cancel and Done.
+Blank text or the default wording clears the override. Edited fields show "Custom" and "Unsaved"
+badges. The tab also has a label search, "Show only custom labels", a sticky save bar
+(N unsaved · Discard · Save wording) and "Preview as technician", which hides every edit
+affordance. Unsaved wording is guarded on Back, browser Back/hash navigation
+(`managerLeaveGuard.ts`, checked in App's `hashchange`) and reload/close. **Preset rows**
+(zones & locations) and **Settings** (riser system configuration, sprinkler evidence policy)
+mount the existing editors `embedded`: open, loaded on mount, no toggle, and identical load,
+save, validation and PUT bodies. Services without wording support show "Wording for this
+service can't be customised yet." and no edit controls. Editable systems are still exactly
+`labelOverrideSystemKeys` (hose_reel, co2_fire_extinguisher, wet_chemical, automatic_sprinkler).
+**Not editable:** hiding, adding, reordering or requiring fields; result options; V7
+definitions; evidence rules. Fire Alarm is still excluded (see the API comment). **API
+(additive, GET only):** `GET …/label-overrides` appends `formLayout: { sections: [{ key,
+heading, repeatable: { rowHeading } | null, fields: [{ path, control, parentPath, result,
+unit, remarks }] }] }` (`apps/api/src/inspections/labelOverrideFormLayout.ts`). `labels` and
+`overrides` are byte-identical, proven by a route unit test and a real-Postgres integration
+assertion. PUT, path grammar, validation, versioning, forward-copy and job freeze are
+unchanged. The web client validates `formLayout` against `labels` and fails closed; if the
+layout is absent it falls back to grouped plain fields. The legacy flat
+`ManagerCustomerLabelOverrides` editor has been removed. `tests/manager-label-overrides.html`
+now drives the Form wording tab and keeps all 40 of its earlier guard checks, plus 4 new ones
+(the spec pins exactly 44). The collapsible wrappers for settings and locations stay exported
+for their harnesses. **Tests:** new `tests/manager-service-editor.spec.ts` (8 tests;
+fixture `managerServiceEditorFixture.ts` uses the real API resolvers). Full Playwright run:
+**73 passed, 0 failed, 0 skipped** (65 before). The layout checks in
+`manager-customer-configuration.html/.spec.ts` were updated to the cards; its Assigned
+Services checks are unchanged. API: `labelOverrideFormLayout.test.ts` 11/11,
+`managerCustomers.test.ts` 7/7, `managerLabelOverrides.integration.test.ts` 3/3 on
+disposable Postgres. `Test-ManagerScheduling.ps1` hits the R3 known issue below (fails
+without `REPORT_CHROMIUM_PATH`, hangs with it). A scratch copy that only adds the
+`testLifecycle.ts` import to its two `node --test` lines passed end to end (exit 0).
+
+**Last updated:** 2026-09-19 — **Web UI polish pass: one token system, phone tap targets, status shapes (uncommitted; CSS only).**
+Only `apps/web/src/styles/app.css` changed. No markup, logic, test, lockfile or dependency changes.
+**Tokens.** The two `:root` blocks are now one block at the top. It holds brand, neutral and semantic
+success/warning/danger/info colours, a spacing scale (`--space-1..8`), radii, shadows, a focus ring, a
+type scale and `--tap: 44px`. Distinct hex values outside `:root` went from 122 to 0; `:root` holds 30.
+Nine of them are pinned to their exact old values so the Final Report web view renders unchanged.
+Breakpoints are now phone ≤520, tablet-down ≤767, wide ≥1200 (560/700/640/480 folded in; 760 → 768).
+**Visible changes.** Secondary buttons, home Refresh / Sync Now and report actions are now 44px.
+Sign out keeps its compact look with an invisible 44px hit area. `.danger-command` is now styled.
+Every status tone has its own marker shape (ring / dot / half / spinner / diamond / tick), so colour is
+never the only signal. Completed job cards get a green accent. The form sync line
+(`.inspection-status`) is a toned pill. On phones the four result options form a 2×2 grid of 48px
+targets. The Drum Type radios are proper controls and no longer throw off section numbering. Manager
+Home, Technicians and Upcoming use the same 1120px column as other screens, with card-style dashboard
+tiles and matching heading sizes.
+**Fixes.** (1) A 1px horizontal overflow on forms at 375px. (2) A selected result or system option
+became white-on-pale when hovered, and after a tap on touch screens (hover now only applies on hover
+devices and never over the selected state). (3) A `Â·` mojibake in the read-only banner (now a CSS escape).
+(4) Round "Active" badge and stretched "Change customer" button on phone.
+**Scope guard.** Sizing rules skip `.final-report` and the Customer configuration / service-history
+screens. The Final Report body is pixel-identical at 375 and 1280. The only diffs are the header /
+Sign out row and the Download PDF button picking up the primary-button token (`--brand-dark`).
+**Evidence.** `C:\Users\kokfu\pwa-ui-pass-2026-09-19\{before,after}\*.png` (375×812 and 1280×800;
+`scrollWidth.json` shows 375/1280 on every screen). Gates: typecheck + build pass; Playwright 73/73
+(baseline 65/65 before the concurrent `manager-service-editor.spec.ts` added 8); 16 tsx scripts,
+147 pass. No phone or installed-PWA test. Dark mode not added.
+
+**Last updated:** 2026-09-19 — **V7 live browser mode for the CO2 / Wet Chemical accepted-detail specs (uncommitted).**
+The 2 full-suite failures from the Slice A entry (`*_LIVE_BROWSER_FIXTURE_PATH is required`) are
+closed as config failures. `apps/web/playwright.config.ts` now leaves both live specs out of a plain
+`npx playwright test` through `testIgnore` (not listed, not skipped). With `PLAYWRIGHT_LIVE=1` they are
+collected and the 4175 `webServer` is not started. The live gate is scripted:
+`.\scripts\Test-V7LiveBrowser.ps1` (or `npm run test:v7-live-browser` in apps/web). It starts its own
+disposable `postgres:16-alpine` on 127.0.0.1:55432 (`phase6_seed_integration`) and refuses to run when
+55432/4176/4177/4180 are taken. Then, strictly in this order (each seed drops the schema): seed CO2 →
+CO2 spec → seed Wet Chemical → Wet Chemical spec. Each seed is the first test only of
+`co2V7.integration.test.ts` / `wetChemicalV7.integration.test.ts` with `*_SEED=1`, because the second
+test in each file drops the schema too. Fixtures and uploads go to a temp dir outside the repo and
+are checked before use. The real API (4180) and Vite (4177) sit behind `tests/liveReverseProxy.mjs`
+(4176 = app + `/api`), with `*_BASE_URL` pointing at 4176. A spec fails the gate on any failure or
+skip. The container, child processes and temp dir are always removed, and the environment is restored.
+`-RevertProofBogusPhoto` is a negative control.
+**Results.** Default suite: 62 passed, 3 failed, 0 skipped of 65 (57 Slice A baseline − 2 live + 10
+`manager-technician-services-done`). `--list` gives 73 without and 75 with `PLAYWRIGHT_LIVE=1`, so exactly
+the 2 live specs; the extra 8 come from the concurrent, uncommitted `manager-service-editor.spec.ts`.
+The 3 failures are not caused by this change. `connectivity-recovery` and `manager-app-auth-transitions`
+passed on rerun (load-flaky). `manager-customer-configuration` fails every time against the concurrent,
+uncommitted `ManagerCustomerConfiguration.tsx` rewrite. **Live gate findings (the live gate runs end to end; still exits 1):**
+(1) **Fixed, Wet Chemical V7 accepted detail:** `parseServerWetChemicalDetail` still checked V7 results
+against the old 3-state set. d7ecc0d (4-state model) updated `ServerWetChemicalView` but not
+`serverWetChemicalApi.ts`. So every accepted V7 detail showed "Server returned invalid Wet Chemical accepted
+detail". V7 now accepts `good/not_good/complete_repair/na` in the controls and responses; V4 stays `good/poor`.
+(2) **Fixed, CO2 spec labels:** now "Not Good" / "No Need Checking / N.A.". (3) **Fixed, login redirect race:** `handleLogin` (`App.tsx`) called `navigate({ name: "jobs" })`
+after `refreshServerWorkspace`, while "My Service Jobs" was already on screen. So a navigation made in
+that ~300 ms window was sent back to the job list; the CO2 spec lost the detail page before photoB. It now
+redirects only if the hash has not changed since the list rendered. The 7 login/routing specs pass (19 tests).
+**Now:** the CO2 live spec passes (expected=1, 0 unexpected, 0 skipped). With `-RevertProofBogusPhoto`, it fails
+at the bogus photoA link (spec line 15) and nothing is left behind. (4) **Fixed, Wet Chemical spec labels:** now "Not Good", "No Need Checking / N.A.", "Normal" and "Test".
+**Live gate green:** a cold `.\scripts\Test-V7LiveBrowser.ps1` exits 0. Both seeds pass (CO2 2/0/0, Wet Chemical 1/0/0),
+and both live specs show expected=1, unexpected=0, skipped=0. No container, ports, processes or temp dir are left. **Known issue:** since R3, `Test-ManagerScheduling.ps1`
+fails at `test:historical-matrix` when `REPORT_CHROMIUM_PATH` is unset. With it set, the focused API
+`node --test` run hangs because the PDF engine never closes (no `testLifecycle.ts` import).
+
 **Last updated:** 2026-09-18 — **Report R3: standalone Chromium PDF engine (uncommitted; not wired to reports).**
 `apps/api/src/reports/pdf/` provides queued HTML rendering, embedded fonts, and named-destination
 page resolution. Real Chromium proves three anchors resolve to pages 1/2/3; the approved sample
