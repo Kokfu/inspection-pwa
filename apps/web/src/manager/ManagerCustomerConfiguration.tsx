@@ -4,26 +4,23 @@ import {
   createManagerCustomer,
   createManagerCustomerSite,
   evidencePolicyAssignableSystemKeys,
-  labelOverrideSystemKeys,
   loadManagerEvidencePolicy,
-  loadManagerLabelOverrides,
   loadManagerLocations,
   loadManagerSystemConfiguration,
   locationConfigurableSystemKeys,
   ManagerApiError,
   saveCustomerContactDetails,
   saveManagerEvidencePolicy,
-  saveManagerLabelOverrides,
   saveManagerLocations,
   saveManagerSystemConfiguration,
   systemConfigurationSystemKeys,
   type ManagerCustomer,
   type ManagerEvidencePolicyOption,
-  type ManagerLabelOverrideNode,
   type ManagerLocations,
   type ManagerSystemConfigurationSchema
 } from "./managerApi";
 import { ManagerCustomerServiceHistory } from "./ManagerCustomerServiceHistory";
+import { ManagerCustomerServices } from "./ManagerCustomerServices";
 
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
   customers: ManagerCustomer[]; loading: boolean; message: string; onRefresh: () => Promise<void>; onManage: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
@@ -47,9 +44,11 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   </section>;
 }
 
-export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport }: {
+export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onOpenService }: {
   customer: ManagerCustomer; onBack: () => void; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
   onViewServiceVisit: (jobId: string) => void; onViewFinalReport: (jobId: string) => void; onDownloadFinalReport: (jobId: string) => Promise<void>;
+  /** Opens the per-service editor (Form wording / Preset rows / Settings) for one service. */
+  onOpenService?: (systemKey: string) => void;
 }) {
   const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
   const [newRiserMode, setNewRiserMode] = useState("");
@@ -98,17 +97,8 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     <ManagerCustomerContactDetails customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in the “Zones &amp; locations” editor below, then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
-    <section className="report-summary manager-per-service" aria-labelledby="manager-per-service-title">
-      <h3 id="manager-per-service-title">Per-service settings</h3>
-      <p>Settings that apply to an individual service for this customer. Each editor below creates a new configuration version when it is saved; existing service visits keep the settings they were created with.</p>
-      <p className="support-metadata">Version {customer.configuration.revision}</p>
-      <ManagerPerServiceSummary customer={customer} />
-      <ManagerCustomerLabelOverrides customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-      <ManagerCustomerSystemConfiguration customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-      <ManagerCustomerEvidencePolicy customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-      <ManagerCustomerLocations customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    </section>
+    <section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
+    <ManagerCustomerServices customer={customer} onOpenService={onOpenService} />
     <ManagerCustomerServiceHistory
       customer={customer}
       onViewServiceVisit={onViewServiceVisit}
@@ -166,6 +156,10 @@ function ManagerCustomerContactDetails({ customer, onSaved, onAuthorityFailure }
 
 /**
  * Slice 3b: the four per-service editors below share one collapsible affordance.
+ * The Manager customer page now opens each service in `ManagerServiceEditor`,
+ * which mounts the per-system editors `embedded` (open, loaded on mount, no
+ * toggle); the collapsible wrappers stay exported for their browser harnesses.
+ * Field-label wording is edited only in that editor's "Form wording" tab.
  * These are the single source of that shared copy, so the per-system toggle
  * label, the unsaved-changes line and the save confirmation stay identical
  * across all four editors. Only `noun` varies between them.
@@ -175,82 +169,18 @@ const perServiceToggleLabel = (open: boolean, noun: string, systemLabel: string)
 const perServiceUnsavedLine = (changed: boolean) => (changed ? "Unsaved changes." : "No unsaved changes.");
 const PER_SERVICE_SAVE_CONFIRMATION = "Saved. A new configuration version was created.";
 
-/**
- * Slice 3b: at-a-glance per-system summary of which per-service settings are
- * already set, read straight off `customer.configuration.enabledSystems`
- * (`labelOverrides`, `systemConfiguration`, `evidencePolicyId`, `zones`,
- * `locations`) — no extra fetch. A setting that does not apply to a system (its
- * key is not in that editor's eligibility Set) reads "n/a"; otherwise "set" or
- * "not set".
- */
-function ManagerPerServiceSummary({ customer }: { customer: ManagerCustomer }) {
-  const rows = useMemo(() => customer.configuration.enabledSystems.map((system) => {
-    const labelOverrides = (system as { labelOverrides?: Record<string, unknown> }).labelOverrides;
-    return {
-      key: system.key,
-      displayName: system.displayName,
-      flags: [
-        {
-          label: "Field labels",
-          applies: labelOverrideSystemKeys.has(system.key),
-          set: isPlainRecord(labelOverrides) && Object.keys(labelOverrides).length > 0
-        },
-        {
-          label: "System settings",
-          applies: systemConfigurationSystemKeys.has(system.key),
-          set: isPlainRecord(system.systemConfiguration) && Object.keys(system.systemConfiguration).length > 0
-        },
-        {
-          label: "Evidence policy",
-          applies: evidencePolicyAssignableSystemKeys.has(system.key),
-          set: typeof system.evidencePolicyId === "string" && system.evidencePolicyId.length > 0
-        },
-        {
-          label: "Zones & locations",
-          applies: locationConfigurableSystemKeys.has(system.key),
-          // "set" == the Manager has entered *something* here. A lone zone with
-          // no locations yet is still real, droppable config (the server allows
-          // saving it — apps/api/src/inspections/locationConfiguration.ts), so it
-          // counts, and the untick-drops-config warning
-          // (`enabledSystemHasSavedSettings`) agrees clause-for-clause.
-          set: system.zones.length > 0 || system.locations.length > 0
-        }
-      ]
-    };
-  }), [customer.configuration.enabledSystems]);
-  if (rows.length === 0) return null;
-  return <ul className="manager-per-service-summary" aria-label="Per-service settings summary">
-    {rows.map((row) => (
-      <li key={row.key}>
-        <span className="manager-per-service-summary-system">{row.displayName}</span>
-        <span className="manager-per-service-summary-flags">
-          {row.flags.map((flag) => {
-            const state = !flag.applies ? "n/a" : flag.set ? "set" : "not set";
-            const tone = !flag.applies ? "na" : flag.set ? "set" : "unset";
-            return <span
-              key={flag.label}
-              className={`manager-config-flag manager-config-flag--${tone}`}
-              aria-label={`${row.displayName} — ${flag.label}: ${state}`}
-            >{flag.label}<small>{state}</small></span>;
-          })}
-        </span>
-      </li>
-    ))}
-  </ul>;
-}
-
 const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * STEP 3.1 final polish: does one enabled system carry any saved per-service
  * configuration that `copySelectedConfiguration` would NOT restore if the system
- * were unticked now and re-added later? Each clause below is the exact same
- * "set" test `ManagerPerServiceSummary` applies to its matching flag — label
- * overrides / system configuration / evidence policy / zones-or-locations
- * (a lone zone with no locations still counts as entered config) — read straight
- * off `customer.configuration.enabledSystems`. The summary chip and this warning
- * therefore never disagree about whether a system "has something".
+ * were unticked now and re-added later? Label overrides / system configuration /
+ * evidence policy / zones-or-locations (a lone zone with no locations still
+ * counts as entered config), read straight off
+ * `customer.configuration.enabledSystems`. The Services cards
+ * (`managerServiceChips`) read the same fields, so a lone zone shows there as
+ * "1 zone, no locations" — never as "nothing set" — and the two agree.
  */
 const enabledSystemHasSavedSettings = (
   system: ManagerCustomer["configuration"]["enabledSystems"][number]
@@ -262,128 +192,6 @@ const enabledSystemHasSavedSettings = (
     || system.zones.length > 0
     || system.locations.length > 0;
 };
-
-/**
- * Per-customer display-label overrides. One collapsible editor per eligible
- * enabled system (`labelOverrideSystemKeys`). Reads the render-path label tree
- * from `GET .../label-overrides` (definitionLabel + effectiveLabel + overridden)
- * and PUTs the full map; a blank field clears that path. Editing here creates a
- * new customer configuration revision server-side and forward-copies the map —
- * existing frozen jobs keep the labels they froze with. Server validation
- * (UNKNOWN_LABEL_PATH / INVALID_LABEL_OVERRIDE / LABEL_OVERRIDES_TOO_LARGE)
- * surfaces inline as the server's own message.
- */
-export function ManagerCustomerLabelOverrides({ customer, onSaved, onAuthorityFailure }: {
-  customer: ManagerCustomer; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
-}) {
-  const editable = useMemo(
-    () => customer.configuration.enabledSystems.filter((system) => labelOverrideSystemKeys.has(system.key)),
-    [customer.configuration.enabledSystems]
-  );
-  if (editable.length === 0) return null;
-  return <section className="manager-per-service-block" aria-labelledby="manager-label-overrides-title">
-    <h4 id="manager-label-overrides-title">Custom field labels</h4>
-    <p>Rename the field labels a technician sees for this customer. This changes the wording on the form and the accepted report only, never what is recorded. Saving creates a new configuration version; existing service visits keep the labels they were created with.</p>
-    {editable.map((system) => (
-      <ManagerSystemLabelOverrides
-        key={system.key}
-        customerId={customer.customer.id}
-        systemKey={system.key}
-        systemLabel={system.displayName}
-        onSaved={onSaved}
-        onAuthorityFailure={onAuthorityFailure}
-      />
-    ))}
-  </section>;
-}
-
-function ManagerSystemLabelOverrides({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
-  customerId: string; systemKey: string; systemLabel: string;
-  onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [nodes, setNodes] = useState<ManagerLabelOverrideNode[] | undefined>(undefined);
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const hydrate = (list: ManagerLabelOverrideNode[]) => {
-    setNodes(list);
-    setDraft(Object.fromEntries(list.filter((node) => node.overridden).map((node) => [node.path, node.effectiveLabel])));
-  };
-
-  const load = async () => {
-    setLoading(true); setError(""); setMessage("");
-    try { hydrate((await loadManagerLabelOverrides(customerId, systemKey)).labels); }
-    catch (reason) {
-      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
-      else setError(reason instanceof Error ? reason.message : "Field labels could not be loaded.");
-    } finally { setLoading(false); }
-  };
-
-  const toggleOpen = () => {
-    const next = !open;
-    setOpen(next);
-    if (next && nodes === undefined && !loading) void load();
-  };
-
-  const save = async () => {
-    setSaving(true); setError(""); setMessage("");
-    const map: Record<string, string> = {};
-    for (const [path, value] of Object.entries(draft)) { const trimmed = value.trim(); if (trimmed) map[path] = trimmed; }
-    try {
-      const result = await saveManagerLabelOverrides(customerId, systemKey, map);
-      hydrate(result.labels.labels);
-      onSaved(result.customer);
-      setMessage(PER_SERVICE_SAVE_CONFIRMATION);
-    } catch (reason) {
-      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
-      else setError(reason instanceof Error ? reason.message : "Field labels could not be saved.");
-    } finally { setSaving(false); }
-  };
-
-  const changedCount = nodes
-    ? nodes.filter((node) => (draft[node.path]?.trim() ?? "") !== (node.overridden ? node.effectiveLabel : "")).length
-    : 0;
-
-  return <div className="manager-label-override-system">
-    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
-      {perServiceToggleLabel(open, "field labels", systemLabel)}
-    </button>
-    {open ? <div>
-      {loading ? <p>Loading field labels…</p> : null}
-      {error ? <p className="form-message" role="alert">{error}</p> : null}
-      {message ? <p className="form-message" role="status">{message}</p> : null}
-      {nodes ? <>
-        <ul className="manager-label-override-list">
-          {nodes.map((node) => (
-            <li key={node.path}>
-              <label>
-                <span className="manager-label-override-definition">{node.definitionLabel}</span>
-                <input
-                  aria-label={`Custom label for ${node.definitionLabel}`}
-                  maxLength={200}
-                  placeholder={node.definitionLabel}
-                  value={draft[node.path] ?? ""}
-                  onChange={(event) => setDraft((current) => ({ ...current, [node.path]: event.target.value }))}
-                />
-              </label>
-              {node.overridden ? <small className="manager-label-override-current">Currently: {node.effectiveLabel}</small> : null}
-            </li>
-          ))}
-        </ul>
-        <p className="support-metadata">Blank a field to restore its default label.</p>
-        <p className="support-metadata">{perServiceUnsavedLine(changedCount > 0)}</p>
-        <div className="inline-actions">
-          <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
-          <button type="button" disabled={saving || loading} onClick={() => void save()}>{saving ? "Saving…" : "Save labels"}</button>
-        </div>
-      </> : null}
-    </div> : null}
-  </div>;
-}
 
 /**
  * Per-customer `system_configuration` editor. One collapsible section per
@@ -418,11 +226,13 @@ export function ManagerCustomerSystemConfiguration({ customer, onSaved, onAuthor
   </section>;
 }
 
-function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+export function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure, embedded = false }: {
   customerId: string; systemKey: string; systemLabel: string;
   onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+  /** Rendered inside the per-service editor: open and loaded on mount, no collapsible toggle. */
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [schema, setSchema] = useState<ManagerSystemConfigurationSchema | undefined>(undefined);
@@ -454,6 +264,8 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
     if (next && schema === undefined && !loading) void load();
   };
 
+  useEffect(() => { if (embedded) void load(); }, [embedded, customerId, systemKey]);
+
   const save = async () => {
     if (!schema) return;
     setSaving(true); setError(""); setMessage("");
@@ -475,9 +287,9 @@ function ManagerSystemConfigurationEditor({ customerId, systemKey, systemLabel, 
     : 0;
 
   return <div className="manager-system-configuration-system">
-    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+    {!embedded ? <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
       {perServiceToggleLabel(open, "system settings", systemLabel)}
-    </button>
+    </button> : null}
     {open ? <div>
       {loading ? <p>Loading system configuration…</p> : null}
       {error ? <p className="form-message" role="alert">{error}</p> : null}
@@ -549,11 +361,13 @@ export function ManagerCustomerEvidencePolicy({ customer, onSaved, onAuthorityFa
   </section>;
 }
 
-function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+export function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure, embedded = false }: {
   customerId: string; systemKey: string; systemLabel: string;
   onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+  /** Rendered inside the per-service editor: open and loaded on mount, no collapsible toggle. */
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fieldLabel, setFieldLabel] = useState("Evidence policy");
@@ -585,6 +399,8 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
     if (next && policies === undefined && !loading) void load();
   };
 
+  useEffect(() => { if (embedded) void load(); }, [embedded, customerId, systemKey]);
+
   const save = async () => {
     setSaving(true); setError(""); setMessage("");
     try {
@@ -601,9 +417,9 @@ function ManagerEvidencePolicyEditor({ customerId, systemKey, systemLabel, onSav
   const changed = draft !== loaded;
 
   return <div className="manager-evidence-policy-system">
-    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+    {!embedded ? <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
       {perServiceToggleLabel(open, "evidence policy", systemLabel)}
-    </button>
+    </button> : null}
     {open ? <div>
       {loading ? <p>Loading evidence policy…</p> : null}
       {error ? <p className="form-message" role="alert">{error}</p> : null}
@@ -690,11 +506,13 @@ const normalizeLocationsDraft = (zoneRows: LocationsZoneRow[], locationRows: Loc
   }))
 });
 
-function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure }: {
+export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure, embedded = false }: {
   customerId: string; systemKey: string; systemLabel: string;
   onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+  /** Rendered inside the per-service editor: open and loaded on mount, no collapsible toggle. */
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -734,6 +552,8 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
     if (next && !loaded && !loading) void load();
   };
 
+  useEffect(() => { if (embedded) void load(); }, [embedded, customerId, systemKey]);
+
   const save = async () => {
     setSaving(true); setError(""); setMessage("");
     try {
@@ -765,9 +585,9 @@ function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, o
   const changed = loaded && JSON.stringify(normalizeLocationsDraft(zoneRows, locationRows)) !== loadedSnapshot;
 
   return <div className="manager-locations-system">
-    <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
+    {!embedded ? <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
       {perServiceToggleLabel(open, "zones & locations", systemLabel)}
-    </button>
+    </button> : null}
     {open ? <div>
       {loading ? <p>Loading zones and locations…</p> : null}
       {error ? <p className="form-message" role="alert">{error}</p> : null}

@@ -312,6 +312,13 @@ test("V7 Automatic Sprinkler label overrides resolve, persist, version and freez
       assert.ok(tree.labels.every((entry) => entry.overridden === false && entry.effectiveLabel === entry.definitionLabel));
       assert.notEqual(definitionLabels[sprinklerOverridePath], sprinklerOverrideLabel);
 
+      // Additive GET `formLayout` (form-shaped Manager editor): it is appended after
+      // the four pre-existing keys and places exactly the label paths.
+      const treeBody = tree as unknown as Record<string, unknown> & { formLayout: { sections: Array<{ heading: string; fields: Array<{ path: string }> }> } };
+      assert.deepEqual(Object.keys(treeBody), ["systemKey", "templateVersion", "labels", "overrides", "formLayout"]);
+      assert.deepEqual(treeBody.formLayout.sections.map((section) => section.heading), ["Water Tank", "Pump House", "Main Alarm Valve", "Test Run Fire Pump 30 Minutes"]);
+      assert.deepEqual(treeBody.formLayout.sections.flatMap((section) => section.fields.map((field) => field.path)).sort(), [...paths].sort());
+
       // An unknown path is still rejected against the V7 tree.
       assert.equal((await call("PUT", { labelOverrides: { "checklist.testRunFirePump.trfp_nonexistent": "X" } })).status, 400);
 
@@ -331,6 +338,17 @@ test("V7 Automatic Sprinkler label overrides resolve, persist, version and freez
         assert.equal(entry.overridden, false, `${entry.path} must not be overridden`);
         assert.equal(entry.effectiveLabel, definitionLabels[entry.path]);
       }
+
+      // PUT contract unchanged: no `formLayout` on the save response. For the same
+      // stored state, a fresh GET's pre-existing fields are byte-identical to the
+      // PUT's (the GET only appends `formLayout`).
+      const savedBody = saved as unknown as Record<string, unknown>;
+      assert.deepEqual(Object.keys(savedBody), ["customer", "systemKey", "templateVersion", "labels", "overrides"]);
+      const refreshedBody = await (await call("GET")).json() as Record<string, unknown>;
+      const { formLayout: refreshedLayout, ...refreshedRest } = refreshedBody;
+      const { customer: _customer, ...savedRest } = savedBody;
+      assert.equal(JSON.stringify(refreshedRest), JSON.stringify(savedRest));
+      assert.deepEqual(refreshedLayout, treeBody.formLayout, "layout is independent of the stored overrides");
     } finally { await close(server); }
 
     // Versioning: previous revision superseded with no override, new active carries

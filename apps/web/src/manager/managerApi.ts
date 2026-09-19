@@ -208,11 +208,35 @@ export type ManagerLabelOverrideNode = {
   overridden: boolean;
 };
 
+/** Read-only display metadata the label-overrides GET appends (`formLayout`) so the
+ *  Manager can lay the fields out like the technician form. Never sent back. */
+export type ManagerLabelFormControl = "checklist_item" | "measurement" | "measurement_value" | "text" | "result_column";
+
+export type ManagerLabelFormField = {
+  path: string;
+  control: ManagerLabelFormControl;
+  parentPath: string | null;
+  result: { type: "single_select" | "multi_select"; options: Array<{ value: string; label: string }> } | null;
+  unit: string | null;
+  remarks: boolean;
+};
+
+export type ManagerLabelFormSection = {
+  key: string;
+  heading: string;
+  repeatable: { rowHeading: string } | null;
+  fields: ManagerLabelFormField[];
+};
+
+export type ManagerLabelFormLayout = { sections: ManagerLabelFormSection[] };
+
 export type ManagerLabelOverrides = {
   systemKey: string;
   templateVersion: number;
   labels: ManagerLabelOverrideNode[];
   overrides: Record<string, string>;
+  /** Present on the GET only (the PUT response is unchanged). */
+  formLayout?: ManagerLabelFormLayout;
 };
 
 async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT", key: string | null, body?: unknown, signal?: AbortSignal) {
@@ -467,6 +491,57 @@ function isLabelOverrideNode(value: unknown): value is ManagerLabelOverrideNode 
     && typeof value.overridden === "boolean";
 }
 
+const labelFormControls: ReadonlySet<string> = new Set(["checklist_item", "measurement", "measurement_value", "text", "result_column"]);
+
+function isLabelFormField(value: unknown): value is ManagerLabelFormField {
+  if (!isPlainObject(value) || typeof value.path !== "string" || typeof value.control !== "string"
+    || !labelFormControls.has(value.control)
+    || !(value.parentPath === null || typeof value.parentPath === "string")
+    || !(value.unit === null || typeof value.unit === "string")
+    || typeof value.remarks !== "boolean") return false;
+  const result = value.result;
+  if (result === null) return true;
+  return isPlainObject(result) && (result.type === "single_select" || result.type === "multi_select")
+    && Array.isArray(result.options)
+    && result.options.every((option) => isPlainObject(option) && typeof option.value === "string" && typeof option.label === "string");
+}
+
+/**
+ * Validate the optional GET `formLayout` against the label tree it arrived with:
+ * well-formed sections, every label path placed exactly once, no path the tree
+ * does not expose, and every `parentPath` pointing at a placed measurement row.
+ * A poisoned layout is an "unavailable" authority failure — the replica is never
+ * rendered from a layout that disagrees with the label tree.
+ */
+function asLabelFormLayout(value: unknown, labels: ManagerLabelOverrideNode[]): ManagerLabelFormLayout {
+  const fail = (): never => { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); };
+  if (!isPlainObject(value) || !Array.isArray(value.sections)) fail();
+  const sections = (value as { sections: unknown[] }).sections;
+  const sectionKeys = new Set<string>();
+  const placed = new Map<string, ManagerLabelFormField>();
+  for (const section of sections) {
+    if (!isPlainObject(section) || typeof section.key !== "string" || typeof section.heading !== "string"
+      || !(section.repeatable === null || (isPlainObject(section.repeatable) && typeof section.repeatable.rowHeading === "string"))
+      || !Array.isArray(section.fields) || !section.fields.every(isLabelFormField)
+      || sectionKeys.has(section.key)) fail();
+    sectionKeys.add((section as { key: string }).key);
+    for (const field of (section as { fields: ManagerLabelFormField[] }).fields) {
+      if (placed.has(field.path)) fail();
+      placed.set(field.path, field);
+    }
+  }
+  const labelPaths = new Set(labels.map((node) => node.path));
+  if (placed.size !== labelPaths.size || [...placed.keys()].some((path) => !labelPaths.has(path))) fail();
+  for (const field of placed.values()) {
+    if (field.parentPath === null) continue;
+    // The parent must be a top-level measurement row: no self-parenting and no cycles,
+    // which would otherwise hide fields from the editor without failing validation.
+    const parent = placed.get(field.parentPath);
+    if (field.parentPath === field.path || parent?.control !== "measurement" || parent.parentPath !== null) fail();
+  }
+  return value as ManagerLabelFormLayout;
+}
+
 /** Fully validate the label-override response body; anything malformed is an
  *  "unavailable" authority failure (routed away from the inline domain-error
  *  path), never a raw TypeError during hydration. */
@@ -477,11 +552,13 @@ function asLabelOverrides(data: Record<string, unknown>): ManagerLabelOverrides 
     || !Object.values(data.overrides).every((value) => typeof value === "string")) {
     throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   }
+  const labels = data.labels as ManagerLabelOverrideNode[];
   return {
     systemKey: data.systemKey,
     templateVersion: data.templateVersion,
-    labels: data.labels as ManagerLabelOverrideNode[],
-    overrides: data.overrides as Record<string, string>
+    labels,
+    overrides: data.overrides as Record<string, string>,
+    ...(data.formLayout === undefined ? {} : { formLayout: asLabelFormLayout(data.formLayout, labels) })
   };
 }
 

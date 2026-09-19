@@ -3,6 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T1 landed the Manager per-service editor (committed on the branch, not merged).**
+The editor from the main tree (see "Manager form-shaped per-service editor" below) is now committed on
+`claude/autopilot`, with two review fixes: text typed into an open wording editor counts as unsaved
+(Back, browser Back and reload ask first), and Sign out asks before discarding unsaved wording
+(`confirmManagerLeave`, `managerLeaveGuard.ts`). `app.css` only gained the tokens the editor uses; the
+main tree's full token refactor and the post-login `landingHash` change are backlog T1b.
+Status per task: `docs/autopilot/BACKLOG.md`.
+
 **Last updated:** 2026-09-19 — **V7 live-spec test hardening (uncommitted; tests + one test script only).**
 **Wet Chemical checklist.** `tests/wet-chemical-v7-live-accepted-detail.spec.ts` now asserts the full
 paragraph with `toHaveText`, as CO2 does: `"Battery: Good"`, `"Charger: No Need Checking / N.A."`,

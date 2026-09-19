@@ -96,6 +96,8 @@ import { claimManagerSession, clearManagerSession, readManagerReturn, rememberMa
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
+import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
+import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
 import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { productRoleMatches } from "./manager/roleAccess";
@@ -182,6 +184,7 @@ type AppRoute =
   | { name: "manager-services-done" }
   | { name: "manager-upcoming-services" }
   | { name: "manager-customer"; customerId: string }
+  | { name: "manager-customer-service"; customerId: string; systemKey: string }
   | { name: "manager-service-visit"; jobId: string }
   | { name: "manager-final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
@@ -207,6 +210,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
   if (parts[0] === "manager") return { name: "manager-home" };
+  if (parts[0] === "manager-customer" && parts[1] && parts[2] === "service" && parts[3]) return { name: "manager-customer-service", customerId: parts[1], systemKey: parts[3] };
   if (parts[0] === "manager-customer" && parts[1]) return { name: "manager-customer", customerId: parts[1] };
   if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
   if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
@@ -237,6 +241,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
   if (route.name === "manager-home") return "#/manager";
   if (route.name === "manager-customer") return `#/manager-customer/${encodeURIComponent(route.customerId)}`;
+  if (route.name === "manager-customer-service") return `#/manager-customer/${encodeURIComponent(route.customerId)}/service/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
   if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "new-service-visit") return "#/new-service-visit";
@@ -824,6 +829,10 @@ export function App() {
       if (event.key === "inspection-auth-change") void revalidateAuthentication();
     };
     const handleHashChange = () => {
+      // The per-service editor registers a guard while it holds unsaved wording
+      // edits; a declined "leave?" confirm puts its hash back instead of routing.
+      const leave = allowManagerHashChange(window.location.hash);
+      if (!leave.allow) { window.location.hash = leave.restoreHash; return; }
       const nextRoute = routeFromHash();
       setRoute((current) => hashForRoute(current) === hashForRoute(nextRoute) ? current : nextRoute);
     };
@@ -1114,7 +1123,7 @@ export function App() {
         }
       ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
     }
-    if (route.name === "manager-customer") {
+    if (route.name === "manager-customer" || route.name === "manager-customer-service") {
       const request = beginManagerRequest(); setManagerCustomer(undefined); setManagerLoading(true); setManagerMessage("");
       void loadManagerCustomer(route.customerId, request.signal).then(
         (customer) => { if (managerRequestIsCurrent(request)) setManagerCustomer(customer); },
@@ -1312,6 +1321,8 @@ export function App() {
   }
 
   async function handleLogout() {
+    // Unsaved Manager wording edits are asked about before signing out, never dropped silently.
+    if (!confirmManagerLeave()) return;
     const operation = beginExplicitAuthOperation();
     try {
       clearManagerSession();
@@ -2118,12 +2129,24 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
+        ) : route.name === "manager-customer-service" ? (
+          managerCustomer && managerCustomer.customer.id === route.customerId
+            ? <ManagerServiceEditor
+              key={`${route.customerId}:${route.systemKey}`}
+              customer={managerCustomer}
+              systemKey={route.systemKey}
+              onBack={() => navigate({ name: "manager-customer", customerId: route.customerId })}
+              onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
+              onAuthorityFailure={handleManagerRequestFailure}
+            />
+            : <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-customer", customerId: route.customerId })}>Back to Customer</button>{managerMessage ? <p className="form-message" role="alert">{managerMessage}</p> : <p role="status">Loading service settings…</p>}</>
         ) : route.name === "manager-customer" && managerCustomer ? (
           <ManagerCustomerConfigurationDetail
             customer={managerCustomer}
             onBack={() => navigate({ name: "manager-customers" })}
             onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
             onAuthorityFailure={handleManagerRequestFailure}
+            onOpenService={(systemKey) => navigate({ name: "manager-customer-service", customerId: managerCustomer.customer.id, systemKey })}
             onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, null)}
             onViewFinalReport={(jobId) => openManagerVisit("manager-final-report", jobId, null)}
             onDownloadFinalReport={async (jobId) => {

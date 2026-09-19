@@ -5,6 +5,10 @@ import { once } from "node:events";
 import type { Server } from "node:http";
 import { createManagerCustomersRouter, loadManagerCustomer, ManagerCustomerError } from "./managerCustomers.js";
 import { masterServiceReportV5 } from "../inspections/templates/masterServiceReportV5.js";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
+import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
+import { buildLabelOverrideFormLayout } from "../inspections/labelOverrideFormLayout.js";
+import { collectResolvedLabelPaths } from "../inspections/labelOverrides.js";
 
 test("due date routes gate authority and reject malformed dates without database work", async () => {
   let touched = false;
@@ -170,5 +174,48 @@ test("technician customer creation is authenticated, server-backed, and does not
     assert.equal((await post("inspector")).status, 201);
     assert.equal(insertedCustomer, true);
     assert.equal((await fetch(`http://127.0.0.1:${address.port}/manager/customers`, { headers: { "x-role": "inspector" } })).status, 403);
+  } finally { await close(server); }
+});
+
+test("label-overrides GET adds a read-only formLayout while every pre-existing field stays byte-identical", async () => {
+  const customerId = "71000000-0000-4000-8000-000000000001";
+  const sprinkler = masterServiceReportV7.systems.find((system) => system.key === "automatic_sprinkler")!;
+  const stored = { "checklist.waterTank.water_level": "Tank Level", "measurements.jockey_pump_pressure.values.cut_in": "Cut-In Reading" };
+  const database = {
+    async query(sql: string) {
+      if (sql.includes("FROM customers")) return { rows: [{ "?column?": 1 }] };
+      if (sql.includes("FROM customer_configuration_revisions")) return { rows: [{ templateVersion: 7, definition: sprinkler, labelOverrides: stored }] };
+      throw new Error(`Unexpected query ${sql}`);
+    },
+    async connect() { throw new Error("GET must not open a write transaction"); }
+  };
+  const app = express(); app.use(express.json());
+  app.use((request, _response, next) => { request.currentUser = { id: 1, username: "admin", role: "admin" }; next(); });
+  app.use(createManagerCustomersRouter(database as never));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const { port } = server.address() as { port: number };
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/manager/customers/${customerId}/systems/automatic_sprinkler/label-overrides`);
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    const body = JSON.parse(text) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(body), ["systemKey", "templateVersion", "labels", "overrides", "formLayout"]);
+
+    // The response WITHOUT `formLayout` must serialise to exactly the bytes the
+    // route produced before this change (same keys, same order, same values).
+    const controls = resolveAutomaticSprinklerControls(sprinkler, "MFE-FSSR", 7);
+    const legacy = {
+      systemKey: "automatic_sprinkler",
+      templateVersion: 7,
+      labels: collectResolvedLabelPaths(controls).map((entry) => {
+        const override = (stored as Record<string, string>)[entry.path];
+        const overridden = typeof override === "string" && override.trim().length > 0;
+        return { path: entry.path, key: entry.key, definitionLabel: entry.definitionLabel, effectiveLabel: overridden ? override.trim() : entry.definitionLabel, overridden };
+      }),
+      overrides: stored
+    };
+    const { formLayout, ...rest } = body;
+    assert.equal(JSON.stringify(rest), JSON.stringify(legacy));
+    assert.ok(text.startsWith(JSON.stringify(legacy).slice(0, -1) + ",\"formLayout\":"), "old fields are a byte-identical prefix of the new body");
+    assert.deepEqual(formLayout, buildLabelOverrideFormLayout("automatic_sprinkler", controls));
   } finally { await close(server); }
 });

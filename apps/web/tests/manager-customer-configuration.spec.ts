@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
 /**
+ * 2026-09-19: the per-service frame below was replaced by a "Services" area of
+ * one card per service (each opening the per-service editor, covered by
+ * manager-service-editor.spec.ts); the layout checks were updated to the cards.
+ * The Assigned Services checks (1a/1b/1c + lone-zone) are unchanged.
+ *
  * DoD (Phase 8H STEP 3.1 slice 3b): the Manager customer-configuration screen
  * wraps the four per-system editors (label overrides, system configuration,
  * evidence policy, zones & locations) in one "Per-service settings" frame with a
@@ -26,7 +31,7 @@ import { expect, test } from "@playwright/test";
  * that it is real, droppable config — the summary's "set" test was widened to the
  * same OR test `enabledSystemHasSavedSettings` uses.
  */
-test("Manager customer configuration: consolidated per-service frame, summary badges, unified collapsible", async ({ page }) => {
+test("Manager customer configuration: Services cards, summary chips, Assigned Services checks", async ({ page }) => {
   await page.goto("/tests/manager-customer-configuration.html");
   await page.getByRole("button", { name: "Run manager customer configuration checks", exact: true }).click();
   await expect
@@ -52,10 +57,10 @@ test("Manager customer configuration: consolidated per-service frame, summary ba
     "untick warning enumerates the settings that are dropped",
     "no untick warning while co2 (unchanged) is still ticked",
     "re-ticking clears the untick warning without an authority failure",
-    "lone-zone wet_chemical zones & locations -> set",
-    "lone-zone wet_chemical: summary chip reads 'set' before any untick",
+    "lone-zone wet_chemical zones & locations -> reported as saved config",
+    "lone-zone wet_chemical: service card chip reports the saved zone before any untick",
     "lone-zone wet_chemical: unticking fires the drop-config warning naming it",
-    "lone-zone wet_chemical: summary chip and untick warning agree (both 'has something')",
+    "lone-zone wet_chemical: service card chip and untick warning agree (both 'has something')",
     "lone-zone wet_chemical: re-ticking clears the warning without an authority failure"
   ]) {
     expect(byName[name], name).toBe(true);

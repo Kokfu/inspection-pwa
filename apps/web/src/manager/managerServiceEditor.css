@@ -1,0 +1,92 @@
+/* Manager per-service editor (Services cards, tabs, "Form wording" replica).
+   Uses the app's tokens from styles/app.css (with literal fallbacks) and only
+   adds new classes; existing classes are reused, never redefined. */
+
+.manager-config-flag--attention { border-color: var(--warning-border, #ecd8a6); color: var(--warning-ink, #795818); background: var(--warning-soft, #fff8e8); }
+
+/* Services area on the customer page. */
+.manager-services { display: grid; gap: 10px; }
+.manager-services > h3 { margin-bottom: 0; }
+.manager-services > p { margin: 0; }
+.manager-service-cards { margin-top: 4px; }
+.manager-service-card .manager-per-service-summary-flags { min-width: 0; }
+.manager-service-card .manager-config-flag { white-space: normal; }
+
+/* Per-service editor shell + tabs. */
+.manager-service-editor { gap: 14px; }
+.manager-service-editor > .secondary-command { justify-self: start; }
+.manager-service-editor .operational-message { margin: 0; }
+.manager-service-tabs { margin: 0; flex-wrap: wrap; }
+.manager-service-tabs [role="tab"] { flex: 1 1 0; min-width: 0; white-space: nowrap; }
+.manager-service-tabs [role="tab"]:focus-visible { outline: 3px solid rgb(31 135 146 / 35%); outline-offset: 2px; }
+.manager-service-tab-dot { margin-left: 6px; color: var(--warning, #c68a24); font-weight: 900; }
+.manager-service-panel { display: grid; gap: 14px; min-width: 0; }
+.manager-service-panel[hidden] { display: none; }
+.manager-service-panel:focus-visible { outline: 2px solid var(--brand-border, #c8dce0); outline-offset: 4px; border-radius: var(--radius-sm, 10px); }
+.manager-service-settings { display: grid; gap: 18px; }
+.manager-service-settings > section { display: grid; gap: 8px; padding: clamp(14px, 3vw, 20px); border: 1px solid var(--border, #d8e2e8); border-radius: var(--radius-lg, 14px); background: var(--surface, #fff); }
+.manager-service-settings h3 { margin: 0; color: var(--brand-dark, #064b59); font-size: 1rem; }
+.manager-service-panel .manager-locations-system,
+.manager-service-panel .manager-system-configuration-system,
+.manager-service-panel .manager-evidence-policy-system { display: grid; gap: 10px; min-width: 0; }
+.manager-service-panel ul { padding-left: 0; list-style: none; display: grid; gap: 10px; }
+.manager-service-panel ul > li { display: grid; gap: 8px; min-width: 0; }
+.manager-wording-readonly { display: grid; gap: 8px; }
+
+/* Form wording: toolbar. */
+.manager-form-wording { display: grid; gap: 12px; min-width: 0; }
+.manager-form-wording > p { margin: 0; }
+.manager-wording-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 14px; padding: 12px; border: 1px solid var(--border, #d8e2e8); border-radius: var(--radius-md, 12px); background: var(--surface-muted, #f6fafb); }
+.manager-wording-search { display: grid; flex: 1 1 220px; gap: 4px; min-width: 0; font-size: .86rem; font-weight: 700; }
+.manager-wording-filter { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: .9rem; font-weight: 650; }
+.manager-wording-filter input { width: 20px; height: 20px; margin: 0; }
+.manager-wording-toolbar > .secondary-command[aria-pressed="true"],
+.manager-wording-toolbar > .secondary-command[aria-pressed="true"]:hover:not(:disabled) { border-color: var(--brand-dark, #064b59); color: var(--on-brand, #fff); background: var(--brand-dark, #064b59); }
+
+/* Form wording: the replica, section by section. */
+.manager-wording-form { display: grid; gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.manager-wording-section { display: grid; gap: 4px; min-width: 0; margin: 0; padding: 12px clamp(12px, 3vw, 18px) 14px; border: 1px solid var(--border, #d8e2e8); border-radius: var(--radius-lg, 14px); background: var(--surface, #fff); }
+.manager-wording-section > legend { padding: 0 6px; color: var(--brand-dark, #064b59); font-size: 1rem; font-weight: 800; }
+.manager-wording-field { display: grid; gap: 10px; min-width: 0; }
+.manager-wording-field + .manager-wording-field { border-top: 1px solid var(--border, #d8e2e8); }
+.manager-wording-section .measurement-card { padding: 12px; }
+.manager-wording-text { padding: 12px 0; }
+.manager-wording-sample-row { display: grid; gap: 10px; min-width: 0; }
+.manager-wording-sample-row > h4 { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.manager-wording-sample-row > h4 small { font-weight: 600; }
+.manager-form-wording .result-option:disabled { cursor: default; }
+
+/* Editable label: the label text itself is the button; pencil is decorative. */
+.manager-wording-label-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.manager-wording-label { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 4px 8px; margin-left: -8px; border: 1px dashed transparent; border-radius: var(--radius-xs, 6px); color: var(--ink, #183438); background: transparent; text-align: left; }
+.manager-wording-label:hover, .manager-wording-label:focus-visible { border-color: var(--brand, #086f7d); background: var(--brand-tint, #f0f8f9); }
+.manager-wording-label:focus-visible { outline: 3px solid rgb(31 135 146 / 28%); outline-offset: 1px; }
+.manager-wording-label-text { font-weight: 750; overflow-wrap: anywhere; }
+.manager-wording-pencil { flex: 0 0 auto; color: var(--brand, #086f7d); font-size: .95rem; }
+.manager-wording-badge { font-size: .7rem; }
+
+/* Inline editor. */
+.manager-wording-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--brand-border, #c8dce0); border-left: 4px solid var(--brand, #086f7d); border-radius: var(--radius-sm, 10px); background: var(--brand-tint, #f0f8f9); }
+.manager-wording-editor label { display: grid; gap: 4px; font-size: .86rem; font-weight: 700; }
+.manager-wording-editor p { margin: 0; overflow-wrap: anywhere; }
+.manager-wording-editor .inline-actions { flex-wrap: wrap; }
+
+/* Measurement values inside a measurement card. */
+.manager-wording-measurement-value { display: grid; gap: 6px; min-width: 0; }
+.manager-wording-value-input { display: flex; align-items: center; gap: 8px; }
+.manager-wording-value-input input { max-width: 220px; }
+
+/* Sticky save bar. */
+.manager-wording-savebar { position: sticky; bottom: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); border: 1px solid var(--border, #d8e2e8); border-radius: 13px 13px 0 0; background: rgb(255 255 255 / 96%); box-shadow: 0 -10px 24px rgb(22 51 66 / 8%); backdrop-filter: blur(12px); }
+.manager-wording-savebar p { margin: 0; min-width: 0; }
+.manager-wording-savebar .inline-actions { margin: 0; }
+
+@media (max-width: 560px) {
+  .manager-service-tabs [role="tab"] { padding-inline: .4rem; font-size: .88rem; }
+  .manager-wording-savebar .inline-actions { width: 100%; }
+  .manager-wording-savebar .inline-actions button { flex: 1 1 0; }
+  .manager-wording-value-input input { max-width: none; }
+}
+
+/* The replica's disabled Remarks boxes only signal "the technician can type here". */
+.manager-form-wording textarea { height: 44px; min-height: 44px; resize: none; }

@@ -23,7 +23,20 @@ Base commit: `28e1235` (branch `claude/autopilot`).
 Status: DONE (this file, AUTOPILOT.md).
 
 ## T1 — Land the Manager service editor work from the main tree
-Status: TODO. Prerequisite: none.
+Status: DONE (2026-09-19). feat(manager): per-service editor. Gate `Test-ManagerScheduling.ps1` exit 0
+(node suites 20+9+2+11+120+11+1+8 pass, Playwright 45 passed, 0 skipped); api/web typecheck+build
+green; `managerLabelOverrides.integration.test.ts` 3/3 on a disposable DB; `git diff --check` clean.
+Review: 2 rounds. R1 P1-1 typed-but-uncommitted wording lost silently, P1-2 Sign out dropped unsaved
+wording: both fixed. R2: 0 P0 / 0 P1. P2 fixed: layout parent check (self/cyclic), new specs in gate,
+double count. P2 deferred: Preset rows / Settings tabs are not leave-guarded (pre-existing); declining
+browser Back leaves an extra history entry; save bar says "No unsaved changes" while only an open
+editor holds typed text.
+Revert proofs: dropping the open-editor count fails `manager-service-editor.spec.ts:164`; dropping the
+Sign-out confirm fails `:171`.
+Note for T2: the main-tree `Test-ManagerScheduling.ps1` lacks this task's additions
+(`labelOverrideFormLayout.test.ts`, `manager-service-editor.spec.ts`, `manager-customer-configuration.spec.ts`,
+`manager-label-overrides.spec.ts`); keep them when importing it.
+Prerequisite: none.
 Import these files **from the main tree** `C:\PWA_OfflineRecordWebApp` (copy the file contents; for
 modified files, apply `git diff 28e1235 -- <path>` from the main tree):
 - API: `apps/api/src/routes/managerCustomers.ts`, `apps/api/src/routes/managerCustomers.test.ts`,
@@ -43,6 +56,18 @@ loses unsaved input silently; `manager-service-tab:` keys are cleared on logout 
 change), gates green, commit.
 OWNER CHECK: Manager → customer → Services → edit a service's labels, leave with unsaved changes (guard
 appears), save, reopen.
+
+## T1b — Land the main-tree UI polish (App.tsx login landing + app.css token refactor)
+Status: TODO. Prerequisite: T1.
+Split out of T1 (unrelated to the service editor). From the main tree `git diff 28e1235`:
+- `apps/web/src/App.tsx`: after login, keep the user's route if they navigated while the workspace
+  refreshed (`landingHash` check before `navigate({ name: "jobs" })`).
+- `apps/web/src/styles/app.css`: design-token refactor + "UI polish pass (2026-09-19)". T1 already added
+  the tokens the editor needs, so merge carefully. Known defect in the main-tree copy:
+  `--focus-outline: var(--focus-outline);` is self-referential (invalid at computed time) — fix it.
+DoD: Final Report web view stays pixel-identical (the file's own claim); Playwright regressions that
+assert styles still pass; review; gates; commit.
+OWNER CHECK: technician + manager screens on a phone width — buttons, status badges, offline banner.
 
 ## T2 — Land the Wet Chemical parser + live-spec wiring from the main tree
 Status: TODO. Prerequisite: T1. Also wait until the main-tree session "Test-ManagerScheduling.ps1

@@ -686,6 +686,19 @@ dd {
   --surface: #ffffff;
   --border: #d8e2e8;
   --shadow: 0 14px 36px rgb(21 48 67 / 9%);
+  /* Tokens used by the Manager per-service editor (managerServiceEditor.css). */
+  --on-brand: #ffffff;
+  --brand-tint: #f0f8f9;
+  --brand-border: #c8dce0;
+  --surface-muted: #f6fafb;
+  --warning: #c68a24;
+  --warning-ink: #795818;
+  --warning-soft: #fff8e8;
+  --warning-border: #ecd8a6;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
 }
 
 body { min-width: 320px; background: linear-gradient(180deg, #edf4f8 0, #f6f8f9 260px, #f3f6f7 100%); }

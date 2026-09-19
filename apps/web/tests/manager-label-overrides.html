@@ -5,8 +5,16 @@
 <script type="module">
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { ManagerCustomerLabelOverrides } from "/src/manager/ManagerCustomerConfiguration.tsx";
+import { ManagerServiceEditor } from "/src/manager/ManagerServiceEditor.tsx";
 
+/**
+ * Guard checks for the Manager label-override client path, driven through the
+ * form-shaped "Form wording" tab of ManagerServiceEditor (the only label editor
+ * since the legacy flat editor was removed on 2026-09-19). Every assertion of the
+ * former flat-editor harness is kept: load, edit, save, reload, clear, server
+ * validation, and malformed HTTP 200 GET bodies / poisoned PUT `customer` echoes
+ * routed to onAuthorityFailure (never onSaved, never a crash).
+ */
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const customerId = id(700);
 const systemKey = "hose_reel";
@@ -17,6 +25,7 @@ const definitionLabels = [
   { path: "checklist.pumpHouse.pumps_auto_start", key: "pumps_auto_start", definitionLabel: "Jockey And Stand-By Pump In Auto Start Position" },
   { path: "repeatableRows.resultColumns.drumResult", key: "drumResult", definitionLabel: "Drum" }
 ];
+const drumPath = "repeatableRows.resultColumns.drumResult";
 const validPaths = new Set(definitionLabels.map((n) => n.path));
 
 // Server-side persisted map (mirrors customer_enabled_systems.label_overrides).
@@ -29,29 +38,33 @@ const tree = () => definitionLabels.map((n) => {
 });
 const body = (extra = {}) => ({ systemKey, templateVersion: 7, labels: tree(), overrides: { ...stored }, ...extra });
 const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+
+// A layout that matches the tree exactly (so the replica renders), and one
+// that names a path the tree does not expose (must fail closed).
+const layoutFor = (paths) => ({ sections: [{ key: "all", heading: "All fields", repeatable: null,
+  fields: paths.map((path) => ({ path, control: "checklist_item", parentPath: null,
+    result: { type: "single_select", options: [{ value: "good", label: "Good" }, { value: "poor", label: "Poor" }] }, unit: null, remarks: true })) }] });
 
 // Fake API. GET returns the tree; PUT validates like apps/api/src/routes/managerCustomers.ts
 // (UNKNOWN_LABEL_PATH / INVALID_LABEL_OVERRIDE / LABEL_OVERRIDES_TOO_LARGE) then persists.
 let getCalls = 0;
 let putCalls = 0;
-let getMode = "ok";      // "ok" | "labelsNull" | "rootNull"
-const rawResponse = (payloadText, status = 200) => new Response(payloadText, { status, headers: { "content-type": "application/json" } });
+let getMode = "ok";      // "ok" | "labelsNull" | "rootNull" | "layoutMismatch"
 const realFetch = window.fetch;
 window.fetch = async (input, init) => {
   const url = typeof input === "string" ? input : input.url;
   const path = `/api/manager/customers/${customerId}/systems/${systemKey}/label-overrides`;
   if (!url.startsWith(path)) return realFetch(input, init);
   const method = (init?.method ?? "GET").toUpperCase();
-  // A small delay guarantees an observable "Loading field labels…" window so the
-  // test can wait for a reload's re-hydrate to fully finish before editing again.
   if (method === "GET") {
     getCalls += 1; await new Promise((r) => setTimeout(r, 25));
     // Malformed HTTP 200s must NOT crash hydration — they become an
-    // "unavailable" authority failure. `labelsNull` = a poisoned array element;
-    // `rootNull` = the whole body is `null` (P1 #2).
+    // "unavailable" authority failure.
     if (getMode === "labelsNull") return json({ systemKey, templateVersion: 7, labels: [null], overrides: {} });
     if (getMode === "rootNull") return rawResponse("null");
-    return json(body());
+    if (getMode === "layoutMismatch") return json(body({ formLayout: layoutFor([...validPaths, "not.a.real.path"]) }));
+    return json(body({ formLayout: layoutFor([...validPaths]) }));
   }
   if (method === "PUT") {
     putCalls += 1;
@@ -65,17 +78,14 @@ window.fetch = async (input, init) => {
       }
     }
     stored = Object.fromEntries(entries.map(([p, label]) => [p, label.trim()]));
-    // `putCustomerEcho` lets a test inject exactly one `customer` shape into the
-    // PUT response (P1 #3 regression: a poisoned echo must reach onAuthorityFailure,
-    // never onSaved).
+    // The PUT response carries no formLayout (contract unchanged).
     return json(body({ customer: putCustomerEcho() }));
   }
   return json({ error: "METHOD_NOT_ALLOWED" }, 405);
 };
 
-// A fully legitimate ManagerCustomer, exactly the shape loadManagerCustomer /
-// the real PUT return. Each poisoned variant below flips ONE field only, so a
-// test still fails if the guard for that one field is removed.
+// A fully legitimate ManagerCustomer. Each poisoned variant below flips ONE
+// field only, so a test still fails if the guard for that one field is removed.
 const legitCustomer = () => ({
   customer: { id: customerId, code: "C700", displayName: "Label Customer" },
   sites: [{ id: id(701), code: "S", displayName: "Site" }],
@@ -98,8 +108,11 @@ const poisoned = {
 const view = document.querySelector("#view");
 const result = document.querySelector("#result");
 const q = (sel) => view.querySelector(sel);
-const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.includes(text));
-const inputFor = (definitionLabel) => [...view.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === `Custom label for ${definitionLabel}`);
+const findButton = (text) => [...view.querySelectorAll("button")].find((b) => b.textContent.trim() === text);
+const labelButton = (label) => [...view.querySelectorAll(".manager-wording-label")].find((b) => b.getAttribute("aria-label") === `Edit wording: ${label}`);
+const rowFor = (label) => labelButton(label)?.closest(".manager-wording-label-row");
+const hasBadge = (label, badge) => [...(rowFor(label)?.querySelectorAll(".manager-wording-badge") ?? [])].some((el) => el.textContent === badge);
+const wordingInput = () => q(".manager-wording-editor input");
 const setInput = (el, value) => {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   setter.call(el, value);
@@ -109,90 +122,120 @@ const wait = async (predicate, label) => {
   for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
   throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
 };
-const loadingVisible = () => view.textContent.includes("Loading field labels");
-// Click Reload and wait for the full open->fetch->hydrate->close cycle.
+const savedLine = () => view.textContent.includes("Saved. A new configuration version was created.");
+
+const root = createRoot(view);
+let mountKey = 0;
+let authorityFailures = 0;
+let savedCount = 0;
+// (Re)mounting the editor is the new editor's "reload": a fresh GET + hydrate.
+const mount = () => {
+  mountKey += 1;
+  root.render(React.createElement(ManagerServiceEditor, {
+    key: mountKey,
+    customer: legitCustomer(),
+    systemKey,
+    onBack: () => {},
+    onSaved: () => { savedCount += 1; },
+    onAuthorityFailure: () => { authorityFailures += 1; }
+  }));
+};
 const reloadAndSettle = async (expectedGetCalls) => {
-  findButton("Reload").click();
-  await wait(() => loadingVisible(), "reload loading window opened");
-  await wait(() => getCalls === expectedGetCalls && !loadingVisible(), "reload re-hydrate finished");
+  mount();
+  await wait(() => getCalls === expectedGetCalls && !view.textContent.includes("Loading form wording") && labelButton("S.A.J Main Water Supply"), "reload re-hydrate finished");
+};
+// Edit one label through the inline editor: open -> type -> Done.
+const editLabel = async (currentLabel, value) => {
+  labelButton(currentLabel).click();
+  await wait(() => wordingInput(), `inline editor for ${currentLabel}`);
+  setInput(wordingInput(), value);
+  await wait(() => wordingInput()?.value === value, `typed ${value}`);
+  findButton("Done").click();
+  await wait(() => !wordingInput(), "inline editor closed");
+};
+const clickSave = async () => {
+  await wait(() => findButton("Save wording") && !findButton("Save wording").disabled, "Save enabled");
+  findButton("Save wording").click();
 };
 
 document.querySelector("#run").onclick = async () => {
   const checks = [];
   const ok = (name, value) => checks.push({ name, value: !!value });
-  let authorityFailures = 0;
-  let savedCount = 0;
   try {
     stored = {};
     putCustomerEcho = legitCustomer;
-    createRoot(view).render(React.createElement(ManagerCustomerLabelOverrides, {
-      customer: legitCustomer(),
-      onSaved: () => { savedCount += 1; },
-      onAuthorityFailure: () => { authorityFailures += 1; }
-    }));
-    await wait(() => findButton("Edit field labels — Hose Reel System"), "collapsed editor");
+    mount();
 
     // Load the tree.
-    findButton("Edit field labels — Hose Reel System").click();
-    await wait(() => getCalls === 1 && inputFor("Drum"), "tree loaded");
-    ok("tree shows definition labels", view.textContent.includes("S.A.J Main Water Supply") && view.textContent.includes("Drum"));
+    await wait(() => getCalls === 1 && labelButton("Drum"), "tree loaded");
+    ok("tree shows definition labels", view.textContent.includes("S.A.J Main Water Supply") && labelButton("Drum"));
+    ok("no field starts Custom", !view.querySelector(".manager-wording-badge"));
 
     // Edit one label + save.
-    setInput(inputFor("Drum"), "Reel Result");
-    await wait(() => inputFor("Drum")?.value === "Reel Result", "edit applied");
-    findButton("Save labels").click();
-    await wait(() => putCalls === 1 && view.textContent.includes("Saved. A new configuration version was created."), "save confirmation");
-    ok("save persisted server-side", stored["repeatableRows.resultColumns.drumResult"] === "Reel Result");
-    ok("effectiveLabel reflected after save", view.textContent.includes("Currently: Reel Result"));
+    await editLabel("Drum", "Reel Result");
+    ok("edited field shows Custom + Unsaved before save", hasBadge("Reel Result", "Custom") && hasBadge("Reel Result", "Unsaved"));
+    await clickSave();
+    await wait(() => putCalls === 1 && savedLine(), "save confirmation");
+    ok("save persisted server-side", stored[drumPath] === "Reel Result");
+    ok("effectiveLabel reflected after save", hasBadge("Reel Result", "Custom") && !hasBadge("Reel Result", "Unsaved"));
 
     // Reload (fresh GET) -> effectiveLabel persisted.
     await reloadAndSettle(2);
-    ok("reload keeps the effectiveLabel", inputFor("Drum").value === "Reel Result" && view.textContent.includes("Currently: Reel Result"));
+    ok("reload keeps the effectiveLabel", labelButton("Reel Result") && hasBadge("Reel Result", "Custom"));
 
-    // Clear it -> back to definitionLabel.
-    setInput(inputFor("Drum"), "");
-    await wait(() => inputFor("Drum")?.value === "" && view.textContent.includes("Unsaved changes."), "clear applied");
-    findButton("Save labels").click();
-    await wait(() => putCalls === 2 && view.textContent.includes("Saved. A new configuration version was created."), "clear save confirmation");
-    ok("clear removed the override server-side", !("repeatableRows.resultColumns.drumResult" in stored));
+    // Clear it (Reset to default) -> back to definitionLabel.
+    labelButton("Reel Result").click();
+    await wait(() => wordingInput(), "inline editor for clear");
+    ok("inline editor shows the default wording", q(".manager-wording-editor").textContent.includes("Default wording: Drum"));
+    findButton("Reset to default").click();
+    await wait(() => labelButton("Drum") && view.textContent.includes("1 unsaved change"), "clear applied");
+    await clickSave();
+    await wait(() => putCalls === 2 && savedLine(), "clear save confirmation");
+    ok("clear removed the override server-side", !(drumPath in stored));
     await reloadAndSettle(3);
-    ok("cleared field shows definition label as placeholder", inputFor("Drum").getAttribute("placeholder") === "Drum" && inputFor("Drum").value === "" && !view.textContent.includes("Currently: Reel Result"));
+    ok("cleared field shows the definition label", labelButton("Drum") && !hasBadge("Drum", "Custom") && !labelButton("Reel Result"));
 
     // Rejected value -> visible server message.
-    setInput(inputFor("Drum"), "BAD LABEL");
-    await wait(() => inputFor("Drum")?.value === "BAD LABEL", "rejected value typed");
-    findButton("Save labels").click();
+    await editLabel("Drum", "BAD LABEL");
+    await clickSave();
     await wait(() => putCalls === 3 && q("[role=alert]") && /must be 1-200 characters/.test(q("[role=alert]").textContent), "server validation message");
     ok("server validation error is shown", /Label override for .* must be 1-200 characters/.test(q("[role=alert]").textContent));
-    ok("rejected save did not persist", !("repeatableRows.resultColumns.drumResult" in stored));
+    ok("rejected save did not persist", !(drumPath in stored));
     ok("domain validation did not trigger an authority failure", authorityFailures === 0);
     ok("legit saves reached onSaved, rejected save did not", savedCount === 2);
 
     // Malformed HTTP 200 GET bodies on reload -> authority failure, not a raw TypeError.
     getMode = "labelsNull";
-    findButton("Reload").click();
+    mount();
     await wait(() => authorityFailures === 1, "poisoned labels[] routed to authority failure");
     ok("labels:[null] routes to onAuthorityFailure", authorityFailures === 1);
 
     getMode = "rootNull";
-    findButton("Reload").click();
+    mount();
     await wait(() => authorityFailures === 2, "null root body routed to authority failure");
     ok("null root HTTP 200 routes to onAuthorityFailure", authorityFailures === 2);
+
+    // A formLayout that names a path the label tree does not expose fails closed.
+    getMode = "layoutMismatch";
+    mount();
+    await wait(() => authorityFailures === 3, "mismatched formLayout routed to authority failure");
+    ok("formLayout disagreeing with labels routes to onAuthorityFailure", authorityFailures === 3 && !labelButton("Drum"));
 
     // Poisoned `customer` echo on save: each variant flips ONE field of an
     // otherwise-legit customer -> must reach onAuthorityFailure, NEVER onSaved.
     getMode = "ok";
-    // getCalls is 5 here (1 initial + reloads at 2 and 3 + labelsNull + rootNull);
-    // putCalls 3; authorityFailures 2; savedCount 2.
-    let getN = 5, putN = 3, fails = 2;
+    // getCalls is 6 here (1 initial + reloads at 2 and 3 + labelsNull + rootNull + layoutMismatch);
+    // putCalls 3; authorityFailures 3; savedCount 2.
+    let getN = 6, putN = 3, fails = 3, variant = 0;
     for (const [name, make] of Object.entries(poisoned)) {
-      getN += 1; putN += 1; fails += 1;
+      getN += 1; putN += 1; fails += 1; variant += 1;
       await reloadAndSettle(getN);
       const savedBefore = savedCount;
       putCustomerEcho = make;
-      setInput(inputFor("Drum"), "Reel Result");
-      await wait(() => inputFor("Drum")?.value === "Reel Result", `re-typed for "${name}"`);
-      findButton("Save labels").click();
+      // The fake persists before echoing, so each round types a new value.
+      const current = labelButton("Drum") ? "Drum" : stored[drumPath];
+      await editLabel(current, `Reel Result ${variant}`);
+      await clickSave();
       await wait(() => putCalls === putN && authorityFailures === fails, `"${name}" routed to authority failure`);
       ok(`poisoned customer (${name}) -> onAuthorityFailure`, authorityFailures === fails);
       ok(`poisoned customer (${name}) never reached onSaved`, savedCount === savedBefore);
@@ -204,9 +247,8 @@ document.querySelector("#run").onclick = async () => {
     getN += 1; putN += 1;
     await reloadAndSettle(getN);
     const savedBefore = savedCount;
-    setInput(inputFor("Drum"), "Reel Result");
-    await wait(() => inputFor("Drum")?.value === "Reel Result", "re-typed for legit control");
-    findButton("Save labels").click();
+    await editLabel(stored[drumPath], "Reel Result");
+    await clickSave();
     await wait(() => putCalls === putN && savedCount === savedBefore + 1, "legit echo reaches onSaved");
     ok("legit PUT customer echo still reaches onSaved (guard is not over-strict)", savedCount === savedBefore + 1 && authorityFailures === fails);
   } catch (error) {
