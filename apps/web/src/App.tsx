@@ -92,7 +92,7 @@ import { ManagerHome } from "./manager/ManagerHome";
 import { ManagerOperations } from "./manager/ManagerOperations";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
 import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
-import { claimManagerSession, clearManagerSession, readManagerReturn, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
+import { claimManagerSession, clearManagerSession, readManagerExperience, readManagerReturn, rememberManagerExperience, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
@@ -276,6 +276,8 @@ export function App() {
   const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
   const [connectivityRecoveryActive, setConnectivityRecoveryActive] = useState(false);
   const [selectedExperience, setSelectedExperience] = useState<ProductRole>();
+  // A reload restores a remembered Manager choice once, at this page load's first completed verification.
+  const managerChoiceRestoreAttempted = useRef(false);
   const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
@@ -752,6 +754,13 @@ export function App() {
       if (!isCurrentReconciliation()) return undefined;
       installVerifiedAuthority(decision.user, authorityReplacement);
       setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
+      // Reload of a verified admin who had chosen Manager in this tab: skip the role chooser, once, at
+      // this page load's first completed verification (an offline start that reconnects still restores).
+      // The key survives only for the same verified user (owner stamp claimed above).
+      if (!managerChoiceRestoreAttempted.current) {
+        managerChoiceRestoreAttempted.current = true;
+        if (decision.user.role === "admin" && readManagerExperience()) setSelectedExperience((current) => current ?? "manager");
+      }
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return undefined;
       await refreshServerWorkspace(decision.user, operation);
@@ -981,6 +990,8 @@ export function App() {
   const managerExperience = selectedExperience === "manager"
     && authState.status === "verified"
     && currentUser?.role === "admin";
+  // Remember the Manager choice for this tab only while the verified Manager experience is active.
+  useEffect(() => { if (managerExperience) rememberManagerExperience(true); }, [managerExperience]);
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
     ? readManagerReturn(route.jobId)
     : null;
@@ -989,6 +1000,7 @@ export function App() {
     setRoleMessage("");
     if (currentUser && !productRoleMatches(role, currentUser)) {
       setSelectedExperience(undefined);
+      rememberManagerExperience(false);
       setRoleMessage(role === "manager"
         ? "This signed-in account does not have Manager access. Choose Technician to continue."
         : "This signed-in account does not have Technician access. Choose Manager to continue.");
@@ -1022,6 +1034,7 @@ export function App() {
     // Server-derived Manager views are unusable when their authority cannot
     // be refreshed. This does not alter verified session state by itself.
     setSelectedExperience(undefined);
+    rememberManagerExperience(false);
     setRoleMessage(message);
     if (revalidate) void revalidateAuthentication();
   }
@@ -1038,6 +1051,7 @@ export function App() {
       // A protected Manager endpoint rejected the session. Do not retain a
       // selected Manager presentation while the authoritative session check runs.
       setSelectedExperience(undefined);
+      rememberManagerExperience(false);
       setRoleMessage(message);
     }
     failClosedManagerOperations(message, error instanceof ManagerApiError && error.kind === "authorization");
@@ -1045,6 +1059,7 @@ export function App() {
 
   function handleManagerReportAuthorizationFailure(message: string) {
     setSelectedExperience(undefined);
+    rememberManagerExperience(false);
     setRoleMessage(message);
     failClosedManagerOperations(message);
   }

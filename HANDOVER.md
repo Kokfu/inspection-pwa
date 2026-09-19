@@ -3,6 +3,11 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T3 — a reload keeps the Manager choice (committed on the branch, not merged).**
+Per tab, for the same verified admin only (`manager-experience:v1`, cleared with the Manager session on
+login, logout and identity change; forgotten on every exit to the role chooser). Technician unchanged.
+Details: `docs/autopilot/BACKLOG.md` T3.
+
 **Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T2 landed the Wet Chemical accepted-detail parser and live-spec gating (committed on the branch, not merged).**
 Parser takes the shared suppression detail shape (V4 good/poor, V5/V6 as V4, V7 4-state); live specs
 run only with `PLAYWRIGHT_LIVE=1`; `Test-ManagerScheduling.ps1` is the main-tree version plus this

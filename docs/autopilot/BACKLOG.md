@@ -112,7 +112,20 @@ DoD: parser handles V5/V6/V7 accepted payloads; live specs are not collected unl
 `PLAYWRIGHT_LIVE=1`; gate script still exits 0 from cold; review; commit.
 
 ## T3 — Remember the Manager / Technician choice across a refresh
-Status: TODO. Prerequisite: T2.
+Status: DONE (2026-09-19). feat(web): reload keeps the Manager choice for the same verified admin.
+Only the Manager choice is remembered (`manager-experience:v1`, a Manager session key under the owner
+stamp); the technician flow is unchanged (reading of "technician unaffected" — owner to confirm).
+Restored once per page load at the first completed verification, admin only; every exit to the role
+chooser forgets it; login/logout/identity change clear it via the existing Manager session helpers.
+Gate `Test-ManagerScheduling.ps1` exit 0 cold (9 node suites 0 fail, Playwright 51 passed, 0 skipped;
+new spec `manager-experience-restore.spec.ts` 6 tests added to the gate). The first gate run failed on
+`manager-technician-services-done.spec.ts` "a reload by the same manager…", which assumed the chooser
+after reload; updated to assert the restored screen (reviewed as faithful).
+Review: 2 rounds; R1 0 P0/0 P1 (P2: restore lost after an offline start → fixed; non-admin test could
+not see the role check → fixed); R2 0/0/0.
+Revert proofs: no restore → spec :45 fails; no forget on fail-closed exits → "fail-closed exit…" test
+fails; key prefix not cleared → "different verified user…" and "logout clears…" fail; no admin check →
+spec :70 fails. Not covered by a test: the offline-start-then-reconnect restore. Prerequisite: T2.
 Today a refresh returns to the role chooser (`selectedExperience` is in memory, `App.tsx`). Store it
 per tab in sessionStorage, bound to the verified user through the existing owner stamp
 (`claimManagerSession`): restore only when the same verified user returns; clear on logout, on login,

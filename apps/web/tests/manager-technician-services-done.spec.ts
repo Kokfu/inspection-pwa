@@ -414,7 +414,7 @@ async function servicesDoneSettled(page: Page) {
   await expect(page.getByText("Loading customers…")).toHaveCount(0);
 }
 
-/** After a reload the role chooser is shown (the chosen experience is in memory only); choose Manager and return to Services Done. */
+/** After a reload by a different verified user the role chooser is shown (T3 restores Manager only for the same verified manager); choose Manager and return to Services Done. */
 async function resumeManagerOnServicesDone(page: Page) {
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   // Choosing Manager navigates Home only once verified; either way, return to Services Done.
@@ -487,7 +487,10 @@ test("a reload by the same manager keeps the remembered Services Done selection"
   await selectAcmeInServicesDone(page);
 
   await page.reload();
-  await resumeManagerOnServicesDone(page);
+  // T3: the same verified manager is restored into Manager on this screen, without the role chooser.
+  await expect(page).toHaveURL(/#\/manager-services-done$/);
+  await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
+  await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
   await expect(page.locator(".app-account-name")).toHaveText("mobiletest");
   await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
   await expect(page.locator(".job-card")).toHaveCount(4);
