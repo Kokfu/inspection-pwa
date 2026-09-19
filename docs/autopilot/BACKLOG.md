@@ -135,7 +135,8 @@ chooser; logout clears it; technician unaffected. Revert proofs. Gates. Commit.
 OWNER CHECK: Manager → Services Done → F5 → still in Manager, same screen.
 
 ## T4 — Supervisor role (design first)
-Status: TODO — DESIGN FIRST. Prerequisite: T3.
+Status: NEEDS OWNER: review `docs/autopilot/designs/T4.md` and write APPROVED (plus answers to its §8:
+customer list read access for supervisors, Next Upcoming Service visibility, UI naming). Prerequisite: T3.
 Design: a new forward migration adding `supervisor` to the users role CHECK (never edit an applied
 migration); `requireRole` semantics (admin ⊇ supervisor for review routes); which existing Manager
 screens a supervisor sees (review / Services Done / reports: yes; customers, configuration,
