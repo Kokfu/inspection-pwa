@@ -87,7 +87,18 @@ assert styles still pass; review; gates; commit.
 OWNER CHECK: technician + manager screens on a phone width — buttons, status badges, offline banner.
 
 ## T2 — Land the Wet Chemical parser + live-spec wiring from the main tree
-Status: TODO. Prerequisite: T1. Also wait until the main-tree session "Test-ManagerScheduling.ps1
+Status: DONE (2026-09-19). test(wet-chemical): accepted-detail parser V4–V7 + live-spec gating. Gate
+`Test-ManagerScheduling.ps1` (main-tree version merged with T1's additions + `test:wet-chemical-accepted-detail`)
+exit 0 from cold: 9 node suites 0 fail/0 skip (parser 6/6 incl. V5/V6/V7), Playwright 45 passed.
+Live specs: 0 of 74 collected by default, 2 of 76 with `PLAYWRIGHT_LIVE=1`. Deleted fixtures had no
+references outside HANDOVER/BACKLOG prose.
+Review: 1 round, 0 P0 / 0 P1 / 0 P2 (fixtures checked key-for-key against the API resolver and route).
+Nits deferred: the gate's Chromium lookup throws a parameter error instead of its own message when
+`node -e` fails; `docker rm -f` in `finally` is not wrapped in `Invoke-Native` (pre-existing).
+Revert proof: parser without the V7 4-state results fails `wetChemicalAcceptedDetailParser.test.ts:22`
+(tests a and c fail).
+Git note: the two fixture deletions were staged with `git rm` (outside the AUTOPILOT §2 list; same effect
+as delete + explicit `git add`). Prerequisite: T1. Also wait until the main-tree session "Test-ManagerScheduling.ps1
 fixes" has finished (the script in the main tree stops changing).
 Import: `apps/web/src/wetChemical/serverWetChemicalApi.ts`,
 `apps/web/tests/wetChemicalAcceptedDetailParser.test.ts`,

@@ -1,0 +1,2194 @@
+{
+  "_provenance": [
+    "wetChemicalV7: verbatim body.inspection of GET /wet-chemical-inspections/:clientUuid from the real API, after seeding wetChemicalV7.integration.test.ts (WET_CHEMICAL_V7_LIVE_BROWSER_SEED=1) on disposable Postgres 127.0.0.1:55432, 2026-09-19.",
+    "co2V7: verbatim body.inspection of GET /co2-inspections/:clientUuid, seeded the same way from co2V7.integration.test.ts, 2026-09-19.",
+    "wetChemicalV4: the same route shape (acceptedDetailResponse is shared by every template version) with displayControls = resolveCo2Controls(wetChemicalV4, \"MFE-FSSR\", 4) and responses accepted by the API validateCo2Responses; template = masterServiceReportV4 id."
+  ],
+  "wetChemicalV7": {
+    "clientUuid": "fde7552f-ea30-45ed-b6e5-1087263cff1b",
+    "serverFormInstanceId": "d559b00c-5c87-46ff-8f9d-1ce5a6452fa2",
+    "jobId": "6bb30df9-b3be-4511-8f60-3a67edeb5a43",
+    "jobReference": "WET-6bb30df9-b3be-4511-8f60-3a67edeb5a43",
+    "jobTitle": "Wet Chemical V7",
+    "customerName": "Wet Chemical V7",
+    "systemKey": "wet_chemical",
+    "systemLabel": "Wet Chemical System",
+    "instanceKey": "location:f8460e2a-54d0-473c-87cd-dfa464b21025",
+    "zoneId": "50ccbfd9-2182-47d5-92b6-edf87cae6c11",
+    "locationId": "f8460e2a-54d0-473c-87cd-dfa464b21025",
+    "displaySequence": 1,
+    "status": "submitted",
+    "performedAt": "2026-09-01T00:00:00.000000Z",
+    "receivedAt": "2026-09-19T05:18:13.183542Z",
+    "template": {
+      "id": "00000000-0000-4000-8000-000000000807",
+      "code": "MFE-FSSR",
+      "version": 7
+    },
+    "configuration": {
+      "revisionId": "fd38ee79-85cb-4fb7-b8e7-6f89d65b8a67",
+      "revisionNumber": 1
+    },
+    "responses": {
+      "comments": "",
+      "detectorRows": [
+        {
+          "remarks": "",
+          "rowUuid": "9173e14d-a4ed-4909-9c17-c6451e65db3f",
+          "location": "Kitchen A",
+          "alarmZone": "Kitchen",
+          "displaySequence": 1,
+          "heatDetectorStatus": [
+            "normal",
+            "test"
+          ],
+          "smokeDetectorStatus": [
+            "test"
+          ]
+        },
+        {
+          "remarks": "",
+          "rowUuid": "fb0a5afe-880a-43e5-8377-0a24d3c5c30d",
+          "location": "Kitchen A",
+          "alarmZone": "Kitchen",
+          "displaySequence": 2,
+          "heatDetectorStatus": [
+            "isolation"
+          ],
+          "smokeDetectorStatus": [
+            "normal"
+          ]
+        }
+      ],
+      "physicalOutlook": {
+        "alarm_bell": {
+          "result": "good",
+          "remarks": ""
+        },
+        "discharge_nozzle": {
+          "result": "na",
+          "remarks": ""
+        },
+        "electric_actuator": {
+          "result": "good",
+          "remarks": ""
+        },
+        "high_pressure_hose": {
+          "result": "good",
+          "remarks": ""
+        },
+        "manual_release_key": {
+          "result": "good",
+          "remarks": ""
+        },
+        "manual_pull_station": {
+          "result": "good",
+          "remarks": ""
+        },
+        "twin_flashing_light": {
+          "result": "good",
+          "remarks": ""
+        },
+        "wet_chemical_cylinder": {
+          "result": "not_good",
+          "remarks": "Runtime Wet Chemical Poor B"
+        }
+      },
+      "mainFunctionKeys": {
+        "evacuate": {
+          "result": "good",
+          "remarks": ""
+        },
+        "ac_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "dc_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "lamp_test": {
+          "result": "good",
+          "remarks": ""
+        },
+        "main_alarm_reset": {
+          "result": "good",
+          "remarks": ""
+        },
+        "signal_alarm_to_mfap": {
+          "result": "na",
+          "remarks": ""
+        }
+      },
+      "chargerAndBatteries": {
+        "battery": {
+          "result": "good",
+          "remarks": ""
+        },
+        "charger": {
+          "result": "na",
+          "remarks": ""
+        },
+        "main_supply": {
+          "result": "not_good",
+          "remarks": "Runtime Wet Chemical Poor A"
+        }
+      },
+      "controlPanelLocation": "Kitchen A"
+    },
+    "displayControls": {
+      "source": {
+        "systemKey": "wet_chemical",
+        "templateCode": "MFE-FSSR",
+        "templateVersion": 7
+      },
+      "comments": {
+        "policy": "optional",
+        "maxLength": 4000
+      },
+      "detectorRows": {
+        "maximum": 250,
+        "minimum": 1,
+        "remarks": {
+          "policy": "optional",
+          "maxLength": 2000
+        },
+        "location": {
+          "key": "location",
+          "label": "Location",
+          "required": true,
+          "maxLength": 300
+        },
+        "alarmZone": {
+          "key": "alarm_zone",
+          "label": "Alarm Zone",
+          "required": true,
+          "maxLength": 200
+        },
+        "heatDetector": {
+          "key": "heat_detector",
+          "label": "Heat Detector",
+          "result": {
+            "type": "multi_select",
+            "options": [
+              {
+                "label": "Normal",
+                "value": "normal"
+              },
+              {
+                "label": "Test",
+                "value": "test"
+              },
+              {
+                "label": "Isolation",
+                "value": "isolation"
+              }
+            ],
+            "required": false
+          },
+          "sortOrder": 3
+        },
+        "smokeDetector": {
+          "key": "unconfirmed_second_heat_detector",
+          "label": "Heat Detector (Second Source Column - Unconfirmed)",
+          "result": {
+            "type": "multi_select",
+            "options": [
+              {
+                "label": "Normal",
+                "value": "normal"
+              },
+              {
+                "label": "Test",
+                "value": "test"
+              },
+              {
+                "label": "Isolation",
+                "value": "isolation"
+              }
+            ],
+            "required": false
+          },
+          "sortOrder": 4
+        }
+      },
+      "schemaVersion": 1,
+      "repetitionMode": "per_location",
+      "physicalOutlook": [
+        {
+          "key": "wet_chemical_cylinder",
+          "label": "Wet Chemical Cylinder",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "electric_actuator",
+          "label": "Electric Actuator",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "manual_release_key",
+          "label": "Manual Release Key",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        },
+        {
+          "key": "alarm_bell",
+          "label": "Alarm Bell",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 4
+        },
+        {
+          "key": "twin_flashing_light",
+          "label": "Twin Flashing Light",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 5
+        },
+        {
+          "key": "manual_pull_station",
+          "label": "Manual Pull Station",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 6
+        },
+        {
+          "key": "high_pressure_hose",
+          "label": "High Pressure Hose",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 7
+        },
+        {
+          "key": "discharge_nozzle",
+          "label": "Discharge Nozzle",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 8
+        }
+      ],
+      "mainFunctionKeys": [
+        {
+          "key": "main_alarm_reset",
+          "label": "Main Alarm Reset",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "lamp_test",
+          "label": "Lamp Test",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "evacuate",
+          "label": "Evacuate",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        },
+        {
+          "key": "ac_supply",
+          "label": "A/C Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 4
+        },
+        {
+          "key": "dc_supply",
+          "label": "D/C Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 5
+        },
+        {
+          "key": "signal_alarm_to_mfap",
+          "label": "Signal Alarm to MFAP",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 6
+        }
+      ],
+      "chargerAndBatteries": [
+        {
+          "key": "main_supply",
+          "label": "Main Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "battery",
+          "label": "Battery",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "charger",
+          "label": "Charger",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        }
+      ],
+      "controlPanelLocation": {
+        "key": "control_panel_location",
+        "label": "Control Panel Location",
+        "required": true,
+        "maxLength": 300
+      }
+    },
+    "deviceReportedCreatorUsername": null,
+    "verifiedOriginalCreatorUsername": null,
+    "syncedByUsername": "wet-chemical-v7-live-browser"
+  },
+  "wetChemicalV4": {
+    "clientUuid": "4c1d6e2a-8b3f-4a5c-9d7e-1f2a3b4c5d61",
+    "serverFormInstanceId": "4c1d6e2a-8b3f-4a5c-9d7e-1f2a3b4c5d62",
+    "jobId": "6bb30df9-b3be-4511-8f60-3a67edeb5a43",
+    "jobReference": "WET-V4-HISTORICAL",
+    "jobTitle": "Wet Chemical V7",
+    "customerName": "Wet Chemical V7",
+    "systemKey": "wet_chemical",
+    "systemLabel": "Wet Chemical System",
+    "instanceKey": "location:f8460e2a-54d0-473c-87cd-dfa464b21025",
+    "zoneId": "50ccbfd9-2182-47d5-92b6-edf87cae6c11",
+    "locationId": "f8460e2a-54d0-473c-87cd-dfa464b21025",
+    "displaySequence": 1,
+    "status": "submitted",
+    "performedAt": "2026-08-11T02:15:30.123456Z",
+    "receivedAt": "2026-08-11T02:16:01.654321Z",
+    "template": {
+      "id": "00000000-0000-4000-8000-000000000804",
+      "code": "MFE-FSSR",
+      "version": 4
+    },
+    "configuration": {
+      "revisionId": "fd38ee79-85cb-4fb7-b8e7-6f89d65b8a67",
+      "revisionNumber": 1
+    },
+    "responses": {
+      "controlPanelLocation": "Kitchen hood panel",
+      "detectorRows": [
+        {
+          "rowUuid": "7d2b8f0e-3c1a-4b6d-9e2f-5a8c7b6d4e31",
+          "displaySequence": 1,
+          "alarmZone": "Zone K1",
+          "location": "Hood 1",
+          "heatDetectorStatus": "normal",
+          "smokeDetectorStatus": "test",
+          "remarks": ""
+        },
+        {
+          "rowUuid": "7d2b8f0e-3c1a-4b6d-9e2f-5a8c7b6d4e32",
+          "displaySequence": 2,
+          "alarmZone": "Zone K1",
+          "location": "Hood 2",
+          "heatDetectorStatus": "isolation",
+          "smokeDetectorStatus": null,
+          "remarks": "V4 row remark"
+        }
+      ],
+      "chargerAndBatteries": {
+        "main_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "battery": {
+          "result": "poor",
+          "remarks": "battery poor remark"
+        },
+        "charger": {
+          "result": "good",
+          "remarks": ""
+        }
+      },
+      "physicalOutlook": {
+        "wet_chemical_cylinder": {
+          "result": "good",
+          "remarks": ""
+        },
+        "electric_actuator": {
+          "result": "poor",
+          "remarks": "electric_actuator poor remark"
+        },
+        "manual_release_key": {
+          "result": "good",
+          "remarks": ""
+        },
+        "alarm_bell": {
+          "result": "poor",
+          "remarks": "alarm_bell poor remark"
+        },
+        "twin_flashing_light": {
+          "result": "good",
+          "remarks": ""
+        },
+        "manual_pull_station": {
+          "result": "poor",
+          "remarks": "manual_pull_station poor remark"
+        },
+        "high_pressure_hose": {
+          "result": "good",
+          "remarks": ""
+        },
+        "discharge_nozzle": {
+          "result": "poor",
+          "remarks": "discharge_nozzle poor remark"
+        }
+      },
+      "mainFunctionKeys": {
+        "main_alarm_reset": {
+          "result": "good",
+          "remarks": ""
+        },
+        "lamp_test": {
+          "result": "poor",
+          "remarks": "lamp_test poor remark"
+        },
+        "evacuate": {
+          "result": "good",
+          "remarks": ""
+        },
+        "ac_supply": {
+          "result": "poor",
+          "remarks": "ac_supply poor remark"
+        },
+        "dc_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "signal_alarm_to_mfap": {
+          "result": "poor",
+          "remarks": "signal_alarm_to_mfap poor remark"
+        }
+      },
+      "comments": "Historical V4 accepted comments"
+    },
+    "displayControls": {
+      "schemaVersion": 1,
+      "source": {
+        "templateCode": "MFE-FSSR",
+        "templateVersion": 4,
+        "systemKey": "wet_chemical"
+      },
+      "repetitionMode": "per_location",
+      "controlPanelLocation": {
+        "key": "control_panel_location",
+        "label": "Control Panel Location",
+        "required": true,
+        "maxLength": 300
+      },
+      "detectorRows": {
+        "minimum": 1,
+        "maximum": 250,
+        "alarmZone": {
+          "key": "alarm_zone",
+          "label": "Alarm Zone",
+          "required": true,
+          "maxLength": 200
+        },
+        "location": {
+          "key": "location",
+          "label": "Location",
+          "required": true,
+          "maxLength": 300
+        },
+        "heatDetector": {
+          "key": "heat_detector",
+          "label": "Heat Detector",
+          "sortOrder": 3,
+          "result": {
+            "type": "single_select",
+            "required": false,
+            "options": [
+              {
+                "value": "normal",
+                "label": "Normal"
+              },
+              {
+                "value": "test",
+                "label": "Test"
+              },
+              {
+                "value": "isolation",
+                "label": "Isolation"
+              }
+            ]
+          }
+        },
+        "smokeDetector": {
+          "key": "unconfirmed_second_heat_detector",
+          "label": "Heat Detector (Second Source Column - Unconfirmed)",
+          "sortOrder": 4,
+          "result": {
+            "type": "single_select",
+            "required": false,
+            "options": [
+              {
+                "value": "normal",
+                "label": "Normal"
+              },
+              {
+                "value": "test",
+                "label": "Test"
+              },
+              {
+                "value": "isolation",
+                "label": "Isolation"
+              }
+            ]
+          }
+        },
+        "remarks": {
+          "policy": "optional",
+          "maxLength": 2000
+        }
+      },
+      "chargerAndBatteries": [
+        {
+          "key": "main_supply",
+          "label": "Main Supply",
+          "sortOrder": 1,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "battery",
+          "label": "Battery",
+          "sortOrder": 2,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "charger",
+          "label": "Charger",
+          "sortOrder": 3,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        }
+      ],
+      "physicalOutlook": [
+        {
+          "key": "wet_chemical_cylinder",
+          "label": "Wet Chemical Cylinder",
+          "sortOrder": 1,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "electric_actuator",
+          "label": "Electric Actuator",
+          "sortOrder": 2,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "manual_release_key",
+          "label": "Manual Release Key",
+          "sortOrder": 3,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "alarm_bell",
+          "label": "Alarm Bell",
+          "sortOrder": 4,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "twin_flashing_light",
+          "label": "Twin Flashing Light",
+          "sortOrder": 5,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "manual_pull_station",
+          "label": "Manual Pull Station",
+          "sortOrder": 6,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "high_pressure_hose",
+          "label": "High Pressure Hose",
+          "sortOrder": 7,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "discharge_nozzle",
+          "label": "Discharge Nozzle",
+          "sortOrder": 8,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        }
+      ],
+      "mainFunctionKeys": [
+        {
+          "key": "main_alarm_reset",
+          "label": "Main Alarm Reset",
+          "sortOrder": 1,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "lamp_test",
+          "label": "Lamp Test",
+          "sortOrder": 2,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "evacuate",
+          "label": "Evacuate",
+          "sortOrder": 3,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "ac_supply",
+          "label": "A/C Supply",
+          "sortOrder": 4,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "dc_supply",
+          "label": "D/C Supply",
+          "sortOrder": 5,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        },
+        {
+          "key": "signal_alarm_to_mfap",
+          "label": "Signal Alarm to MFAP",
+          "sortOrder": 6,
+          "result": {
+            "type": "single_select",
+            "required": true,
+            "options": [
+              {
+                "value": "good",
+                "label": "Good"
+              },
+              {
+                "value": "poor",
+                "label": "Poor"
+              }
+            ]
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          }
+        }
+      ],
+      "comments": {
+        "policy": "optional",
+        "maxLength": 4000
+      }
+    },
+    "deviceReportedCreatorUsername": null,
+    "verifiedOriginalCreatorUsername": null,
+    "syncedByUsername": "wet-chemical-v7-live-browser"
+  },
+  "co2V7": {
+    "clientUuid": "8ab83af4-8411-4c0b-b401-f24a16502678",
+    "serverFormInstanceId": "80dd3132-27a8-41e8-b4e6-ac44761d4fb4",
+    "jobId": "0b03b034-8447-40ee-bab2-b58dbd649918",
+    "jobReference": "CO2-0b03b034-8447-40ee-bab2-b58dbd649918",
+    "jobTitle": "CO2 V7",
+    "customerName": "CO2 V7",
+    "systemKey": "co2_fire_extinguisher",
+    "systemLabel": "CO2 Fire Extinguisher System",
+    "instanceKey": "location:b85c7df1-fbdc-44ce-8d81-24bcd3ae215a",
+    "zoneId": "71c6f97a-9f41-4320-b4bb-8fdd11d64cff",
+    "locationId": "b85c7df1-fbdc-44ce-8d81-24bcd3ae215a",
+    "displaySequence": 1,
+    "status": "submitted",
+    "performedAt": "2026-09-01T00:00:00.000000Z",
+    "receivedAt": "2026-09-19T05:20:24.229426Z",
+    "template": {
+      "id": "00000000-0000-4000-8000-000000000807",
+      "code": "MFE-FSSR",
+      "version": 7
+    },
+    "configuration": {
+      "revisionId": "3ae9bfa6-4cac-4e3c-a2b2-67e3906f913b",
+      "revisionNumber": 1
+    },
+    "responses": {
+      "comments": "",
+      "detectorRows": [
+        {
+          "remarks": "",
+          "rowUuid": "6fd5ba2f-70fa-4056-bc57-a3d5974882fc",
+          "location": "CO2 Room",
+          "alarmZone": "Zone",
+          "displaySequence": 1,
+          "heatDetectorStatus": [
+            "normal",
+            "test"
+          ],
+          "smokeDetectorStatus": [
+            "test"
+          ]
+        },
+        {
+          "remarks": "",
+          "rowUuid": "9fd71353-010f-4a46-b75e-6a29a1e1451b",
+          "location": "CO2 Room",
+          "alarmZone": "Zone",
+          "displaySequence": 2,
+          "heatDetectorStatus": [
+            "isolation"
+          ],
+          "smokeDetectorStatus": [
+            "normal"
+          ]
+        }
+      ],
+      "physicalOutlook": {
+        "alarm_bell": {
+          "result": "good",
+          "remarks": ""
+        },
+        "co2_cylinder": {
+          "result": "not_good",
+          "remarks": "Runtime CO2 Browser Poor B"
+        },
+        "pilot_cylinder": {
+          "result": "na",
+          "remarks": ""
+        },
+        "discharge_nozzles": {
+          "result": "good",
+          "remarks": ""
+        },
+        "electric_actuator": {
+          "result": "good",
+          "remarks": ""
+        },
+        "high_pressure_hose": {
+          "result": "good",
+          "remarks": ""
+        },
+        "manual_release_key": {
+          "result": "good",
+          "remarks": ""
+        },
+        "manual_pull_station": {
+          "result": "good",
+          "remarks": ""
+        },
+        "twin_flashing_light": {
+          "result": "good",
+          "remarks": ""
+        },
+        "24v_dc_tripping_device": {
+          "result": "good",
+          "remarks": ""
+        }
+      },
+      "mainFunctionKeys": {
+        "evacuate": {
+          "result": "good",
+          "remarks": ""
+        },
+        "ac_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "dc_supply": {
+          "result": "good",
+          "remarks": ""
+        },
+        "lamp_test": {
+          "result": "good",
+          "remarks": ""
+        },
+        "main_alarm_reset": {
+          "result": "good",
+          "remarks": ""
+        },
+        "signal_alarm_to_mfap": {
+          "result": "na",
+          "remarks": ""
+        }
+      },
+      "chargerAndBatteries": {
+        "battery": {
+          "result": "good",
+          "remarks": ""
+        },
+        "charger": {
+          "result": "na",
+          "remarks": ""
+        },
+        "main_supply": {
+          "result": "not_good",
+          "remarks": "Runtime CO2 Browser Poor A"
+        }
+      },
+      "controlPanelLocation": "CO2 Room"
+    },
+    "displayControls": {
+      "source": {
+        "systemKey": "co2_fire_extinguisher",
+        "templateCode": "MFE-FSSR",
+        "templateVersion": 7
+      },
+      "comments": {
+        "policy": "optional",
+        "maxLength": 4000
+      },
+      "detectorRows": {
+        "maximum": 250,
+        "minimum": 1,
+        "remarks": {
+          "policy": "optional",
+          "maxLength": 2000
+        },
+        "location": {
+          "key": "location",
+          "label": "Location",
+          "required": true,
+          "maxLength": 300
+        },
+        "alarmZone": {
+          "key": "alarm_zone",
+          "label": "Alarm Zone",
+          "required": true,
+          "maxLength": 200
+        },
+        "heatDetector": {
+          "key": "heat_detector",
+          "label": "Heat Detector",
+          "result": {
+            "type": "multi_select",
+            "options": [
+              {
+                "label": "Normal",
+                "value": "normal"
+              },
+              {
+                "label": "Test",
+                "value": "test"
+              },
+              {
+                "label": "Isolation",
+                "value": "isolation"
+              }
+            ],
+            "required": false
+          },
+          "sortOrder": 3
+        },
+        "smokeDetector": {
+          "key": "smoke_detector",
+          "label": "Smoke Detector",
+          "result": {
+            "type": "multi_select",
+            "options": [
+              {
+                "label": "Normal",
+                "value": "normal"
+              },
+              {
+                "label": "Test",
+                "value": "test"
+              },
+              {
+                "label": "Isolation",
+                "value": "isolation"
+              }
+            ],
+            "required": false
+          },
+          "sortOrder": 4
+        }
+      },
+      "schemaVersion": 1,
+      "repetitionMode": "per_location",
+      "physicalOutlook": [
+        {
+          "key": "co2_cylinder",
+          "label": "CO2 Cylinder",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "electric_actuator",
+          "label": "Electric Actuator",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "manual_release_key",
+          "label": "Manual Release Key",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        },
+        {
+          "key": "alarm_bell",
+          "label": "Alarm Bell",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 4
+        },
+        {
+          "key": "twin_flashing_light",
+          "label": "Twin Flashing Light",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 5
+        },
+        {
+          "key": "24v_dc_tripping_device",
+          "label": "24V DC Tripping Device",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 6
+        },
+        {
+          "key": "manual_pull_station",
+          "label": "Manual Pull Station",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 7
+        },
+        {
+          "key": "high_pressure_hose",
+          "label": "High Pressure Hose",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 8
+        },
+        {
+          "key": "discharge_nozzles",
+          "label": "Discharge Nozzles",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 9
+        },
+        {
+          "key": "pilot_cylinder",
+          "label": "Pilot Cylinder",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 10
+        }
+      ],
+      "mainFunctionKeys": [
+        {
+          "key": "main_alarm_reset",
+          "label": "Main Alarm Reset",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "lamp_test",
+          "label": "Lamp Test",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "evacuate",
+          "label": "Evacuate",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        },
+        {
+          "key": "ac_supply",
+          "label": "A/C Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 4
+        },
+        {
+          "key": "dc_supply",
+          "label": "D/C Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 5
+        },
+        {
+          "key": "signal_alarm_to_mfap",
+          "label": "Signal Alarm to MFAP",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 6
+        }
+      ],
+      "chargerAndBatteries": [
+        {
+          "key": "main_supply",
+          "label": "Main Supply",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 1
+        },
+        {
+          "key": "battery",
+          "label": "Battery",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 2
+        },
+        {
+          "key": "charger",
+          "label": "Charger",
+          "result": {
+            "type": "single_select",
+            "options": [
+              {
+                "label": "Good",
+                "value": "good"
+              },
+              {
+                "label": "Not Good",
+                "value": "not_good"
+              },
+              {
+                "label": "Complete Repair",
+                "value": "complete_repair"
+              },
+              {
+                "label": "No Need Checking / N.A.",
+                "value": "na"
+              }
+            ],
+            "required": true
+          },
+          "remarks": {
+            "policy": "optional",
+            "maxLength": 2000
+          },
+          "sortOrder": 3
+        }
+      ],
+      "controlPanelLocation": {
+        "key": "control_panel_location",
+        "label": "Control Panel Location",
+        "required": true,
+        "maxLength": 300
+      }
+    },
+    "deviceReportedCreatorUsername": null,
+    "verifiedOriginalCreatorUsername": null,
+    "syncedByUsername": "co2-v7-live-browser"
+  }
+}
