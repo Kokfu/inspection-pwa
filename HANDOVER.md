@@ -3,6 +3,11 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5 corrections design written — waiting for owner approval.**
+`docs/autopilot/designs/T5.md`: append-only `inspection_corrections` (migration 032) pointing at the
+accepted form instance; effective value = accepted value + latest correction; accepted rows never
+written; report/PDF integration handed to the PDF work as a view-model proposal. Six owner questions (§9).
+
 **Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T4 supervisor role implemented (committed on the branch, not merged).**
 Review-only Manager access for `supervisor` (migration 031 — must run on the client DB at deploy),
 created by an admin from the technician form; accepted-detail/evidence reads deferred to T5 (owner).

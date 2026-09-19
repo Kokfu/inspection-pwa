@@ -166,7 +166,9 @@ Implement only after the owner writes APPROVED in `docs/autopilot/designs/T4.md`
 Read: backend-api-security, offline-first-pwa.
 
 ## T5 — Supervisor corrections with version/audit (design first)
-Status: TODO — DESIGN FIRST. Prerequisite: T4 DONE.
+Status: NEEDS OWNER: review `docs/autopilot/designs/T5.md` and write APPROVED with answers to its §9 (V7 only?
+detector N/T/I excluded? corrections to Not Good without photo? technicians see corrections? PDF download
+for corrected visits until the PDF work integrates? reason mandatory?). Prerequisite: T4 DONE.
 Carried from T4 (owner, 2026-09-20): the design must also give supervisors read access to accepted
 detail (`masterSystemInspections` GETs) **and** evidence photos (`inspectionAttachments`, `stagedEvidence`
 accepted GETs); these still refuse supervisors after T4.
