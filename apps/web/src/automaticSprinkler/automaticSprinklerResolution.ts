@@ -1,4 +1,4 @@
-import type { AuthUser } from "../auth/authApi";
+import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
@@ -90,6 +90,6 @@ export async function resolveAutomaticSprinklerOpenTarget(
   }
   return {
     kind: "local",
-    record: await createLocal(job, system, catalog, user)
+    record: await createLocal(job, system, catalog, inspectionCreatorUser(user))
   };
 }

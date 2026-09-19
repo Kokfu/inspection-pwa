@@ -41,17 +41,28 @@ export type ManagerCustomer = {
   supportedSystems: Array<{ key: string; displayName: string; sortOrder: number; assignable: boolean; unavailableReason?: string }>;
 };
 
+/**
+ * What the review screens (Services Done, service history) read from a customer. A supervisor's
+ * customer list contains only these fields (T4), so those screens must not depend on more.
+ */
+export type ManagerCustomerSummary = {
+  customer: Pick<ManagerCustomer["customer"], "id" | "code" | "displayName">;
+  sites: ManagerCustomer["sites"];
+  supportedSystems: Array<Pick<ManagerCustomer["supportedSystems"][number], "key" | "displayName" | "sortOrder">>;
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export type ManagerTechnician = { id: number; username: string; isActive: boolean; createdAt: string };
+/** A field account on the Technician List: a technician (`inspector`) or, since T4, a supervisor. */
+export type ManagerTechnician = { id: number; username: string; role: "inspector" | "supervisor"; isActive: boolean; createdAt: string };
 export type ScheduledCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string | null };
 export type UpcomingServices = { customers: ScheduledCustomer[]; unscheduledCustomers: ScheduledCustomer[] };
 
 function unavailable(): never { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); }
 function isTechnician(value: unknown): value is ManagerTechnician {
   return isPlainObject(value) && Number.isSafeInteger(value.id) && Number(value.id) > 0
-    && typeof value.username === "string" && typeof value.isActive === "boolean"
+    && typeof value.username === "string" && (value.role === "inspector" || value.role === "supervisor") && typeof value.isActive === "boolean"
     && typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt));
 }
 function isDate(value: unknown): value is string {
@@ -67,9 +78,9 @@ export async function loadManagerTechnicians(signal?: AbortSignal): Promise<Mana
   if (!Array.isArray(result) || !result.every(isTechnician) || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
   return result;
 }
-export async function createManagerTechnician(input: { username: string; password: string }): Promise<ManagerTechnician> {
+export async function createManagerTechnician(input: { username: string; password: string; role?: "inspector" | "supervisor" }): Promise<ManagerTechnician> {
   const result = await managerRequest<unknown>("/api/manager/technicians", "POST", "technician", input);
-  if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive) unavailable();
+  if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive || result.role !== (input.role ?? "inspector")) unavailable();
   return result;
 }
 export async function deactivateManagerTechnician(id: number): Promise<ManagerTechnician> {

@@ -72,7 +72,7 @@ import type {
 import { ServerWetChemicalView } from "./wetChemical/ServerWetChemicalView";
 import { loadServerWetChemicalDetail, type ServerWetChemicalDetail } from "./wetChemical/serverWetChemicalApi";
 import { resolveWetChemicalAuthority } from "./wetChemical/wetChemicalAuthority";
-import { getCurrentUser, login, logout, type AuthUser } from "./auth/authApi";
+import { getCurrentUser, inspectionCreatorUser, login, logout, type AuthUser } from "./auth/authApi";
 import {
   clearLocalIdentity,
   getDeviceAuthState,
@@ -100,7 +100,7 @@ import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
 import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
 import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
-import { productRoleMatches } from "./manager/roleAccess";
+import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
 import { activateUserWorkspace, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
@@ -759,7 +759,7 @@ export function App() {
       // The key survives only for the same verified user (owner stamp claimed above).
       if (!managerChoiceRestoreAttempted.current) {
         managerChoiceRestoreAttempted.current = true;
-        if (decision.user.role === "admin" && readManagerExperience()) setSelectedExperience((current) => current ?? "manager");
+        if (isManagerRole(decision.user.role) && readManagerExperience()) setSelectedExperience((current) => current ?? "manager");
       }
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return undefined;
@@ -989,7 +989,9 @@ export function App() {
   // unlocks it, even after a previously verified login.
   const managerExperience = selectedExperience === "manager"
     && authState.status === "verified"
-    && currentUser?.role === "admin";
+    && currentUser !== undefined && isManagerRole(currentUser.role);
+  // A supervisor gets the review-only part of the Manager experience (T4).
+  const supervisorExperience = managerExperience && currentUser?.role === "supervisor";
   // Remember the Manager choice for this tab only while the verified Manager experience is active.
   useEffect(() => { if (managerExperience) rememberManagerExperience(true); }, [managerExperience]);
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
@@ -1124,6 +1126,8 @@ export function App() {
       return;
     }
     if (!route.name.startsWith("manager-")) { navigate({ name: "manager-home" }); return; }
+    // A supervisor deep-linking to an admin-only Manager screen lands on Manager Home (T4).
+    if (supervisorExperience && !supervisorAllowsRoute(route.name)) { navigate({ name: "manager-home" }); return; }
     if (route.name === "manager-operations" || route.name === "manager-customers") void refreshManagerVisits();
     if (route.name === "manager-service-visit") {
       const request = beginManagerRequest();
@@ -1146,7 +1150,7 @@ export function App() {
       ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
     }
     return () => managerRequestGuard.current.invalidate();
-  }, [managerExperience, route]);
+  }, [managerExperience, supervisorExperience, route]);
   const jobIsCompleted = (jobId: string) => jobs.some((job) => job.id === jobId && job.status === "closed");
   const mayRenderLocalHydrant = canRenderLocalHydrant(
     activeHydrant,
@@ -1425,7 +1429,7 @@ export function App() {
       if (job.status === "closed") throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
-      const record = await getOrCreateHoseReelInspection(job, system, catalog, currentUser);
+      const record = await getOrCreateHoseReelInspection(job, system, catalog, inspectionCreatorUser(currentUser));
       setActiveHoseReel(record);
       await refreshMasterSystemInspections();
       navigate({ name: "inspection", clientUuid: record.clientUuid });
@@ -1448,7 +1452,7 @@ export function App() {
       }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
-      await initializeCo2InspectionGroup(job, system, catalog, currentUser);
+      await initializeCo2InspectionGroup(job, system, catalog, inspectionCreatorUser(currentUser));
       await refreshCo2Inspections();
       navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
     } catch (error) {
@@ -2128,8 +2132,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           )}
         </>
       ) : managerExperience ? (
-        !route.name.startsWith("manager-") ? <p role="status">Opening Manager Home…</p>
-        : route.name === "manager-home" ? <ManagerHome navigate={navigate} />
+        !route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
+        : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} />
         : route.name === "manager-technicians" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
         : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
           ? <ManagerTechnicianDetail

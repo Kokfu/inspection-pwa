@@ -1,7 +1,8 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { pool } from "../db/pool.js";
 import { loadJobCompletion } from "../jobs/jobCompletion.js";
-import { requireRole } from "../middleware/requireRole.js";
+import type { UserRole } from "../auth/authTypes.js";
+import { requireRoleAudited } from "../middleware/requireRole.js";
 import { isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { createFinalReportHandler, createFinalReportPdfHandler } from "./inspectionJobs.js";
 import { loadFinalServiceReport, renderFinalServiceReportPdf } from "../reports/finalServiceReport.js";
@@ -447,8 +448,10 @@ export function createManagerServiceVisitsRouter({
   renderPdf = renderFinalServiceReportPdf
 }: ManagerRouteDependencies = {}) {
   const router = Router();
+  // Every Manager route decision goes through the audited guard (supervisor refusals are logged).
+  const requireRole = (...roles: UserRole[]) => requireRoleAudited(database, ...roles);
 
-  router.get("/manager/service-visits", requireRole("admin"), async (request, response, next) => {
+  router.get("/manager/service-visits", requireRole("admin", "supervisor"), async (request, response, next) => {
   try {
     let filters: ManagerServiceVisitFilters;
     try {
@@ -472,17 +475,17 @@ export function createManagerServiceVisitsRouter({
 // Phase 7 report handlers; report authority and PDF rendering are not copied.
   router.get(
   "/manager/service-visits/:jobId/final-report",
-  requireRole("admin"),
+  requireRole("admin", "supervisor"),
   managerReportHandler(database, createFinalReportHandler({ database, loadReport }))
   );
 
   router.get(
   "/manager/service-visits/:jobId/final-report.pdf",
-  requireRole("admin"),
+  requireRole("admin", "supervisor"),
   managerReportHandler(database, createFinalReportPdfHandler({ database, loadReport, renderPdf }))
   );
 
-  router.get("/manager/service-visits/:jobId", requireRole("admin"), async (request, response, next) => {
+  router.get("/manager/service-visits/:jobId", requireRole("admin", "supervisor"), async (request, response, next) => {
   try {
     const jobId = request.params.jobId;
     if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {

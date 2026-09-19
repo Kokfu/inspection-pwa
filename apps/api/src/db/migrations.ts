@@ -88,6 +88,9 @@ const customerContactDetailsMigrationUrl = new URL(
 const serviceVisitCoverFieldsMigrationUrl = new URL(
   "../../migrations/030_service_visit_cover_fields.sql", import.meta.url
 );
+const supervisorRoleMigrationUrl = new URL(
+  "../../migrations/031_supervisor_role.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -472,6 +475,15 @@ export async function runMigrations(
   );
   if (!serviceVisitCoverFields.rows[0]?.exists) {
     await database.query(await readFile(serviceVisitCoverFieldsMigrationUrl, "utf8"));
+  }
+  // Migration 031 widens `users_role_check` to include 'supervisor'; a CHECK that already
+  // names 'supervisor' is the replay marker.
+  const supervisorRole = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='users_role_check'
+      AND conrelid='users'::regclass AND pg_get_constraintdef(oid) LIKE '%''supervisor''%') AS exists`
+  );
+  if (!supervisorRole.rows[0]?.exists) {
+    await database.query(await readFile(supervisorRoleMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

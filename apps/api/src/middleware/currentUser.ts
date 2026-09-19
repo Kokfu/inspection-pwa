@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
 import { hashSessionToken } from "../auth/sessionTokens.js";
+import type { UserRole } from "../auth/authTypes.js";
 import "../auth/authTypes.js";
 
 function parseCookies(header: string | undefined) {
@@ -38,7 +39,7 @@ export async function currentUser(
       session_id: string;
       user_id: string;
       username: string;
-      role: "admin" | "inspector";
+      role: UserRole;
     }>(
       `
         SELECT

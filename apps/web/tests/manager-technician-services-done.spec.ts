@@ -6,10 +6,12 @@ type Visit = {
 };
 
 const technicians = [
-  { id: 11, username: "tech-alpha", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
-  { id: 12, username: "tech-bravo", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
-  { id: 13, username: "tech-charlie", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
-  { id: 14, username: "tech-delta", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" }
+  { id: 11, username: "tech-alpha", role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
+  { id: 12, username: "tech-bravo", role: "inspector", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
+  { id: 13, username: "tech-charlie", role: "inspector", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
+  { id: 14, username: "tech-delta", role: "inspector", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" },
+  // A supervisor (T4) is listed by the API but never offered as a "created by" filter.
+  { id: 15, username: "super-echo", role: "supervisor", isActive: true, createdAt: "2026-09-05T00:00:00.000Z" }
 ];
 const alpha = { id: 11, displayName: "tech-alpha" };
 const bravo = { id: 12, displayName: "tech-bravo" };
@@ -241,6 +243,8 @@ test("Services Done is customer-first with search, site grouping, technician fil
   await expectNoHorizontalScroll(page);
   await page.setViewportSize({ width: 1280, height: 800 });
 
+  // The filter offers technicians only (T4: the listed supervisor never creates visits).
+  await expect(page.getByLabel("Technician").locator("option")).toHaveText(["All technicians", "tech-alpha", "tech-bravo (inactive)", "tech-charlie", "tech-delta"]);
   // Technician filter narrows only after Apply.
   await page.getByLabel("Technician").selectOption({ label: "tech-alpha" });
   await expect(page.locator(".job-card")).toHaveCount(4);

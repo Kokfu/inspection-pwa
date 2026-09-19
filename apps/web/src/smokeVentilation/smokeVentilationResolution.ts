@@ -1,4 +1,4 @@
-import type { AuthUser } from "../auth/authApi";
+import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { findServerMasterSystemInspection, type ServerMasterSystemInspectionSummary } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -134,5 +134,5 @@ export async function resolveSmokeVentilationOpenTarget(
 
   const catalog = await loadCatalog();
   if (!catalog) return { kind: "server-unavailable", message: "Smoke Ventilation reference data is not cached yet. Refresh jobs online first." };
-  return { kind: "local", record: await createLocal(job, system, catalog, user) };
+  return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) };
 }

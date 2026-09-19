@@ -1,4 +1,4 @@
-import type { AuthUser } from "../auth/authApi";
+import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -54,6 +54,6 @@ export async function resolveFireAlarmOpenTarget(job: InspectionJob, system: Job
       return { kind: "server", clientUuid: server.clientUuid };
     }
     if (!catalog) throw new Error("Fire Alarm reference data is not cached yet. Refresh jobs online first.");
-    return { kind: "local", record: await createLocal(job, system, catalog, user) };
+    return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) };
   } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Fire Alarm server summary is currently unavailable" }; }
 }

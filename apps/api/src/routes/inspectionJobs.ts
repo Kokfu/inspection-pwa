@@ -158,9 +158,11 @@ type FinalReportRouteDependencies = {
 };
 
 function reportAccessFor(request: Request) {
-  // This route is already protected by requireRole. The product-facing Manager
-  // maps only to the server-owned admin role.
-  return request.currentUser?.role === "admin" ? "manager" as const : "technician" as const;
+  // Every caller is already protected by requireRole. The product-facing Manager is
+  // the admin, or (T4) a supervisor on the Manager report routes, which see the same
+  // visits as the admin; the technician report routes never admit a supervisor.
+  const role = request.currentUser?.role;
+  return role === "admin" || role === "supervisor" ? "manager" as const : "technician" as const;
 }
 
 function finalReportFailure(error: unknown, response: Response) {

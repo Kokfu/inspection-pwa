@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ManagerCustomerServiceHistory, isServiceHistoryFilterValues, type ServiceHistoryFilterValues } from "./ManagerCustomerServiceHistory";
-import { loadManagerCustomers, loadManagerTechnicians, ManagerApiError, type ManagerCustomer, type ManagerTechnician } from "./managerApi";
+import { loadManagerCustomers, loadManagerTechnicians, ManagerApiError, type ManagerCustomerSummary, type ManagerTechnician } from "./managerApi";
 import { readManagerSession, writeManagerSession } from "./managerReturnRoute";
 
 type Props = {
@@ -30,7 +30,7 @@ function isRememberedSelection(value: unknown): value is RememberedSelection {
  */
 export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, onViewReport, onDownloadReport }: Props) {
   const mounted = useRef(false);
-  const [customers, setCustomers] = useState<ManagerCustomer[]>([]);
+  const [customers, setCustomers] = useState<ManagerCustomerSummary[]>([]);
   const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -45,7 +45,8 @@ export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, on
     void Promise.all([loadManagerCustomers(controller.signal), loadManagerTechnicians(controller.signal)]).then(([customerRows, technicianRows]) => {
       if (controller.signal.aborted) return;
       setCustomers(customerRows);
-      setTechnicians(technicianRows);
+      // Supervisors never create visits, so only technicians are offered as a "created by" filter.
+      setTechnicians(technicianRows.filter((row) => row.role === "inspector"));
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       if (error instanceof ManagerApiError && error.kind === "domain") setLoadError(error.message);

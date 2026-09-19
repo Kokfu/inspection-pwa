@@ -1,5 +1,6 @@
 import { requireTechnicianOwnership, technicianOwns, jobNotFound } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
+import type { UserRole } from "../auth/authTypes.js";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
@@ -52,7 +53,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom", actor: { id: number; role: "admin" | "inspector" }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom", actor: { id: number; role: UserRole }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",

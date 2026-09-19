@@ -135,8 +135,28 @@ chooser; logout clears it; technician unaffected. Revert proofs. Gates. Commit.
 OWNER CHECK: Manager → Services Done → F5 → still in Manager, same screen.
 
 ## T4 — Supervisor role (design first)
-Status: NEEDS OWNER: review `docs/autopilot/designs/T4.md` and write APPROVED (plus answers to its §8:
-customer list read access for supervisors, Next Upcoming Service visibility, UI naming). Prerequisite: T3.
+Status: DONE (2026-09-20). feat(auth): supervisor role — review-only Manager access (design APPROVED
+2026-09-20, `docs/autopilot/designs/T4.md`, see its §9 notes). Migration 031 (users_role_check widened,
+replay marker in migrations.ts); explicit per-route lists; `requireRoleAudited` logs `authz.denied` for a
+refused supervisor on Manager routes; admin creates/deactivates supervisors from the technician form
+(`role=` in the audit reason); supervisor customer list = summary (id/code/name, sites, system catalogue);
+Manager report scope for supervisors = admin's; web: Home shows Services + Current Services Done only,
+render-time + effect route guard, creator snapshots never record a supervisor, T3 restore covers supervisors.
+Deviation (owner confirmed 2026-09-20): accepted-detail + evidence reads stay admin/inspector → T5.
+Gate `Test-ManagerScheduling.ps1` exit 0 cold (10 node suites 0 fail/0 skip incl. new
+`supervisorRole.integration.test.ts` closed route matrix; Playwright 63 passed incl. new
+`manager-supervisor.spec.ts` 10 tests; `test:role-access` 2/2).
+Review: 2 rounds; R1 0 P0/0 P1, 5 P2 (report scope → fixed + positive test; customer summary "too wide"
+→ rejected with evidence, reviewer agreed; summary type → fixed; duplicate spec → fixed; test gaps →
+partly); R2 0/0/0.
+Revert proofs: supervisor allowed on POST /manager/technicians → matrix fails (:122); no summary →
+fails (:104); no client route guard → 6 deep-link tests fail (spec :88); no Home card filter → spec :62/:89
+fail; admin-only report scope → fails (:139).
+Not covered by a test: a successfully generated report compared admin vs supervisor (only the 409 case).
+OWNER CHECK: Manager → Technician List → add a user with Role "Supervisor" → sign in as them → Home shows
+only Services and Current Services Done; open a visit's Final Report; type `#/manager-customers` in the
+address bar → back on Home. Deploying needs migration 031 on the client DB (normal deploy path).
+Prerequisite: T3.
 Design: a new forward migration adding `supervisor` to the users role CHECK (never edit an applied
 migration); `requireRole` semantics (admin ⊇ supervisor for review routes); which existing Manager
 screens a supervisor sees (review / Services Done / reports: yes; customers, configuration,
@@ -147,6 +167,9 @@ Read: backend-api-security, offline-first-pwa.
 
 ## T5 — Supervisor corrections with version/audit (design first)
 Status: TODO — DESIGN FIRST. Prerequisite: T4 DONE.
+Carried from T4 (owner, 2026-09-20): the design must also give supervisors read access to accepted
+detail (`masterSystemInspections` GETs) **and** evidence photos (`inspectionAttachments`, `stagedEvidence`
+accepted GETs); these still refuse supervisors after T4.
 Hard constraint: an Accepted inspection is immutable forever (v7-evidence-acceptance skill). A
 correction must therefore be an additive, versioned record that references the accepted authority
 (who, when, field path, old value, new value, reason), never an in-place update. The design must say

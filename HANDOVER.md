@@ -3,7 +3,12 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T4 Supervisor role design written — waiting for owner approval.**
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T4 supervisor role implemented (committed on the branch, not merged).**
+Review-only Manager access for `supervisor` (migration 031 — must run on the client DB at deploy),
+created by an admin from the technician form; accepted-detail/evidence reads deferred to T5 (owner).
+Details: `docs/autopilot/BACKLOG.md` T4, `docs/autopilot/designs/T4.md` §9.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T4 Supervisor role design written (approved 2026-09-20).**
 `docs/autopilot/designs/T4.md`: new `supervisor` role via forward migration 031, explicit per-route
 `requireRole` lists (no hierarchy), review-only Manager screens, admin creates supervisors from the
 technician form, audit via `audit_events`. Three owner questions in its §8.
