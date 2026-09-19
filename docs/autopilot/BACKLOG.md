@@ -58,7 +58,24 @@ OWNER CHECK: Manager → customer → Services → edit a service's labels, leav
 appears), save, reopen.
 
 ## T1b — Land the main-tree UI polish (App.tsx login landing + app.css token refactor)
-Status: TODO. Prerequisite: T1.
+Status: DONE (2026-09-19). style(web): token system + UI polish; post-login route kept. Gate
+`Test-ManagerScheduling.ps1` exit 0 (8 node suites 0 fail/0 skip, Playwright 45 passed), rerun after the
+review fixes; `ui-presentation-polish` + `technician-home-ownership` specs pass after the final colour
+fix; web build green; `git diff --check` clean. Final Report card region pixel-identical to HEAD at
+1280 and 390 px (screenshot diff = 0 px; only header chrome, Download PDF button colour and page
+background changed).
+Fixes over the main-tree copy: `--focus-outline` was self-referential (focus outlines vanished) → restored
+`3px solid rgb(31 135 146 / 28%)`; new `--muted-on-sunken #4f6467` (5.54:1) for `.form-message`,
+`.operational-message`, default `.status-badge`, job-detail progress caption (were 4.30:1); base stacking
+block back at 560 px (521–560 px had regressed to two columns).
+Review: 2 rounds, final 0 P0 / 0 P1. Deferred P2: polish scoping reaches Back buttons beside the frozen
+Customer screens and the service editor; reconnecting indicator differs from online by colour only
+(text label present); unused tokens; transitions not gated by reduced motion.
+Revert proof: none — T1b adds no test. The post-login `landingHash` check is verified by review trace
+only (no Playwright coverage).
+OWNER CHECK (also): Manager → Customers / a customer → "Back to Home" / "Back to Customer" buttons look
+right; error messages readable on a phone outdoors.
+Prerequisite: T1.
 Split out of T1 (unrelated to the service editor). From the main tree `git diff 28e1235`:
 - `apps/web/src/App.tsx`: after login, keep the user's route if they navigated while the workspace
   refreshed (`landingHash` check before `navigate({ name: "jobs" })`).

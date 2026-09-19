@@ -3,6 +3,12 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T1b landed the UI token system / polish (committed on the branch, not merged).**
+Main-tree `app.css` token refactor + post-login route keep (`landingHash`, `App.tsx`), with fixes: focus
+outline restored (main-tree copy had a self-referential `--focus-outline`), `--muted-on-sunken` for AA
+contrast on sunken backgrounds, 560 px stacking breakpoint kept. Final Report card region verified
+pixel-identical. Details: `docs/autopilot/BACKLOG.md` T1b.
+
 **Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T1 landed the Manager per-service editor (committed on the branch, not merged).**
 The editor from the main tree (see "Manager form-shaped per-service editor" below) is now committed on
 `claude/autopilot`, with two review fixes: text typed into an open wording editor counts as unsaved

@@ -1312,9 +1312,12 @@ export function App() {
         navigate({ name: "manager-home" });
         return;
       }
+      // The job list is already rendered while the workspace refreshes. If the user
+      // navigated meanwhile (e.g. opened an accepted detail), keep their route.
+      const landingHash = window.location.hash;
       await loadCachedJobs(user.id, operation);
       await refreshServerWorkspace(user, operation);
-      navigate({ name: "jobs" });
+      if (window.location.hash === landingHash) navigate({ name: "jobs" });
     } finally {
       finishExplicitAuthOperation(operation);
     }
