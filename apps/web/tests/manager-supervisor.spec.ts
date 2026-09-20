@@ -40,6 +40,8 @@ async function installSupervisorApi(page: Page) {
     }
     if (path === `/api/manager/service-visits/${visit.id}`) return json({ serviceVisit: visit });
     if (path === `/api/manager/service-visits/${visit.id}/final-report`) return json({ report });
+    // T5b: the visit detail lists the accepted records a supervisor may review.
+    if (path === `/api/manager/service-visits/${visit.id}/accepted-records`) return json({ records: [] });
     if (path === "/api/manager/customers") return json({ customers: [customerSummary] });
     if (path === "/api/manager/technicians") return json({ technicians: [{ id: 21, username: "technician-one", role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }] });
     // Every other Manager route is admin-only on the server.

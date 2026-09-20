@@ -37,7 +37,8 @@ const supervisorReads = new Set([
   // T5a: corrections are review work, so a supervisor may read and write these.
   "GET /manager/inspections/:clientUuid/corrections",
   "POST /manager/inspections/:clientUuid/corrections",
-  "GET /manager/service-visits/:jobId/corrections"
+  "GET /manager/service-visits/:jobId/corrections",
+  "GET /manager/service-visits/:jobId/accepted-records"
 ]);
 const unknownJob = "00000000-0000-4000-8000-00000000f404";
 const params: Record<string, string> = { jobId: unknownJob, customerId: unknownJob, clientUuid: unknownJob, photoUuid: unknownJob, id: unknownJob, technicianId: "2147480000", systemKey: "hose_reel" };

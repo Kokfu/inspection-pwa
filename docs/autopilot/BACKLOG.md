@@ -200,7 +200,20 @@ view-model input the PDF work will need).
   fake DB (no report/PDF source touched) — see T5.md §8b.
 - **T5b — Manager web**: accepted records listed on the visit detail → generic correction screen (required
   reason, unsaved-changes guard); Final Report view notice + corrections list; PDF button disabled.
-  Status: TODO. Prerequisite: T5a.
+  Status: DONE (2026-09-21). Adds `GET /manager/service-visits/:jobId/accepted-records` (admin+supervisor).
+  Gate exit 0 cold (10 node suites 0 fail/0 skip, Playwright 72 passed incl. 9 new correction specs).
+  Review: 3 rounds. R1 2 P0 (new route unclassified in the T4 route matrix — the gate caught it; 422 treated
+  as an outage, which ejected the supervisor and dropped the draft) / 3 P1 (numeric readings always sent as
+  text so every reading correction was refused; a failed save discarded the draft and burned the request id;
+  a failed corrections check re-enabled the PDF). R2 0 P0 / 2 P1 (decimal readings collapsed — "45.5" became
+  455; the post-save refresh-failure branch was dead code so a failed refresh claimed a clean save). R3 0 P0 /
+  0 P1, SAFE TO COMMIT, 5 P2 fixed (report state not reset between visits; badge vs save-bar disagreement;
+  saved-but-unrefreshed left a false unsaved state; Saving… label; input class). R3 also withdrew R2's
+  "unstyled list" finding.
+  Revert proofs: no guard → guard spec fails (:127); reason not required → :105; original hidden → :111;
+  PDF enabled → :162; per-keystroke coercion → decimal spec :204; dead refresh branch → :218.
+  Deferred: Back stays enabled during a save (mirrors the wording editor); "Accepted records" shows for open
+  visits next to the "read-only for Managers" line — wording pass wanted.
 - **T5c — Accepted detail**: supervisor read access to accepted-detail + evidence routes (T4 carry-over);
   corrections shown (effective value + original) on accepted detail, technicians read-only.
   Status: TODO. Prerequisite: T5b.

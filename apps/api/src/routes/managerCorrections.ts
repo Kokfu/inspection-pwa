@@ -192,6 +192,38 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
     } finally { client?.release(); }
   });
 
+  /** The accepted records of a visit, so the Manager review screen can open one for correction. */
+  router.get("/manager/service-visits/:jobId/accepted-records", requireRole("admin", "supervisor"), async (request, response, next) => {
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) throw new CorrectionError("INVALID_JOB_ID", "Job ID is invalid.", 400);
+      const job = await database.query(`SELECT configuration_snapshot AS "configurationSnapshot" FROM inspection_jobs WHERE id=$1 AND is_sample=false`, [jobId]);
+      if (!job.rows[0]) throw new CorrectionError("JOB_NOT_FOUND", "Service visit was not found.", 404);
+      const labels = new Map<string, string>();
+      const enabled = (job.rows[0].configurationSnapshot as { enabledSystems?: Array<{ systemKey?: unknown; displayName?: unknown }> } | null)?.enabledSystems ?? [];
+      for (const system of enabled) if (typeof system.systemKey === "string" && typeof system.displayName === "string") labels.set(system.systemKey, system.displayName);
+      const result = await database.query(`
+        SELECT instance.client_uuid AS "clientUuid", inspection.system_key AS "systemKey", instance.instance_key AS "instanceKey",
+          instance.zone_snapshot->>'displayName' AS "zoneLabel", instance.location_snapshot->>'displayName' AS "locationLabel",
+          to_char(instance.performed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "performedAt",
+          template.version AS "templateVersion",
+          (SELECT count(*)::int FROM inspection_corrections correction WHERE correction.form_instance_id=instance.id) AS "correctionCount"
+        FROM master_system_form_instances instance
+        INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
+        INNER JOIN master_service_report_templates template ON template.id=instance.master_template_version_id
+        WHERE inspection.job_id=$1 AND instance.status='submitted'
+        ORDER BY inspection.system_key, instance.display_sequence, instance.client_uuid`, [jobId]);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        records: (result.rows as Array<Record<string, unknown>>).map(({ templateVersion, ...row }) => ({
+          ...row,
+          systemLabel: labels.get(String(row.systemKey)) ?? String(row.systemKey),
+          supported: supportedRow({ row, templateVersion })
+        }))
+      });
+    } catch (error) { next(error); }
+  });
+
   /** Every correction on a visit (review screen, Final Report notice). */
   router.get("/manager/service-visits/:jobId/corrections", requireRole("admin", "supervisor"), async (request, response, next) => {
     try {

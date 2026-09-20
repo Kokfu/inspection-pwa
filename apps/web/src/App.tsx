@@ -96,9 +96,10 @@ import { claimManagerSession, clearManagerSession, readManagerExperience, readMa
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
+import { ManagerCorrectionEditor } from "./manager/ManagerCorrectionEditor";
 import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
 import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
-import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
+import { ManagerApiError, loadAcceptedRecords, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerAcceptedRecord, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
@@ -186,6 +187,7 @@ type AppRoute =
   | { name: "manager-customer"; customerId: string }
   | { name: "manager-customer-service"; customerId: string; systemKey: string }
   | { name: "manager-service-visit"; jobId: string }
+  | { name: "manager-correction"; clientUuid: string }
   | { name: "manager-final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
@@ -213,6 +215,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-customer" && parts[1] && parts[2] === "service" && parts[3]) return { name: "manager-customer-service", customerId: parts[1], systemKey: parts[3] };
   if (parts[0] === "manager-customer" && parts[1]) return { name: "manager-customer", customerId: parts[1] };
   if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
+  if (parts[0] === "manager-correction" && parts[1]) return { name: "manager-correction", clientUuid: parts[1] };
   if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
   if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
   if (parts[0] === "final-report" && parts[1]) return { name: "final-report", jobId: parts[1] };
@@ -243,6 +246,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-customer") return `#/manager-customer/${encodeURIComponent(route.customerId)}`;
   if (route.name === "manager-customer-service") return `#/manager-customer/${encodeURIComponent(route.customerId)}/service/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
+  if (route.name === "manager-correction") return `#/manager-correction/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "new-service-visit") return "#/new-service-visit";
   if (route.name === "final-report") return `#/final-report/${encodeURIComponent(route.jobId)}`;
@@ -283,6 +287,9 @@ export function App() {
   const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
+  // T5: the accepted records of the visit on screen, for review and correction.
+  const [managerAcceptedRecords, setManagerAcceptedRecords] = useState<ManagerAcceptedRecord[]>([]);
+  const [managerAcceptedRecordsUnavailable, setManagerAcceptedRecordsUnavailable] = useState(false);
   const [managerCustomers, setManagerCustomers] = useState<ManagerCustomer[]>([]);
   const [managerCustomer, setManagerCustomer] = useState<ManagerCustomer>();
   const [managerLoading, setManagerLoading] = useState(false);
@@ -1132,6 +1139,17 @@ export function App() {
     if (route.name === "manager-service-visit") {
       const request = beginManagerRequest();
       setManagerVisit(undefined);
+      setManagerAcceptedRecords([]);
+      setManagerAcceptedRecordsUnavailable(false);
+      void loadAcceptedRecords(route.jobId, request.signal).then(
+        (records) => { if (managerRequestIsCurrent(request)) setManagerAcceptedRecords(records); },
+        (error: unknown) => {
+          if (!managerRequestIsCurrent(request)) return;
+          // The visit detail itself does not depend on this list; only an authority failure fails closed.
+          if (error instanceof ManagerApiError && error.kind === "authorization") { handleManagerRequestFailure(error); return; }
+          setManagerAcceptedRecordsUnavailable(true);
+        }
+      );
       setManagerLoading(true);
       setManagerMessage("");
       void loadManagerServiceVisit(route.jobId, request.signal).then(
@@ -2151,6 +2169,13 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
+        ) : route.name === "manager-correction" ? (
+          <ManagerCorrectionEditor
+            key={`${authAuthorityGuard.current.currentGeneration}:${route.clientUuid}`}
+            clientUuid={route.clientUuid}
+            onBack={(jobId) => navigate(jobId ? { name: "manager-service-visit", jobId } : { name: "manager-operations" })}
+            onAuthorityFailure={handleManagerRequestFailure}
+          />
         ) : route.name === "manager-customer-service" ? (
           managerCustomer && managerCustomer.customer.id === route.customerId
             ? <ManagerServiceEditor
@@ -2185,6 +2210,9 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             loading={managerLoading}
             message={managerMessage}
             selectedVisit={route.name === "manager-service-visit" ? managerVisit : undefined}
+            acceptedRecords={managerAcceptedRecords}
+            acceptedRecordsUnavailable={managerAcceptedRecordsUnavailable}
+            onCorrect={route.name === "manager-service-visit" ? (record) => navigate({ name: "manager-correction", clientUuid: record.clientUuid }) : undefined}
             onRefresh={refreshManagerVisits}
             backLabel={route.name === "manager-service-visit" ? managerReturn?.label : undefined}
             onSelect={(visit) => openManagerVisit("manager-service-visit", visit.id, null)}

@@ -13,7 +13,7 @@ test("role chooser truth table: Manager is admin or supervisor, Technician is in
 });
 
 test("supervisor screens are exactly the review screens", () => {
-  const all = ["manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report",
+  const all = ["manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction",
     "manager-technicians", "manager-technician", "manager-customers", "manager-customer", "manager-customer-service", "manager-upcoming-services"];
-  assert.deepEqual(all.filter(supervisorAllowsRoute), ["manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report"]);
+  assert.deepEqual(all.filter(supervisorAllowsRoute), ["manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction"]);
 });

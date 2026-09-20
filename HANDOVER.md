@@ -3,6 +3,12 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5b Manager correction screens landed (committed on the branch, not merged).**
+Visit detail lists accepted records → correction screen (required reason, unsaved-changes guard, original
+always shown); Final Report lists corrections and withholds the PDF until they are rendered. Next: T5c
+(supervisor accepted-detail + evidence reads, corrections on Accepted Detail).
+Details: `docs/autopilot/BACKLOG.md` T5b.
+
 **Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5a corrections API landed (committed on the branch, not merged).**
 Append-only `inspection_corrections` (migration 032 — needs running on the client DB at deploy); accepted
 records are never written; supervisors/admins correct V7 records of 8 systems through
