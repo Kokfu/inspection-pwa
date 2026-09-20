@@ -3,6 +3,11 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T6 report-approval design written — waiting for owner approval.**
+`docs/autopilot/designs/T6.md`: append-only `report_approvals` (migration 033) with derived state, a
+correction after approval reverting to awaiting approval, and the PDF released only once approved. Six
+owner questions (§8). Also open: T5d (corrections panel vs inline effective values).
+
 **Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5c landed — supervisors read accepted records and evidence; corrections show on Accepted Detail (committed on the branch, not merged).**
 Read-only widening only (`requireReviewerOrOwnership`); technicians still see their own records and now
 their corrections. OPEN OWNER DECISION T5d: corrections are a panel above the record, not the inline
