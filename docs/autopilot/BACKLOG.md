@@ -215,11 +215,36 @@ view-model input the PDF work will need).
   Deferred: Back stays enabled during a save (mirrors the wording editor); "Accepted records" shows for open
   visits next to the "read-only for Managers" line — wording pass wanted.
 - **T5c — Accepted detail**: supervisor read access to accepted-detail + evidence routes (T4 carry-over);
-  corrections shown (effective value + original) on accepted detail, technicians read-only.
-  Status: TODO. Prerequisite: T5b.
+  corrections shown on accepted detail, technicians read-only.
+  Status: DONE (2026-09-21). `requireReviewerOrOwnership` (supervisor-only bypass, GET reads of accepted
+  data; `technicianOwns` unchanged so no write can inherit it); accepted-detail + v6/v7 accepted evidence +
+  attachment reads widened, their `='admin'` predicates now `IN ('admin','supervisor')`; new
+  `GET /inspections/:clientUuid/corrections` (admin, supervisor, technician for records they synced);
+  `AcceptedCorrectionsPanel` above all 9 accepted-detail views.
+  Gate exit 0 cold (10 node suites 0 fail/0 skip, Playwright 75 passed). Integration: supervisor reads a
+  record, its evidence list and its corrections for a job they do not own; a foreign technician gets 404;
+  a technician who owns the job but did not sync the record gets 404 on its corrections.
+  Review: 2 rounds. R1 0 P0 / 2 P1 (no panel on Automatic Sprinkler — a correctable system; display
+  contract diverges from design §3.4 → raised as T5d) / 6 P2. R2 0 P0 / 1 P1 (the panel failed silently →
+  now states that the check failed) / 7 P2 (fixed: `::int` cast on a BIGINT id, label DFS on the hot path,
+  untested syncer branch, panel key, hollow panel assertion). SAFE TO COMMIT both rounds.
+  Known gaps: no test reads accepted photo *bytes* as a supervisor (the four `:photoUuid/content`
+  widenings rest on the closed route matrix); `/v6-evidence/accepted` and `/inspection-attachments`
+  untested as a supervisor against real data; the corrections route and the accepted-detail route express
+  the technician rule twice (they agree today; worth one shared predicate).
 - First cut supports the 8 V7 systems read through `acceptedDetailRow` (hose reel, CO2, wet chemical,
   hydrant, automatic sprinkler, dry/wet riser, smoke ventilation, fire intercom). Fire Alarm V7 and Portable
   Fire Extinguisher have their own storage/validators → `422 CORRECTION_NOT_SUPPORTED` until a follow-up.
+
+## T5d — Corrections shown inline on Accepted Detail
+Status: NEEDS OWNER: T5c shows corrections as a panel above the accepted record, and the record itself keeps
+showing the values exactly as accepted (immutability-first). The approved design §3.4 asked for the opposite:
+each corrected field shows the **effective** value inline with a "Corrected" badge and "Originally: …"
+underneath. The panel is safe but a reader scanning a long checklist sees the accepted value, not the
+corrected one. Decide: (a) keep the panel (cheap, already shipped), or (b) also render effective values
+inline — that means touching all 9 per-system accepted-detail views and adding `effectiveResponses` to the
+detail responses, whose parsers are exact-key contracts. Recommendation: (b) for results at least, since a
+result is what a reader acts on; remarks/readings can stay panel-only.
 
 ## T6 — Report approval
 Status: TODO — DESIGN FIRST. Prerequisite: T4 DONE.

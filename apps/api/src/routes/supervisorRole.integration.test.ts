@@ -38,7 +38,22 @@ const supervisorReads = new Set([
   "GET /manager/inspections/:clientUuid/corrections",
   "POST /manager/inspections/:clientUuid/corrections",
   "GET /manager/service-visits/:jobId/corrections",
-  "GET /manager/service-visits/:jobId/accepted-records"
+  "GET /manager/service-visits/:jobId/accepted-records",
+  // T5c: review reads of accepted records, their evidence photos and their corrections.
+  "GET /inspections/:clientUuid/corrections",
+  "GET /hose-reel-inspections/:clientUuid",
+  "GET /co2-inspections/:clientUuid",
+  "GET /wet-chemical-inspections/:clientUuid",
+  "GET /fire-alarm-inspections/:clientUuid",
+  "GET /dry-wet-riser-inspections/:clientUuid",
+  "GET /master-system-inspections",
+  "GET /master-system-inspections/:clientUuid",
+  "GET /inspection-attachments",
+  "GET /inspection-attachments/:photoUuid/content",
+  "GET /v6-evidence/accepted",
+  "GET /v6-evidence/accepted/:photoUuid/content",
+  "GET /v7-evidence/accepted",
+  "GET /v7-evidence/accepted/:photoUuid/content"
 ]);
 const unknownJob = "00000000-0000-4000-8000-00000000f404";
 const params: Record<string, string> = { jobId: unknownJob, customerId: unknownJob, clientUuid: unknownJob, photoUuid: unknownJob, id: unknownJob, technicianId: "2147480000", systemKey: "hose_reel" };

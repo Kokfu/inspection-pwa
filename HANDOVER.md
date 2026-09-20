@@ -3,6 +3,11 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5c landed — supervisors read accepted records and evidence; corrections show on Accepted Detail (committed on the branch, not merged).**
+Read-only widening only (`requireReviewerOrOwnership`); technicians still see their own records and now
+their corrections. OPEN OWNER DECISION T5d: corrections are a panel above the record, not the inline
+effective value + badge of design §3.4. Details: `docs/autopilot/BACKLOG.md` T5c/T5d.
+
 **Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5b Manager correction screens landed (committed on the branch, not merged).**
 Visit detail lists accepted records → correction screen (required reason, unsaved-changes guard, original
 always shown); Final Report lists corrections and withholds the PDF until they are rendered. Next: T5c

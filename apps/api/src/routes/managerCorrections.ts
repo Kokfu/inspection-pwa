@@ -7,6 +7,7 @@ import {
   listCorrectableFields, type Json, type StoredCorrection
 } from "../corrections/inspectionCorrections.js";
 import { pool } from "../db/pool.js";
+import { requireReviewerOrOwnership } from "../jobs/technicianOwnership.js";
 import { requireRoleAudited } from "../middleware/requireRole.js";
 
 /** T5a: supervisor/admin corrections to Accepted V7 inspections (docs/autopilot/designs/T5.md §3.3). */
@@ -35,7 +36,7 @@ async function loadAcceptedRow(database: Queryable, clientUuid: string) {
       instance.inspection_snapshot AS "inspectionSnapshot", instance.response_payload AS responses,
       instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
       creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername",
-      template.version AS "templateVersion", job.is_sample AS "isSample"
+      template.version AS "templateVersion", job.is_sample AS "isSample", instance.synced_by_user_id::bigint AS "syncedByUserId"
     FROM master_system_form_instances instance
     INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
     INNER JOIN inspection_jobs job ON job.id=inspection.job_id
@@ -48,8 +49,8 @@ async function loadAcceptedRow(database: Queryable, clientUuid: string) {
   if (!found || found.isSample === true) throw new CorrectionError("INSPECTION_NOT_FOUND", "Accepted inspection was not found.", 404);
   // The Accepted Detail validators check the row's key set exactly, so the bookkeeping columns are kept
   // out of the row they see.
-  const { templateVersion, isSample: _isSample, ...row } = found;
-  return { row, templateVersion };
+  const { templateVersion, isSample: _isSample, syncedByUserId, ...row } = found;
+  return { row, templateVersion, syncedByUserId };
 }
 
 /** Corrections are for V7 records of the systems in `correctableSystems`; everything else fails closed. */
@@ -246,6 +247,35 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
           const label = listCorrectableFields(instance.responses as Json, instance.inspectionSnapshot).find((field) => field.fieldPath === correction.fieldPath)?.label ?? correction.fieldPath;
           return { ...publicCorrection(correction), clientUuid: instance.clientUuid, systemKey: instance.systemKey, instanceKey: instance.instanceKey, label };
         })
+      });
+    } catch (error) { next(error); }
+  });
+
+  /**
+   * The corrections on one accepted record, for the people who read that record: the technician who
+   * synced it (own records only), an admin, or a supervisor (T5 §9 Q4 — read-only for technicians).
+   */
+  router.get("/inspections/:clientUuid/corrections", requireRole("admin", "inspector", "supervisor"),
+    requireReviewerOrOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+    try {
+      const clientUuid = request.params.clientUuid;
+      if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) throw new CorrectionError("INVALID_INSPECTION_ID", "Inspection ID is invalid.", 400);
+      const accepted = await loadAcceptedRow(database, clientUuid);
+      const row = accepted.row;
+      // The ownership guard already matched the job; a technician additionally only reads records they
+      // synced themselves. Compared by user id: a username can be changed.
+      if (request.currentUser!.role === "inspector" && Number(accepted.syncedByUserId) !== request.currentUser!.id) {
+        throw new CorrectionError("INSPECTION_NOT_FOUND", "Accepted inspection was not found.", 404);
+      }
+      const corrections = await loadCorrections(database, "form", String(row.serverFormInstanceId));
+      const labels = corrections.length ? listCorrectableFields(row.responses as Json, row.inspectionSnapshot) : [];
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        clientUuid: row.clientUuid,
+        corrections: corrections.map((correction) => ({
+          ...publicCorrection(correction),
+          label: labels.find((field) => field.fieldPath === correction.fieldPath)?.label ?? correction.fieldPath
+        }))
       });
     } catch (error) { next(error); }
   });

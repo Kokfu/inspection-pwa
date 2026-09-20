@@ -10,6 +10,8 @@ import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
 import { inspectionJobsRouter } from "./inspectionJobs.js";
 import { createManagerCorrectionsRouter } from "./managerCorrections.js";
 import { createManagerServiceVisitsRouter } from "./managerServiceVisits.js";
+import { masterSystemInspectionsRouter } from "./masterSystemInspections.js";
+import { stagedEvidenceRouter } from "./stagedEvidence.js";
 
 /**
  * T5a: corrections to an Accepted V7 inspection are append-only rows; the accepted record is never
@@ -39,17 +41,20 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
     const item = { operationId: id(), entityType: "masterSystemFormInstance", entityId: client, action: "create", payload: { clientUuid: client, jobId: job, systemKey: "wet_chemical", instanceKey: `location:${location}`, configuredZoneId: zone, configuredLocationId: location, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: time, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" }, instance: { instanceKey: `location:${location}`, displaySequence: 1 } }, responses, evidenceManifest: [], performedAt: time } };
     const user = async (username: string, role: string) => (await pool.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x',$2) RETURNING id::int AS id", [username, role])).rows[0]!.id;
     const inspector = await user("corr-tech", "inspector"), supervisor = await user("corr-review", "supervisor"), admin = await user("corr-admin", "admin");
+    const foreign = await user("corr-other-tech", "inspector");
     await pool.query("UPDATE inspection_jobs SET created_by_user_id=$1 WHERE id=$2", [inspector, job]);
     assert.deepEqual((await syncCo2FormInstances([item], inspector)).acceptedIds, [client]);
     const acceptedHash = async () => createHash("sha256").update(JSON.stringify((await pool.query("SELECT response_payload, inspection_snapshot, updated_at FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0])).digest("hex");
     const before = await acceptedHash();
 
     const actors: Record<string, { id: number; username: string; role: "admin" | "inspector" | "supervisor" }> = {
-      supervisor: { id: supervisor, username: "corr-review", role: "supervisor" }, admin: { id: admin, username: "corr-admin", role: "admin" }, inspector: { id: inspector, username: "corr-tech", role: "inspector" }
+      supervisor: { id: supervisor, username: "corr-review", role: "supervisor" }, admin: { id: admin, username: "corr-admin", role: "admin" },
+      inspector: { id: inspector, username: "corr-tech", role: "inspector" }, foreign: { id: foreign, username: "corr-other-tech", role: "inspector" }
     };
     const app = express(); app.use(express.json());
     app.use((request, _response, next) => { const actor = actors[request.header("x-test-actor") ?? ""]; if (actor) request.currentUser = actor; next(); });
     app.use(createManagerCorrectionsRouter(pool)); app.use(createManagerServiceVisitsRouter({ database: pool })); app.use(inspectionJobsRouter);
+    app.use(masterSystemInspectionsRouter); app.use(stagedEvidenceRouter);
     const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
     const { port } = server.address() as { port: number };
     const call = (path: string, actor: string, method = "GET", body?: unknown) => fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { "content-type": "application/json", "x-test-actor": actor }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -137,13 +142,34 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
         (id,inspection_group_id,client_uuid,instance_key,display_sequence,master_template_version_id,customer_configuration_revision_id,
          snapshot_schema_version,inspection_snapshot,response_schema_version,response_payload,request_fingerprint,status,performed_at,synced_by_user_id)
         VALUES($1,$2,$3,'primary',1,$4,$5,1,'{}'::jsonb,1,'{"controlPanelLocation":"Panel A"}'::jsonb,$6,'submitted',now(),$7)`,
-      [id(), fireGroup, fireClient, fireTemplate.id, fireRevision, createHash("sha256").update(fireClient).digest("hex"), inspector]);
+      [id(), fireGroup, fireClient, fireTemplate.id, fireRevision, createHash("sha256").update(fireClient).digest("hex"), admin]);
+      // The job is the technician's, but an admin synced this record: they read the record, not its corrections.
+      assert.equal((await call(`/inspections/${fireClient}/corrections`, "inspector")).status, 404, "owning the job is not enough to read a record you did not sync");
+      assert.equal((await call(`/inspections/${fireClient}/corrections`, "supervisor")).status, 200);
       const fireView = await (await call(`/manager/inspections/${fireClient}/corrections`, "supervisor")).json() as { supported: boolean; fields: unknown[] };
       assert.deepEqual([fireView.supported, fireView.fields.length], [false, 0], "Fire Alarm V7 is not correctable yet");
       const fireRefused = await call(`/manager/inspections/${fireClient}/corrections`, "supervisor", "POST", { requestId: id(), reason: "Should be refused outright", changes: [{ fieldPath: "controlPanelLocation", expectedCurrentValue: "Panel A", newValue: "Panel B" }] });
       assert.equal(fireRefused.status, 422);
       assert.equal((await fireRefused.json() as { error: string }).error, "CORRECTION_NOT_SUPPORTED");
       assert.equal(await count(), 3, "nothing was written for an unsupported record");
+
+      // T5c: a supervisor reviews any accepted record and its evidence; a technician sees only their own.
+      for (const [path, actor, status] of [
+        [`/wet-chemical-inspections/${client}`, "supervisor", 200],
+        [`/wet-chemical-inspections/${client}`, "inspector", 200],
+        [`/wet-chemical-inspections/${client}`, "foreign", 404],
+        [`/v7-evidence/accepted?inspectionClientUuid=${client}`, "supervisor", 200],
+        [`/master-system-inspections?jobId=${job}`, "supervisor", 200],
+        [`/inspections/${client}/corrections`, "supervisor", 200],
+        [`/inspections/${client}/corrections`, "inspector", 200],
+        [`/inspections/${client}/corrections`, "foreign", 404]
+      ] as const) {
+        const response = await call(path, actor);
+        assert.equal(response.status, status, `${actor} ${path}`);
+      }
+      const technicianView = await (await call(`/inspections/${client}/corrections`, "inspector")).json() as { corrections: Array<{ label: string; reason: string; newValue: unknown }> };
+      assert.equal(technicianView.corrections.length, 3, "the creating technician reads the corrections to their own record");
+      assert.ok(technicianView.corrections.every((correction) => correction.label.includes("›") && correction.reason.length > 0));
 
       // Append-only at the database level.
       await assert.rejects(pool.query("UPDATE inspection_corrections SET reason='rewritten'"), /append-only/);
