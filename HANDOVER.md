@@ -3,6 +3,13 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5a corrections API landed (committed on the branch, not merged).**
+Append-only `inspection_corrections` (migration 032 — needs running on the client DB at deploy); accepted
+records are never written; supervisors/admins correct V7 records of 8 systems through
+`/manager/inspections/:clientUuid/corrections`; PDF download is refused (409) for a corrected visit until
+the PDF work renders corrections. Next: T5b (Manager correction screen), T5c (accepted detail).
+Details: `docs/autopilot/BACKLOG.md` T5a, `docs/autopilot/designs/T5.md` §8b.
+
 **Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5 corrections design written — waiting for owner approval.**
 `docs/autopilot/designs/T5.md`: append-only `inspection_corrections` (migration 032) pointing at the
 accepted form instance; effective value = accepted value + latest correction; accepted rows never

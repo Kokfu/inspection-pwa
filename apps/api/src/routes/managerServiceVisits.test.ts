@@ -17,6 +17,9 @@ import { FinalReportError, loadFinalServiceReport } from "../reports/finalServic
 const openId = "71000000-0000-4000-8000-000000000001";
 const closedId = "71000000-0000-4000-8000-000000000002";
 const sampleId = "71000000-0000-4000-8000-000000000003";
+/** T5: when true the fake reports corrections on the visit, so the PDF routes must refuse it. */
+let visitCorrected = false;
+
 const snapshot = (customer: string) => ({
   schemaVersion: 1,
   customer: { id: "71000000-0000-4000-8000-000000000010", code: "OPS", displayName: customer },
@@ -41,6 +44,8 @@ class RouteDatabase {
       return { rows: [{ id, status: id === closedId ? "closed" : "open", configuration_snapshot: snapshot(id === closedId ? "Closed Customer" : "Open Customer"), completed_at: id === closedId ? "2026-08-20T10:00:00.000Z" : null, completed_by_user_id: id === closedId ? 9 : null, completed_by_username: null, completed_by_display_name: id === closedId ? "tech-one" : null }] };
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
+    // T5: the PDF routes ask whether the visit was corrected after submission.
+    if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -109,6 +114,16 @@ test("actual Manager and report routes enforce the admin/technician visibility m
     assert.equal((await get(`/inspection-jobs/${openId}/final-report.pdf`, "inspector")).status, 200);
     assert.equal((await get(`/inspection-jobs/${sampleId}/final-report.pdf`, "admin")).status, 404);
     assert.deepEqual(reportAccesses.filter((call) => call.jobId === closedId).map((call) => call.access), ["technician", "manager", "manager", "technician"]);
+    // T5: a visit corrected after submission serves no PDF until the report renders the corrections.
+    visitCorrected = true;
+    try {
+      for (const [path, actor] of [[`/manager/service-visits/${closedId}/final-report.pdf`, "admin"], [`/inspection-jobs/${openId}/final-report.pdf`, "inspector"]] as const) {
+        const refused = await get(path, actor);
+        assert.equal(refused.status, 409, path);
+        assert.equal((await refused.json() as { error: string }).error, "FINAL_REPORT_HAS_CORRECTIONS");
+      }
+      assert.equal((await get(`/manager/service-visits/${closedId}/final-report`, "admin")).status, 200, "the JSON report still serves the accepted values");
+    } finally { visitCorrected = false; }
   } finally {
     await close(server);
   }
@@ -139,6 +154,8 @@ class OperationalDatabase {
       return { rows: [{ id, status: id === closedId ? "closed" : "open", configuration_snapshot: snapshot(id === closedId ? "Closed Customer" : "Open Customer"), completed_at: id === closedId ? "2026-08-20T10:00:00.000Z" : null, completed_by_user_id: id === closedId ? 9 : null, completed_by_username: null, completed_by_display_name: id === closedId ? "tech-one" : null }] };
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
+    // T5: the PDF routes ask whether the visit was corrected after submission.
+    if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -343,6 +360,8 @@ class FilterableServiceVisitDatabase {
       };
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
+    // T5: the PDF routes ask whether the visit was corrected after submission.
+    if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }

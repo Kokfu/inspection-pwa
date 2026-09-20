@@ -166,9 +166,7 @@ Implement only after the owner writes APPROVED in `docs/autopilot/designs/T4.md`
 Read: backend-api-security, offline-first-pwa.
 
 ## T5 — Supervisor corrections with version/audit (design first)
-Status: NEEDS OWNER: review `docs/autopilot/designs/T5.md` and write APPROVED with answers to its §9 (V7 only?
-detector N/T/I excluded? corrections to Not Good without photo? technicians see corrections? PDF download
-for corrected visits until the PDF work integrates? reason mandatory?). Prerequisite: T4 DONE.
+Status: IN PROGRESS (design APPROVED 2026-09-20, `docs/autopilot/designs/T5.md`). Prerequisite: T4 DONE.
 Carried from T4 (owner, 2026-09-20): the design must also give supervisors read access to accepted
 detail (`masterSystemInspections` GETs) **and** evidence photos (`inspectionAttachments`, `stagedEvidence`
 accepted GETs); these still refuse supervisors after T4.
@@ -178,6 +176,37 @@ correction must therefore be an additive, versioned record that references the a
 how Accepted Detail and the Final Report show corrected values while keeping the original visible,
 and how this interacts with the PDF work (coordinate: do not edit report/PDF files; describe the
 view-model input the PDF work will need).
+
+## T5 split (autopilot, 2026-09-20) — the approved T5 design lands in three commits, each reviewed + gated
+- **T5a — API**: migration 032 (append-only `inspection_corrections`), correction rules (field allowlist,
+  frozen-contract re-validation through each system's accepted-detail validator, latest-wins apply),
+  `POST/GET /manager/inspections/:clientUuid/corrections`, `GET /manager/service-visits/:jobId/corrections`,
+  audit, PDF download refused (409) for corrected visits on both report routes.
+  Status: DONE (2026-09-20). Gate `Test-ManagerScheduling.ps1` exit 0 cold (10 node suites 0 fail/0 skip,
+  Playwright 63 passed). Integration: real accepted Wet Chemical V7 record — accepted row byte-identical
+  after corrections, append-only triggers (UPDATE/DELETE/TRUNCATE), 409 conflict, idempotent replay,
+  422 contract violations, 403/401 roles, audit rows, both PDF routes 409, Fire Alarm V7 refused 422.
+  Review: 2 rounds; R1 0 P0 / 1 P1 (untested fail-closed gate → unit + Fire Alarm V7 end-to-end tests) /
+  8 P2 (fixed: fake-shaped SQL → natural query + both fakes taught, prototype keys denied, corrupt stored
+  record refused before the synthetic-manifest pass, pool re-read, explicit ON DELETE RESTRICT, request_id
+  deviation documented); R2 0 P0 / 0 P1 / 8 P2 (fixed: ACCEPTED_RECORD_UNREADABLE code, adapter call inside
+  the guard, order-independent fingerprint, fieldPath length bound, depth cap, CREATE OR REPLACE, test flag
+  reset in finally; documented: label ambiguity when a definition reuses a control key).
+  Revert proofs: no append-only trigger → UPDATE test passes (:126); no concurrency check → stale test
+  fails (:90); no path denylist → 3 tests fail; no PDF gate → :136 fails; no contract re-check → :96 fails.
+  Known gap: no end-to-end V6 fixture (DB guards make a synthetic non-V7 row costly; the version clause is
+  unit-tested fail-closed).
+  Note: `apps/api/src/reports/finalServiceReport.test.ts` gained one `inspection_corrections` branch in its
+  fake DB (no report/PDF source touched) — see T5.md §8b.
+- **T5b — Manager web**: accepted records listed on the visit detail → generic correction screen (required
+  reason, unsaved-changes guard); Final Report view notice + corrections list; PDF button disabled.
+  Status: TODO. Prerequisite: T5a.
+- **T5c — Accepted detail**: supervisor read access to accepted-detail + evidence routes (T4 carry-over);
+  corrections shown (effective value + original) on accepted detail, technicians read-only.
+  Status: TODO. Prerequisite: T5b.
+- First cut supports the 8 V7 systems read through `acceptedDetailRow` (hose reel, CO2, wet chemical,
+  hydrant, automatic sprinkler, dry/wet riser, smoke ventilation, fire intercom). Fire Alarm V7 and Portable
+  Fire Extinguisher have their own storage/validators → `422 CORRECTION_NOT_SUPPORTED` until a follow-up.
 
 ## T6 — Report approval
 Status: TODO — DESIGN FIRST. Prerequisite: T4 DONE.

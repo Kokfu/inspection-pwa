@@ -91,6 +91,9 @@ const serviceVisitCoverFieldsMigrationUrl = new URL(
 const supervisorRoleMigrationUrl = new URL(
   "../../migrations/031_supervisor_role.sql", import.meta.url
 );
+const inspectionCorrectionsMigrationUrl = new URL(
+  "../../migrations/032_inspection_corrections.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -484,6 +487,13 @@ export async function runMigrations(
   );
   if (!supervisorRole.rows[0]?.exists) {
     await database.query(await readFile(supervisorRoleMigrationUrl, "utf8"));
+  }
+  // Migration 032 creates `inspection_corrections`; the table's presence is the replay marker.
+  const inspectionCorrections = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.inspection_corrections') IS NOT NULL AS exists`
+  );
+  if (!inspectionCorrections.rows[0]?.exists) {
+    await database.query(await readFile(inspectionCorrectionsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
