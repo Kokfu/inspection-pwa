@@ -247,9 +247,8 @@ detail responses, whose parsers are exact-key contracts. Recommendation: (b) for
 result is what a reader acts on; remarks/readings can stay panel-only.
 
 ## T6 — Report approval
-Status: NEEDS OWNER: review `docs/autopilot/designs/T6.md` and write APPROVED with answers to its §8
-(withdraw an approval? re-approval after a correction? technicians see the state? PDF only when approved?
-per visit? who approves?). Prerequisite: T4 DONE.
+Status: TODO (design APPROVED 2026-09-22, `docs/autopilot/designs/T6.md`, all six §8
+recommendations accepted). Prerequisite: T4 DONE.
 A completed visit's report moves `awaiting approval` → `approved` (by admin or supervisor), with audit.
 Decide whether technicians see the state and whether unapproved reports can be downloaded. Do not
 touch PDF rendering files.
