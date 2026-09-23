@@ -1,5 +1,6 @@
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { pool } from "../db/pool.js";
+import { formatReportNumber } from "../reports/companyProfile.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -45,6 +46,10 @@ export type CompletionJobRow = {
   completed_by_user_id: string | number | null;
   completed_by_username: string | null;
   completed_by_display_name: string | null;
+  service_date: string | null;
+  report_number: string | null;
+  assigned_technician_display_name: string | null;
+  technician_team_snapshot?: unknown;
 };
 
 export type AcceptedAuthorityRow = {
@@ -328,8 +333,11 @@ export function buildJobCompletion(
 const jobSelect = `
   SELECT job.id, job.status, job.configuration_snapshot,
     job.completed_at, job.completed_by_user_id, job.completed_by_display_name,
+    job.service_date::text, job.report_number, job.technician_team_snapshot,
+    creator.username AS assigned_technician_display_name,
     NULL::text AS completed_by_username
   FROM inspection_jobs job
+  LEFT JOIN users creator ON creator.id = job.created_by_user_id
   WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL`;
 
 const acceptedAuthoritySelect = `
@@ -407,14 +415,29 @@ export async function closeInspectionJob(
       await client.query("ROLLBACK");
       return { kind: "incomplete", completion: current };
     }
+    const reportYearText = job.service_date?.slice(0, 4);
+    const reportYear = reportYearText && /^\d{4}$/.test(reportYearText) ? Number(reportYearText) : undefined;
+    let reportNumber: string | null = null;
+    if (reportYear) {
+      const counter = (await client.query<{ sequence: string | number }>(`
+        INSERT INTO report_number_year_counters(report_year, last_sequence)
+        VALUES($1, 1)
+        ON CONFLICT (report_year) DO UPDATE
+          SET last_sequence = report_number_year_counters.last_sequence + 1
+        RETURNING last_sequence AS sequence`, [reportYear])).rows[0];
+      if (!counter) throw new Error("Report number sequence could not be allocated");
+      reportNumber = formatReportNumber(reportYear, Number(counter.sequence));
+    }
+    const technicians = job.assigned_technician_display_name ? [job.assigned_technician_display_name] : [];
     const completed = (await client.query<{
       completed_at: string | Date;
       completed_by_user_id: string | number;
     }>(`UPDATE inspection_jobs
          SET status = 'closed', completed_at = now(), completed_by_user_id = $2,
-             completed_by_display_name = $3
+             completed_by_display_name = $3, report_number = $4,
+             technician_team_snapshot = $5::jsonb
          WHERE id = $1 AND status = 'open'
-         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actor.username])).rows[0];
+         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actor.username, reportNumber, JSON.stringify(technicians)])).rows[0];
     if (!completed) throw new Error("Open job could not be completed while locked");
     await client.query(
       `INSERT INTO audit_events(actor_user_id, action, entity_type, entity_id, result, reason)

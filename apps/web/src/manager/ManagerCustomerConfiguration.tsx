@@ -10,6 +10,7 @@ import {
   locationConfigurableSystemKeys,
   ManagerApiError,
   saveCustomerContactDetails,
+  saveCustomerSiteAddress,
   saveManagerEvidencePolicy,
   saveManagerLocations,
   saveManagerSystemConfiguration,
@@ -28,15 +29,20 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(""); const [site, setSite] = useState("Primary Service Site"); const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
   const [telephone, setTelephone] = useState(""); const [contact, setContact] = useState("");
+  const [fax, setFax] = useState(""); const [contractNumber, setContractNumber] = useState("");
+  const [serviceFrequency, setServiceFrequency] = useState(""); const [siteAddress, setSiteAddress] = useState("");
   const catalog = customers[0]?.supportedSystems ?? [];
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
   return <section aria-labelledby="manager-customers-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-customers-title">Customer Configuration</h2><p>Manage customer service assignments online.</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>Refresh</button></div>
     {message || error ? <p className="form-message" role="alert">{error || message}</p> : null}
     <button type="button" onClick={() => { setAdding(true); setError(""); }}>Add Customer</button>
-    {adding ? <form className="report-summary" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { await createManagerCustomer({ displayName: name, siteDisplayName: site, systemKeys: keys, ...(telephone.trim() ? { contactPhone: telephone.trim() } : {}), ...(contact.trim() ? { contactPerson: contact.trim() } : {}) }); setAdding(false); setName(""); setKeys([]); setTelephone(""); setContact(""); await onRefresh(); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Customer could not be created."); } finally { setSaving(false); } }}>
+    {adding ? <form className="report-summary" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { await createManagerCustomer({ displayName: name, siteDisplayName: site, systemKeys: keys, ...(telephone.trim() ? { contactPhone: telephone.trim() } : {}), ...(contact.trim() ? { contactPerson: contact.trim() } : {}), ...(fax.trim() ? { fax: fax.trim() } : {}), ...(contractNumber.trim() ? { contractNumber: contractNumber.trim() } : {}), ...(serviceFrequency ? { serviceFrequency } : {}), ...(siteAddress.trim() ? { siteAddress: siteAddress.trim() } : {}) }); setAdding(false); setName(""); setKeys([]); setTelephone(""); setContact(""); setFax(""); setContractNumber(""); setServiceFrequency(""); setSiteAddress(""); await onRefresh(); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Customer could not be created."); } finally { setSaving(false); } }}>
       <h3>Add Customer</h3><label>Customer display name<input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label><label>Initial Site<input required maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
       <label>Telephone No<input maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label><label>Contact<input maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>
+      <label>Fax<input maxLength={40} value={fax} onChange={(event) => setFax(event.target.value)} /></label><label>Contract No.<input maxLength={160} value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} /></label>
+      <label>Service Frequency<select value={serviceFrequency} onChange={(event) => setServiceFrequency(event.target.value)}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></label>
+      <label>Site Address<input maxLength={500} value={siteAddress} onChange={(event) => setSiteAddress(event.target.value)} /></label>
       <fieldset className="manager-service-picker"><legend>Initial Assigned Services</legend>{catalog.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>
       <div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={() => setAdding(false)}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Creating…" : "Create Customer"}</button></div>
     </form> : null}
@@ -50,7 +56,7 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   /** Opens the per-service editor (Form wording / Preset rows / Settings) for one service. */
   onOpenService?: (systemKey: string) => void;
 }) {
-  const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
+  const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [newSiteAddress, setNewSiteAddress] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
   const [newRiserMode, setNewRiserMode] = useState("");
   useEffect(() => { setKeys(customer.configuration.enabledSystems.map((system) => system.key)); setNewRiserMode(""); }, [customer]);
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -97,7 +103,7 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     <ManagerCustomerContactDetails customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <li key={site.id}>{site.displayName}</li>)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName)); setAddingSite(false); setSiteName(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
+    <section className="report-summary"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <ManagerSiteAddress key={site.id} customerId={customer.customer.id} site={site} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName, newSiteAddress)); setAddingSite(false); setSiteName(""); setNewSiteAddress(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><label>Site Address<input maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <ManagerCustomerServices customer={customer} onOpenService={onOpenService} />
     <ManagerCustomerServiceHistory
       customer={customer}
@@ -120,17 +126,22 @@ function ManagerCustomerContactDetails({ customer, onSaved, onAuthorityFailure }
   const [editing, setEditing] = useState(false);
   const [telephone, setTelephone] = useState(customer.customer.contactPhone ?? "");
   const [contact, setContact] = useState(customer.customer.contactPerson ?? "");
+  const [fax, setFax] = useState(customer.customer.fax ?? "");
+  const [contractNumber, setContractNumber] = useState(customer.customer.contractNumber ?? "");
+  const [serviceFrequency, setServiceFrequency] = useState(customer.customer.serviceFrequency ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     setTelephone(customer.customer.contactPhone ?? "");
     setContact(customer.customer.contactPerson ?? "");
+    setFax(customer.customer.fax ?? ""); setContractNumber(customer.customer.contractNumber ?? ""); setServiceFrequency(customer.customer.serviceFrequency ?? "");
     setEditing(false);
   }, [customer]);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
     try {
-      onSaved(await saveCustomerContactDetails(customer.customer.id, telephone.trim() || null, contact.trim() || null));
+      onSaved(await saveCustomerContactDetails(customer.customer.id, telephone.trim() || null, contact.trim() || null,
+        fax.trim() || null, contractNumber.trim() || null, serviceFrequency || null));
       setEditing(false);
     } catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -145,13 +156,24 @@ function ManagerCustomerContactDetails({ customer, onSaved, onAuthorityFailure }
       ? <form onSubmit={submit}>
           <label>Telephone No<input maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label>
           <label>Contact<input maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>
+          <label>Fax<input maxLength={40} value={fax} onChange={(event) => setFax(event.target.value)} /></label>
+          <label>Contract No.<input maxLength={160} value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} /></label>
+          <label>Service Frequency<select value={serviceFrequency} onChange={(event) => setServiceFrequency(event.target.value)}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></label>
           <div className="inline-actions">
             <button type="button" className="secondary-command" disabled={saving} onClick={() => { setEditing(false); setError(""); setTelephone(customer.customer.contactPhone ?? ""); setContact(customer.customer.contactPerson ?? ""); }}>Cancel</button>
             <button disabled={saving}>{saving ? "Saving…" : "Save"}</button>
           </div>
         </form>
-      : <p>Telephone No: {customer.customer.contactPhone || "Not set"} · Contact: {customer.customer.contactPerson || "Not set"}</p>}
+      : <p>Telephone No: {customer.customer.contactPhone || "Not set"} · Fax: {customer.customer.fax || "Not set"} · Contact: {customer.customer.contactPerson || "Not set"} · Contract No.: {customer.customer.contractNumber || "Not set"} · Frequency: {customer.customer.serviceFrequency || "Not set"}</p>}
   </section>;
+}
+
+function ManagerSiteAddress({ customerId, site, onSaved, onAuthorityFailure }: {
+  customerId: string; site: ManagerCustomer["sites"][number]; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
+}) {
+  const [address, setAddress] = useState(site.address ?? ""); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  useEffect(() => setAddress(site.address ?? ""), [site]);
+  return <li><strong>{site.displayName}</strong><form onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { onSaved(await saveCustomerSiteAddress(customerId, site.id, address.trim() || null)); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site address could not be saved."); } finally { setSaving(false); } }}><label>Site Address<input maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></label><button disabled={saving}>{saving ? "Saving…" : "Save Address"}</button>{error ? <span role="alert">{error}</span> : null}</form></li>;
 }
 
 /**

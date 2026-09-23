@@ -26,8 +26,8 @@ export type ManagerServiceVisit = {
 };
 
 export type ManagerCustomer = {
-  customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null };
-  sites: Array<{ id: string; code: string; displayName: string }>;
+  customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null; fax?: string | null; contractNumber?: string | null; serviceFrequency?: string | null };
+  sites: Array<{ id: string; code: string; displayName: string; address?: string | null }>;
   configuration: {
     id: string;
     revision: number;
@@ -83,12 +83,23 @@ export async function saveCustomerNextServiceDueDate(id: string, nextServiceDueD
   return result;
 }
 export async function saveCustomerContactDetails(
-  id: string, contactPhone: string | null, contactPerson: string | null
+  id: string, contactPhone: string | null, contactPerson: string | null, fax: string | null,
+  contractNumber: string | null, serviceFrequency: string | null
 ): Promise<ManagerCustomer> {
-  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/contact-details`, "PUT", "customer", { contactPhone, contactPerson });
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/contact-details`, "PUT", "customer", { contactPhone, contactPerson, fax, contractNumber, serviceFrequency });
   if (!isManagerCustomer(result) || result.customer.id !== id
     || (result.customer.contactPhone ?? null) !== contactPhone
-    || (result.customer.contactPerson ?? null) !== contactPerson) unavailable();
+    || (result.customer.contactPerson ?? null) !== contactPerson
+    || (result.customer.fax ?? null) !== fax
+    || (result.customer.contractNumber ?? null) !== contractNumber
+    || (result.customer.serviceFrequency ?? null) !== serviceFrequency) unavailable();
+  return result;
+}
+
+export async function saveCustomerSiteAddress(customerId: string, siteId: string, address: string | null): Promise<ManagerCustomer> {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(customerId)}/sites/${encodeURIComponent(siteId)}/address`, "PUT", "customer", { address });
+  if (!isManagerCustomer(result) || result.customer.id !== customerId
+    || (result.sites.find((site) => site.id === siteId)?.address ?? null) !== address) unavailable();
   return result;
 }
 export async function loadUpcomingServices(signal?: AbortSignal): Promise<UpcomingServices> {
@@ -262,13 +273,14 @@ export function loadManagerCustomer(customerId: string, signal?: AbortSignal) {
 
 export function createManagerCustomer(input: {
   displayName: string; siteDisplayName: string; systemKeys: string[];
-  contactPhone?: string; contactPerson?: string;
+  contactPhone?: string; contactPerson?: string; fax?: string; contractNumber?: string;
+  serviceFrequency?: string; siteAddress?: string;
 }) {
   return managerRequest<ManagerCustomer>("/api/manager/customers", "POST", "customer", input);
 }
 
-export function createManagerCustomerSite(customerId: string, displayName: string) {
-  return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}/sites`, "POST", "customer", { displayName });
+export function createManagerCustomerSite(customerId: string, displayName: string, address?: string) {
+  return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}/sites`, "POST", "customer", { displayName, ...(address?.trim() ? { address: address.trim() } : {}) });
 }
 
 export function activateManagerCustomerConfiguration(
@@ -574,6 +586,9 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
       || typeof value.customer.displayName !== "string"
       || (value.customer.contactPhone !== undefined && value.customer.contactPhone !== null && typeof value.customer.contactPhone !== "string")
       || (value.customer.contactPerson !== undefined && value.customer.contactPerson !== null && typeof value.customer.contactPerson !== "string")
+      || (value.customer.fax !== undefined && value.customer.fax !== null && typeof value.customer.fax !== "string")
+      || (value.customer.contractNumber !== undefined && value.customer.contractNumber !== null && typeof value.customer.contractNumber !== "string")
+      || (value.customer.serviceFrequency !== undefined && value.customer.serviceFrequency !== null && !["MONTHLY", "QUARTERLY", "HALF_YEARLY", "ANNUALLY"].includes(String(value.customer.serviceFrequency)))
     || !isPlainObject(value.configuration)
       || typeof value.configuration.id !== "string"
       || typeof value.configuration.revision !== "number"
@@ -592,7 +607,8 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
     && typeof entry.sortOrder === "number" && typeof entry.assignable === "boolean"
     && (entry.unavailableReason === undefined || typeof entry.unavailableReason === "string");
   const siteEntry = (entry: unknown) => isPlainObject(entry)
-    && typeof entry.id === "string" && typeof entry.code === "string" && typeof entry.displayName === "string";
+    && typeof entry.id === "string" && typeof entry.code === "string" && typeof entry.displayName === "string"
+    && (entry.address === undefined || entry.address === null || typeof entry.address === "string");
   return value.configuration.enabledSystems.every(enabledEntry)
     && value.sites.every(siteEntry)
     && value.supportedSystems.every(supportedEntry);

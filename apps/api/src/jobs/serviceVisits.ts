@@ -15,8 +15,11 @@ export type CreateServiceVisitInput = {
   departureTime?: string | null;
 };
 
-type CustomerRow = { id: string; code: string; displayName: string; contactPhone: string | null; contactPerson: string | null };
-type SiteRow = { id: string; customerId: string; displayName: string };
+type CustomerRow = {
+  id: string; code: string; displayName: string; contactPhone: string | null; contactPerson: string | null;
+  fax: string | null; contractNumber: string | null; serviceFrequency: string | null;
+};
+type SiteRow = { id: string; customerId: string; displayName: string; address: string | null };
 type ConfigurationRow = {
   revisionId: string; revisionNumber: number; templateId: string;
   templateCode: string; templateName: string; templateVersion: number;
@@ -166,7 +169,7 @@ async function buildSnapshot(
   return {
     schemaVersion: 1,
     customer,
-    site: { id: site.id, displayName: site.displayName },
+    site: { id: site.id, displayName: site.displayName, address: site.address },
     configuration: { revisionId: configuration.revisionId, revisionNumber: configuration.revisionNumber },
     template: { id: configuration.templateId, code: configuration.templateCode, name: configuration.templateName, version: configuration.templateVersion },
     enabledSystems: systems.map((system) => {
@@ -236,12 +239,13 @@ export async function createServiceVisit(
     }
 
     const customerResult = await client.query<CustomerRow>(`SELECT id, customer_code AS code,
-      display_name AS "displayName", contact_phone AS "contactPhone", contact_person AS "contactPerson"
+      display_name AS "displayName", contact_phone AS "contactPhone", contact_person AS "contactPerson",
+      fax, contract_number AS "contractNumber", service_frequency AS "serviceFrequency"
       FROM customers WHERE id = $1 AND is_active = true FOR SHARE`, [input.customerId]);
     const customer = customerResult.rows[0];
     if (!customer) throw new ServiceVisitError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
     const siteResult = await client.query<SiteRow>(`SELECT id, customer_id AS "customerId",
-      display_name AS "displayName" FROM customer_sites
+      display_name AS "displayName", address FROM customer_sites
       WHERE id = $1 AND customer_id = $2 AND is_active = true FOR SHARE`, [input.siteId, input.customerId]);
     const site = siteResult.rows[0];
     if (!site) throw new ServiceVisitError("SITE_NOT_FOUND", "Site was not found for the selected customer.", 404);

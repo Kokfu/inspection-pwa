@@ -3,6 +3,17 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-23 — **Report R4 cover-field implementation completed (uncommitted).**
+Migration 031 adds nullable customer fax/contract/frequency, site address, immutable job report
+number/team snapshots, and a per-year concurrency-safe counter without backfilling history.
+Service-visit creation freezes customer/site cover values; completion allocates the report number
+once and freezes the existing creator assignment as the current technician team. Final reports use
+only those frozen values. Manager and technician customer-create flows now collect the four fields,
+and the Manager customer page edits customer cover details and per-site addresses. Focused unit,
+integration, concurrency, migration-replay, frozen-PDF, typecheck, build, historical, V6 and V7
+gates are green with zero skips where run; live rebuilt-container download proof remains to be
+recorded below before final acceptance.
+
 **Last updated:** 2026-09-19 — **Known issue closed: `Test-ManagerScheduling.ps1` no longer fails without `REPORT_CHROMIUM_PATH` or hangs with it (uncommitted; one test script only).**
 Only `scripts/Test-ManagerScheduling.ps1` changed. The fixes mirror `scripts/Test-V7LiveBrowser.ps1`:
 (1) When `REPORT_CHROMIUM_PATH` is unset, it is resolved from Playwright's `chromium.executablePath()`

@@ -40,7 +40,9 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
       technician_visible, customer_id, customer_configuration_revision_id, configuration_snapshot, site_id, service_date
     ) SELECT $1, template_id, master_template_version_id, 'SV-20260820-9001',
       $2::text, 'open', false, true, customer_id, customer_configuration_revision_id,
-      configuration_snapshot || jsonb_build_object('site', jsonb_build_object('id',$3::uuid,'displayName',$2::text)),
+      configuration_snapshot || jsonb_build_object(
+        'customer', configuration_snapshot->'customer' || jsonb_build_object('fax','03-222','contractNumber','C-44','serviceFrequency','QUARTERLY'),
+        'site', jsonb_build_object('id',$3::uuid,'displayName',$2::text,'address','44 Frozen Road')),
       $3::uuid, '2026-08-20'::date FROM inspection_jobs WHERE id=$4`, [reportJobId, site!.display_name, site!.id, seedCo2JobId]);
     const job = (await pool.query<any>("SELECT * FROM inspection_jobs WHERE id=$1", [reportJobId])).rows[0];
     const frozenSystem = job.configuration_snapshot.enabledSystems.find((system: any) => system.systemKey === "co2_fire_extinguisher");
@@ -80,11 +82,26 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
 
     const report = await loadFinalServiceReport(reportJobId, pool);
     assert.equal(report.completedBy, "report-tech");
+    assert.equal(report.fax, "03-222");
+    assert.equal(report.contractNumber, "C-44");
+    assert.equal(report.serviceFrequency, "QUARTERLY");
+    assert.equal(report.siteAddress, "44 Frozen Road");
     assert.equal(report.sections.length, 6, "all frozen CO2 locations remain distinct report units");
     assert.equal(new Set(report.sections.map((section) => section.location?.instanceKey)).size, 6);
     assert.ok(report.sections.every((section) => section.location?.zoneLabel && section.location.locationLabel));
     const pdf = await renderFinalServiceReportPdf(report);
     assert.equal(pdf.subarray(0, 5).toString("binary"), "%PDF-");
+
+    await pool.query("UPDATE customers SET fax='changed', contract_number='changed', service_frequency='ANNUALLY' WHERE id=$1", [job.customer_id]);
+    await pool.query("UPDATE customer_sites SET address='Changed live address' WHERE id=$1", [site!.id]);
+    const frozenAfterCustomerEdit = await loadFinalServiceReport(reportJobId, pool);
+    assert.equal(frozenAfterCustomerEdit.fax, "03-222");
+    assert.equal(frozenAfterCustomerEdit.contractNumber, "C-44");
+    assert.equal(frozenAfterCustomerEdit.serviceFrequency, "QUARTERLY");
+    assert.equal(frozenAfterCustomerEdit.siteAddress, "44 Frozen Road");
+    const stablePdf = (value: Buffer) => value.toString("binary")
+      .replace(/\/(CreationDate|ModDate) \(D:[^)]+\)/g, "/$1 (VOLATILE)");
+    assert.equal(stablePdf(await renderFinalServiceReportPdf(frozenAfterCustomerEdit)), stablePdf(pdf), "live customer/site edits cannot change the issued PDF content");
 
     const frozenRevision = job.customer_configuration_revision_id as string;
     const frozenSnapshot = JSON.stringify(job.configuration_snapshot);

@@ -59,13 +59,16 @@ export type FinalReportSection = { systemKey: string; label: string; location?: 
 export type FinalReportSystemCondition = "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED";
 export type FinalServiceReport = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
-  telephone?: string; contact?: string; serviceCallNumber?: string; arrival?: string; departure?: string;
+  reportNumber?: string; telephone?: string; fax?: string; contact?: string; siteAddress?: string;
+  contractNumber?: string; serviceFrequency?: string; technicians?: string[];
+  serviceCallNumber?: string; arrival?: string; departure?: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: FinalReportSystemCondition; conditionDetail: string; locations: string[] }>;
   sections: FinalReportSection[];
 };
 
 type ReportJobRow = CompletionJobRow & {
   reference: string; title: string; service_date: string | null;
+  report_number: string | null;
   service_call_number: string | null; arrival_time: string | null; departure_time: string | null;
 };
 type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
@@ -87,6 +90,13 @@ function optionalReportText(value: unknown, maximum: number, message: string): s
   if (value === undefined || value === null) return undefined;
   if (!text(value, maximum)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, message);
   return value;
+}
+function frozenTechnicians(value: unknown, fallback: string): string[] {
+  if (value === undefined) return [fallback];
+  if (!Array.isArray(value) || value.length > 20 || value.some((name) => !text(name, 160))) {
+    throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Completed technician assignment is invalid.");
+  }
+  return value as string[];
 }
 function optionalAssetReference(value: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -722,7 +732,7 @@ export async function loadFinalServiceReport(
   const jobResult = await database.query<ReportJobRow>(`SELECT job.id, job.status, job.configuration_snapshot, job.completed_at, job.completed_by_user_id,
       job.completed_by_display_name, NULL::text AS completed_by_username,
       job.job_reference AS reference, job.title, job.service_date::text AS service_date,
-      job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time, to_char(job.departure_time, 'HH24:MI') AS departure_time
+      job.report_number, job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time, to_char(job.departure_time, 'HH24:MI') AS departure_time
     FROM inspection_jobs job
     WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL
       AND ${accessClause}
@@ -737,12 +747,25 @@ export async function loadFinalServiceReport(
   const frozenSite = frozen && isRecord(frozen.site) ? frozen.site.displayName : undefined;
   const frozenTelephone = frozen && isRecord(frozen.customer) ? frozen.customer.contactPhone : undefined;
   const frozenContact = frozen && isRecord(frozen.customer) ? frozen.customer.contactPerson : undefined;
+  const frozenFax = frozen && isRecord(frozen.customer) ? frozen.customer.fax : undefined;
+  const frozenContractNumber = frozen && isRecord(frozen.customer) ? frozen.customer.contractNumber : undefined;
+  const frozenServiceFrequency = frozen && isRecord(frozen.customer) ? frozen.customer.serviceFrequency : undefined;
+  const frozenSiteAddress = frozen && isRecord(frozen.site) ? frozen.site.address : undefined;
   const customer = requiredText(frozenCustomer, 250, "Completed service visit details are incomplete and cannot be reported.");
   const site = requiredText(frozenSite, 300, "Completed service visit details are incomplete and cannot be reported.");
   const reference = requiredText(job.reference, 250, "Completed service visit details are incomplete and cannot be reported.");
   const serviceDate = requiredText(job.service_date, 10, "Completed service visit details are incomplete and cannot be reported.");
   const telephone = optionalReportText(frozenTelephone, 40, "Completed service visit details are incomplete and cannot be reported.");
   const contact = optionalReportText(frozenContact, 160, "Completed service visit details are incomplete and cannot be reported.");
+  const fax = optionalReportText(frozenFax, 40, "Completed service visit details are incomplete and cannot be reported.");
+  const contractNumber = optionalReportText(frozenContractNumber, 160, "Completed service visit details are incomplete and cannot be reported.");
+  const serviceFrequency = optionalReportText(frozenServiceFrequency, 20, "Completed service visit details are incomplete and cannot be reported.");
+  if (serviceFrequency !== undefined && !["MONTHLY", "QUARTERLY", "HALF_YEARLY", "ANNUALLY"].includes(serviceFrequency)) {
+    throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Completed service frequency is invalid.");
+  }
+  const siteAddress = optionalReportText(frozenSiteAddress, 500, "Completed service visit details are incomplete and cannot be reported.");
+  const reportNumber = optionalReportText(job.report_number, 100, "Completed report number is invalid.");
+  const technicians = frozenTechnicians(job.technician_team_snapshot, job.completed_by_display_name);
   const serviceCallNumber = optionalReportText(job.service_call_number, 80, "Completed service visit details are incomplete and cannot be reported.");
   const arrival = job.arrival_time ?? undefined;
   const departure = job.departure_time ?? undefined;
@@ -797,7 +820,8 @@ export async function loadFinalServiceReport(
   }
   return { customer, site, serviceDate, jobReference: reference,
     completedAt: job.completed_at instanceof Date ? job.completed_at.toISOString() : job.completed_at!, completedBy: job.completed_by_display_name!,
-    telephone, contact, serviceCallNumber, arrival, departure,
+    reportNumber, telephone, fax, contact, siteAddress, contractNumber, serviceFrequency, technicians,
+    serviceCallNumber, arrival, departure,
     systems: completion.systems.map((item) => {
       const { condition, conditionDetail } = deriveSystemCondition(sections.filter((section) => section.systemKey === item.systemKey));
       return { systemKey: item.systemKey, label: item.systemLabel, status: "Accepted" as const, condition, conditionDetail, locations: item.units.map((unit) => unit.label) };

@@ -29,6 +29,10 @@ test("blank fields stay empty; no invented values; empty comments are a ruled bo
  const vm=buildReportViewModel({customer:'Test',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[{systemKey:'test',label:'System',fields:[],evidence:[]}]});
  const html=renderReportHtml(vm);assert.doesNotMatch(html,/undefined|null|Not recorded|No comments recorded/);assert.match(html,/No defects found\./);assert.match(html,/data-bind="report.number"><\/b>/);assert.doesNotMatch(html,/PARTS \/ RECTIFICATION REQUIRED/);
 });
+test("R4 cover values render in the approved existing cells",()=>{
+ const vm=buildReportViewModel({customer:'Customer',site:'Site',siteAddress:'42 Test Road',serviceDate:'2026-09-18',jobReference:'Job',reportNumber:'MFE/SR/2026/0042',fax:'03-555',contractNumber:'CON-42',serviceFrequency:'MONTHLY',technicians:['Tech A','Tech B'],completedAt:'2026-09-18T00:00:00Z',completedBy:'Lead',systems:[],sections:[]});
+ const html=renderReportHtml(vm);for(const value of ['MFE/SR/2026/0042','Site — 42 Test Road','03-555','CON-42','Monthly','Tech A · Tech B'])assert.ok(html.includes(value));
+});
 test("checklist Req/Unit and Reading pair, and Remarks hide only when the whole block is empty",()=>{
  const base={kind:'checklist' as const,key:'x',sectionKey:'x',sectionTitle:'X',title:'X',rows:[{no:1,key:'r',label:'Row',unit:null,reading:null,result:reportResult('good'),remark:null}]};
  assert.doesNotMatch(checklist(base),/Req \/ Unit|Reading|Remarks/);

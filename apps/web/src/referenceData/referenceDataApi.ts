@@ -45,6 +45,10 @@ export async function createTechnicianCustomer(input: {
   systemKeys: string[];
   contactPhone?: string;
   contactPerson?: string;
+  fax?: string;
+  contractNumber?: string;
+  serviceFrequency?: string;
+  siteAddress?: string;
 }): Promise<ReferenceCustomer> {
   const response = await fetch("/api/customers", {
     method: "POST", credentials: "same-origin",

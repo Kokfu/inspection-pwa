@@ -40,7 +40,9 @@ function job(status: "open" | "closed" = "open"): CompletionJobRow {
     completed_at: status === "closed" ? "2026-08-13T01:00:00.000Z" : null,
     completed_by_user_id: status === "closed" ? 7 : null,
     completed_by_username: status === "closed" ? "first-inspector" : null,
-    completed_by_display_name: status === "closed" ? "first-inspector" : null
+    completed_by_display_name: status === "closed" ? "first-inspector" : null,
+    service_date: "2026-08-13", report_number: status === "closed" ? "MFE/SR/2026/0001" : null,
+    assigned_technician_display_name: "first-inspector"
   };
 }
 
@@ -190,11 +192,14 @@ class FakeCompletionDatabase {
       if (normalized.includes("FROM master_system_form_instances instance") && normalized.includes("inspection.job_id = $1")) {
         return { rowCount: this.rows.length, rows: this.rows };
       }
+      if (normalized.startsWith("INSERT INTO report_number_year_counters")) return { rowCount: 1, rows: [{ sequence: "1" }] };
       if (normalized.startsWith("UPDATE inspection_jobs")) {
         if (this.state.status !== "open") return { rowCount: 0, rows: [] };
         this.state = {
           ...this.state, status: "closed", completed_at: "2026-08-13T02:00:00.000Z",
-          completed_by_user_id: Number(values[1]), completed_by_username: "first-inspector"
+          completed_by_user_id: Number(values[1]), completed_by_username: "first-inspector",
+          completed_by_display_name: String(values[2]), report_number: String(values[3]),
+          technician_team_snapshot: JSON.parse(String(values[4]))
         };
         this.updates += 1;
         return { rowCount: 1, rows: [{ completed_at: this.state.completed_at, completed_by_user_id: values[1] }] };

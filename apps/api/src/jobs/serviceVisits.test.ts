@@ -20,6 +20,7 @@ const wetChemicalDefinition = masterServiceReportV4.systems.find((system) => sys
 
 class FakeServiceVisitDatabase {
   inserts = 0;
+  insertedSnapshot: any;
   rollbacks = 0;
   oldCompletedJob = { id: "old-completed", status: "closed", reference: "OLD-001", completedAt: "2026-08-13T00:00:00.000Z" };
 
@@ -28,8 +29,8 @@ class FakeServiceVisitDatabase {
     if (normalized === "BEGIN" || normalized === "COMMIT") return { rows: [], rowCount: 0 };
     if (normalized === "ROLLBACK") { this.rollbacks += 1; return { rows: [], rowCount: 0 }; }
     if (normalized.includes("WHERE job.creation_request_id")) return { rows: [], rowCount: 0 };
-    if (normalized.includes("FROM customers")) return { rows: [{ id: ids.customer, code: "C-1", displayName: "Customer A" }], rowCount: 1 };
-    if (normalized.includes("FROM customer_sites")) return { rows: [{ id: ids.site, customerId: ids.customer, displayName: "Site A" }], rowCount: 1 };
+    if (normalized.includes("FROM customers")) return { rows: [{ id: ids.customer, code: "C-1", displayName: "Customer A", contactPhone: "03-111", contactPerson: "Contact A", fax: "03-222", contractNumber: "C-42", serviceFrequency: "MONTHLY" }], rowCount: 1 };
+    if (normalized.includes("FROM customer_sites")) return { rows: [{ id: ids.site, customerId: ids.customer, displayName: "Site A", address: "42 Test Road" }], rowCount: 1 };
     if (normalized.includes("FROM customer_configuration_revisions")) return { rows: [{ revisionId: ids.revision, revisionNumber: 1, templateId: ids.template, templateCode: "MFE-FSSR", templateName: "Master", templateVersion: 1 }], rowCount: 1 };
     if (normalized.includes("FROM customer_enabled_systems")) return { rows: values[1] instanceof Array && values[1][0] === "hose_reel" ? [{ enabledSystemId: ids.enabled, systemKey: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", definition: hoseDefinition, evidencePolicyId: null, evidencePolicyCode: null, evidencePolicyVersion: null, evidencePolicySchemaVersion: null, evidencePolicyDefinition: null, evidencePolicySha256: null, systemConfiguration: {} }] : [], rowCount: values[1] instanceof Array && values[1][0] === "hose_reel" ? 1 : 0 };
     if (normalized.includes("FROM customer_system_zones") || normalized.includes("FROM customer_system_locations")) return { rows: [], rowCount: 0 };
@@ -37,6 +38,7 @@ class FakeServiceVisitDatabase {
     if (normalized.includes("nextval('service_visit_reference_sequence')")) return { rows: [{ next: "42" }], rowCount: 1 };
     if (normalized.startsWith("INSERT INTO inspection_jobs")) {
       this.inserts += 1;
+      this.insertedSnapshot = JSON.parse(String(values[6]));
       return { rows: [{ id: "20000000-0000-4000-8000-000000000001", reference: "SV-20260818-42", title: "Site A", createdAt: "2026-08-18T00:00:00.000Z", serviceDate: "2026-08-18", serviceTime: "09:30", siteId: ids.site, configurationSnapshot: { enabledSystems: [{ systemKey: "hose_reel" }] } }], rowCount: 1 };
     }
     throw new Error(`Unexpected SQL: ${normalized}`);
@@ -159,6 +161,8 @@ test("new service visit is server-identified, scheduled, blank, and leaves compl
   assert.equal(database.inserts, 1);
   assert.equal(result.id, "20000000-0000-4000-8000-000000000001");
   assert.equal(result.idempotent, false);
+  assert.deepEqual(database.insertedSnapshot.customer, { id: ids.customer, code: "C-1", displayName: "Customer A", contactPhone: "03-111", contactPerson: "Contact A", fax: "03-222", contractNumber: "C-42", serviceFrequency: "MONTHLY" });
+  assert.deepEqual(database.insertedSnapshot.site, { id: ids.site, displayName: "Site A", address: "42 Test Road" });
   assert.deepEqual(database.oldCompletedJob, { id: "old-completed", status: "closed", reference: "OLD-001", completedAt: "2026-08-13T00:00:00.000Z" });
 });
 

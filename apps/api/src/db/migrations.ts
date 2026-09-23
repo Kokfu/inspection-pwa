@@ -88,6 +88,9 @@ const customerContactDetailsMigrationUrl = new URL(
 const serviceVisitCoverFieldsMigrationUrl = new URL(
   "../../migrations/030_service_visit_cover_fields.sql", import.meta.url
 );
+const reportCoverFieldsMigrationUrl = new URL(
+  "../../migrations/031_report_cover_fields.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -472,6 +475,13 @@ export async function runMigrations(
   );
   if (!serviceVisitCoverFields.rows[0]?.exists) {
     await database.query(await readFile(serviceVisitCoverFieldsMigrationUrl, "utf8"));
+  }
+  const reportCoverFields = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='inspection_jobs'::regclass
+      AND attname='report_number' AND NOT attisdropped) AS exists`
+  );
+  if (!reportCoverFields.rows[0]?.exists) {
+    await database.query(await readFile(reportCoverFieldsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

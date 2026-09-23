@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   deriveSystemCondition, sectionRemarkLines, v7DisplayLabelLookup, v7DisplayResponseKeyAliases,
   type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
 } from "./finalServiceReport.js";
+import { companyProfile, type CompanyProfile } from "./companyProfile.js";
+export { companyProfile, companyProfileAssetPath, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
 
 /**
  * R1 — structured Final Service Report view model (docs/report-template/README.md §2–§5).
@@ -22,48 +22,6 @@ import {
 type RecordValue = Record<string, unknown>;
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const nonEmpty = (value: unknown): string | null => typeof value === "string" && value.trim() !== "" ? value.trim() : null;
-
-/* ------------------------------------------------------------------ company */
-
-export type CompanyProfile = {
-  confirmed: boolean;
-  legalName: string; registrationNo: string; address: string;
-  tel: string; fax: string; email: string; complaintHotline: string;
-  logoFile: string;
-  verifiedBy: { name: string; title: string };
-  reportNumberFormat: string;
-  /** "default" when the asset file was missing or unreadable. */
-  source: "file" | "default";
-};
-
-export const companyProfileAssetPath = fileURLToPath(new URL("./assets/company-profile.json", import.meta.url));
-
-export function defaultCompanyProfile(): CompanyProfile {
-  return { confirmed: false, legalName: "", registrationNo: "", address: "", tel: "", fax: "", email: "", complaintHotline: "", logoFile: "", verifiedBy: { name: "", title: "" }, reportNumberFormat: "", source: "default" };
-}
-
-/** Missing / unparsable file -> all blanks. A single malformed value -> that value blank. Never throws. */
-export function loadCompanyProfile(file: string = companyProfileAssetPath): CompanyProfile {
-  let raw: unknown;
-  try { raw = JSON.parse(readFileSync(file, "utf8").replace(/^﻿/, "")); } catch { return defaultCompanyProfile(); }
-  if (!isRecord(raw)) return defaultCompanyProfile();
-  const str = (value: unknown, maximum = 500) => typeof value === "string" && value.length <= maximum ? value.trim() : "";
-  const verifiedBy = isRecord(raw.verifiedBy) ? raw.verifiedBy : {};
-  const logo = str(raw.logoFile, 100);
-  return {
-    confirmed: raw.confirmed === true,
-    legalName: str(raw.legalName), registrationNo: str(raw.registrationNo, 100), address: str(raw.address),
-    tel: str(raw.tel, 100), fax: str(raw.fax, 100), email: str(raw.email, 200), complaintHotline: str(raw.complaintHotline, 100),
-    // A bare file name inside reports/assets only — never a path.
-    logoFile: /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(logo) ? logo : "",
-    verifiedBy: { name: str(verifiedBy.name, 200), title: str(verifiedBy.title, 200) },
-    reportNumberFormat: str(raw.reportNumberFormat, 100),
-    source: "file"
-  };
-}
-
-/** Read once at startup. */
-export const companyProfile: CompanyProfile = loadCompanyProfile();
 
 /* ------------------------------------------------------------------ results */
 
@@ -418,16 +376,16 @@ export function summaryMainFinding(remarks: readonly ReportRemark[]): string {
 export function buildReportViewModel(report: FinalServiceReport, options: { company?: CompanyProfile } = {}): ReportViewModel {
   const company = options.company ?? companyProfile;
   const serviced = new Set(report.systems.map((system) => system.systemKey));
+  const frequency = report.serviceFrequency ? ({ MONTHLY: "Monthly", QUARTERLY: "Quarterly", HALF_YEARLY: "Half-yearly", ANNUALLY: "Annually" } as const)[report.serviceFrequency as "MONTHLY" | "QUARTERLY" | "HALF_YEARLY" | "ANNUALLY"] ?? null : null;
   const cover: ReportCover = {
-    reportNumber: null, issuedAt: null,
-    customer: report.customer, site: report.site, siteAddress: null,
-    telephone: report.telephone ?? null, fax: null, contactPerson: report.contact ?? null,
+    reportNumber: report.reportNumber ?? null, issuedAt: null,
+    customer: report.customer, site: report.site, siteAddress: report.siteAddress ?? null,
+    telephone: report.telephone ?? null, fax: report.fax ?? null, contactPerson: report.contact ?? null,
     serviceDate: report.serviceDate, arrival: report.arrival ?? null, departure: report.departure ?? null,
     serviceCallNumber: report.serviceCallNumber ?? null, jobReference: report.jobReference,
-    contractNumber: null, frequency: null,
+    contractNumber: report.contractNumber ?? null, frequency,
     serviceStatus: "completed", completedAt: report.completedAt,
-    // Technician team is not frozen yet (R4): the test leader only.
-    testLeader: report.completedBy, technicians: [report.completedBy],
+    testLeader: report.completedBy, technicians: report.technicians ?? [report.completedBy],
     verifiedBy: company.verifiedBy.name || null,
     systemsServiced: [
       ...coverSystems.map(([systemKey, label]) => ({ systemKey, label, serviced: serviced.has(systemKey) })),
@@ -457,11 +415,11 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
       condition, conditionDetail, structure: structured ? "v7" : "legacy",
       ...page, partsTally,
       photos: section.evidence.map((evidence, photoIndex) => ({ no: photoIndex + 1, caption: evidence.caption ?? null, field: evidence.field, width: evidence.width, height: evidence.height, content: evidence.content })),
-      inspection: { date: report.serviceDate, inspectedBy: [report.completedBy] }
+      inspection: { date: report.serviceDate, inspectedBy: report.technicians ?? [report.completedBy] }
     };
   });
   const summary: ReportSummaryRow[] = systemPages.map((page) => ({
-    no: page.no, systemKey: page.systemKey, label: page.title, location: page.location, frequency: null,
+    no: page.no, systemKey: page.systemKey, label: page.title, location: page.location, frequency,
     condition: page.condition, conditionDetail: page.conditionDetail, mainFinding: summaryMainFinding(page.remarks)
   }));
   return { company, cover, summary, systemPages };

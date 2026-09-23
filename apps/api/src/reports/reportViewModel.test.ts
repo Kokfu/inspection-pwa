@@ -316,6 +316,21 @@ test("company profile: shipped asset loads unconfirmed; missing / invalid file -
   }
 });
 
+test("R4 cover fields and frozen technician team flow into the view model without inventing blanks", () => {
+  const input = reportOf([]);
+  Object.assign(input, {
+    reportNumber: "MFE/SR/2026/0042", siteAddress: "42 Test Road", fax: "03-555",
+    contractNumber: "CON-42", serviceFrequency: "HALF_YEARLY", technicians: ["Tech A", "Tech B"]
+  });
+  const model = buildReportViewModel(input);
+  assert.equal(model.cover.reportNumber, "MFE/SR/2026/0042");
+  assert.equal(model.cover.siteAddress, "42 Test Road");
+  assert.equal(model.cover.fax, "03-555");
+  assert.equal(model.cover.contractNumber, "CON-42");
+  assert.equal(model.cover.frequency, "Half-yearly");
+  assert.deepEqual(model.cover.technicians, ["Tech A", "Tech B"]);
+});
+
 /* ---------------------------------------------------------------- loader wiring */
 
 test("loadFinalServiceReport carries the raw authority on each section non-enumerably, and the view model reads it", async () => {
