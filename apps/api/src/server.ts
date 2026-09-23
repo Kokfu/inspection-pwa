@@ -1,4 +1,7 @@
 import express from "express";
+import { closePdfEngine } from "./reports/pdf/htmlToPdf.js";
+import { registerGracefulShutdown } from "./serverShutdown.js";
+import { pool } from "./db/pool.js";
 import { reconcileAttachmentStorage } from "./attachments/attachmentStorage.js";
 import { loadConfig } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
@@ -85,6 +88,8 @@ if (
   });
 }
 
-app.listen(config.port, () => {
+const server = app.listen(config.port, () => {
   console.log(`inspection-api listening on ${config.port}`);
 });
+
+registerGracefulShutdown({ server, closePdfEngine, closeDatabase: () => pool.end() });
