@@ -1,6 +1,7 @@
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { pool } from "../db/pool.js";
 import { formatReportNumber } from "../reports/companyProfile.js";
+import { personName } from "../users/personName.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -48,7 +49,8 @@ export type CompletionJobRow = {
   completed_by_display_name: string | null;
   service_date: string | null;
   report_number: string | null;
-  assigned_technician_display_name: string | null;
+  created_by_username: string | null;
+  created_by_display_name: string | null;
   technician_team_snapshot?: unknown;
 };
 
@@ -334,7 +336,7 @@ const jobSelect = `
   SELECT job.id, job.status, job.configuration_snapshot,
     job.completed_at, job.completed_by_user_id, job.completed_by_display_name,
     job.service_date::text, job.report_number, job.technician_team_snapshot,
-    creator.username AS assigned_technician_display_name,
+    creator.username AS created_by_username, creator.display_name AS created_by_display_name,
     NULL::text AS completed_by_username
   FROM inspection_jobs job
   LEFT JOIN users creator ON creator.id = job.created_by_user_id
@@ -428,7 +430,13 @@ export async function closeInspectionJob(
       if (!counter) throw new Error("Report number sequence could not be allocated");
       reportNumber = formatReportNumber(reportYear, Number(counter.sequence));
     }
-    const technicians = job.assigned_technician_display_name ? [job.assigned_technician_display_name] : [];
+    // The frozen "team" currently contains the visit creator, not an assigned crew.
+    const technicians = job.created_by_username ? [personName(job.created_by_username, job.created_by_display_name)] : [];
+    const actorRow = (await client.query<{ username: string; display_name: string | null }>(
+      "SELECT username, display_name FROM users WHERE id=$1", [actor.id]
+    )).rows[0];
+    if (!actorRow) throw new Error("Completing user no longer exists");
+    const actorName = personName(actorRow.username, actorRow.display_name);
     const completed = (await client.query<{
       completed_at: string | Date;
       completed_by_user_id: string | number;
@@ -437,7 +445,7 @@ export async function closeInspectionJob(
              completed_by_display_name = $3, report_number = $4,
              technician_team_snapshot = $5::jsonb
          WHERE id = $1 AND status = 'open'
-         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actor.username, reportNumber, JSON.stringify(technicians)])).rows[0];
+         RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actorName, reportNumber, JSON.stringify(technicians)])).rows[0];
     if (!completed) throw new Error("Open job could not be completed while locked");
     await client.query(
       `INSERT INTO audit_events(actor_user_id, action, entity_type, entity_id, result, reason)
@@ -452,7 +460,7 @@ export async function closeInspectionJob(
         ...current,
         jobStatus: "closed",
         completedAt: timestamp(completed.completed_at),
-        completedBy: { id: Number(completed.completed_by_user_id), username: actor.username }
+        completedBy: { id: Number(completed.completed_by_user_id), username: actorName }
       }
     };
   } catch (error) {

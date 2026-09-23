@@ -66,7 +66,8 @@ function cover(vm: ReportViewModel): string {
     siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone, c.fax].filter(Boolean).join(" / "), arrivalDeparture: [c.arrival, c.departure].filter(Boolean).join(" / "),
     technicians: c.technicians.join(" · "), team: c.technicians.filter(name => name !== c.testLeader).join(", ") };
   // Parse only the static template: interpolated business text is never re-parsed.
-  return coverTemplate.split(/(\{\{logoMarkup\}\}|\{\{systemsMarkup\}\})/).map(part => {
+  const template = c.reportNumber ? coverTemplate : coverTemplate.replace(/^[ \t]*<div><span>Report No\.<\/span><b data-bind="report\.number">\{\{reportNumber\}\}<\/b><\/div>\r?\n/m, "");
+  return template.split(/(\{\{logoMarkup\}\}|\{\{systemsMarkup\}\})/).map(part => {
     if (part === "{{logoMarkup}}") return logo ? `<img src="${e(logo)}" alt="MFE" style="width:62pt;height:62pt;object-fit:contain">` : '<div class="logo">MFE</div>';
     if (part === "{{systemsMarkup}}") return '<div class="sys-list">' + c.systemsServiced.map(system => `<div${system.serviced ? "" : ' class="off"'}><span class="box">${e(system.serviced ? "✓" : "")}</span>${e(system.label)}</div>`).join("") + '</div>';
     return fill(part, values);
@@ -112,6 +113,6 @@ function system(page: SystemPage, last: boolean): string {
 }
 /** Cached assets only; does not mutate vm, consult the clock, or access the network. */
 export function renderReportHtml(vm: ReportViewModel, pageMap?: Map<string, number>): string {
-  const style = css.replace(/\{\{(customer|reportNumber)\}\}/g, (_, key: string) => escapeCssString(key === "customer" ? vm.cover.customer : `Report No. ${vm.cover.reportNumber ?? ""}`));
+  const style = css.replace(/\{\{(customer|reportNumber)\}\}/g, (_, key: string) => escapeCssString(key === "customer" ? vm.cover.customer : vm.cover.reportNumber ? `Report No. ${vm.cover.reportNumber}` : ""));
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${e(vm.cover.jobReference)}</title><style>${fontCss}${style}</style></head><body>${cover(vm)}${summary(vm, pageMap)}${vm.systemPages.map((page, index) => system(page, index === vm.systemPages.length - 1)).join("")}</body></html>`;
 }

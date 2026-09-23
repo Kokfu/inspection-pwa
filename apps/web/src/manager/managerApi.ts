@@ -44,14 +44,14 @@ export type ManagerCustomer = {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export type ManagerTechnician = { id: number; username: string; isActive: boolean; createdAt: string };
+export type ManagerTechnician = { id: number; username: string; displayName: string | null; isActive: boolean; createdAt: string };
 export type ScheduledCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string | null };
 export type UpcomingServices = { customers: ScheduledCustomer[]; unscheduledCustomers: ScheduledCustomer[] };
 
 function unavailable(): never { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); }
 function isTechnician(value: unknown): value is ManagerTechnician {
   return isPlainObject(value) && Number.isSafeInteger(value.id) && Number(value.id) > 0
-    && typeof value.username === "string" && typeof value.isActive === "boolean"
+    && typeof value.username === "string" && (value.displayName === null || (typeof value.displayName === "string" && !!value.displayName.trim())) && typeof value.isActive === "boolean"
     && typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt));
 }
 function isDate(value: unknown): value is string {
@@ -67,9 +67,15 @@ export async function loadManagerTechnicians(signal?: AbortSignal): Promise<Mana
   if (!Array.isArray(result) || !result.every(isTechnician) || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
   return result;
 }
-export async function createManagerTechnician(input: { username: string; password: string }): Promise<ManagerTechnician> {
+export async function createManagerTechnician(input: { username: string; password: string; displayName?: string | null }): Promise<ManagerTechnician> {
   const result = await managerRequest<unknown>("/api/manager/technicians", "POST", "technician", input);
   if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive) unavailable();
+  return result;
+}
+export async function updateManagerTechnicianDisplayName(id: number, displayName: string | null): Promise<ManagerTechnician> {
+  const result = await managerRequest<unknown>(`/api/manager/technicians/${id}/display-name`, "PUT", "technician", { displayName });
+  const expectedName = displayName === null ? null : displayName.trim();
+  if (!isTechnician(result) || result.id !== id || result.displayName !== expectedName) unavailable();
   return result;
 }
 export async function deactivateManagerTechnician(id: number): Promise<ManagerTechnician> {

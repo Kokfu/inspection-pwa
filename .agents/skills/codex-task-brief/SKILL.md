@@ -82,21 +82,52 @@ apps/api/src/reports/fireAlarmV6FinalReport.integration.test.ts
 ## Standard gates (run all; paste output; all must PASS)
 
 ```
-cd apps/api && npm run typecheck && npm run build
-cd apps/api && npm run test:historical-matrix && npm run test:v6-evidence && npm run test:wet-chemical-definition
-cd apps/api && npx tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts
-cd apps/api && npm run test:v6-integration            # DB up
-# full V7 integration set — cold, hermetic, one command:
+cd C:\PWA_OfflineRecordWebApp
+cd apps/api
+npm run typecheck; if ($LASTEXITCODE -ne 0) { throw 'API typecheck failed' }
+npm run build; if ($LASTEXITCODE -ne 0) { throw 'API build failed' }
+npm run test:historical-matrix; if ($LASTEXITCODE -ne 0) { throw 'Historical matrix failed' }
+npm run test:v6-evidence; if ($LASTEXITCODE -ne 0) { throw 'V6 evidence failed' }
+npm run test:wet-chemical-definition; if ($LASTEXITCODE -ne 0) { throw 'Wet Chemical definition failed' }
+node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts
+if ($LASTEXITCODE -ne 0) { throw 'V7 contract or config tests failed' }
+
+# Cold disposable PostgreSQL. Never use the runtime Compose database.
+cd C:\PWA_OfflineRecordWebApp
 docker rm -f phase8f-v7-verify 2>$null
-docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=inspection -e POSTGRES_USER=inspection_app `
+docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=phase6_seed_integration -e POSTGRES_USER=inspection_app `
   -e POSTGRES_PASSWORD=replace-with-a-real-secret-outside-git -p 127.0.0.1:55432:5432 postgres:16-alpine
-# wait for pg_isready
-cd apps/api ; $env:NODE_ENV='test'
-$env:DATABASE_URL='postgres://bogus:bogus@10.255.255.1:9999/nope'
-$env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/inspection'
-node --import tsx --test --test-concurrency=1 src/sync/co2V7.integration.test.ts src/sync/wetChemicalV7.integration.test.ts src/sync/fireAlarmV7.integration.test.ts src/sync/v7EvidenceRace.integration.test.ts
-docker rm -f phase8f-v7-verify
-cd ../web && npm run typecheck && npm run build && npm run test:v7-stale-evidence
+if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL did not start' }
+try {
+  for ($i=0; $i -lt 30; $i++) {
+    docker exec phase8f-v7-verify pg_isready -U inspection_app -d phase6_seed_integration
+    if ($LASTEXITCODE -eq 0) { break }
+    Start-Sleep -Seconds 1
+  }
+  if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL did not become ready' }
+  $env:NODE_ENV='test'
+  $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
+  $env:DATABASE_URL=$env:SEED_INTEGRATION_DATABASE_URL # V7 tests require the URLs to match.
+  cd apps/web
+  $env:REPORT_CHROMIUM_PATH=(node -e "import('@playwright/test').then(m=>console.log(m.chromium.executablePath()))").Trim()
+  if (!(Test-Path -LiteralPath $env:REPORT_CHROMIUM_PATH)) { throw 'Playwright Chromium is unavailable' }
+  cd C:\PWA_OfflineRecordWebApp\apps\api
+  npm run test:v6-integration; if ($LASTEXITCODE -ne 0) { throw 'V6 integration failed' }
+  # Separate processes: each suite closes its shared database pool.
+  foreach ($file in @('src/sync/co2V7.integration.test.ts', 'src/sync/wetChemicalV7.integration.test.ts',
+    'src/sync/fireAlarmV7.integration.test.ts', 'src/sync/v7EvidenceRace.integration.test.ts')) {
+    node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test $file
+    if ($LASTEXITCODE -ne 0) { throw "Failed: $file" }
+  }
+} finally {
+  cd C:\PWA_OfflineRecordWebApp
+  docker rm -f phase8f-v7-verify
+}
+cd apps/web
+npm run typecheck; if ($LASTEXITCODE -ne 0) { throw 'Web typecheck failed' }
+npm run build; if ($LASTEXITCODE -ne 0) { throw 'Web build failed' }
+npm run test:v7-stale-evidence; if ($LASTEXITCODE -ne 0) { throw 'Web V7 stale evidence failed' }
+cd C:\PWA_OfflineRecordWebApp
 git status --short        # DO-NOT-MODIFY list clean
 git diff --check          # clean (CRLF warnings only)
 ```

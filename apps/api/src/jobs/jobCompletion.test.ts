@@ -6,6 +6,9 @@ import {
   type AcceptedAuthorityRow,
   type CompletionJobRow
 } from "./jobCompletion.js";
+import { buildReportViewModel } from "../reports/reportViewModel.js";
+import { renderReportHtml } from "../reports/template/renderReportHtml.js";
+import { personName } from "../users/personName.js";
 
 const ids = {
   job: "10000000-0000-4000-8000-000000000001",
@@ -42,7 +45,7 @@ function job(status: "open" | "closed" = "open"): CompletionJobRow {
     completed_by_username: status === "closed" ? "first-inspector" : null,
     completed_by_display_name: status === "closed" ? "first-inspector" : null,
     service_date: "2026-08-13", report_number: status === "closed" ? "MFE/SR/2026/0001" : null,
-    assigned_technician_display_name: "first-inspector"
+    created_by_username: "first-inspector", created_by_display_name: null
   };
 }
 
@@ -170,6 +173,7 @@ class Lock {
 
 class FakeCompletionDatabase {
   state = job();
+  actorDisplayName: string | null = null;
   rows = acceptedRows;
   updates = 0;
   audits = 0;
@@ -193,6 +197,7 @@ class FakeCompletionDatabase {
         return { rowCount: this.rows.length, rows: this.rows };
       }
       if (normalized.startsWith("INSERT INTO report_number_year_counters")) return { rowCount: 1, rows: [{ sequence: "1" }] };
+      if (normalized.includes("SELECT username, display_name FROM users")) return { rowCount: 1, rows: [{ username: "first-inspector", display_name: this.actorDisplayName }] };
       if (normalized.startsWith("UPDATE inspection_jobs")) {
         if (this.state.status !== "open") return { rowCount: 0, rows: [] };
         this.state = {
@@ -259,6 +264,26 @@ test("repeated and concurrent close requests produce one immutable completion", 
   assert.equal(repeated.kind, "closed");
   assert.equal(repeated.kind === "closed" && repeated.alreadyCompleted, true);
   assert.equal(database.state.completed_by_user_id, 7);
+});
+
+test("new completion freezes a person's name and falls back to username", async () => {
+  assert.equal(personName("first-inspector", "   "), "first-inspector");
+  assert.throws(() => personName("  ", null), /no printable name/);
+  for (const displayName of ["Alice Tan", null]) {
+    const database = new FakeCompletionDatabase();
+    database.actorDisplayName = displayName;
+    database.state.created_by_display_name = displayName;
+    const result = await closeInspectionJob(ids.job, { id: 7, username: "first-inspector" }, database as never);
+    assert.equal(result.kind, "closed");
+    const expected = displayName ?? "first-inspector";
+    assert.equal(database.state.completed_by_display_name, expected);
+    assert.deepEqual(database.state.technician_team_snapshot, [expected]);
+    const vm = buildReportViewModel({ customer: "Customer", site: "Site", serviceDate: "2026-08-13", jobReference: "Job", completedAt: database.state.completed_at as string, completedBy: database.state.completed_by_display_name!, technicians: database.state.technician_team_snapshot as string[], systems: [], sections: [] });
+    const html = renderReportHtml(vm);
+    assert.ok(html.includes('<td class="lbl">Test Leader</td>'));
+    assert.ok(html.includes(`data-bind="job.completedBy">${expected}</td>`));
+    assert.ok(html.includes(`data-bind="job.technicians[]">${expected}</td>`));
+  }
 });
 
 test("authoritative writes and close serialize on the inspection job row", async () => {

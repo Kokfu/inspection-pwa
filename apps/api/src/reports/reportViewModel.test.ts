@@ -304,9 +304,9 @@ test("company profile: shipped asset loads unconfirmed; missing / invalid file -
     const model = buildReportViewModel(reportOf([v7Section("hose_reel", "Hose Reel System", hoseReelResponse())]), { company: missing });
     assert.equal(model.company.legalName, "");
     assert.equal(model.cover.verifiedBy, null);
-    // Not stored yet -> null, never invented.
+    // Unstored cover fields stay null; Issued comes from the frozen completion.
     assert.deepEqual([model.cover.reportNumber, model.cover.issuedAt, model.cover.siteAddress, model.cover.fax, model.cover.contractNumber, model.cover.frequency, model.cover.contactPerson, model.cover.arrival],
-      [null, null, null, null, null, null, null, null]);
+      [null, "2026-09-18", null, null, null, null, null, null]);
     assert.equal(model.cover.telephone, "06-986 1234");
     assert.deepEqual(model.cover.technicians, ["Mohd Hafiz"]);
     assert.equal(model.cover.systemsServiced.length, 12);

@@ -91,6 +91,9 @@ const serviceVisitCoverFieldsMigrationUrl = new URL(
 const reportCoverFieldsMigrationUrl = new URL(
   "../../migrations/031_report_cover_fields.sql", import.meta.url
 );
+const userDisplayNamesMigrationUrl = new URL(
+  "../../migrations/032_user_display_names.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -482,6 +485,13 @@ export async function runMigrations(
   );
   if (!reportCoverFields.rows[0]?.exists) {
     await database.query(await readFile(reportCoverFieldsMigrationUrl, "utf8"));
+  }
+  const userDisplayNames = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='users'::regclass
+      AND attname='display_name' AND NOT attisdropped) AS exists`
+  );
+  if (!userDisplayNames.rows[0]?.exists) {
+    await database.query(await readFile(userDisplayNamesMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

@@ -8,6 +8,7 @@ import { runMigrations } from "../db/migrations.js";
 import { FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf } from "./finalServiceReport.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { createManagerCustomersRouter, ManagerCustomerError } from "../routes/managerCustomers.js";
+import { extractPdfText } from "./pdf/extractPdfText.testSupport.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const seedCo2JobId = "00000000-0000-4000-8000-000000000679";
@@ -28,7 +29,7 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
     await runMigrations(pool);
     const user = await pool.query<{ id: number }>(
-      "INSERT INTO users(username,password_hash,role) VALUES('report-tech','not-used','inspector') RETURNING id"
+      "INSERT INTO users(username,display_name,password_hash,role) VALUES('report-tech','Alice Tan','not-used','inspector') RETURNING id"
     );
     const userId = user.rows[0]?.id;
     assert.ok(userId);
@@ -76,12 +77,12 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
         job.customer_configuration_revision_id, acceptedSnapshot, response, "a".repeat(64), userId
       ]);
       }
-      await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='report-tech' WHERE id=$1", [values.jobId, userId]);
+      await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='Alice Tan' WHERE id=$1", [values.jobId, userId]);
     };
     await fixture({ jobId: reportJobId, groupId: inspectionId, identityBase: 100, reference: job.job_reference });
 
     const report = await loadFinalServiceReport(reportJobId, pool);
-    assert.equal(report.completedBy, "report-tech");
+    assert.equal(report.completedBy, "Alice Tan");
     assert.equal(report.fax, "03-222");
     assert.equal(report.contractNumber, "C-44");
     assert.equal(report.serviceFrequency, "QUARTERLY");
@@ -102,6 +103,13 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
     const stablePdf = (value: Buffer) => value.toString("binary")
       .replace(/\/(CreationDate|ModDate) \(D:[^)]+\)/g, "/$1 (VOLATILE)");
     assert.equal(stablePdf(await renderFinalServiceReportPdf(frozenAfterCustomerEdit)), stablePdf(pdf), "live customer/site edits cannot change the issued PDF content");
+    const historicalText = (await extractPdfText(pdf)).join("");
+    assert.ok(historicalText.includes("Alice Tan"), "signature block prints the frozen person's name");
+    await pool.query("ALTER TABLE users DROP CONSTRAINT users_display_name_check; ALTER TABLE users DROP COLUMN display_name");
+    await runMigrations(pool); // Forward migration must leave the already-closed report untouched.
+    const afterNameMigration = await renderFinalServiceReportPdf(await loadFinalServiceReport(reportJobId, pool));
+    assert.equal((await extractPdfText(afterNameMigration)).join(""), historicalText, "already-closed PDF text is byte-identical after migration 032");
+    assert.equal((await pool.query("SELECT display_name FROM users WHERE id=$1", [userId])).rows[0]?.display_name, null);
 
     const frozenRevision = job.customer_configuration_revision_id as string;
     const frozenSnapshot = JSON.stringify(job.configuration_snapshot);

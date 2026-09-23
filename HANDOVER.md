@@ -3,6 +3,24 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-24 — **Report R5 person names and cover fixes completed (uncommitted).**
+Migration 032 adds nullable `users.display_name` without backfill. Manager Technician List and
+`ADMIN_DISPLAY_NAME` in the admin CLI can set names. New completions freeze the resolved name
+(display name, otherwise username) for the closer and visit creator; the frozen team is still only
+the visit creator, not a crew assignment. Historical closed snapshots remain untouched. Reports
+now omit absent report-number labels, derive Issued from completion date, and join optional phone/
+fax and arrival/departure values only when both exist. API/web typechecks and builds, focused and
+historical suites, migration replay, closed-PDF text immutability, V6/V7 integration, and a fresh
+isolated-container authenticated PDF download passed with zero skips. The download is
+`docs/report-template/r5-person-name-generated.pdf` (cover/signature text contains Alice Tan).
+Sol's R5 P1 name-clearing mismatch is fixed: the web API accepts a successful `null` response, and
+the manager browser suite now covers clearing a saved name and waits for the PUT response, refreshed
+GET, and settled loading state (3 passed, 0 skipped). Its create mock also includes the nullable
+name field. The cold standard-gate block in `.agents/skills/codex-task-brief/SKILL.md` now starts
+disposable `phase6_seed_integration`, uses matching test URLs, waits for readiness, and runs the
+V6/V7 integration files in separate processes. Its cold database sequence was rerun on 2026-09-24:
+11 integration tests passed, zero failed, zero skipped; the disposable container was removed.
+
 **Last updated:** 2026-09-23 — **Report R4 cover-field implementation completed (uncommitted).**
 Migration 031 adds nullable customer fax/contract/frequency, site address, immutable job report
 number/team snapshots, and a per-year concurrency-safe counter without backfilling history.

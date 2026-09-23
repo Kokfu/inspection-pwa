@@ -27,11 +27,32 @@ test("all untrusted text remains text and margin-box CSS strings retain their va
 });
 test("blank fields stay empty; no invented values; empty comments are a ruled box",()=>{
  const vm=buildReportViewModel({customer:'Test',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[{systemKey:'test',label:'System',fields:[],evidence:[]}]});
- const html=renderReportHtml(vm);assert.doesNotMatch(html,/undefined|null|Not recorded|No comments recorded/);assert.match(html,/No defects found\./);assert.match(html,/data-bind="report.number"><\/b>/);assert.doesNotMatch(html,/PARTS \/ RECTIFICATION REQUIRED/);
+ const html=renderReportHtml(vm);assert.doesNotMatch(html,/undefined|null|Not recorded|No comments recorded/);assert.match(html,/No defects found\./);assert.doesNotMatch(html,/Report No\./);assert.doesNotMatch(html,/data-bind="report.number"/);assert.doesNotMatch(html,/PARTS \/ RECTIFICATION REQUIRED/);
 });
 test("R4 cover values render in the approved existing cells",()=>{
  const vm=buildReportViewModel({customer:'Customer',site:'Site',siteAddress:'42 Test Road',serviceDate:'2026-09-18',jobReference:'Job',reportNumber:'MFE/SR/2026/0042',fax:'03-555',contractNumber:'CON-42',serviceFrequency:'MONTHLY',technicians:['Tech A','Tech B'],completedAt:'2026-09-18T00:00:00Z',completedBy:'Lead',systems:[],sections:[]});
  const html=renderReportHtml(vm);for(const value of ['MFE/SR/2026/0042','Site — 42 Test Road','03-555','CON-42','Monthly','Tech A · Tech B'])assert.ok(html.includes(value));
+});
+test("cover report number and issued date follow frozen completion data", () => {
+ const vm=buildReportViewModel({customer:'Customer',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-23T12:15:00Z',completedBy:'A Person',systems:[],sections:[]});
+ let html=renderReportHtml(vm);
+ assert.doesNotMatch(html,/Report No\./);
+ assert.match(html,/@bottom-left\s*\{ content: "";/);
+ assert.match(html,/data-bind="report\.issuedAt">2026-09-23<\/b>/);
+ vm.cover.reportNumber='MFE/SR/2026/0042';html=renderReportHtml(vm);
+ assert.match(html,/<span>Report No\.<\/span><b data-bind="report\.number">MFE\/SR\/2026\/0042<\/b>/);
+ assert.match(html,/@bottom-left\s*\{ content: "Report No\. MFE\/SR\/2026\/0042"/);
+});
+test("optional telephone/fax and arrival/departure separators appear only between values", () => {
+ const vm=buildReportViewModel({customer:'Customer',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[]});
+ for(const [left,right,expected] of [[null,null,''],['012-123',null,'012-123'],[null,'03-456','03-456'],['012-123','03-456','012-123 / 03-456']] as const){
+   vm.cover.telephone=left;vm.cover.fax=right;
+   assert.match(renderReportHtml(vm),new RegExp(`data-bind="customer.contactPhone / customer.fax">${expected}<\\/td>`));
+ }
+ for(const [left,right,expected] of [[null,null,''],['09:00',null,'09:00'],[null,'17:00','17:00'],['09:00','17:00','09:00 / 17:00']] as const){
+   vm.cover.arrival=left;vm.cover.departure=right;
+   assert.match(renderReportHtml(vm),new RegExp(`data-bind="job.arrival / job.departure">${expected}<\\/td>`));
+ }
 });
 test("checklist Req/Unit and Reading pair, and Remarks hide only when the whole block is empty",()=>{
  const base={kind:'checklist' as const,key:'x',sectionKey:'x',sectionTitle:'X',title:'X',rows:[{no:1,key:'r',label:'Row',unit:null,reading:null,result:reportResult('good'),remark:null}]};

@@ -378,7 +378,7 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
   const serviced = new Set(report.systems.map((system) => system.systemKey));
   const frequency = report.serviceFrequency ? ({ MONTHLY: "Monthly", QUARTERLY: "Quarterly", HALF_YEARLY: "Half-yearly", ANNUALLY: "Annually" } as const)[report.serviceFrequency as "MONTHLY" | "QUARTERLY" | "HALF_YEARLY" | "ANNUALLY"] ?? null : null;
   const cover: ReportCover = {
-    reportNumber: report.reportNumber ?? null, issuedAt: null,
+    reportNumber: report.reportNumber ?? null, issuedAt: report.completedAt ? report.completedAt.slice(0, 10) : null,
     customer: report.customer, site: report.site, siteAddress: report.siteAddress ?? null,
     telephone: report.telephone ?? null, fax: report.fax ?? null, contactPerson: report.contact ?? null,
     serviceDate: report.serviceDate, arrival: report.arrival ?? null, departure: report.departure ?? null,
