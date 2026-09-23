@@ -7,10 +7,13 @@ export type ApiConfig = {
   nodeEnv: string;
   uploadsPath: string;
   reportChromiumPath: string;
+  reportRenderer: "html" | "legacy";
 };
 
 export function loadConfig(): ApiConfig {
   const nodeEnv = process.env.NODE_ENV ?? "production";
+  const reportRenderer = process.env.REPORT_RENDERER ?? "html";
+  if (reportRenderer !== "html" && reportRenderer !== "legacy") throw new Error("REPORT_RENDERER must be html or legacy");
   return {
     port: Number(process.env.API_PORT ?? 3000),
     databaseUrl:
@@ -22,6 +25,7 @@ export function loadConfig(): ApiConfig {
     customerCatalogVersion: Number(process.env.INSPECTION_CUSTOMER_CATALOG_VERSION ?? 7),
     nodeEnv,
     uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads",
-    reportChromiumPath: process.env.REPORT_CHROMIUM_PATH ?? "/usr/bin/chromium"
+    reportChromiumPath: process.env.REPORT_CHROMIUM_PATH ?? "/usr/bin/chromium",
+    reportRenderer
   };
 }

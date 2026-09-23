@@ -3,6 +3,61 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-19 — **Known issue closed: `Test-ManagerScheduling.ps1` no longer fails without `REPORT_CHROMIUM_PATH` or hangs with it (uncommitted; one test script only).**
+Only `scripts/Test-ManagerScheduling.ps1` changed. The fixes mirror `scripts/Test-V7LiveBrowser.ps1`:
+(1) When `REPORT_CHROMIUM_PATH` is unset, it is resolved from Playwright's `chromium.executablePath()`
+(run from apps/web) and checked with `Test-Path`. The run throws if Chromium is missing. A value that
+is already set is kept, and `finally` restores the original value.
+(2) The two report-rendering `node --test` lines (manager/customer/final-report and the sync
+integration set) now load `--import ./src/reports/pdf/testLifecycle.ts`, but only when that file
+exists. The PDF engine then closes, and node exits.
+(3) Native calls go through `Invoke-Native`, which uses a function-local `$ErrorActionPreference =
+'Continue'`. `Invoke-Checked` first sets `$global:LASTEXITCODE = -1`, and `$LASTEXITCODE` stays the
+only pass/fail authority. Non-native cmdlets still run under 'Stop'.
+The tests, their order, the container, the finally cleanup and the protected-file diff against `e30c649` are unchanged.
+**Proof (cold, PS 5.1, each run under a hard timeout):** every case exited 0 and each phase ran with 0 skipped:
+historical-matrix 20, v6-evidence 9, wet-chemical-definition 2, v7EvidenceContracts+env 12,
+manager/customer/report 109, sync integration 11 (**163 backend**), v7-stale-evidence 1,
+job-progress 8, and Playwright **34 passed / 0 failed**. The cases were: `-File` with the variable
+unset (378 s), `-File` with it preset (329 s), `-File *>&1` (344 s), in-process `*>&1` with it unset
+(399 s; no terminating error, working directory restored, variable restored to unset), and in-process
+with it preset (342 s; preset kept). No container and no listener on 55432/4175 were left behind.
+The web `npm run build` step (unchanged) leaves one `%TEMP%\<hash>\sw.js` directory per run, from
+VitePWA/workbox `generateSW`. HEAD has the same leak, and it was cleaned up by hand.
+**Negative controls (scratch copies outside the repo, removed afterwards):** a missing `npx` exits 1.
+Removing the lifecycle import reproduces the hang: every test in the report line passes, but node
+never exits, so the run was killed at the 600 s timeout. A lone missing `node --test` path exits 1.
+**Noted, not fixed:** Node 24 `--test` treats its paths as globs and silently drops a path that
+matches nothing when another path in the same command does match. A missing file inside either
+multi-file line therefore still exits 0 (109 -> 87 tests, not flagged). The original script had the
+same gap. Guarding against it needs a per-path existence check, which is outside this task's scope.
+
+**Last updated:** 2026-09-23 — **Report R2 shutdown re-review findings closed (uncommitted).**
+Graceful shutdown now attempts HTTP, Chromium and PostgreSQL cleanup sequentially even when an
+earlier step fails. It collects all failures, logs once after every step has been attempted, and
+sets a non-zero process exit code. Direct regressions independently emit SIGTERM and SIGINT and
+wait for injected cleanup completion without calling the returned shutdown function; a separate
+test proves repeated signals remain idempotent, and fault injection proves all cleanup steps run.
+The focused suite passes 4/4. The full cold `Test-ReportR2.ps1` gate passes **107 API tests +
+1 web regression, 0 failed, 0 skipped**, including API/web typechecks and builds.
+
+**Last updated:** 2026-09-23 — **Report R2 continuation-title Sol findings closed (uncommitted).**
+The blocking continuation-title defect is fixed. Each system now has an opaque opening-title overlay
+without a suffix and an underlying repeated table header with the approved `(continued)` suffix;
+Chromium exposes that repeated header only on visually continued pages. The generated sample shows
+the marker on pages 4, 6 and 8, and the rebuilt live V7 report shows it on pages 4, 5, 7 and 9.
+The fixture pagination assertion is exact at nine pages instead of accepting 8–10. The long-report
+regression proves the opening/repeated header structure, the continued wording on overflow pages,
+the repeated register header and the final row. `serverShutdown.ts` now owns the production
+SIGTERM/SIGINT registration, and two direct tests prove both signals share one ordered HTTP →
+Chromium → PostgreSQL shutdown and that failures set a non-zero exit code.
+`scripts/Test-ReportR2.ps1` now includes this shutdown suite. Its cold disposable-PostgreSQL run
+passed **105 API tests + 1 web regression, 0 failed, 0 skipped**, with API/web typechecks and builds.
+The rebuilt container excludes `/app/docs` and renders nine pages with destinations 3/5/7/9,
+`✓ ✗ ◯` and zero `.notdef`. The refreshed manager download for `SV-20260906-41` returned HTTP 200
+as the unchanged filename and is an 11-page, 423,897-byte PDF. Every page of both regenerated PDFs
+was rendered and visually checked; opening pages have no visible suffix and overflow pages do.
+
 **Last updated:** 2026-09-19 — **V7 live-spec test hardening (uncommitted; tests + one test script only).**
 **Wet Chemical checklist.** `tests/wet-chemical-v7-live-accepted-detail.spec.ts` now asserts the full
 paragraph with `toHaveText`, as CO2 does: `"Battery: Good"`, `"Charger: No Need Checking / N.A."`,
@@ -85,7 +140,27 @@ integration set (co2V7, wetChemicalV7, fireAlarmV7, v7EvidenceRace) 10/10 from c
 **Noted, not fixed:** `tests/wet-chemical-accepted-detail.html` / `wet-chemical-authority-d1.html`
 still use the old `evidencePolicy*` shape, but no spec loads them.
 
-**Last updated:** 2026-09-19 — **Manager form-shaped per-service editor (uncommitted).**
+**Last updated:** 2026-09-22 — **Report R2: approved HTML report renderer wired to Generate report (uncommitted).**
+`renderFinalServiceReportPdf` now builds `ReportViewModel`, renders HTML twice through Chromium,
+resolves named system destinations after pass one, and fills the Summary PAGE column in pass two.
+The approved cover, summary, structured block tables, remarks, parts, comments, accepted photos,
+inspection strip, repeated system title/table headers, and footer counters are rendered from cached
+assets with one HTML-escaping boundary plus CSS-string escaping for customer/report margin boxes.
+Summary Main Finding is reusable view-model data (worst result, definition order, `(+N more)`).
+`REPORT_RENDERER=legacy` retains PDFKit for one release; HTML is the default. The API closes the
+shared PDF engine on SIGTERM/SIGINT. The final image excludes `/app/docs`; its network-isolated
+sample proof is 9 pages, system destinations 3/5/7/9, `✓ ✗ ◯` present, zero `.notdef`.
+The cold R2 gate (`scripts/Test-ReportR2.ps1`) passed API/web builds, all named report/engine/model,
+historical and disposable-Postgres gates with zero skips. Generated sample:
+`docs/report-template/generated-sample.pdf`. **Live browser proof:** after manager sign-in, the
+completed V7 visit `SV-20260906-41` (5/5 systems) returned HTTP 200 from the Manager PDF route with
+`Content-Disposition: attachment; filename="Service-Report_SV-20260906-41_2026-09-06.pdf"`.
+The exact 417,365-byte response is `docs/report-template/generated-live-download.pdf`: Chromium/Skia,
+11 landscape A4 pages, no encryption or JavaScript. All 11 pages were rendered and visually checked;
+the cover, linked page numbers (3/6/8/10/11), repeated system headers, V7 four-state symbols and words,
+accepted evidence, remarks/parts, final inspection strips and end marker are present without clipping.
+
+**Previously (2026-09-19): Manager form-shaped per-service editor (uncommitted).**
 The customer page's flat "Per-service settings" block is replaced by a **Services** area with one
 card per service. Each card shows chips for custom label count, preset rows and settings state.
 Enabled services are listed, plus any location-dependent service (CO2 / Wet Chemical) that is not

@@ -33,7 +33,8 @@ architecture) and whichever domain skills the task touches (`sync-engine`, `inde
 4. **Additive only.** Never mutate a published template version or auto-upgrade an existing
    Job / Draft / Pending / Accepted. V1–V5, Fire Alarm V6, CO2 V1, Wet Chemical V4 stay
    byte-identical to `e30c649`.
-5. **Historical immutability + result model:** `good` / `poor` / `not_relevant` only;
+5. **Historical immutability + result model:** V7 uses the 4-state model `good` / `not_good` /
+   `complete_repair` / `na`; legacy V1–V6 keep `good` / `poor` / `not_relevant` unchanged.
    `Normal` / `Test` / `Isolation` are a separate control and never change.
 6. **Test DB discipline:** integration tests use the disposable Postgres on `127.0.0.1:55432`
    only. Never the runtime Postgres (`inspection_pwa-postgres-1`). Never `docker compose down -v`,
@@ -141,7 +142,7 @@ TASK
 <the specific work, in numbered points; name the files from the file map>
 
 DoD ADDITIONS (beyond the standard gates)
-<task-specific proofs, e.g. "new customer lands on v7", "browser: Fire Alarm form shows 3-state">
+<task-specific proofs, e.g. "new customer lands on v7", "browser: Fire Alarm form shows the 4-state V7 result">
 
 STOP when the DoD table is green. Print files-changed + reproducible block. Do NOT commit.
 ```

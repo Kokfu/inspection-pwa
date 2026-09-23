@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test:fire-alarm-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmAcceptedDetailTuple.test.ts",
+    "test:wet-chemical-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/wetChemicalAcceptedDetailParser.test.ts",
     "test:label-overrides-parity": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/labelOverridesParity.test.ts",
     "test:label-overrides-technician": "playwright test tests/label-override-technician-form.spec.ts",
     "test:label-overrides-manager": "playwright test tests/manager-label-overrides.spec.ts",
@@ -38,6 +39,7 @@
     "test:manager-dashboard-navigation": "playwright test tests/manager-dashboard-navigation.spec.ts",
     "test:manager-upcoming-services": "playwright test tests/manager-upcoming-services.spec.ts",
     "test:manager-app-auth": "playwright test tests/manager-app-auth-transitions.spec.ts",
+    "test:v7-live-browser": "powershell -NoProfile -ExecutionPolicy Bypass -File ..\\..\\scripts\\Test-V7LiveBrowser.ps1",
     "preview": "vite preview"
   },
   "dependencies": {

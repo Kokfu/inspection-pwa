@@ -104,12 +104,14 @@ const wait = async (predicate, label) => {
   for (let i = 0; i < 200; i += 1) { if (predicate()) return; await new Promise((r) => setTimeout(r, 15)); }
   throw new Error("timeout: " + label + " — view: " + view.textContent.slice(0, 400));
 };
-const frame = () => view.querySelector(".manager-per-service");
-// While every editor is collapsed, the only .secondary-command buttons inside
-// the per-service blocks are the per-system collapsible toggles (Reload / Save
-// live inside the expanded body). Capture them before expanding anything.
-const toggles = () => [...view.querySelectorAll(".manager-per-service-block .secondary-command")];
-const flagLabels = () => [...view.querySelectorAll(".manager-per-service-summary .manager-config-flag")].map((el) => el.getAttribute("aria-label"));
+// 2026-09-19: the per-service editors moved behind one card per service in a
+// "Services" area (ManagerCustomerServices); each card opens ManagerServiceEditor.
+const servicesArea = () => view.querySelector(".manager-services");
+const cardFor = (name) => [...view.querySelectorAll(".manager-service-card")].find((el) => el.textContent.includes(name));
+const chipsFor = (name) => [...(cardFor(name)?.querySelectorAll(".manager-config-flag") ?? [])].map((el) => el.textContent.trim());
+const requested = [];
+const trackingFetch = window.fetch;
+window.fetch = async (input, init) => { requested.push(typeof input === "string" ? input : input.url); return trackingFetch(input, init); };
 
 document.querySelector("#run").onclick = async () => {
   const checks = [];
@@ -117,64 +119,35 @@ document.querySelector("#run").onclick = async () => {
   let authorityFailures = 0;
   let savedCount = 0;
   try {
+    const opened = [];
     createRoot(view).render(React.createElement(ManagerCustomerConfigurationDetail, {
       customer,
+      onOpenService: (key) => opened.push(key),
       onBack: () => {},
       onSaved: () => { savedCount += 1; },
       onAuthorityFailure: () => { authorityFailures += 1; }
     }));
-    await wait(() => frame(), "per-service frame rendered");
+    await wait(() => servicesArea(), "Services area rendered");
 
-    // 1. ONE shared frame + ONE version indicator inside it.
-    ok("exactly one Per-service settings frame", view.querySelectorAll(".manager-per-service").length === 1);
-    ok("frame heading is Per-service settings", !!frame().querySelector("h3") && frame().querySelector("h3").textContent === "Per-service settings");
-    const versionHits = (frame().textContent.match(/Version 9(?!\d)/g) || []).length;
-    ok("configuration version indicator shown once in the frame", versionHits === 1);
-    ok("no per-block version indicator", [...frame().querySelectorAll(".manager-per-service-block")].every((b) => !/Version \d/.test(b.textContent)));
+    // 1. ONE Services area + ONE version indicator inside it; the old frame is gone.
+    ok("exactly one Services area", view.querySelectorAll(".manager-services").length === 1);
+    ok("Services area heading is Services", servicesArea().querySelector("h3")?.textContent === "Services");
+    ok("configuration version indicator shown once in the Services area", (servicesArea().textContent.match(/Version 9(?!\d)/g) || []).length === 1);
+    ok("Services area states the versioning semantics", servicesArea().textContent.includes("existing service visits keep the wording and settings they were created with, new visits use the new ones"));
+    ok("old Per-service settings frame no longer rendered", !view.querySelector(".manager-per-service"));
 
-    // 2. At-a-glance summary reads set / not set / n/a straight off enabledSystems.
-    const labels = flagLabels();
-    ok("summary lists a row per enabled system", view.querySelectorAll(".manager-per-service-summary > li").length === 4);
-    ok("co2 label overrides -> set", labels.includes("CO2 Fire Extinguisher System — Field labels: set"));
-    ok("co2 zones & locations -> set", labels.includes("CO2 Fire Extinguisher System — Zones & locations: set"));
-    ok("co2 evidence policy -> n/a", labels.includes("CO2 Fire Extinguisher System — Evidence policy: n/a"));
-    ok("co2 system settings -> n/a", labels.includes("CO2 Fire Extinguisher System — System settings: n/a"));
-    ok("sprinkler evidence policy -> set", labels.includes("Automatic Sprinkler System — Evidence policy: set"));
-    ok("sprinkler label overrides -> not set", labels.includes("Automatic Sprinkler System — Field labels: not set"));
-    ok("riser system settings -> not set", labels.includes("Dry / Wet Riser System — System settings: not set"));
-    ok("riser zones & locations -> n/a", labels.includes("Dry / Wet Riser System — Zones & locations: n/a"));
-    // STEP 3.1 final-polish P1: a lone zone with no locations counts as "set" —
-    // the summary chip now uses the same OR test as the untick-drops-config
-    // warning (`enabledSystemHasSavedSettings`).
-    ok("lone-zone wet_chemical zones & locations -> set", labels.includes("Wet Chemical System — Zones & locations: set"));
-    const setChips = [...view.querySelectorAll(".manager-per-service-summary .manager-config-flag--set")];
-    ok("set chips carry the shared 'set' tone class", setChips.length === 4);
+    // 2. One card per service; chips read straight off enabledSystems (no extra fetch).
+    ok("one card per enabled service", view.querySelectorAll(".manager-service-card").length === 4);
+    ok("co2 card: 1 custom label + locations set", chipsFor("CO2 Fire Extinguisher System").join("|") === "1 custom label|1 location set");
+    ok("sprinkler card: standard wording + evidence policy set", chipsFor("Automatic Sprinkler System").join("|") === "Standard wording|Evidence policy set");
+    ok("riser card: wording not customisable + settings need attention", chipsFor("Dry / Wet Riser System").join("|") === "Wording not customisable|Settings need attention");
+    ok("lone-zone wet_chemical zones & locations -> reported as saved config", chipsFor("Wet Chemical System").includes("1 zone, no locations"));
+    ok("attention chips carry the attention tone class", view.querySelectorAll(".manager-service-card .manager-config-flag--attention").length === 2);
+    ok("no per-service fetch on mount", !requested.some((url) => url.includes("/systems/")));
 
-    // 3. Unified per-system collapsible affordance across all four editors.
-    const t = toggles();
-    ok("seven per-system toggles (3 label + 1 config + 1 evidence + 2 locations)", t.length === 7);
-    ok("every toggle uses the Edit … — <system> pattern", t.every((b) => /^Edit .+ — .+$/.test(b.textContent.trim())));
-    ok("every toggle starts collapsed with aria-expanded=false", t.every((b) => b.getAttribute("aria-expanded") === "false"));
-    ok("toggle nouns are the consolidated set", t.map((b) => b.textContent.trim()).sort().join("|") ===
-      [
-        "Edit evidence policy — Automatic Sprinkler System",
-        "Edit field labels — Automatic Sprinkler System",
-        "Edit field labels — CO2 Fire Extinguisher System",
-        "Edit field labels — Wet Chemical System",
-        "Edit system settings — Dry / Wet Riser System",
-        "Edit zones & locations — CO2 Fire Extinguisher System",
-        "Edit zones & locations — Wet Chemical System"
-      ].sort().join("|"));
-
-    // Expand the co2 label-overrides editor -> toggle flips, unified line shows.
-    const co2Labels = t.find((b) => b.textContent.includes("field labels — CO2 Fire Extinguisher System"));
-    co2Labels.click();
-    await wait(() => co2Labels.getAttribute("aria-expanded") === "true", "co2 label editor expanded");
-    ok("expanded toggle flips to Hide …", co2Labels.textContent.trim() === "Hide field labels — CO2 Fire Extinguisher System");
-    await wait(() => co2Labels.closest(".manager-per-service-block").textContent.includes("No unsaved changes."), "unified unsaved line");
-    ok("expanded editor shows the unified 'No unsaved changes.' line",
-      co2Labels.closest(".manager-per-service-block").textContent.includes("No unsaved changes."));
-    ok("expand did not trip an authority failure", authorityFailures === 0);
+    // 3. A card opens that service's editor.
+    cardFor("CO2 Fire Extinguisher System").click();
+    ok("clicking a card opens that service", opened.join(",") === "co2_fire_extinguisher");
     ok("no crash text", !/TypeError|Cannot read/.test(view.textContent));
 
     // ---- STEP 3.1 final polish: the "Assigned Services" tick-list itself ----
@@ -219,15 +192,15 @@ document.querySelector("#run").onclick = async () => {
     // contradictory signals on one screen. Now both say "has something".
     const wetOption = optionFor("Wet Chemical System");
     const wetCheckbox = wetOption.querySelector("input[type=checkbox]");
-    const wetChipSet = () => flagLabels().includes("Wet Chemical System — Zones & locations: set");
+    const wetChipSet = () => chipsFor("Wet Chemical System").includes("1 zone, no locations");
     ok("lone-zone wet_chemical checkbox starts ticked and interactive", wetCheckbox.checked && !wetCheckbox.disabled);
-    ok("lone-zone wet_chemical: summary chip reads 'set' before any untick", wetChipSet());
+    ok("lone-zone wet_chemical: service card chip reports the saved zone before any untick", wetChipSet());
     wetCheckbox.click();
     await wait(() => view.textContent.includes("previous settings are not restored"), "lone-zone untick warning shown");
     const wetWarning = [...view.querySelectorAll("form.report-summary p")].find((p) => p.textContent.includes("previous settings are not restored"));
     const wetWarningFires = !!wetWarning && wetWarning.textContent.includes("Wet Chemical System");
     ok("lone-zone wet_chemical: unticking fires the drop-config warning naming it", wetWarningFires);
-    ok("lone-zone wet_chemical: summary chip and untick warning agree (both 'has something')",
+    ok("lone-zone wet_chemical: service card chip and untick warning agree (both 'has something')",
       wetChipSet() && wetWarningFires);
     wetCheckbox.click(); // restore the original selection
     await wait(() => !view.textContent.includes("previous settings are not restored"), "lone-zone untick warning clears on re-tick");

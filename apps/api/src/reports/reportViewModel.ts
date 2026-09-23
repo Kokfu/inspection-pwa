@@ -105,6 +105,8 @@ export type ReportCover = {
 export type ReportSummaryRow = {
   no: number; systemKey: string; label: string; location: string | null; frequency: string | null;
   condition: FinalReportSystemCondition; conditionDetail: string;
+  /** Worst finding in definition order, with the remaining finding count (R2). */
+  mainFinding?: string;
 };
 
 export type ChecklistRow = { no: number; key: string; label: string; unit: string | null; reading: string | null; result: ReportResult | null; remark: string | null };
@@ -407,6 +409,12 @@ function legacyPage(section: FinalReportSection): Pick<SystemPage, "blocks" | "r
 const locationText = (section: FinalReportSection) => section.location
   ? `${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : null;
 
+export function summaryMainFinding(remarks: readonly ReportRemark[]): string {
+  const findings = remarks.filter(remark => remark.result?.finding);
+  const worst = findings.find(remark => remark.result?.tone === "bad") ?? findings[0];
+  return worst ? `${worst.text}${findings.length > 1 ? ` (+${findings.length - 1} more)` : ""}` : "—";
+}
+
 export function buildReportViewModel(report: FinalServiceReport, options: { company?: CompanyProfile } = {}): ReportViewModel {
   const company = options.company ?? companyProfile;
   const serviced = new Set(report.systems.map((system) => system.systemKey));
@@ -454,7 +462,7 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
   });
   const summary: ReportSummaryRow[] = systemPages.map((page) => ({
     no: page.no, systemKey: page.systemKey, label: page.title, location: page.location, frequency: null,
-    condition: page.condition, conditionDetail: page.conditionDetail
+    condition: page.condition, conditionDetail: page.conditionDetail, mainFinding: summaryMainFinding(page.remarks)
   }));
   return { company, cover, summary, systemPages };
 }

@@ -34,3 +34,12 @@ test("customer catalog version defaults to V7 and permits an explicit catalog pi
     else process.env.INSPECTION_CUSTOMER_CATALOG_VERSION = previous;
   }
 });
+
+test("report renderer defaults to html, accepts legacy, and rejects unknown configuration", () => {
+  const previous = process.env.REPORT_RENDERER;
+  try {
+    delete process.env.REPORT_RENDERER; assert.equal(loadConfig().reportRenderer,"html");
+    process.env.REPORT_RENDERER="legacy"; assert.equal(loadConfig().reportRenderer,"legacy");
+    process.env.REPORT_RENDERER="typo"; assert.throws(loadConfig,/REPORT_RENDERER/);
+  } finally { if (previous===undefined) delete process.env.REPORT_RENDERER; else process.env.REPORT_RENDERER=previous; }
+});

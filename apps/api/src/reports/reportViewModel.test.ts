@@ -361,3 +361,10 @@ test("loadFinalServiceReport carries the raw authority on each section non-enume
   assert.equal(blockOf(model, "register", "hose_reel_rows").rows.length, 1);
   assert.equal(model.summary[0]!.condition, report.systems[0]!.condition);
 });
+
+test("summary Main Finding prioritizes worst severity in definition order and counts all findings", () => {
+  const model = buildReportViewModel(reportOf([v7Section("hose_reel", "Hose Reel System", hoseReelResponse())]));
+  assert.equal(model.summary[0].mainFinding, `${model.systemPages[0].remarks.find(remark => remark.result?.value === "not_good")!.text} (+3 more)`);
+  const clean = buildReportViewModel(reportOf([{systemKey:"legacy",label:"Legacy",fields:[{label:"Check",value:"Good",depth:0}],evidence:[]}]));
+  assert.equal(clean.summary[0].mainFinding,"—");
+});

@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import type { QueryResultRow } from "pg";
 import PDFDocument from "pdfkit";
 import sharp from "sharp";
+import { buildReportViewModel, type ReportViewModel } from "./reportViewModel.js";
+import { renderReportHtml } from "./template/renderReportHtml.js";
+import { renderHtmlToPdf, resolveNamedDestinationPages } from "./pdf/htmlToPdf.js";
 import { loadConfig } from "../config/env.js";
 import { buildJobCompletion, type AcceptedAuthorityRow, type CompletionJobRow } from "../jobs/jobCompletion.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
@@ -811,6 +814,21 @@ const reportFont = readFileSync(finalReportFontAssetPath);
 
 /** PDFKit embeds a Unicode-capable TrueType font and wraps all business text on A4 pages. */
 export async function renderFinalServiceReportPdf(report: FinalServiceReport): Promise<Buffer> {
+  if (loadConfig().reportRenderer === "legacy") return renderFinalServiceReportPdfLegacy(report);
+  return renderReportViewModelPdf(buildReportViewModel(report));
+}
+
+/** Shared two-pass path, also used by the development fixture CLI. */
+export async function renderReportViewModelPdf(vm: ReportViewModel): Promise<Buffer> {
+  const first = await renderHtmlToPdf(renderReportHtml(vm));
+  const pageMap = await resolveNamedDestinationPages(first);
+  for (const page of vm.systemPages) {
+    if (!pageMap.has(`sys-${page.no}`)) throw new Error("Report system destination is missing");
+  }
+  return renderHtmlToPdf(renderReportHtml(vm, pageMap));
+}
+
+export async function renderFinalServiceReportPdfLegacy(report: FinalServiceReport): Promise<Buffer> {
   const document = new PDFDocument({ size: "A4", margin: 46, autoFirstPage: true, info: { Title: `Service Report ${report.jobReference}`, Author: "MFE Services Sdn. Bhd." } });
   const chunks: Buffer[] = []; document.on("data", (chunk: Buffer) => chunks.push(chunk));
   const done = new Promise<Buffer>((resolve, reject) => { document.on("end", () => resolve(Buffer.concat(chunks))); document.on("error", reject); });

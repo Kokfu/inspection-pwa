@@ -15,7 +15,6 @@ RUN npm ci --omit=dev
 COPY --from=build /app/apps/api/dist ./dist
 COPY --from=build /app/apps/api/src/reports/assets ./dist/reports/assets
 COPY --from=build /app/apps/api/migrations ./migrations
-COPY docs/report-template/mfe-service-report-template.html ./docs/report-template/mfe-service-report-template.html
 USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

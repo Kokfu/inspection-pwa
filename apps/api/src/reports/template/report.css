@@ -1,0 +1,149 @@
+
+  @page {
+    size: A4 landscape;
+    margin: 17mm 12mm 14mm 12mm;
+    @top-left   { content: "MFE SERVICES SDN. BHD.  ·  FIRE SYSTEM SERVICE REPORT"; font: 600 7.5pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; letter-spacing: .04em; vertical-align: bottom; padding-bottom: 3mm; }
+    @top-right  { content: "{{customer}}"; font: 600 8pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; letter-spacing: .04em; vertical-align: bottom; padding-bottom: 3mm; }
+    @bottom-left  { content: "{{reportNumber}}"; font: 7.5pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; vertical-align: top; padding-top: 3mm; }
+    @bottom-center{ content: "Page " counter(page) " of " counter(pages); font: 700 9pt "Noto Sans", "DejaVu Sans", sans-serif; color: #111; letter-spacing: .03em; vertical-align: top; padding-top: 2.5mm; }
+    @bottom-right { content: "System-generated from accepted inspection records"; font: italic 7pt "Noto Sans", "DejaVu Sans", sans-serif; color: #888; vertical-align: top; padding-top: 3mm; }
+  }
+
+  :root {
+    --ink: #111;
+    --muted: #555;
+    --rule: #222;
+    --rule-soft: #9a9a9a;
+    --band: #1f3a5f;        /* MFE navy — section bars and table heads */
+    --band-ink: #fff;
+    --tint: #eef2f7;        /* label cells */
+    --good: #1d6b35;
+    --bad: #b3161b;
+    --repair: #9a5b00;
+    --na: #666;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 8.6pt/1.35 "Noto Sans", "DejaVu Sans", sans-serif; }
+
+  /* screen preview: show pages as sheets */
+  @media screen {
+    body { background: #d9dce1; padding: 18px 0; }
+    .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; padding: 17mm 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+  }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+
+  /* ---------- generic tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 0.6pt solid var(--rule); padding: 3.2pt 5pt; vertical-align: middle; text-align: left; }
+  thead { display: table-header-group; }          /* header row repeats on page overflow */
+  tr { break-inside: avoid; }
+  thead th { background: var(--band); color: var(--band-ink); font-weight: 700; font-size: 7.8pt; letter-spacing: .03em; text-transform: uppercase; }
+  thead tr.sub th { background: #3b5578; font-size: 7.2pt; }
+  td.c, th.c { text-align: center; }
+  td.num { width: 30pt; text-align: center; color: var(--muted); }
+  td.lbl { background: var(--tint); font-weight: 600; }
+  td.req { text-align: center; font-weight: 700; width: 66pt; }
+  td.rmk { color: #222; }
+  .caps { text-transform: uppercase; }
+
+  /* result marks — word + symbol, so the report reads correctly in black & white too */
+  .r { display: inline-block; font-weight: 700; font-size: 7.6pt; letter-spacing: .02em; white-space: nowrap; }
+  .r::before { display: inline-block; width: 1.35em; font-weight: 700; }
+  .r.good   { color: var(--good); }   .r.good::before   { content: "\2713"; }
+  .r.bad    { color: var(--bad); }    .r.bad::before    { content: "\2717"; }
+  .r.repair { color: var(--repair); } .r.repair::before { content: "\25EF"; font-size: .9em; }
+  .r.na     { color: var(--na); font-weight: 600; } .r.na::before { content: "\2013"; }
+  td.flag { background: #fbeaea; }
+
+  /* ---------- page furniture ---------- */
+  .sys-title { display: flex; align-items: stretch; border: 0.8pt solid var(--rule); margin-bottom: 7pt; }
+  .sys-title .no { background: var(--band); color: #fff; font-weight: 700; font-size: 11pt; padding: 5pt 10pt; display: flex; align-items: center; }
+  .sys-title .name { flex: 1; padding: 4pt 10pt; }
+  .sys-title .name b { display: block; font-size: 12.5pt; letter-spacing: .03em; text-transform: uppercase; }
+  .sys-title .name b .continued { display: inline; font-size: 8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .sys-title .name span { color: var(--muted); font-size: 8pt; }
+  .sys-title .cond { width: 150pt; border-left: 0.8pt solid var(--rule); padding: 4pt 8pt; display: flex; flex-direction: column; justify-content: center; }
+  .sys-title .cond small { color: var(--muted); font-size: 6.8pt; text-transform: uppercase; letter-spacing: .05em; }
+  .cond-tag { font-weight: 700; font-size: 9pt; letter-spacing: .02em; }
+  .cond-tag.good { color: var(--good); } .cond-tag.refer { color: var(--repair); } .cond-tag.failed { color: var(--bad); }
+
+  /* The table header repeats on overflow. This opaque first-fragment title covers
+     its continuation twin only on the system's opening page. */
+  .system-page { position: relative; }
+  .system-title-first { position: absolute; inset: 0 0 auto; z-index: 2; background: #fff; }
+  .system-flow { border: 0; }
+  @media screen {
+    .system-title-first { top: 17mm; left: 12mm; right: 12mm; }
+  }
+
+  .blk { margin: 0 0 8pt; }
+  .blk-h { font-weight: 700; font-size: 8.4pt; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 3pt; padding-left: 6pt; border-left: 3pt solid var(--band); }
+  .blk-h .opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 6pt; }
+  .advisory { font-style: italic; color: #555; font-size: 7.4pt; margin: -2pt 0 6pt; padding: 0; list-style: none; }
+  .advisory li::before { content: "\2022  "; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; align-items: start; }
+
+  .remark-box { border: 0.6pt solid var(--rule); padding: 5pt 8pt; margin: 0 0 8pt; break-inside: avoid; }
+  .remark-box h4 { margin: 0 0 3pt; font-size: 8pt; letter-spacing: .05em; }
+  .remark-box ol { margin: 0; padding-left: 16pt; }
+  .remark-box .empty { color: var(--muted); font-style: italic; }
+  .remark-box.parts { background: #fafafa; }
+
+  .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; margin: 0 0 8pt; }
+  .photo { border: 0.6pt solid var(--rule); break-inside: avoid; }
+  .photo .img { height: 46mm; background: repeating-linear-gradient(135deg, #e9ecf0 0 8px, #f5f6f8 8px 16px); display: flex; align-items: center; justify-content: center; color: #8a93a0; font-size: 8pt; letter-spacing: .1em; }
+  .photo .cap { border-top: 0.6pt solid var(--rule); padding: 3pt 5pt; font-size: 7.4pt; }
+  .photo .cap b { display: block; font-size: 7.6pt; }
+
+  .strip { margin-top: 6pt; break-inside: avoid; }
+  .strip td { height: 20pt; }
+  .strip td.lbl { width: 110pt; }
+  .strip .sig { height: 26pt; }
+
+  /* ---------- cover ---------- */
+  .letterhead { display: grid; grid-template-columns: 70pt 1fr 150pt; align-items: center; gap: 12pt; border-bottom: 2pt solid var(--band); padding-bottom: 7pt; }
+  .logo { width: 62pt; height: 62pt; border: 2.2pt solid var(--band); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 19pt; color: var(--band); letter-spacing: .02em; }
+  .co b { font-size: 15pt; letter-spacing: .05em; display: block; }
+  .co b small { font-size: 8.5pt; font-weight: 600; letter-spacing: 0; }
+  .co div { font-size: 8pt; color: #333; }
+  .docid { border: 0.8pt solid var(--rule); font-size: 7.6pt; }
+  .docid div { padding: 2.5pt 6pt; display: flex; justify-content: space-between; }
+  .docid div + div { border-top: 0.6pt solid var(--rule-soft); }
+  .docid span { color: var(--muted); }
+  .doc-title { text-align: center; margin: 6pt 0 6pt; }
+  .doc-title h1 { font-size: 15pt; margin: 0; letter-spacing: .12em; }
+  .doc-title div { font-size: 8pt; color: var(--muted); letter-spacing: .06em; }
+
+  .info td { padding: 2.6pt 6pt; }
+  .info td.lbl { width: 108pt; font-size: 7.8pt; text-transform: uppercase; letter-spacing: .03em; }
+  .info td.v { font-weight: 600; }
+
+  .sys-list { display: grid; grid-template-columns: repeat(4, 1fr); border: 0.6pt solid var(--rule); border-top: 0; }
+  .sys-list div { padding: 3pt 6pt; font-size: 7.8pt; border-top: 0.6pt solid var(--rule-soft); }
+  .box { display: inline-block; width: 9pt; height: 9pt; border: 0.8pt solid var(--rule); margin-right: 5pt; vertical-align: -1pt; text-align: center; line-height: 7.5pt; font-size: 8pt; font-weight: 700; }
+  .sys-list .off { color: #999; }
+
+  .confirm { margin: 8pt 0 4pt; font-weight: 700; text-decoration: underline; font-size: 8.4pt; letter-spacing: .02em; }
+  .signs td { vertical-align: top; height: 62pt; width: 33.33%; padding: 5pt 7pt; }
+  .signs .line { border-top: 0.6pt solid var(--rule); margin-top: 16pt; padding-top: 2pt; font-size: 7.4pt; color: var(--muted); }
+  .signs .who { font-weight: 700; }
+  .notes { margin: 7pt 0 0; font-size: 7.5pt; }
+  .notes b { letter-spacing: .05em; }
+  .notes ol { margin: 2pt 0 0; padding-left: 15pt; }
+  .satisfy td { text-align: center; font-size: 7.8pt; }
+  .satisfy td.lbl { text-align: left; width: 170pt; }
+
+  /* ---------- summary ---------- */
+  .summary td { padding: 4pt 6pt; }
+  .summary td.pg { text-align: center; width: 44pt; font-weight: 700; }
+  .summary td.freq { width: 74pt; text-align: center; }
+  .summary td.cond { width: 128pt; }
+  .legend { display: grid; grid-template-columns: 1.1fr 1fr; gap: 10pt; margin-top: 9pt; }
+  .legend table td { padding: 3pt 6pt; font-size: 7.6pt; }
+  .legend h4 { margin: 0 0 3pt; font-size: 8pt; letter-spacing: .05em; }
+  .advice { margin-top: 9pt; font-size: 7.6pt; }
+  .advice ol { margin: 2pt 0 0; padding-left: 16pt; columns: 2; column-gap: 22pt; }
+  .advice li { break-inside: avoid; margin-bottom: 1.5pt; }

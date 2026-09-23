@@ -8,6 +8,7 @@ import {
   evidencePolicyAssignableSystemKeys,
   parseEvidencePolicyIdInput
 } from "../inspections/evidencePolicyAssignment.js";
+import { buildLabelOverrideFormLayout } from "../inspections/labelOverrideFormLayout.js";
 import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
 import {
   locationConfigurableSystemKeys,
@@ -793,7 +794,11 @@ export function createManagerCustomersRouter(
         systemKey,
         templateVersion: context.templateVersion,
         labels: labelOverrideTree(context.controls, context.stored),
-        overrides: context.stored
+        overrides: context.stored,
+        // Additive, read-only display metadata for the Manager's form-shaped
+        // editor (section headings, control kinds, result vocabulary, units).
+        // GET only: `labels` / `overrides` and the PUT contract are unchanged.
+        formLayout: buildLabelOverrideFormLayout(systemKey, context.controls)
       });
     } catch (error) { next(error); }
   });

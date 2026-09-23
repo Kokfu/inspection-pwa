@@ -1,0 +1,282 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>JOB-2026-0412</title><style>@font-face{font-family:"Noto Sans";font-weight:400;font-style:normal;src:url(BUNDLED_FONT) format("woff2");}
+@font-face{font-family:"Noto Sans";font-weight:600;font-style:normal;src:url(BUNDLED_FONT) format("woff2");}
+@font-face{font-family:"Noto Sans";font-weight:700;font-style:normal;src:url(BUNDLED_FONT) format("woff2");}
+@font-face{font-family:"Noto Sans";font-weight:400;font-style:italic;src:url(BUNDLED_FONT) format("woff2");}
+@font-face{font-family:"DejaVu Sans";font-weight:400; font-style:normal;src:url(BUNDLED_FONT) format("truetype");}
+  @page {
+    size: A4 landscape;
+    margin: 17mm 12mm 14mm 12mm;
+    @top-left   { content: "MFE SERVICES SDN. BHD.  ·  FIRE SYSTEM SERVICE REPORT"; font: 600 7.5pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; letter-spacing: .04em; vertical-align: bottom; padding-bottom: 3mm; }
+    @top-right  { content: "HOKUDEN (MALAYSIA) SDN. BHD."; font: 600 8pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; letter-spacing: .04em; vertical-align: bottom; padding-bottom: 3mm; }
+    @bottom-left  { content: "Report No. MFE/SR/2026/0918-01"; font: 7.5pt "Noto Sans", "DejaVu Sans", sans-serif; color: #555; vertical-align: top; padding-top: 3mm; }
+    @bottom-center{ content: "Page " counter(page) " of " counter(pages); font: 700 9pt "Noto Sans", "DejaVu Sans", sans-serif; color: #111; letter-spacing: .03em; vertical-align: top; padding-top: 2.5mm; }
+    @bottom-right { content: "System-generated from accepted inspection records"; font: italic 7pt "Noto Sans", "DejaVu Sans", sans-serif; color: #888; vertical-align: top; padding-top: 3mm; }
+  }
+
+  :root {
+    --ink: #111;
+    --muted: #555;
+    --rule: #222;
+    --rule-soft: #9a9a9a;
+    --band: #1f3a5f;        /* MFE navy — section bars and table heads */
+    --band-ink: #fff;
+    --tint: #eef2f7;        /* label cells */
+    --good: #1d6b35;
+    --bad: #b3161b;
+    --repair: #9a5b00;
+    --na: #666;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; background: #fff; color: var(--ink); font: 8.6pt/1.35 "Noto Sans", "DejaVu Sans", sans-serif; }
+
+  /* screen preview: show pages as sheets */
+  @media screen {
+    body { background: #d9dce1; padding: 18px 0; }
+    .page { width: 297mm; min-height: 210mm; margin: 0 auto 18px; background: #fff; padding: 17mm 12mm 14mm; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+  }
+  .page { break-after: page; }
+  .page:last-child { break-after: auto; }
+
+  /* ---------- generic tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 0.6pt solid var(--rule); padding: 3.2pt 5pt; vertical-align: middle; text-align: left; }
+  thead { display: table-header-group; }          /* header row repeats on page overflow */
+  tr { break-inside: avoid; }
+  thead th { background: var(--band); color: var(--band-ink); font-weight: 700; font-size: 7.8pt; letter-spacing: .03em; text-transform: uppercase; }
+  thead tr.sub th { background: #3b5578; font-size: 7.2pt; }
+  td.c, th.c { text-align: center; }
+  td.num { width: 30pt; text-align: center; color: var(--muted); }
+  td.lbl { background: var(--tint); font-weight: 600; }
+  td.req { text-align: center; font-weight: 700; width: 66pt; }
+  td.rmk { color: #222; }
+  .caps { text-transform: uppercase; }
+
+  /* result marks — word + symbol, so the report reads correctly in black & white too */
+  .r { display: inline-block; font-weight: 700; font-size: 7.6pt; letter-spacing: .02em; white-space: nowrap; }
+  .r::before { display: inline-block; width: 1.35em; font-weight: 700; }
+  .r.good   { color: var(--good); }   .r.good::before   { content: "\2713"; }
+  .r.bad    { color: var(--bad); }    .r.bad::before    { content: "\2717"; }
+  .r.repair { color: var(--repair); } .r.repair::before { content: "\25EF"; font-size: .9em; }
+  .r.na     { color: var(--na); font-weight: 600; } .r.na::before { content: "\2013"; }
+  td.flag { background: #fbeaea; }
+
+  /* ---------- page furniture ---------- */
+  .sys-title { display: flex; align-items: stretch; border: 0.8pt solid var(--rule); margin-bottom: 7pt; }
+  .sys-title .no { background: var(--band); color: #fff; font-weight: 700; font-size: 11pt; padding: 5pt 10pt; display: flex; align-items: center; }
+  .sys-title .name { flex: 1; padding: 4pt 10pt; }
+  .sys-title .name b { display: block; font-size: 12.5pt; letter-spacing: .03em; text-transform: uppercase; }
+  .sys-title .name b .continued { display: inline; font-size: 8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .sys-title .name span { color: var(--muted); font-size: 8pt; }
+  .sys-title .cond { width: 150pt; border-left: 0.8pt solid var(--rule); padding: 4pt 8pt; display: flex; flex-direction: column; justify-content: center; }
+  .sys-title .cond small { color: var(--muted); font-size: 6.8pt; text-transform: uppercase; letter-spacing: .05em; }
+  .cond-tag { font-weight: 700; font-size: 9pt; letter-spacing: .02em; }
+  .cond-tag.good { color: var(--good); } .cond-tag.refer { color: var(--repair); } .cond-tag.failed { color: var(--bad); }
+
+  /* The table header repeats on overflow. This opaque first-fragment title covers
+     its continuation twin only on the system's opening page. */
+  .system-page { position: relative; }
+  .system-title-first { position: absolute; inset: 0 0 auto; z-index: 2; background: #fff; }
+  .system-flow { border: 0; }
+  @media screen {
+    .system-title-first { top: 17mm; left: 12mm; right: 12mm; }
+  }
+
+  .blk { margin: 0 0 8pt; }
+  .blk-h { font-weight: 700; font-size: 8.4pt; text-transform: uppercase; letter-spacing: .04em; margin: 0 0 3pt; padding-left: 6pt; border-left: 3pt solid var(--band); }
+  .blk-h .opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 6pt; }
+  .advisory { font-style: italic; color: #555; font-size: 7.4pt; margin: -2pt 0 6pt; padding: 0; list-style: none; }
+  .advisory li::before { content: "\2022  "; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; align-items: start; }
+
+  .remark-box { border: 0.6pt solid var(--rule); padding: 5pt 8pt; margin: 0 0 8pt; break-inside: avoid; }
+  .remark-box h4 { margin: 0 0 3pt; font-size: 8pt; letter-spacing: .05em; }
+  .remark-box ol { margin: 0; padding-left: 16pt; }
+  .remark-box .empty { color: var(--muted); font-style: italic; }
+  .remark-box.parts { background: #fafafa; }
+
+  .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; margin: 0 0 8pt; }
+  .photo { border: 0.6pt solid var(--rule); break-inside: avoid; }
+  .photo .img { height: 46mm; background: repeating-linear-gradient(135deg, #e9ecf0 0 8px, #f5f6f8 8px 16px); display: flex; align-items: center; justify-content: center; color: #8a93a0; font-size: 8pt; letter-spacing: .1em; }
+  .photo .cap { border-top: 0.6pt solid var(--rule); padding: 3pt 5pt; font-size: 7.4pt; }
+  .photo .cap b { display: block; font-size: 7.6pt; }
+
+  .strip { margin-top: 6pt; break-inside: avoid; }
+  .strip td { height: 20pt; }
+  .strip td.lbl { width: 110pt; }
+  .strip .sig { height: 26pt; }
+
+  /* ---------- cover ---------- */
+  .letterhead { display: grid; grid-template-columns: 70pt 1fr 150pt; align-items: center; gap: 12pt; border-bottom: 2pt solid var(--band); padding-bottom: 7pt; }
+  .logo { width: 62pt; height: 62pt; border: 2.2pt solid var(--band); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 19pt; color: var(--band); letter-spacing: .02em; }
+  .co b { font-size: 15pt; letter-spacing: .05em; display: block; }
+  .co b small { font-size: 8.5pt; font-weight: 600; letter-spacing: 0; }
+  .co div { font-size: 8pt; color: #333; }
+  .docid { border: 0.8pt solid var(--rule); font-size: 7.6pt; }
+  .docid div { padding: 2.5pt 6pt; display: flex; justify-content: space-between; }
+  .docid div + div { border-top: 0.6pt solid var(--rule-soft); }
+  .docid span { color: var(--muted); }
+  .doc-title { text-align: center; margin: 6pt 0 6pt; }
+  .doc-title h1 { font-size: 15pt; margin: 0; letter-spacing: .12em; }
+  .doc-title div { font-size: 8pt; color: var(--muted); letter-spacing: .06em; }
+
+  .info td { padding: 2.6pt 6pt; }
+  .info td.lbl { width: 108pt; font-size: 7.8pt; text-transform: uppercase; letter-spacing: .03em; }
+  .info td.v { font-weight: 600; }
+
+  .sys-list { display: grid; grid-template-columns: repeat(4, 1fr); border: 0.6pt solid var(--rule); border-top: 0; }
+  .sys-list div { padding: 3pt 6pt; font-size: 7.8pt; border-top: 0.6pt solid var(--rule-soft); }
+  .box { display: inline-block; width: 9pt; height: 9pt; border: 0.8pt solid var(--rule); margin-right: 5pt; vertical-align: -1pt; text-align: center; line-height: 7.5pt; font-size: 8pt; font-weight: 700; }
+  .sys-list .off { color: #999; }
+
+  .confirm { margin: 8pt 0 4pt; font-weight: 700; text-decoration: underline; font-size: 8.4pt; letter-spacing: .02em; }
+  .signs td { vertical-align: top; height: 62pt; width: 33.33%; padding: 5pt 7pt; }
+  .signs .line { border-top: 0.6pt solid var(--rule); margin-top: 16pt; padding-top: 2pt; font-size: 7.4pt; color: var(--muted); }
+  .signs .who { font-weight: 700; }
+  .notes { margin: 7pt 0 0; font-size: 7.5pt; }
+  .notes b { letter-spacing: .05em; }
+  .notes ol { margin: 2pt 0 0; padding-left: 15pt; }
+  .satisfy td { text-align: center; font-size: 7.8pt; }
+  .satisfy td.lbl { text-align: left; width: 170pt; }
+
+  /* ---------- summary ---------- */
+  .summary td { padding: 4pt 6pt; }
+  .summary td.pg { text-align: center; width: 44pt; font-weight: 700; }
+  .summary td.freq { width: 74pt; text-align: center; }
+  .summary td.cond { width: 128pt; }
+  .legend { display: grid; grid-template-columns: 1.1fr 1fr; gap: 10pt; margin-top: 9pt; }
+  .legend table td { padding: 3pt 6pt; font-size: 7.6pt; }
+  .legend h4 { margin: 0 0 3pt; font-size: 8pt; letter-spacing: .05em; }
+  .advice { margin-top: 9pt; font-size: 7.6pt; }
+  .advice ol { margin: 2pt 0 0; padding-left: 16pt; columns: 2; column-gap: 22pt; }
+  .advice li { break-inside: avoid; margin-bottom: 1.5pt; }
+</style></head><body><section class="page">
+  <div class="letterhead">
+    <div class="logo">MFE</div>
+    <div class="co">
+      <b>MFE SERVICES SDN. BHD. <small>(952723-P)</small></b>
+      <div>No. 2339, Jalan Raja, Mukim Sungai Raya, 84300 Muar, Johor Darul Ta&#39;zim.</div>
+      <div>Tel : 06-985 6988 / 985 8709 &nbsp;·&nbsp; Fax : 06-985 9806 &nbsp;·&nbsp; Email : mfetsb@gmail.com</div>
+    </div>
+    <div class="docid">
+      <div><span>Report No.</span><b data-bind="report.number">MFE/SR/2026/0918-01</b></div>
+      <div><span>Job Ref.</span><b data-bind="job.reference">JOB-2026-0412</b></div>
+      <div><span>Issued</span><b data-bind="report.issuedAt">18 SEP 2026</b></div>
+    </div>
+  </div>
+
+  <div class="doc-title">
+    <h1>FIRE SYSTEM SERVICE REPORT</h1>
+    <div>FIRE FIGHTING &amp; PROTECTION SYSTEM — MAINTENANCE, INSPECTION &amp; TESTING</div>
+  </div>
+
+  <table class="info">
+    <tr>
+      <td class="lbl">Client</td><td class="v" colspan="3" data-bind="customer.name">HOKUDEN (MALAYSIA) SDN. BHD.</td>
+    </tr>
+    <tr>
+      <td class="lbl">Site / Address</td><td class="v" colspan="3" data-bind="site.name + site.address">ZONE 1 — LOT 12, JALAN PERINDUSTRIAN BUKIT PASIR, 84300 MUAR, JOHOR.</td>
+    </tr>
+    <tr>
+      <td class="lbl">Telephone / Fax</td><td class="v" data-bind="customer.contactPhone / customer.fax">06-986 1234 / 06-986 1235</td>
+      <td class="lbl">Contact Person</td><td class="v" data-bind="customer.contactPerson">MR. LIM WEI JIAN</td>
+    </tr>
+    <tr>
+      <td class="lbl">Date of Service</td><td class="v" data-bind="job.serviceDate">18 SEPTEMBER 2026</td>
+      <td class="lbl">Arrival / Departure</td><td class="v" data-bind="job.arrival / job.departure">09:05 / 16:40</td>
+    </tr>
+    <tr>
+      <td class="lbl">Service Call No.</td><td class="v" data-bind="job.serviceCallNumber">SC-26-0918</td>
+      <td class="lbl">Contract No.</td><td class="v" data-bind="contract.number">MFE/HKD/AMC/2026</td>
+    </tr>
+    <tr>
+      <td class="lbl">Frequency</td><td class="v" data-bind="contract.frequency">QUARTERLY</td>
+      <td class="lbl">Service Status</td><td class="v" data-bind="job.status"><span class="box">&#10003;</span>COMPLETED &nbsp;&nbsp; <span class="box"></span>TO BE CONTINUED</td>
+    </tr>
+    <tr>
+      <td class="lbl">Test Leader</td><td class="v" data-bind="job.completedBy">MOHD HAFIZ BIN ISMAIL</td>
+      <td class="lbl">Technicians</td><td class="v" data-bind="job.technicians[]">MOHD HAFIZ · TAN KAH SENG · RAJ KUMAR</td>
+    </tr>
+  </table>
+
+  <table style="margin-top:6pt">
+    <thead><tr><th colspan="4">Fire Fighting &amp; Protection Systems Serviced</th></tr></thead>
+  </table>
+<div class="sys-list"><div><span class="box">✓</span>Automatic Sprinkler System</div><div><span class="box">✓</span>Hose Reel System</div><div><span class="box">✓</span>Fire Alarm / Detector System</div><div class="off"><span class="box"></span>Hydrant System</div><div><span class="box">✓</span>Portable Fire Extinguisher</div><div class="off"><span class="box"></span>Dry / Wet Riser System</div><div class="off"><span class="box"></span>CO2 Fire Extinguisher System</div><div class="off"><span class="box"></span>Wet Chemical System</div><div class="off"><span class="box"></span>FM 200 System</div><div class="off"><span class="box"></span>Smoke Ventilation System</div><div class="off"><span class="box"></span>Fire Intercom System</div><div class="off"><span class="box"></span>Fire Rated Roller Shutter</div></div>
+
+  <div class="confirm">WE HEREBY CONFIRM THAT THE ATTACHED RECORDS ARE TRUE AND CORRECT AS AT THE TIME OF INSPECTION / TESTING.</div>
+  <table class="signs">
+    <thead><tr><th>Serviced By — MFE SERVICES SDN. BHD.</th><th>Verified By — MFE SERVICES SDN. BHD.</th><th>Confirmed By — Customer</th></tr></thead>
+    <tr>
+      <td>
+        <div class="who" data-bind="job.completedBy">MOHD HAFIZ BIN ISMAIL</div>
+        <div style="font-size:7.6pt;color:#333">Team: MOHD HAFIZ, TAN KAH SENG, RAJ KUMAR</div>
+        <div class="line">Signature &nbsp;·&nbsp; Date: <b>18 SEPTEMBER 2026</b></div>
+      </td>
+      <td>
+        <div class="who"></div>
+        <div style="font-size:7.6pt;color:#333">&nbsp;</div>
+        <div class="line">Name, Signature &amp; Company Stamp &nbsp;·&nbsp; Date:</div>
+      </td>
+      <td>
+        <div class="who" data-bind="customer.contactPerson">&nbsp;</div>
+        <div style="font-size:7.6pt;color:#333">&nbsp;</div>
+        <div class="line">Name, Signature &amp; Company Stamp &nbsp;·&nbsp; Date:</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="satisfy" style="margin-top:6pt">
+    <tr>
+      <td class="lbl">Customer Satisfaction / Comment</td>
+      <td><span class="box"></span>Excellent</td>
+      <td><span class="box"></span>Satisfactory</td>
+      <td><span class="box"></span>Not Satisfactory</td>
+      <td style="width:38%;text-align:left;color:#888">Comment:</td>
+    </tr>
+  </table>
+
+  <div class="notes">
+    <b>NOTE :-</b>
+    <ol>
+      <li>All fire systems listed above were tested and inspected on the date of service. Detailed results are recorded on the following pages.</li>
+      <li>Should any abnormal condition occur which might cause further damage to the customer's systems or threaten human safety or the environment, the customer agrees to call MFE immediately for necessary action.</li>
+      <li>Rectification works, parts replacement, piping and wiring works found necessary during this service are quoted and charged separately.</li>
+      <li>MFE is not responsible for any area, room or device that was not made accessible for inspection or testing on the date of service.</li>
+    </ol>
+  </div>
+</section><section class="page"><div class="sys-title"><div class="no">S</div><div class="name"><b>SUMMARY OF TESTING</b><span>One line per system inspected. The condition is the overall result of that system; details are on the page shown.</span></div><div class="cond"><small>Date of service</small><span class="cond-tag" style="color:#111">18 SEPTEMBER 2026</span></div></div><table class="summary"><thead><tr><th class="c" style="width:30pt">No.</th><th>System / Test Description</th><th>Location / Unit</th><th class="c">Page</th><th class="c">Frequency</th><th>Condition</th><th>Main Finding</th></tr></thead><tbody><tr><td class="num">1</td><td class="caps"><a href="#sys-1" style="color:inherit;text-decoration:none"><b>Automatic Sprinkler System</b></a></td><td>Pump Room, Block A · Zone: Zone 1</td><td class="pg"></td><td class="freq">QUARTERLY</td><td class="cond"><span class="cond-tag refer">REFER DETAIL PAGE</span></td><td>Pump House — Battery In Good Serviceable: COMPLETE REPAIR — Battery 2 weak (11.2 V); replaced with 12 V 100 Ah on site.</td></tr><tr><td class="num">2</td><td class="caps"><a href="#sys-2" style="color:inherit;text-decoration:none"><b>Hose Reel System</b></a></td><td>All floors · Drum type: Swing type · 14 units</td><td class="pg"></td><td class="freq">QUARTERLY</td><td class="cond flag"><span class="cond-tag failed">FAILED</span></td><td>Hose Reel Drum No. 7 (1/F Office Corridor) — Hose: NOT GOOD — Hose leaking at coupling. (+2 more)</td></tr><tr><td class="num">3</td><td class="caps"><a href="#sys-3" style="color:inherit;text-decoration:none"><b>Fire Alarm / Detector System</b></a></td><td>Main Fire Alarm Panel — Guard House · 6 zones</td><td class="pg"></td><td class="freq">QUARTERLY</td><td class="cond"><span class="cond-tag good">GOOD CONDITIONS</span></td><td>—</td></tr><tr><td class="num">4</td><td class="caps"><a href="#sys-4" style="color:inherit;text-decoration:none"><b>Portable Fire Extinguisher</b></a></td><td>Whole premises</td><td class="pg"></td><td class="freq">QUARTERLY</td><td class="cond"><span class="cond-tag good">GOOD CONDITIONS</span></td><td>—</td></tr></tbody></table><div class="legend">
+    <div>
+      <h4>CONDITION INDICATOR</h4>
+      <table>
+        <tr><td style="width:120pt"><span class="cond-tag good">GOOD CONDITIONS</span></td><td>All items in good working condition; system ready for use.</td></tr>
+        <tr><td><span class="cond-tag refer">REFER DETAIL PAGE</span></td><td>Defect found and rectified / minor defect; system usable during a fire emergency. See detail page.</td></tr>
+        <tr><td class="flag"><span class="cond-tag failed">FAILED</span></td><td>Defect found that affects the system. Rectification required; see detail page.</td></tr>
+      </table>
+    </div>
+    <div>
+      <h4>RESULT SYMBOLS (DETAIL PAGES)</h4>
+      <table>
+        <tr><td style="width:120pt"><span class="r good">GOOD</span></td><td>In good working condition / Baik</td></tr>
+        <tr><td><span class="r bad">NOT GOOD</span></td><td>In poor working condition / Tidak Memuaskan</td></tr>
+        <tr><td><span class="r repair">COMPLETE REPAIR</span></td><td>Defect rectified on site / Siap Baik Pulih</td></tr>
+        <tr><td><span class="r na">N/A</span></td><td>No need checking / Tidak Berkaitan</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="advice">
+    <b>ADVICE TO CUSTOMER :-</b>
+    <ol>
+      <li>Replace fire alarm panel and pump starter batteries every 2 years or when capacity test fails, using the same ampere-hour rating.</li>
+      <li>Do not block fire protection equipment, alarm devices, exit doors, fire lift lobbies, staircases or escape routes. Do not padlock exit doors.</li>
+      <li>Emergency lights and KELUAR signs must be kept in working condition.</li>
+      <li>Do not use fire system water (hose reel, hydrant, riser, fire tank) except for fire fighting.</li>
+      <li>Do not isolate or switch off any fire alarm panel, pump set or suppression panel without informing MFE.</li>
+      <li>After any renovation shut-down, ensure all control valves are returned to the OPEN position.</li>
+      <li>Refill or replace any portable fire extinguisher immediately after use.</li>
+      <li>Contact MFE at 06-985 6988 for any complaint about this service.</li>
+    </ol>
+  </div>
+</section><section class="page system-page"><div class="system-title-first"><div class="sys-title" id="sys-1"><div class="no">1</div><div class="name"><b>Automatic Sprinkler System</b><span>Pump Room, Block A · Zone: Zone 1</span></div><div class="cond"><small>System condition</small><span class="cond-tag refer">REFER DETAIL PAGE</span></div></div></div><table class="system-flow"><thead><tr><td style="padding:0;border:0"><div class="sys-title"><div class="no">1</div><div class="name"><b>Automatic Sprinkler System <span class="continued">(continued)</span></b><span>Pump Room, Block A · Zone: Zone 1</span></div><div class="cond"><small>System condition</small><span class="cond-tag refer">REFER DETAIL PAGE</span></div></div></td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0"><ul class="advisory"><li>Do not close any main control valve. Valves are secured with MFE safety seals.</li></ul><div class="two-col"><div class="blk"><div class="blk-h">Water Tank</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c" style="width:100pt">Result</th><th>Remarks</th></tr></thead><tbody><tr><td class="num">1</td><td>S.A.J Main Water Supply</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">2</td><td>Water Level</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk">Full</td></tr><tr><td class="num">3</td><td>Automatic Refilling Facilities</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">4</td><td>Drain Valve In Close Position And All Stop Valve In Open Position</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr></tbody></table></div><div class="blk"><div class="blk-h">Main Alarm Valve</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c">Req / Unit</th><th class="c">Reading</th><th class="c" style="width:100pt">Result</th></tr></thead><tbody><tr><td class="num">1</td><td>Breaching Inlet In Good Serviceable</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">2</td><td>Alarm Gong In Function</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">3</td><td>Water Supply Gauge</td><td class="req">PSI</td><td class="c">125</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">4</td><td>Installation Gauge</td><td class="req">PSI</td><td class="c">120</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">5</td><td>Flow Meter Valve Closed, All Other Valves Open</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td></tr></tbody></table></div></div><div class="blk"><div class="blk-h">Pump House</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c">Req / Unit</th><th class="c">Reading</th><th class="c" style="width:100pt">Result</th><th>Remarks</th></tr></thead><tbody><tr><td class="num">1</td><td>Keep Clean In Pump House</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">2</td><td>Manual Start Jockey Pump, Duty Pump &amp; Stand-by Pump</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">3</td><td>Jockey Pump Correct Cut In / Cut Out</td><td class="req">PSI</td><td class="c">110 / 140</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">4</td><td>Correct Duty Pump Cut In</td><td class="req">PSI</td><td class="c">95</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">5</td><td>Correct Stand-by Pump Cut In</td><td class="req">PSI</td><td class="c">80</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">6</td><td>Stand-by Pump Water, Oil, Fuel, Belt and etc.</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk">Diesel 3/4</td></tr><tr><td class="num">7</td><td>Correct Operation Of Battery Charging Alternator</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">8</td><td>Battery In Good Serviceable</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r repair">COMPLETE REPAIR</span></td><td class="rmk">Battery 2 weak (11.2 V); replaced with 12 V 100 Ah on site.</td></tr><tr><td class="num">9</td><td>Pump Run / Phase Failure Alarm Signal To Main Alarm Panel</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">10</td><td>Jockey, Duty And Stand-by Pump In Auto Start Position</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr><tr><td class="num">11</td><td>Test Valve In Close Position And All Gate Valve In Open Position</td><td class="req">–</td><td class="c">–</td><td class="c"><span class="r good">GOOD</span></td><td class="rmk"></td></tr></tbody></table></div><div class="blk" style="break-inside:avoid"><div class="blk-h">Test Run Fire Pump 30 Minutes</div><table class="blk-units"><thead><tr><th>Description</th><th class="c">Req / Unit</th><th class="c">Jockey Pump</th><th class="c">Duty Pump</th><th class="c">Stand-by Pump</th></tr></thead><tbody><tr><td>Test Run Fire Pump 30 Minutes</td><td></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td>Remarks</td><td></td><td>—</td><td>Ran 30 min, no abnormal noise.</td><td>Ran 30 min after battery change.</td></tr></tbody></table></div><div class="remark-box"><h4>REMARK :</h4><ol><li>Pump House — Battery In Good Serviceable: COMPLETE REPAIR — Battery 2 weak (11.2 V); replaced with 12 V 100 Ah on site.</li></ol></div><div class="blk"><div class="blk-h">Comments</div><div class="remark-box" style="margin:0;min-height:20pt;white-space:pre-wrap">Sprinkler installation in normal standby condition on departure. All valves sealed.</div></div><div class="blk-h" style="margin-bottom:4pt">Photo Evidence</div><div class="photos"><div class="photo"><div class="img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" alt="Pump House — Battery In Good Serviceable — Replaced battery installed" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>1. Pump House — Battery In Good Serviceable — Replaced battery installed</b></div></div><div class="photo"><div class="img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" alt="Main Alarm Valve — Installation Gauge — 120 PSI" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>2. Main Alarm Valve — Installation Gauge — 120 PSI</b></div></div><div class="photo"><div class="img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" alt="Pump House — Overall — Pump room on departure" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>3. Pump House — Overall — Pump room on departure</b></div></div></div><table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>18 SEPTEMBER 2026</b></td><td class="lbl">INSPECTED BY</td><td><b>MOHD HAFIZ</b></td><td><b>TAN KAH SENG</b></td><td><b>RAJ KUMAR</b></td><td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td><td class="sig"></td><td class="sig"></td><td class="sig"></td><td class="sig"></td></tr></table></td></tr></tbody></table></section><section class="page system-page"><div class="system-title-first"><div class="sys-title" id="sys-2"><div class="no">2</div><div class="name"><b>Hose Reel System</b><span>All floors · Drum type: Swing type · 14 units</span></div><div class="cond"><small>System condition</small><span class="cond-tag failed">FAILED</span></div></div></div><table class="system-flow"><thead><tr><td style="padding:0;border:0"><div class="sys-title"><div class="no">2</div><div class="name"><b>Hose Reel System <span class="continued">(continued)</span></b><span>All floors · Drum type: Swing type · 14 units</span></div><div class="cond"><small>System condition</small><span class="cond-tag failed">FAILED</span></div></div></td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0"><div class="two-col"><div class="blk"><div class="blk-h">Water Tank</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c" style="width:100pt">Result</th></tr></thead><tbody><tr><td class="num">1</td><td>S.A.J Main Water Supply</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">2</td><td>Water Level</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">3</td><td>Automatic Refilling Facilities</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">4</td><td>Drain Valve In Close Position And All Stop Valve</td><td class="c"><span class="r good">GOOD</span></td></tr></tbody></table></div><div class="blk" style="break-inside:avoid"><div class="blk-h">Test Run Fire Pump 30 Minutes</div><table class="blk-units"><thead><tr><th>Description</th><th class="c">Req / Unit</th><th class="c">Duty Pump</th><th class="c">Stand-by Pump</th></tr></thead><tbody><tr><td>Test Run Fire Pump 30 Minutes</td><td></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td></tr></tbody></table></div></div><div class="blk"><div class="blk-h">Hose Reel Drum</div><table class="blk-register"><thead><tr><th class="c" rowspan="1">No</th><th rowspan="1">Location</th><th rowspan="1">Drum</th><th rowspan="1">Hose</th><th rowspan="1">Nozzle</th><th rowspan="1">Valve</th><th rowspan="1">Nozzle Box</th><th rowspan="1">Remarks</th></tr></thead><tbody><tr><td class="num">1</td><td>G/F Main Entrance</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">2</td><td>G/F Production Line A</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">3</td><td>G/F Production Line B</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r na">N/A</span></td><td>No nozzle box fitted</td></tr><tr><td class="num">4</td><td>G/F Warehouse</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">5</td><td>G/F Loading Bay</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">6</td><td>1/F Lift Lobby</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">7</td><td>1/F Office Corridor</td><td class="c"><span class="r good">GOOD</span></td><td class="flag"><span class="r bad">NOT GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td>Hose leaking at coupling</td></tr><tr><td class="num">8</td><td>1/F Store Room</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">9</td><td>2/F Lift Lobby</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r repair">COMPLETE REPAIR</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td>Nozzle tightened</td></tr><tr><td class="num">10</td><td>2/F Production</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">11</td><td>2/F Canteen</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="flag"><span class="r bad">NOT GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td>Nozzle missing</td></tr><tr><td class="num">12</td><td>3/F Lift Lobby</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">13</td><td>3/F Plant Room</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">14</td><td>Roof Access</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr></tbody></table></div><div class="two-col"><div class="remark-box"><h4>REMARK :</h4><ol><li>Hose Reel Drum No. 7 (1/F Office Corridor) — Hose: NOT GOOD — Hose leaking at coupling.</li><li>Hose Reel Drum No. 11 (2/F Canteen) — Nozzle: NOT GOOD — Nozzle missing.</li><li>Hose Reel Drum No. 9 (2/F Lift Lobby) — Nozzle: COMPLETE REPAIR — Nozzle tightened.</li></ol></div><div class="remark-box parts"><h4>PARTS / RECTIFICATION REQUIRED :</h4><ol><li>HOSE (30 M) X 1</li><li>NOZZLE X 1</li></ol></div></div><div class="blk"><div class="blk-h">Comments</div><div class="remark-box" style="margin:0;min-height:20pt;white-space:pre-wrap"></div></div><div class="blk-h" style="margin-bottom:4pt">Photo Evidence</div><div class="photos"><div class="photo"><div class="img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" alt="Drum No. 7 — Hose — Leak at coupling" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>1. Drum No. 7 — Hose — Leak at coupling</b></div></div><div class="photo"><div class="img"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" alt="Drum No. 11 — Nozzle — Nozzle missing" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>2. Drum No. 11 — Nozzle — Nozzle missing</b></div></div></div><table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>18 SEPTEMBER 2026</b></td><td class="lbl">INSPECTED BY</td><td><b>MOHD HAFIZ</b></td><td><b>TAN KAH SENG</b></td><td><b>RAJ KUMAR</b></td><td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td><td class="sig"></td><td class="sig"></td><td class="sig"></td><td class="sig"></td></tr></table></td></tr></tbody></table></section><section class="page system-page"><div class="system-title-first"><div class="sys-title" id="sys-3"><div class="no">3</div><div class="name"><b>Fire Alarm / Detector System</b><span>Main Fire Alarm Panel — Guard House · 6 zones</span></div><div class="cond"><small>System condition</small><span class="cond-tag good">GOOD CONDITIONS</span></div></div></div><table class="system-flow"><thead><tr><td style="padding:0;border:0"><div class="sys-title"><div class="no">3</div><div class="name"><b>Fire Alarm / Detector System <span class="continued">(continued)</span></b><span>Main Fire Alarm Panel — Guard House · 6 zones</span></div><div class="cond"><small>System condition</small><span class="cond-tag good">GOOD CONDITIONS</span></div></div></td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0"><ul class="advisory"><li>Do not isolate any switch at the control panel without permission.</li><li>Do not replace batteries with a lower ampere-hour rating than the original.</li></ul><div class="blk"><div class="blk-h">Detector Test</div><table class="blk-register"><thead><tr><th rowspan="2">Alarm Zone</th><th rowspan="2">Location</th><th colspan="3">Manual Call Point</th><th colspan="3">Flow Switch</th><th colspan="3">Heat Detector</th><th colspan="3">Smoke Detector</th></tr><tr class="sub"><th class="c">N</th><th class="c">T</th><th class="c">I</th><th class="c">N</th><th class="c">T</th><th class="c">I</th><th class="c">N</th><th class="c">T</th><th class="c">I</th><th class="c">N</th><th class="c">T</th><th class="c">I</th></tr></thead><tbody><tr><td>Z-1</td><td>Guard House</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td></tr><tr><td>Z-2</td><td>G/F Production</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr><tr><td>Z-3</td><td>G/F Warehouse</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr><tr><td>Z-4</td><td>1/F Office</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td></tr><tr><td>Z-5</td><td>2/F Production</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr><tr><td>Z-6</td><td>3/F Plant Room</td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c">✓</td><td class="c">✓</td><td class="c"></td><td class="c"></td><td class="c"></td><td class="c"></td></tr></tbody></table></div><div class="two-col"><div><div class="blk"><div class="blk-h">Charger &amp; Batteries</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c">Req / Unit</th><th class="c">Reading</th><th class="c" style="width:100pt">Result</th></tr></thead><tbody><tr><td class="num">1</td><td>Main Supply</td><td class="req">ON</td><td class="c">ON</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">2</td><td>Battery</td><td class="req">VDC</td><td class="c">26.8</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">3</td><td>Charger</td><td class="req">ON</td><td class="c">ON</td><td class="c"><span class="r good">GOOD</span></td></tr></tbody></table></div><div class="blk"><div class="blk-h">Timer</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c">Req / Unit</th><th class="c">Reading</th><th class="c" style="width:100pt">Result</th></tr></thead><tbody><tr><td class="num">1</td><td>Timer for alarm ringing after flow switch detects signal</td><td class="req">SECONDS</td><td class="c">30</td><td class="c"></td></tr></tbody></table></div></div><div class="blk"><div class="blk-h">Main Function Key</div><table class="blk-checklist"><thead><tr><th class="c" style="width:26pt">No</th><th>Inspection &amp; Test</th><th class="c" style="width:100pt">Result</th></tr></thead><tbody><tr><td class="num">1</td><td>Main Alarm Reset</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">2</td><td>Lamp Test</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">3</td><td>Evacuate</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">4</td><td>A/C Supply</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">5</td><td>D/C Supply</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">6</td><td>SPKA System</td><td class="c"><span class="r na">N/A</span></td></tr><tr><td class="num">7</td><td>Alarm Lift Trip</td><td class="c"><span class="r good">GOOD</span></td></tr><tr><td class="num">8</td><td>Signal Gas Discharge</td><td class="c"><span class="r na">N/A</span></td></tr></tbody></table></div></div><div class="blk"><div class="blk-h">Alarm Bell &amp; Manual Call Point</div><table class="blk-register"><thead><tr><th class="c" rowspan="1">No</th><th rowspan="1">Location</th><th rowspan="1">Alarm Bell</th><th rowspan="1">Manual Call Point</th><th rowspan="1">Remarks</th></tr></thead><tbody><tr><td class="num">1</td><td>Guard House</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">2</td><td>G/F Production (east / west)</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">3</td><td>G/F Warehouse</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">4</td><td>1/F Office</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">5</td><td>2/F Production</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr><tr><td class="num">6</td><td>3/F Plant Room</td><td class="c"><span class="r good">GOOD</span></td><td class="c"><span class="r good">GOOD</span></td><td></td></tr></tbody></table></div><div class="remark-box"><h4>REMARK :</h4><span class="empty">No defects found.</span></div><div class="blk"><div class="blk-h">Comments</div><div class="remark-box" style="margin:0;min-height:20pt;white-space:pre-wrap">Panel in normal condition on departure. No zone isolated.</div></div><table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>18 SEPTEMBER 2026</b></td><td class="lbl">INSPECTED BY</td><td><b>MOHD HAFIZ</b></td><td><b>TAN KAH SENG</b></td><td><b>RAJ KUMAR</b></td><td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td><td class="sig"></td><td class="sig"></td><td class="sig"></td><td class="sig"></td></tr></table></td></tr></tbody></table></section><section class="page system-page"><div class="system-title-first"><div class="sys-title" id="sys-4"><div class="no">4</div><div class="name"><b>Portable Fire Extinguisher</b><span>Whole premises</span></div><div class="cond"><small>System condition</small><span class="cond-tag good">GOOD CONDITIONS</span></div></div></div><table class="system-flow"><thead><tr><td style="padding:0;border:0"><div class="sys-title"><div class="no">4</div><div class="name"><b>Portable Fire Extinguisher <span class="continued">(continued)</span></b><span>Whole premises</span></div><div class="cond"><small>System condition</small><span class="cond-tag good">GOOD CONDITIONS</span></div></div></td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0"><div class="blk"><div class="blk-h">Quantity Summary</div><table class="blk-qty"><thead><tr><th>Type</th><th class="c" style="width:90pt">Quantity</th></tr></thead><tbody><tr><td>9 kg Dry Powder Fire Extinguisher</td><td class="c"><b>18 NOS</b></td></tr><tr><td>2 kg CO2 Portable Fire Extinguisher</td><td class="c"><b>6 NOS</b></td></tr><tr><td class="lbl">Total Fire Extinguisher</td><td class="c lbl"><b>24 NOS</b></td></tr></tbody></table></div><div class="remark-box"><h4>REMARK :</h4><span class="empty">No defects found.</span></div><div class="blk"><div class="blk-h">Comments</div><div class="remark-box" style="margin:0;min-height:20pt;white-space:pre-wrap">Next refill / expiry date: 12 SEP 2027. All units pressure gauge in green zone, safety pins and seals intact.</div></div><table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>18 SEPTEMBER 2026</b></td><td class="lbl">INSPECTED BY</td><td><b>MOHD HAFIZ</b></td><td><b>TAN KAH SENG</b></td><td><b>RAJ KUMAR</b></td><td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td><td class="sig"></td><td class="sig"></td><td class="sig"></td><td class="sig"></td></tr></table><div style="margin-top:22pt;text-align:center;font-size:7.8pt;color:#555;letter-spacing:.2em">— END OF REPORT —</div></td></tr></tbody></table></section></body></html>

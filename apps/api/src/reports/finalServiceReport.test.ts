@@ -1,3 +1,5 @@
+import { extractPdfText as extractPdfPages } from "./pdf/extractPdfText.testSupport.js";
+const extractPdfText = async (pdf: Buffer) => (await extractPdfPages(pdf)).join("\n");
 import assert from "node:assert/strict";
 import test from "node:test";
 import express from "express";
@@ -315,56 +317,6 @@ test("sectionRemarkLines folds each finding's OWN remark by label structure, nev
  * (beginbfchar / beginbfrange) into glyph-id -> string, then map every `<hex>`
  * run in the content streams back through it.
  */
-function extractPdfText(pdf: Buffer): string {
-  const latin1 = pdf.toString("latin1");
-  const streams: string[] = [];
-  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let match: RegExpExecArray | null;
-  while ((match = streamRe.exec(latin1)) !== null) {
-    const preamble = latin1.slice(Math.max(0, match.index - 400), match.index);
-    let body = Buffer.from(match[1]!, "latin1");
-    if (/\/FlateDecode/.test(preamble)) { try { body = zlib.inflateSync(body); } catch { continue; } }
-    streams.push(body.toString("latin1"));
-  }
-  const utf16 = (hex: string) => { let out = ""; for (let i = 0; i + 4 <= hex.length; i += 4) out += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16)); return out; };
-  const key = (code: number) => code.toString(16).toLowerCase().padStart(4, "0");
-  const toUnicode = new Map<string, string>();
-  const contentStreams: string[] = [];
-  for (const stream of streams) {
-    if (/beginbfchar|beginbfrange/.test(stream)) {
-      for (const block of stream.match(/beginbfchar([\s\S]*?)endbfchar/g) ?? []) {
-        for (const pair of block.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
-          toUnicode.set(pair[1]!.toLowerCase().padStart(4, "0"), utf16(pair[2]!));
-        }
-      }
-      for (const block of stream.match(/beginbfrange([\s\S]*?)endbfrange/g) ?? []) {
-        // Array form:  <start> <end> [ <d0> <d1> ... ]  (one destination per code)
-        for (const row of block.matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[([\s\S]*?)\]/g)) {
-          const start = parseInt(row[1]!, 16);
-          const entries = [...row[3]!.matchAll(/<([0-9A-Fa-f]+)>/g)].map((entry) => utf16(entry[1]!));
-          entries.forEach((value, offset) => toUnicode.set(key(start + offset), value));
-        }
-        // Range form:  <start> <end> <dstStart>  (contiguous destinations). Strip the array-form
-        // `[ ... ]` payloads first so their inner <hex> entries are not misread as range triples.
-        for (const row of block.replace(/\[[\s\S]*?\]/g, " ").matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) {
-          const start = parseInt(row[1]!, 16), end = parseInt(row[2]!, 16), dst = parseInt(row[3]!, 16);
-          for (let code = start; code <= end && code - start < 0x10000; code += 1) toUnicode.set(key(code), String.fromCodePoint(dst + (code - start)));
-        }
-      }
-    } else if (/\bTj\b|\bTJ\b/.test(stream)) {
-      contentStreams.push(stream);
-    }
-  }
-  let text = "";
-  for (const stream of contentStreams) {
-    for (const run of stream.matchAll(/<([0-9A-Fa-f]+)>/g)) {
-      const hex = run[1]!;
-      for (let i = 0; i + 4 <= hex.length; i += 4) text += toUnicode.get(hex.slice(i, i + 4).toLowerCase()) ?? "";
-    }
-  }
-  return text;
-}
-
 test("Summary of Testing PDF block renders numbered per-system conditions and per-section Remarks", async () => {
   const report: FinalServiceReport = {
     customer: "Cond Customer", site: "Cond Site", serviceDate: "2026-09-07", jobReference: "SV-COND-1",
@@ -385,12 +337,12 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   assert.ok(pdf.length > 900);
   // DoD case (a): the Summary-of-Testing line and the finding's owned "Remarks:" block are
   // PROVEN in the rendered PDF, decoded back through the embedded font's /ToUnicode CMap.
-  const rendered = extractPdfText(pdf);
-  assert.ok(rendered.includes("Summary of Testing"), "PDF carries the Summary of Testing heading");
-  assert.ok(rendered.includes("1. Hydrant System — FAILED"), "numbered per-system FAILED line");
-  assert.ok(rendered.includes("Remarks:"), "per-section Remarks block heading");
+  const rendered = await extractPdfText(pdf);
+  assert.ok(rendered.includes("SUMMARY OF TESTING"), "PDF carries the Summary of Testing heading");
+  assert.ok(/1HYDRANT SYSTEM.*?FAILED/.test(rendered), "numbered per-system FAILED line");
+  assert.ok(rendered.includes("REMARK :"), "per-section Remarks block heading");
   assert.ok(rendered.includes("Perished"), "the Hydrant finding's OWN remark text is folded into the Remarks line");
-  assert.ok(rendered.includes("1. Hose: Not Good — Perished"), "Remarks line = finding + its own remark");
+  assert.ok(rendered.includes("Hose: Not Good — Perished"), "Remarks line = finding + its own remark");
   // DoD case (c): a clean (no-finding) system emits no "Remarks:" block at all.
   const clean: FinalServiceReport = {
     ...report,
@@ -399,7 +351,7 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   };
   const cleanPdf = await renderFinalServiceReportPdf(clean);
   assert.equal(cleanPdf.subarray(0, 5).toString("binary"), "%PDF-");
-  assert.ok(!extractPdfText(cleanPdf).includes("Remarks:"), "no finding anywhere -> no Remarks block");
+  assert.ok((await extractPdfText(cleanPdf)).includes("No defects found."), "no finding anywhere -> explicit No defects found");
   // Secondary: the findings + conditionDetail lines still add measurable rendered content.
   assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
 });
@@ -420,25 +372,27 @@ test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Sys
   };
   const withPdf = await renderFinalServiceReportPdf(withCoverFields);
   assert.equal(withPdf.subarray(0, 5).toString("binary"), "%PDF-");
-  const withRendered = extractPdfText(withPdf);
-  assert.ok(withRendered.includes("Telephone: 03-1234567"), "PDF cover carries Telephone");
-  assert.ok(withRendered.includes("Contact: Ali Bin Ahmad"), "PDF cover carries Contact");
-  assert.ok(withRendered.includes("Service Call No: SC-4821"), "PDF cover carries Service Call No");
-  assert.ok(withRendered.includes("Arrival: 09:15"), "PDF cover carries Arrival");
-  assert.ok(withRendered.includes("Departure: 11:45"), "PDF cover carries Departure");
-  assert.ok(withRendered.includes("Systems: Hose Reel System, CO2 System"), "PDF cover derives the Systems checklist from report.systems");
+  const withRendered = await extractPdfText(withPdf);
+  assert.ok(withRendered.includes("TELEPHONE / FAX03-1234567"), "PDF cover carries Telephone");
+  assert.ok(withRendered.includes("CONTACT PERSONAli Bin Ahmad"), "PDF cover carries Contact");
+  assert.ok(withRendered.includes("SERVICE CALL NO.SC-4821"), "PDF cover carries Service Call No");
+  assert.ok(withRendered.includes("ARRIVAL / DEPARTURE09:15"), "PDF cover carries Arrival");
+  assert.ok(withRendered.includes("09:15 / 11:45"), "PDF cover carries Departure");
+  assert.ok(withRendered.includes("CO2 Fire Extinguisher System"));
+  assert.ok(withRendered.includes("Hose Reel System"), "PDF cover derives the Systems checklist from report.systems");
 
   // A historical job predating this feature has none of the five optional fields.
   const withoutPdf = await renderFinalServiceReportPdf(base);
   assert.equal(withoutPdf.subarray(0, 5).toString("binary"), "%PDF-");
-  const withoutRendered = extractPdfText(withoutPdf);
-  assert.ok(!withoutRendered.includes("Telephone:"), "no blank Telephone line for a job that never captured it");
-  assert.ok(!withoutRendered.includes("Contact:"), "no blank Contact line for a job that never captured it");
-  assert.ok(!withoutRendered.includes("Service Call No:"), "no blank Service Call No line for a job that never captured it");
-  assert.ok(!withoutRendered.includes("Arrival:"), "no blank Arrival line for a job that never captured it");
-  assert.ok(!withoutRendered.includes("Departure:"), "no blank Departure line for a job that never captured it");
+  const withoutRendered = await extractPdfText(withoutPdf);
+  assert.ok(!withoutRendered.includes("03-1234567"), "no blank Telephone line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("Ali Bin Ahmad"), "no blank Contact line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("SC-4821"), "no blank Service Call No line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("09:15"), "no blank Arrival line for a job that never captured it");
+  assert.ok(!withoutRendered.includes("11:45"), "no blank Departure line for a job that never captured it");
   // Systems is unconditional - it's always derivable from report.systems, old job or new.
-  assert.ok(withoutRendered.includes("Systems: Hose Reel System, CO2 System"), "Systems checklist still renders for a job predating this feature");
+  assert.ok(withoutRendered.includes("CO2 Fire Extinguisher System"));
+  assert.ok(withoutRendered.includes("Hose Reel System"), "Systems checklist still renders for a job predating this feature");
 });
 
 /* ------------------------------------------------------------------------- *
