@@ -74,7 +74,7 @@ export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOp
       <p className="empty-state">This system has no configured zones or locations.</p>
     ) : null}
     {system.systemKey === "hose_reel" && onOpenHoseReel ? <button type="button" onClick={onOpenHoseReel}>Open Hose Reel Inspection</button>
-      : (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical") && onOpenSuppressionLocations ? <button type="button" onClick={onOpenSuppressionLocations}>Open {system.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} Locations</button>
+      : (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical" || system.systemKey === "fm200_fire_suppression") && onOpenSuppressionLocations ? <button type="button" onClick={onOpenSuppressionLocations}>Open {system.systemKey === "wet_chemical" ? "Wet Chemical" : system.systemKey === "fm200_fire_suppression" ? "FM200" : "CO2"} Locations</button>
         : system.systemKey === "portable_fire_extinguisher" && onOpenPortableFireExtinguisher ? <button type="button" onClick={onOpenPortableFireExtinguisher}>Open Portable Fire Extinguisher Inspection</button>
         : <p className="form-message">Detailed inspection entry is not available for this system yet.</p>}
   </section>;

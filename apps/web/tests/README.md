@@ -13,6 +13,7 @@ Run these browser harnesses through the Vite development server:
 - `hydrant-local-sync.html`
 - `hose-reel-regression.html`
 - `co2-concurrent-initialization.html`
+- `fm200-concurrent-initialization.html`
 - `server-summary-refresh-authority.html`
 - `ui-presentation-polish.html`
 
@@ -49,6 +50,12 @@ The CO2 harness verifies frozen configured-location initialization, independent
 child Draft and outbox lifecycle, stale-write protection, configured provenance,
 offline-safe local behavior, and child/parent progress precedence. It reports
 each check independently in its visible result. Run it manually through Vite.
+
+The FM200 harness mirrors the CO2 harness against the independent FM200 module
+(own systemKey, own groupKey, own records) - frozen configured-location
+initialization, independent child Draft and outbox lifecycle, stale-write
+protection, configured provenance, offline-safe local behavior, and
+child/parent progress precedence. Run it manually through Vite.
 
 The server-summary refresh-authority harness verifies that a new manual refresh
 immediately invalidates accepted Fire Alarm authority, continues onto a successor

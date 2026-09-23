@@ -119,7 +119,7 @@ const coverSystems: ReadonlyArray<readonly [string, string]> = [
   ["fire_alarm_detector", "Fire Alarm / Detector System"], ["hydrant", "Hydrant System"],
   ["portable_fire_extinguisher", "Portable Fire Extinguisher"], ["dry_wet_riser", "Dry / Wet Riser System"],
   ["co2_fire_extinguisher", "CO2 Fire Extinguisher System"], ["wet_chemical", "Wet Chemical System"],
-  ["fm200", "FM 200 System"], ["smoke_ventilation", "Smoke Ventilation System"],
+  ["fm200", "FM 200 System"], ["fm200_fire_suppression", "FM200 System"], ["smoke_ventilation", "Smoke Ventilation System"],
   ["fire_intercom", "Fire Intercom System"], ["fire_rated_roller_shutter", "Fire Rated Roller Shutter"]
 ];
 

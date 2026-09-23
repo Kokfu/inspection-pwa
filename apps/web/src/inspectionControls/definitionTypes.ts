@@ -70,7 +70,7 @@ export type ResolvedCo2Controls = {
   source: {
     templateCode: "MFE-FSSR";
     templateVersion: 1 | 4 | 7;
-    systemKey: "co2_fire_extinguisher" | "wet_chemical";
+    systemKey: "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression";
   };
   repetitionMode: "per_location";
   controlPanelLocation: {

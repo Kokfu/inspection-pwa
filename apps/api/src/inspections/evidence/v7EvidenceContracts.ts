@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -100,6 +100,18 @@ const adapter = (systemKey: V7EvidenceSystemKey, fields: Readonly<Record<string,
 };
 
 const co2AdapterFields: Readonly<Record<string, string>> = {
+  "chargerAndBatteries:main_supply": "Main Supply", "chargerAndBatteries:battery": "Battery", "chargerAndBatteries:charger": "Charger",
+  "physicalOutlook:co2_cylinder": "CO2 Cylinder", "physicalOutlook:electric_actuator": "Electric Actuator", "physicalOutlook:manual_release_key": "Manual Release Key", "physicalOutlook:alarm_bell": "Alarm Bell", "physicalOutlook:twin_flashing_light": "Twin Flashing Light", "physicalOutlook:24v_dc_tripping_device": "24V DC Tripping Device", "physicalOutlook:manual_pull_station": "Manual Pull Station", "physicalOutlook:high_pressure_hose": "High Pressure Hose", "physicalOutlook:discharge_nozzles": "Discharge Nozzles", "physicalOutlook:pilot_cylinder": "Pilot Cylinder",
+  "mainFunctionKeys:main_alarm_reset": "Main Alarm Reset", "mainFunctionKeys:lamp_test": "Lamp Test", "mainFunctionKeys:evacuate": "Evacuate", "mainFunctionKeys:ac_supply": "A/C Supply", "mainFunctionKeys:dc_supply": "D/C Supply", "mainFunctionKeys:signal_alarm_to_mfap": "Signal Alarm to MFAP"
+};
+
+/** FM200 is a fully independent V7 system cloned from CO2's data-entry
+ * structure (per the confirmed decision: only the top-level section header
+ * differs - internal field labels stay worded exactly as CO2's, e.g. "CO2
+ * Cylinder"). Its adapter is therefore an identical field-path/caption map,
+ * registered under its own `fm200_fire_suppression` system key so evidence
+ * identity (`jobId` + `systemKey` + ...) never collides with CO2's. */
+const fm200AdapterFields: Readonly<Record<string, string>> = {
   "chargerAndBatteries:main_supply": "Main Supply", "chargerAndBatteries:battery": "Battery", "chargerAndBatteries:charger": "Charger",
   "physicalOutlook:co2_cylinder": "CO2 Cylinder", "physicalOutlook:electric_actuator": "Electric Actuator", "physicalOutlook:manual_release_key": "Manual Release Key", "physicalOutlook:alarm_bell": "Alarm Bell", "physicalOutlook:twin_flashing_light": "Twin Flashing Light", "physicalOutlook:24v_dc_tripping_device": "24V DC Tripping Device", "physicalOutlook:manual_pull_station": "Manual Pull Station", "physicalOutlook:high_pressure_hose": "High Pressure Hose", "physicalOutlook:discharge_nozzles": "Discharge Nozzles", "physicalOutlook:pilot_cylinder": "Pilot Cylinder",
   "mainFunctionKeys:main_alarm_reset": "Main Alarm Reset", "mainFunctionKeys:lamp_test": "Lamp Test", "mainFunctionKeys:evacuate": "Evacuate", "mainFunctionKeys:ac_supply": "A/C Supply", "mainFunctionKeys:dc_supply": "D/C Supply", "mainFunctionKeys:signal_alarm_to_mfap": "Signal Alarm to MFAP"
@@ -722,12 +734,13 @@ const fireIntercomAdapter = (definition: unknown): V7EvidenceContractAdapter | u
 };
 
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation" && values.systemKey !== "fire_intercom")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation" && values.systemKey !== "fire_intercom" && values.systemKey !== "fm200_fire_suppression")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
     || v7EvidenceContractSha256(values.definition) !== values.contractSha256) return undefined;
   if (values.systemKey === "co2_fire_extinguisher") return adapter("co2_fire_extinguisher", co2AdapterFields, values.definition);
+  if (values.systemKey === "fm200_fire_suppression") return adapter("fm200_fire_suppression", fm200AdapterFields, values.definition);
   if (values.systemKey === "wet_chemical") return adapter("wet_chemical", wetChemicalAdapterFields, values.definition);
   if (values.systemKey === "fire_alarm_detector") return fireAlarmAdapter(values.definition);
   if (values.systemKey === "hose_reel") return hoseReelAdapter(values.definition);

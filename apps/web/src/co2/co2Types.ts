@@ -3,7 +3,17 @@ import type { ResolvedCo2Controls } from "../inspectionControls/definitionTypes"
 import type { InspectionJob, JobLocationSnapshot, JobSystemSnapshot, JobZoneSnapshot } from "../jobs/jobTypes";
 
 export type Co2Result = "good" | "poor" | "not_relevant" | "not_good" | "complete_repair" | "na";
-export type SuppressionSystemKey = "co2_fire_extinguisher" | "wet_chemical";
+// FM200 is a fully independent system with its own systemKey, groupKey and
+// component module (../fm200/) - see the FM200-add plan. It is added to this
+// union (rather than getting its own parallel `MasterSystemFormInstanceRecord`
+// type) for the same reason Wet Chemical was: this union backs the single
+// generic Dexie `masterSystemFormInstances` / `masterSystemInspectionGroups`
+// tables (see db/localDatabase.ts) and the shared array-typed state in
+// App.tsx / jobs/TechnicianHome.tsx, so a second nominal record type would
+// need its own parallel plumbing throughout those files rather than slotting
+// into the existing "suppression system" family. CO2's own behavior/records
+// are unaffected - this is purely an additive type widening.
+export type SuppressionSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression";
 export type DetectorStatus = "normal" | "test" | "isolation";
 export type DetectorStatusValue = DetectorStatus | DetectorStatus[];
 export type Co2SyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";

@@ -17,7 +17,8 @@ export const implementedSystemKeys = [
   "wet_chemical",
   "portable_fire_extinguisher",
   "smoke_ventilation",
-  "fire_intercom"
+  "fire_intercom",
+  "fm200_fire_suppression"
 ] as const;
 
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
@@ -38,7 +39,12 @@ const legacyContractTemplateVersion: Readonly<Record<ImplementedSystemKey, numbe
   wet_chemical: 4,
   portable_fire_extinguisher: 5,
   smoke_ventilation: 7,
-  fire_intercom: 7
+  fire_intercom: 7,
+  // FM200 is a fully independent V7-only system (own key, own records/evidence/
+  // sync), cloned from CO2's data-entry structure but with no legacy pre-V7
+  // contract of its own - same self-reference treatment as Smoke Ventilation /
+  // Fire Intercom above, not CO2's own `co2_fire_extinguisher: 1` entry.
+  fm200_fire_suppression: 7
 };
 
 const templates = new Map<number, MasterServiceReportDefinition>([

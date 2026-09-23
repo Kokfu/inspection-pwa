@@ -94,6 +94,9 @@ const reportCoverFieldsMigrationUrl = new URL(
 const userDisplayNamesMigrationUrl = new URL(
   "../../migrations/032_user_display_names.sql", import.meta.url
 );
+const v7Fm200EvidenceMigrationUrl = new URL(
+  "../../migrations/033_v7_fm200_evidence.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -439,6 +442,13 @@ export async function runMigrations(
   // a database whose two evidence CHECKs have drifted apart back into agreement.
   if (!(await evidenceSystemKeyCheckListsKey(database, "fire_intercom"))) {
     await database.query(await readFile(v7FireIntercomEvidenceMigrationUrl, "utf8"));
+  }
+  // Migration 033 is the FM200 equivalent of migration 026: FM200 has no
+  // V1-V6 presence at all, so this widens the two evidence CHECK constraints
+  // (the only stateful part) and is safe to (re-)apply against any database,
+  // gated the same way on "does the CHECK already list this key".
+  if (!(await evidenceSystemKeyCheckListsKey(database, "fm200_fire_suppression"))) {
+    await database.query(await readFile(v7Fm200EvidenceMigrationUrl, "utf8"));
   }
   // Migration 027 adds `customer_enabled_systems.label_overrides` (per-customer
   // display-label overrides). Its named CHECK is immutable like migration 008's

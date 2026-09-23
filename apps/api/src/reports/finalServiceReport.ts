@@ -12,10 +12,12 @@ import { renderHtmlToPdf, resolveNamedDestinationPages } from "./pdf/htmlToPdf.j
 import { loadConfig } from "../config/env.js";
 import { buildJobCompletion, type AcceptedAuthorityRow, type CompletionJobRow } from "../jobs/jobCompletion.js";
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
+import { resolveFm200Controls } from "../inspections/templates/fm200DefinitionControls.js";
 import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { applyLabelOverrides, collectResolvedLabelPaths } from "../inspections/labelOverrides.js";
 import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
+import { validateFm200Responses } from "../sync/fm200FormInstanceSync.js";
 import { validateAutomaticSprinklerHistoricalPayload } from "../sync/automaticSprinklerInspectionSync.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateHoseReelHistoricalPayload } from "../inspections/acceptedMasterSystemDetail.js";
@@ -72,7 +74,7 @@ type ReportJobRow = CompletionJobRow & {
   service_call_number: string | null; arrival_time: string | null; departure_time: string | null;
 };
 type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
-const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom"]);
+const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fm200_fire_suppression"]);
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const exactKeys = (value: RecordValue, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
@@ -152,6 +154,11 @@ export const v7DisplayResponseKeyAliases: Readonly<Record<string, Readonly<Recor
   },
   wet_chemical: {
     control_panel_location: ["controlPanelLocation"], alarm_zone: ["alarmZone"], heat_detector: ["heatDetectorStatus", "heatDetectorStatus 1", "heatDetectorStatus 2", "heatDetectorStatus 3"], unconfirmed_second_heat_detector: ["smokeDetectorStatus", "smokeDetectorStatus 1", "smokeDetectorStatus 2", "smokeDetectorStatus 3"]
+  },
+  // FM200 clones CO2's exact field/section structure (see masterServiceReportV7.ts),
+  // so its response key aliases are identical to CO2's.
+  fm200_fire_suppression: {
+    control_panel_location: ["controlPanelLocation"], alarm_zone: ["alarmZone"], heat_detector: ["heatDetectorStatus", "heatDetectorStatus 1", "heatDetectorStatus 2", "heatDetectorStatus 3"], smoke_detector: ["smokeDetectorStatus", "smokeDetectorStatus 1", "smokeDetectorStatus 2", "smokeDetectorStatus 3"]
   }
 };
 
@@ -196,6 +203,7 @@ export function v7DisplayLabelLookup(systemKey: string, snapshot: unknown, froze
   try {
     if (systemKey === "automatic_sprinkler") resolved = resolveAutomaticSprinklerControls(definition, "MFE-FSSR", version);
     else if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") resolved = resolveCo2Controls(definition, "MFE-FSSR", version);
+    else if (systemKey === "fm200_fire_suppression") resolved = resolveFm200Controls(definition, "MFE-FSSR", version);
     else if (systemKey === "hose_reel") resolved = resolveHoseReelControls(definition, "MFE-FSSR", version);
     else return undefined;
   } catch { return undefined; }
@@ -321,6 +329,16 @@ function validSuppressionHistoricalUnit(row: ReportInstanceRow, snapshot: Record
     || snapshot.system.key !== row.system_key || snapshot.system.displayName !== system.displayName
     || snapshot.system.repetitionMode !== "per_location" || !validSuppressionInstance(row, snapshot, system)) return false;
   try {
+    // FM200 is a fully independent V7-only clone of CO2's shape (own resolver,
+    // own validator, own system key) - see `fm200DefinitionControls.ts` /
+    // `fm200FormInstanceSync.ts`. Every other per-location suppression system
+    // (CO2, Wet Chemical) keeps using the shared CO2 resolver/validator.
+    if (row.system_key === "fm200_fire_suppression") {
+      const controls = resolveFm200Controls(snapshot.system.definition, "MFE-FSSR", (snapshot.template as RecordValue).version as number);
+      return controls.source.systemKey === "fm200_fire_suppression"
+        && canonical(snapshot.system.resolvedControls) === canonical(controls)
+        && validateFm200Responses(response, controls);
+    }
     const controls = resolveCo2Controls(snapshot.system.definition, "MFE-FSSR", (snapshot.template as RecordValue).version as number);
     return controls.source.systemKey === row.system_key
       && canonical(snapshot.system.resolvedControls) === canonical(controls)
@@ -334,7 +352,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
-  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom") && isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom" || row.system_key === "fm200_fire_suppression") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
     || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
@@ -357,7 +375,10 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   // CO2 and Wet Chemical accepted snapshots predate the common systemKey field
   // and their responses intentionally have no schemaVersion property. Reuse the
   // same frozen-definition validator that accepted their production payload.
-  if ((row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical")
+  // FM200 is a fully independent V7-only clone of that same per-location shape
+  // (`fm200FormInstanceSync.ts` mirrors `co2FormInstanceSync.ts`), so its
+  // snapshot has no `systemKey` field either and is validated the same way.
+  if ((row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fm200_fire_suppression")
     && snapshot.system.key === row.system_key) {
     return validSuppressionHistoricalUnit(row, snapshot, response, system);
   }
@@ -631,7 +652,7 @@ async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInst
 async function validatedV7SuppressionEvidence(database: Queryable, row: ReportInstanceRow) {
   const snapshot = row.inspection_snapshot;
   if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
-    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler" && snapshot.system.key !== "smoke_ventilation" && snapshot.system.key !== "fire_intercom")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
+    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler" && snapshot.system.key !== "smoke_ventilation" && snapshot.system.key !== "fire_intercom" && snapshot.system.key !== "fm200_fire_suppression")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
   const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
   const required = adapter?.derivePoorFieldPaths(row.response_payload);
   if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
@@ -809,7 +830,7 @@ export async function loadFinalServiceReport(
         ? (snapshotIsV7 ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedEvidence(matching, system))
         : completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
           ? (primaryRow.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedFireAlarmV6Evidence(database, primaryRow))
-          : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom") && snapshotIsV7
+          : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom" || completeSystem.systemKey === "fm200_fire_suppression") && snapshotIsV7
             ? await validatedV7SuppressionEvidence(database, primaryRow)
             : [];
       if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);

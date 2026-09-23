@@ -91,6 +91,7 @@ type TechnicianHomeProps = {
   onBackToSystems: (job: InspectionJob) => void;
   onOpenHoseReel: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenCo2: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenFm200: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenAutomaticSprinkler: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenDryWetRiser: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireAlarm: (job: InspectionJob, system: JobSystemSnapshot) => void;
@@ -123,6 +124,7 @@ export function TechnicianHome({
   onBackToSystems,
   onOpenHoseReel,
   onOpenCo2,
+  onOpenFm200,
   onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom
 }: TechnicianHomeProps) {
   const tabKey = `technician-home-tab:${"user" in authState ? authState.user?.id ?? "locked" : "locked"}`;
@@ -147,7 +149,7 @@ export function TechnicianHome({
   const completionSystem = (jobId: string, systemKey: string) => jobs
     .find((job) => job.id === jobId)?.completion?.systems
     .find((system) => system.systemKey === systemKey);
-  const serverSuppressionCompleted = (jobId: string, systemKey: "co2_fire_extinguisher" | "wet_chemical") => {
+  const serverSuppressionCompleted = (jobId: string, systemKey: "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression") => {
     const expected = jobs.find((job) => job.id === jobId)?.configurationSnapshot.enabledSystems
       .find((system) => system.systemKey === systemKey)?.locations ?? [];
     const acceptedLocations = new Set(serverMasterSystemInspections
@@ -209,7 +211,7 @@ export function TechnicianHome({
       const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:${systemKey}`&&x.systemKey===systemKey);
       return record?deriveMasterSystemProgress(record as MasterSystemInspectionRecord):noLocalProgress(jobId,systemKey);
     }
-    if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical") {
+    if (systemKey === "co2_fire_extinguisher" || systemKey === "wet_chemical" || systemKey === "fm200_fire_suppression") {
       const group = masterSystemInspectionGroups.find((record) => record.groupKey === `${jobId}:${systemKey}`);
       if (group) {
         return deriveWetChemicalAuthorityProgress(
@@ -294,7 +296,7 @@ export function TechnicianHome({
         progress={progressFor(selectedJob.id, selectedSystem.systemKey)}
         onBack={() => onBackToSystems(selectedJob)}
         onOpenHoseReel={() => onOpenHoseReel(selectedJob, selectedSystem)}
-        onOpenSuppressionLocations={selectedSystem.systemKey === "co2_fire_extinguisher" || selectedSystem.systemKey === "wet_chemical" ? () => onOpenCo2(selectedJob, selectedSystem) : undefined}
+        onOpenSuppressionLocations={selectedSystem.systemKey === "co2_fire_extinguisher" || selectedSystem.systemKey === "wet_chemical" ? () => onOpenCo2(selectedJob, selectedSystem) : selectedSystem.systemKey === "fm200_fire_suppression" ? () => onOpenFm200(selectedJob, selectedSystem) : undefined}
         onOpenPortableFireExtinguisher={selectedSystem.systemKey === "portable_fire_extinguisher" ? () => onOpenPortableFireExtinguisher(selectedJob, selectedSystem) : undefined}
       />
     ) : selectedJob ? (
@@ -382,6 +384,8 @@ export function TechnicianHome({
                   ? onOpenHoseReel(selectedJob, system)
                   : system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical"
                     ? onOpenCo2(selectedJob, system)
+                    : system.systemKey === "fm200_fire_suppression"
+                      ? onOpenFm200(selectedJob, system)
                     : system.systemKey === "automatic_sprinkler"
                       ? onOpenAutomaticSprinkler(selectedJob, system)
                     : system.systemKey === "dry_wet_riser" ? onOpenDryWetRiser(selectedJob, system)

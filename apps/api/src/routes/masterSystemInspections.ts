@@ -4,7 +4,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
-import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedFireIntercomV7Detail, validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedFm200Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedFireIntercomV7Detail, validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { applyLabelOverrides } from "../inspections/labelOverrides.js";
 import { requireRole } from "../middleware/requireRole.js";
 
@@ -14,7 +14,7 @@ const supportedSystemKeys = new Set([
   "hose_reel",
   "co2_fire_extinguisher",
   "wet_chemical",
-  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom"
+  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fm200_fire_suppression"
 ]);
 const pageSize = 100;
 const cursorTimestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
@@ -52,7 +52,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom", actor: { id: number; role: "admin" | "inspector" }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression", actor: { id: number; role: "admin" | "inspector" }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
@@ -150,6 +150,18 @@ masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("a
     if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
     if (!validateAcceptedCo2Detail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
     response.json({ inspection: acceptedDetailResponse(row, "CO2 Fire Extinguisher System", await frozenLabelOverrides(row.jobId, "co2_fire_extinguisher")) });
+  } catch (error) { next(error); }
+});
+
+masterSystemInspectionsRouter.get("/fm200-inspections/:clientUuid", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+  try {
+    const clientUuid = request.params.clientUuid;
+    if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
+    const row = await acceptedDetailRow(clientUuid, "fm200_fire_suppression", request.currentUser!);
+    if (!row) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+    if (!validateAcceptedFm200Detail(row)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+    response.json({ inspection: acceptedDetailResponse(row, "FM200 System", await frozenLabelOverrides(row.jobId, "fm200_fire_suppression")) });
   } catch (error) { next(error); }
 });
 

@@ -6,6 +6,7 @@ import { syncInspections } from "../sync/inspectionSync.js";
 import { syncMasterSystemInspections } from "../sync/masterSystemInspectionSync.js";
 import { syncTestRecords } from "../sync/testRecordSync.js";
 import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
+import { syncFm200FormInstances } from "../sync/fm200FormInstanceSync.js";
 import { syncAutomaticSprinklerInspections } from "../sync/automaticSprinklerInspectionSync.js";
 import { syncDryWetRiserInspections } from "../sync/dryWetRiserInspectionSync.js";
 import { syncFireAlarmInspections } from "../sync/fireAlarmInspectionSync.js";
@@ -115,13 +116,23 @@ syncRouter.post(
       const masterSystemFormInstanceItems = dispatchableItems.filter(
         (item) => typeof item === "object" && item !== null &&
           (item as { entityType?: unknown }).entityType === "masterSystemFormInstance"
+          && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey !== "fm200_fire_suppression"
+      );
+      // FM200 is a fully independent system (own key, own DB rows/evidence/sync),
+      // so it dispatches to its own sync handler rather than `syncCo2FormInstances`
+      // - a customer can have both CO2 and FM200 enabled simultaneously with no
+      // shared sync state.
+      const fm200FormInstanceItems = dispatchableItems.filter(
+        (item) => typeof item === "object" && item !== null &&
+          (item as { entityType?: unknown }).entityType === "masterSystemFormInstance"
+          && (item as { payload?: { systemKey?: unknown } }).payload?.systemKey === "fm200_fire_suppression"
       );
       const unsupportedItems = dispatchableItems.filter(
         (item) => !testRecordItems.includes(item) && !inspectionItems.includes(item)
           && !hoseReelItems.includes(item) && !automaticSprinklerItems.includes(item) && !dryWetRiserItems.includes(item) && !fireAlarmItems.includes(item) && !hydrantItems.includes(item) && !smokeVentilationItems.includes(item) && !fireIntercomItems.includes(item) && !portableFireExtinguisherItems.includes(item)
-          && !masterSystemFormInstanceItems.includes(item)
+          && !masterSystemFormInstanceItems.includes(item) && !fm200FormInstanceItems.includes(item)
       );
-      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, hydrantResult, smokeVentilationResult, fireIntercomResult, portableFireExtinguisherResult, masterSystemFormInstanceResult] = await Promise.all([
+      const [testRecordResult, inspectionResult, hoseReelResult, automaticSprinklerResult, dryWetRiserResult, fireAlarmResult, hydrantResult, smokeVentilationResult, fireIntercomResult, portableFireExtinguisherResult, masterSystemFormInstanceResult, fm200FormInstanceResult] = await Promise.all([
         syncTestRecords(testRecordItems),
         syncInspections(inspectionItems, request.currentUser?.id),
         syncMasterSystemInspections(hoseReelItems, request.currentUser?.id),
@@ -132,7 +143,8 @@ syncRouter.post(
         syncSmokeVentilationInspections(smokeVentilationItems, request.currentUser?.id),
         syncFireIntercomInspections(fireIntercomItems, request.currentUser?.id),
         syncPortableFireExtinguishers(portableFireExtinguisherItems, request.currentUser?.id),
-        syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id)
+        syncCo2FormInstances(masterSystemFormInstanceItems, request.currentUser?.id),
+        syncFm200FormInstances(fm200FormInstanceItems, request.currentUser?.id)
       ]);
       const handlerFailed = [
         ...testRecordResult.failed,
@@ -145,7 +157,8 @@ syncRouter.post(
         ...smokeVentilationResult.failed,
         ...fireIntercomResult.failed,
         ...portableFireExtinguisherResult.failed,
-        ...masterSystemFormInstanceResult.failed
+        ...masterSystemFormInstanceResult.failed,
+        ...fm200FormInstanceResult.failed
       ];
       const handlerFailedIds = new Set(handlerFailed.map((failure) => failure.id));
       // A close may commit after the initial guard but before an individual
@@ -160,8 +173,8 @@ syncRouter.post(
         ...closeRaceGuard.failed.map((failure) => failure.id)
       ]);
       const result = {
-        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...smokeVentilationResult.acceptedIds, ...fireIntercomResult.acceptedIds, ...portableFireExtinguisherResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds],
-        duplicateIds: [...guarded.duplicateIds, ...closeRaceGuard.duplicateIds, ...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...smokeVentilationResult.duplicateIds, ...fireIntercomResult.duplicateIds, ...portableFireExtinguisherResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds],
+        acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...smokeVentilationResult.acceptedIds, ...fireIntercomResult.acceptedIds, ...portableFireExtinguisherResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds, ...fm200FormInstanceResult.acceptedIds],
+        duplicateIds: [...guarded.duplicateIds, ...closeRaceGuard.duplicateIds, ...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...smokeVentilationResult.duplicateIds, ...fireIntercomResult.duplicateIds, ...portableFireExtinguisherResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds, ...fm200FormInstanceResult.duplicateIds],
         failed: [
           ...guarded.failed,
           ...closeRaceGuard.failed,

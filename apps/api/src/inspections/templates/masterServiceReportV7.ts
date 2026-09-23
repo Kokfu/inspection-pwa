@@ -1,4 +1,5 @@
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
+import { suppressionPanelSystem } from "./masterServiceReportV1.js";
 import type { FieldDefinition, MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
 
 const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
@@ -346,6 +347,28 @@ const fireIntercom: SystemDefinition = {
 };
 
 /**
+ * STEP 2.4: FM200 has no V1-V6 presence at all (the `fm200` placeholder key in
+ * `masterServiceReportV1.ts` is `definitionStatus: "requires_confirmation"`
+ * and deliberately left unimplemented - a DIFFERENT, still-unconfirmed system
+ * key from this one). Like Smoke Ventilation / Fire Intercom above, FM200 is
+ * therefore composed fresh rather than derived from `masterServiceReportV6.systems`,
+ * and is V7-only from the start.
+ *
+ * Unlike Smoke Ventilation / Fire Intercom, FM200's data-entry structure is not
+ * a fresh reading of a paper form - it is confirmed to be IDENTICAL to CO2's
+ * (`suppressionPanelSystem("co2_fire_extinguisher", ...)`), so it reuses that
+ * factory directly rather than being hand-built. Only the top-level
+ * `displayName` differs ("FM200 System"); every internal section/field label
+ * stays worded exactly as CO2's (e.g. "CO2 Control Panel", "CO2 Cylinder") per
+ * the confirmed label-scope decision. `upgradeV7EvidenceSystem` is applied
+ * explicitly (rather than inherited from a V6 source, since there is none) to
+ * carry the same four-state V7 result model CO2's own V7 entry gets.
+ */
+const fm200FireSuppression: SystemDefinition = upgradeV7EvidenceSystem(
+  suppressionPanelSystem("fm200_fire_suppression", "FM200 System", 12)
+);
+
+/**
  * The first multi-system shared-evidence template. Fire Alarm is structurally
  * retains its independent detector-state control; Good/Poor fields use the
  * four-state Hokuden checklist legend.
@@ -367,6 +390,7 @@ export const masterServiceReportV7 = {
         : system
     ),
     smokeVentilation,
-    fireIntercom
+    fireIntercom,
+    fm200FireSuppression
   ]
 } as const satisfies MasterServiceReportDefinition;

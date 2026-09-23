@@ -69,6 +69,18 @@ import type {
   MasterSystemFormInstanceRecord,
   MasterSystemInspectionGroupRecord
 } from "./co2/co2Types";
+import { Fm200InspectionForm } from "./fm200/Fm200InspectionForm";
+import { Fm200LocationList } from "./fm200/Fm200LocationList";
+import { resolveFm200Authority } from "./fm200/fm200Authority";
+import { loadServerFm200Detail, type ServerFm200Detail } from "./fm200/serverFm200Api";
+import { ServerFm200View } from "./fm200/ServerFm200View";
+import {
+  initializeFm200InspectionGroup,
+  returnFailedFm200ToDraft,
+  saveFm200Draft,
+  submitLocalFm200
+} from "./fm200/fm200Repository";
+import type { Fm200Responses } from "./fm200/fm200Types";
 import { ServerWetChemicalView } from "./wetChemical/ServerWetChemicalView";
 import { loadServerWetChemicalDetail, type ServerWetChemicalDetail } from "./wetChemical/serverWetChemicalApi";
 import { resolveWetChemicalAuthority } from "./wetChemical/wetChemicalAuthority";
@@ -198,6 +210,7 @@ type AppRoute =
   | { name: "portable-fire-extinguisher-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "wet-chemical-form"; clientUuid: string }
+  | { name: "fm200-form"; clientUuid: string }
   | { name: "development" };
 
 function routeFromHash(): AppRoute {
@@ -226,6 +239,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "portable-fire-extinguisher-form" && parts[1]) return { name: "portable-fire-extinguisher-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "wet-chemical-form" && parts[1]) return { name: "wet-chemical-form", clientUuid: parts[1] };
+  if (parts[0] === "fm200-form" && parts[1]) return { name: "fm200-form", clientUuid: parts[1] };
   if (parts[0] === "job" && parts[1] && parts[2]) return { name: "system", jobId: parts[1], systemKey: parts[2] };
   if (parts[0] === "job" && parts[1]) return { name: "job", jobId: parts[1] };
   return { name: "jobs" };
@@ -256,6 +270,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "portable-fire-extinguisher-form") return `#/portable-fire-extinguisher-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "wet-chemical-form") return `#/wet-chemical-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "fm200-form") return `#/fm200-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "system") return `#/job/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "job") return `#/job/${encodeURIComponent(route.jobId)}`;
   return "#/jobs";
@@ -404,6 +419,10 @@ export function App() {
   const [serverWetChemical, setServerWetChemical] = useState<ServerWetChemicalDetail>();
   const [wetChemicalAuthorityState, setWetChemicalAuthorityState] = useState<"idle" | "loading" | "server" | "local" | "server-unavailable">("idle");
   const [wetChemicalRouteMessage, setWetChemicalRouteMessage] = useState("");
+  const [activeFm200Form, setActiveFm200Form] = useState<MasterSystemFormInstanceRecord>();
+  const [serverFm200, setServerFm200] = useState<ServerFm200Detail>();
+  const [fm200AuthorityState, setFm200AuthorityState] = useState<"idle"|"loading"|"local"|"server"|"server-unavailable">("idle");
+  const [fm200RouteMessage, setFm200RouteMessage] = useState("");
   const [serverMasterSystemInspections, setServerMasterSystemInspections] = useState<ServerMasterSystemInspectionSummary[]>([]);
   const [serverMasterSystemInspectionMessage, setServerMasterSystemInspectionMessage] = useState("");
   const [serverMasterSystemInspectionLoading, setServerMasterSystemInspectionLoading] = useState(false);
@@ -938,6 +957,11 @@ export function App() {
       ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
       : undefined);
   }, [masterSystemFormInstances, route]);
+  useEffect(() => {
+    setActiveFm200Form(route.name === "fm200-form"
+      ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
+      : undefined);
+  }, [masterSystemFormInstances, route]);
   useEffect(()=>{if(route.name!=="inspection"){setServerHoseReel(undefined);setHoseReelAuthorityState("idle");setHoseReelRouteMessage("");return;}let current=true;setServerHoseReel(undefined);setHoseReelAuthorityState("loading");setHoseReelRouteMessage("");const local=masterSystemInspections.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="hose_reel") as MasterSystemInspectionRecord|undefined;void resolveHoseReelAuthority(authState.status,route.clientUuid,local,{findSummary:(jobId)=>findServerMasterSystemInspection(jobId,"hose_reel"),loadDetail:loadServerHoseReelDetail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveHoseReel(undefined);setServerHoseReel(resolution.inspection);setHoseReelAuthorityState("server");}else if(resolution.kind==="local"){setActiveHoseReel(resolution.record);setServerHoseReel(undefined);setHoseReelAuthorityState("local");}else{setActiveHoseReel(undefined);setServerHoseReel(undefined);setHoseReelAuthorityState(resolution.kind);setHoseReelRouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
   useEffect(()=>{if(route.name!=="co2-form"){setServerCo2(undefined);setCo2AuthorityState("idle");setCo2RouteMessage("");return;}let current=true;setServerCo2(undefined);setCo2AuthorityState("loading");setCo2RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="co2_fire_extinguisher");void resolveCo2Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"co2_fire_extinguisher",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerCo2Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveCo2Form(undefined);setServerCo2(resolution.inspection);setCo2AuthorityState("server");}else if(resolution.kind==="local"){setActiveCo2Form(resolution.record);setServerCo2(undefined);setCo2AuthorityState("local");}else{setActiveCo2Form(undefined);setServerCo2(undefined);setCo2AuthorityState(resolution.kind);setCo2RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
   useEffect(() => {
@@ -968,6 +992,8 @@ export function App() {
     });
     return () => { current = false; };
   }, [authAuthorityGeneration, authState.status, masterSystemFormInstances, route]);
+
+  useEffect(()=>{if(route.name!=="fm200-form"){setServerFm200(undefined);setFm200AuthorityState("idle");setFm200RouteMessage("");return;}let current=true;setServerFm200(undefined);setFm200AuthorityState("loading");setFm200RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="fm200_fire_suppression");void resolveFm200Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"fm200_fire_suppression",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerFm200Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveFm200Form(undefined);setServerFm200(resolution.inspection);setFm200AuthorityState("server");}else if(resolution.kind==="local"){setActiveFm200Form(resolution.record);setServerFm200(undefined);setFm200AuthorityState("local");}else{setActiveFm200Form(undefined);setServerFm200(undefined);setFm200AuthorityState(resolution.kind);setFm200RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
 
   useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
 
@@ -1195,6 +1221,7 @@ export function App() {
     setMasterSystemInspectionGroups(groups);
     setMasterSystemFormInstances(instances);
     if (activeCo2Form) setActiveCo2Form(instances.find((record) => record.clientUuid === activeCo2Form.clientUuid));
+    if (activeFm200Form) setActiveFm200Form(instances.find((record) => record.clientUuid === activeFm200Form.clientUuid));
   }
 
   async function checkApiHealth() {
@@ -1441,6 +1468,28 @@ export function App() {
     } finally { finishLocalWork(); }
   }
 
+  async function handleOpenFm200(job: InspectionJob, system: JobSystemSnapshot) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
+    try {
+      if (job.status === "closed") {
+        if (!canUseServer) throw new Error("This service visit is complete and read-only. Reconnect to view completed location details.");
+        navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
+        return;
+      }
+      const catalog = await getCachedInspectionCatalog();
+      if (!catalog) throw new Error("FM200 reference data is not cached yet. Refresh jobs online first.");
+      await initializeFm200InspectionGroup(job, system, catalog, currentUser);
+      await refreshCo2Inspections();
+      navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "FM200 locations could not be opened");
+    }
+
+    } finally { finishLocalWork(); }
+  }
+
   async function handleOpenAutomaticSprinkler(job: InspectionJob, system: JobSystemSnapshot) {
     const finishLocalWork = beginWorkspaceActivity();
     try {
@@ -1645,6 +1694,39 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
 
     if (!activeCo2Form) return;
     setActiveCo2Form(await returnFailedCo2ToDraft(activeCo2Form));
+    await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
+  }
+
+  async function handleSaveFm200Draft(responses: Fm200Responses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
+    if (!activeFm200Form) return;
+    setActiveFm200Form(await saveFm200Draft(activeFm200Form, responses));
+    await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
+  }
+
+  async function handleSubmitFm200(responses: Fm200Responses) {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
+    if (!activeFm200Form) return;
+    setActiveFm200Form(await submitLocalFm200(activeFm200Form, responses));
+    await refreshCo2Inspections();
+
+    } finally { finishLocalWork(); }
+  }
+
+  async function handleEditFailedFm200() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+
+    if (!activeFm200Form) return;
+    setActiveFm200Form(await returnFailedFm200ToDraft(activeFm200Form));
     await refreshCo2Inspections();
 
     } finally { finishLocalWork(); }
@@ -2014,6 +2096,18 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             ) : (
               <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking inspection completion for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
+          ) : route.name === "fm200-form" ? (
+            fm200AuthorityState === "server" && serverFm200 ? <ServerFm200View inspection={serverFm200} onBack={()=>navigate({name:"system",jobId:serverFm200.jobId,systemKey:"fm200_fire_suppression"})}/> : fm200AuthorityState === "local" && activeFm200Form && !jobIsCompleted(activeFm200Form.jobId) ? (
+              <Fm200InspectionForm
+                record={activeFm200Form}
+                onBack={() => navigate({ name: "system", jobId: activeFm200Form.jobId, systemKey: activeFm200Form.systemKey })}
+                onSaveDraft={handleSaveFm200Draft}
+                onSubmitLocal={handleSubmitFm200}
+                onEditFailed={handleEditFailedFm200}
+              />
+            ) : (
+              <section className="workspace"><h2>FM200 form unavailable</h2><p>{fm200AuthorityState==="loading"?"Checking inspection completion for this configured location.":fm200RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            )
           ) : route.name === "hydrant-form" ? (
             mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading completed Hydrant inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "smoke-ventilation-form" ? (
@@ -2043,6 +2137,29 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 />
               ) : (
                 <section className="workspace"><h2>{route.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2"} locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
+              );
+            })()
+          ) : route.name === "system" && route.systemKey === "fm200_fire_suppression" ? (
+            (() => {
+              const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
+              const completedJob = jobs.find((candidate) => candidate.id === route.jobId && candidate.status === "closed");
+              const acceptedLocations = serverMasterSystemInspections.filter((summary) => summary.jobId === route.jobId && summary.systemKey === route.systemKey);
+              return completedJob ? (
+                <section className="workspace">
+                  <button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button>
+                  <h2>FM200 Completed Locations</h2>
+                  {acceptedLocations.length > 0 ? <ul className="navigation-list">{acceptedLocations.map((summary) => <li key={summary.clientUuid}><button type="button" onClick={() => navigate({ name: "fm200-form", clientUuid: summary.clientUuid })}><span>{summary.instanceKey}</span><span className="status-badge status-badge--complete">Inspection Complete</span></button></li>)}</ul> : <p>Reconnect and refresh to load completed location details.</p>}
+                </section>
+              ) : group ? (
+                <Fm200LocationList
+                  group={group}
+                  instances={masterSystemFormInstances.filter((instance) => instance.groupKey === group.groupKey)}
+                  serverSummaries={serverMasterSystemInspections.filter((summary)=>summary.jobId===route.jobId&&summary.systemKey===route.systemKey)}
+                  onBack={() => navigate({ name: "job", jobId: route.jobId })}
+                  onOpen={(record) => navigate({ name: "fm200-form", clientUuid: record.clientUuid })}
+                />
+              ) : (
+                <section className="workspace"><h2>FM200 locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
               );
             })()
           ) : route.name === "new-service-visit" ? (
@@ -2100,6 +2217,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               onBackToSystems={(job) => navigate({ name: "job", jobId: job.id })}
               onOpenHoseReel={handleOpenHoseReel}
               onOpenCo2={handleOpenCo2}
+              onOpenFm200={handleOpenFm200}
               onOpenAutomaticSprinkler={handleOpenAutomaticSprinkler}
               onOpenDryWetRiser={handleOpenDryWetRiser}
               onOpenFireAlarm={handleOpenFireAlarm}

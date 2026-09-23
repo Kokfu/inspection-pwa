@@ -102,7 +102,7 @@ const singleAuthoritySystems = new Set([
   "smoke_ventilation",
   "fire_intercom"
 ]);
-const perLocationSystems = new Set(["co2_fire_extinguisher", "wet_chemical"]);
+const perLocationSystems = new Set(["co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"]);
 
 function record(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);

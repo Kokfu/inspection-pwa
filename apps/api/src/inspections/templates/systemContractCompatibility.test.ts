@@ -7,6 +7,7 @@ import { masterServiceReportV7 } from "./masterServiceReportV7.js";
 import { resolveAutomaticSprinklerControls } from "./automaticSprinklerDefinitionControls.js";
 import { resolveHoseReelControls } from "./definitionControls.js";
 import { resolveCo2Controls } from "./co2DefinitionControls.js";
+import { resolveFm200Controls } from "./fm200DefinitionControls.js";
 import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "./fireAlarmDefinitionControls.js";
 import { implementedSystemKeys, isCompatibleSystemContract, systemContractVersion } from "./systemContractCompatibility.js";
 
@@ -16,7 +17,7 @@ const clone = <T>(value: T): T => structuredClone(value);
  * from `systemContractVersion`.  Filtering by that production mapping would let
  * an accidental edit (e.g. flipping a legacy system's version to 7) silently
  * drop that system out of the invariant below instead of failing it. */
-const v7OnlySystemKeys = new Set<string>(["smoke_ventilation", "fire_intercom"]);
+const v7OnlySystemKeys = new Set<string>(["smoke_ventilation", "fire_intercom", "fm200_fire_suppression"]);
 
 test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", () => {
   for (const key of implementedSystemKeys.filter((candidate) => !v7OnlySystemKeys.has(candidate))) {
@@ -27,6 +28,8 @@ test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", (
   }
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "smoke_ventilation"), false, "smoke_ventilation must not exist before V7");
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fire_intercom"), false, "fire_intercom must not exist before V7");
+  assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fm200_fire_suppression"), false, "fm200_fire_suppression must not exist before V7");
+  assert.equal(masterServiceReportV1.systems.some((candidate) => candidate.key === "fm200_fire_suppression"), false, "fm200_fire_suppression must not exist in V1 either (V7-only, unlike CO2's own V1 entry)");
   const byKey = (key: string) => masterServiceReportV5.systems.find((candidate) => candidate.key === key)!;
   assert.equal(resolveAutomaticSprinklerControls(byKey("automatic_sprinkler"), "MFE-FSSR", 5).source.templateVersion, 1);
   assert.equal(resolveHoseReelControls(byKey("hose_reel"), "MFE-FSSR", 5).source.templateVersion, 1);
@@ -70,6 +73,27 @@ test("persisted JSONB system definitions retain their authoritative runtime cont
   assert.equal(resolveCo2Controls(persisted, "MFE-FSSR", 1).source.systemKey, "co2_fire_extinguisher");
   persisted.sections[0].title = "Changed after persistence";
   assert.equal(isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", persisted), false);
+});
+
+test("FM200 is a fully independent V7-only clone of CO2's structure, not a relabeled CO2 record", () => {
+  const fm200 = masterServiceReportV7.systems.find((candidate) => candidate.key === "fm200_fire_suppression")!;
+  const co2 = masterServiceReportV7.systems.find((candidate) => candidate.key === "co2_fire_extinguisher")!;
+  assert.ok(fm200, "fm200_fire_suppression must exist on the V7 template");
+  assert.equal(systemContractVersion("fm200_fire_suppression"), 7, "FM200 has no legacy pre-V7 contract");
+  assert.equal(isCompatibleSystemContract("fm200_fire_suppression", "confirmed", fm200, { id: masterServiceReportV7.id, version: 7 }), true);
+  // Only the top-level displayName differs; every internal section/field label
+  // stays worded exactly as CO2's (confirmed label-scope decision).
+  assert.equal(fm200.displayName, "FM200 System");
+  assert.notEqual(fm200.displayName, co2.displayName);
+  const withCo2Identity = { ...fm200, key: "co2_fire_extinguisher", displayName: co2.displayName };
+  assert.deepEqual(withCo2Identity.sections, co2.sections, "FM200's sections mirror CO2's exactly (e.g. still say 'CO2 Cylinder')");
+  // FM200 must resolve as its OWN system key, never silently accepted as CO2's.
+  assert.equal(isCompatibleSystemContract("co2_fire_extinguisher", "confirmed", fm200, { id: masterServiceReportV7.id, version: 7 }), false);
+  assert.equal(isCompatibleSystemContract("fm200_fire_suppression", "confirmed", co2, { id: masterServiceReportV7.id, version: 7 }), false);
+  const controls = resolveFm200Controls(fm200, "MFE-FSSR", 7);
+  assert.equal(controls.source.systemKey, "fm200_fire_suppression");
+  assert.equal(controls.source.templateVersion, 7);
+  assert.throws(() => resolveFm200Controls(co2, "MFE-FSSR", 7), "resolveFm200Controls must reject a CO2 definition");
 });
 
 test("V6 selects only the frozen Fire Alarm variant and leaves V1-V5 exact", () => {

@@ -1,7 +1,7 @@
 export type ServerMasterSystemInspectionSummary = {
   clientUuid: string;
   jobId: string;
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher" | "smoke_ventilation" | "fire_intercom";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression" | "automatic_sprinkler" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher" | "smoke_ventilation" | "fire_intercom";
   instanceKey: string;
   zoneId: string | null;
   locationId: string | null;
@@ -17,12 +17,12 @@ export type ServerMasterSystemInspectionSummary = {
   requiredEvidenceCount: number;
   confirmedEvidenceCount: number;
 } | {
-  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher" | "smoke_ventilation" | "fire_intercom";
+  systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression" | "dry_wet_riser" | "fire_alarm_detector" | "hydrant" | "portable_fire_extinguisher" | "smoke_ventilation" | "fire_intercom";
 });
 
 export type SummaryPage = { inspections: ServerMasterSystemInspectionSummary[]; hasMore: boolean; nextCursor: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "wet_chemical", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom"]);
+const systemKeys = new Set<ServerMasterSystemInspectionSummary["systemKey"]>(["hose_reel", "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression", "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom"]);
 const keys = ["clientUuid", "jobId", "systemKey", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"];
 const sprinklerKeys = [...keys, "evidenceState", "requiredEvidenceCount", "confirmedEvidenceCount"];
 const evidenceStates = new Set(["not-required", "complete", "pending", "failed", "invalid"]);
@@ -64,7 +64,7 @@ export function parseServerMasterSystemInspectionPage(value: unknown): SummaryPa
         || (item.evidenceState === "not-required" && ((item.requiredEvidenceCount as number) !== 0 || (item.confirmedEvidenceCount as number) !== 0))
         || (item.evidenceState === "complete" && (item.confirmedEvidenceCount as number) !== (item.requiredEvidenceCount as number))) throw new Error("Invalid Automatic Sprinkler evidence summary");
     }
-    const single = systemKey !== "co2_fire_extinguisher" && systemKey !== "wet_chemical";
+    const single = systemKey !== "co2_fire_extinguisher" && systemKey !== "wet_chemical" && systemKey !== "fm200_fire_suppression";
     if ((single && (item.instanceKey !== "primary" || item.zoneId !== null || item.locationId !== null || item.displaySequence !== 1)) || (!single && (!/^location:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.instanceKey) || !uuid.test(item.locationId as string) || (item.zoneId !== null && !uuid.test(item.zoneId))))) throw new Error("Invalid server inspection identity");
     if (clientUuids.has(item.clientUuid) || identities.has(`${item.jobId}:${systemKey}:${item.instanceKey}`)) throw new Error("Ambiguous server inspection summaries");
     clientUuids.add(item.clientUuid); identities.add(`${item.jobId}:${systemKey}:${item.instanceKey}`);

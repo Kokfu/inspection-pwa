@@ -45,7 +45,7 @@ function template(version: number, id: string): CatalogTemplate {
     selectionPolicy: "preset_only",
     headerDefinition: {},
     reportBoilerplate: {},
-    systems: [suppression("co2_fire_extinguisher"), suppression("wet_chemical"), suppression("hydrant"), suppression("hose_reel"), suppression("automatic_sprinkler")]
+    systems: [suppression("co2_fire_extinguisher"), suppression("wet_chemical"), suppression("hydrant"), suppression("hose_reel"), suppression("automatic_sprinkler"), suppression("fm200_fire_suppression")]
   };
 }
 
@@ -72,6 +72,13 @@ test("V7 CO2 and Wet Chemical resolve against V7's own contract, not the histori
 test("V7 Hydrant resolves against V7's own contract, not the historical row", () => {
   const resolved = compatibleCatalogSystem(catalog(), identity(7), "hydrant");
   assert.ok(resolved, "hydrant must resolve on a V7 job");
+  assert.equal(resolved.template.version, 7);
+  assert.deepEqual(resolved.system.definition.results, ["good", "not_good", "complete_repair", "na"]);
+});
+
+test("V7 FM200 resolves against V7's own contract (a V7-only system, like Smoke Ventilation/Fire Intercom)", () => {
+  const resolved = compatibleCatalogSystem(catalog(), identity(7), "fm200_fire_suppression");
+  assert.ok(resolved, "fm200_fire_suppression must resolve on a V7 job");
   assert.equal(resolved.template.version, 7);
   assert.deepEqual(resolved.system.definition.results, ["good", "not_good", "complete_repair", "na"]);
 });
