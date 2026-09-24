@@ -119,11 +119,11 @@ test("GET /manager/service-visits filters by customer/site/status/systemKey/date
       const jobBetaSprinklerOpen = await insertHistoricalJob(siteBetaId, "Site Beta", "automatic_sprinkler", "Automatic Sprinkler", "2026-09-01");
 
       await pool.query(
-        "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech' WHERE id=$1",
+        "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1",
         [jobAlphaSprinklerClosed, userId]
       );
       await pool.query(
-        "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech' WHERE id=$1",
+        "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1",
         [jobBetaHoseClosed, userId]
       );
 

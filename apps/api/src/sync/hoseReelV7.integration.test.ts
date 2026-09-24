@@ -121,7 +121,7 @@ test("Hose Reel V7 exact retry with an unsorted manifest is still duplicate succ
     assert.deepEqual(retry.duplicateIds, [client], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
     assert.deepEqual(retry.failed, []);
 
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, f.actor]);
     assert.deepEqual((await syncMasterSystemInspections([f.envelope(client, job, body, unsorted)], f.actor)).duplicateIds, [client], "duplicate success survives Job closure");
 
     // A genuinely different manifest is still a conflict — one entry dropped
@@ -149,7 +149,7 @@ test("Hose Reel V7 schema 3 accepts >=2 drums with mixed swing/fixed, a drum-2 f
     assert.deepEqual((stored.rows as Value[]).map((row) => row.drumType), ["swing", "fixed"]);
     assert.equal("drumTypes" in stored, false);
     // Job closes; the exact same envelope is a duplicate success, never JOB_CLOSED.
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, f.actor]);
     const retry = await syncMasterSystemInspections([f.envelope(client, job, body, [photo])], f.actor);
     assert.deepEqual(retry.duplicateIds, [client], JSON.stringify(retry));
     assert.deepEqual(retry.failed, []);

@@ -68,15 +68,16 @@ export async function downloadFinalReport(jobId: string, endpointBase = "/api/in
   const pdf = await response.blob();
   if (pdf.size === 0) throw new FinalReportApiError("The final report PDF was empty and was not downloaded.", "unavailable");
   const url = URL.createObjectURL(pdf);
+  let anchor: HTMLAnchorElement | undefined;
   try {
-    const anchor = document.createElement("a");
+    anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = safeFilename(response.headers.get("content-disposition"));
     anchor.style.display = "none";
     document.body.append(anchor);
     anchor.click();
-    anchor.remove();
   } finally {
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    anchor?.remove();
   }
 }

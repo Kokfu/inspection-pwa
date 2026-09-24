@@ -6,7 +6,15 @@
 | [mfe-service-report-template.pdf](mfe-service-report-template.pdf) | The same file printed with Chromium (9 pages). This is what the customer receives. |
 
 Status: **v1 APPROVED by owner (2026-09-18)** — layout, wording and page-number footer accepted.
-Not wired into the app yet; company details and some per-customer data still pending from the client (see §5).
+**Built and live (2026-09-24):** phases R1–R5 are committed (`5b4b8cc` → `95ae774`). "Generate report" produces
+this layout from real job data via headless Chromium. Proof PDFs in this folder: `generated-sample.pdf`
+(fixture), `generated-live-download.pdf` and `r5-person-name-generated.pdf` (real downloads).
+R6 is implemented but uncommitted: migration 034 requires a report number on every new close,
+the cover hides an empty Team line, and the browser delays Blob URL revocation. The fresh
+container download proof is `r6-fresh-container-download.pdf`.
+Still outstanding: the client's company details + logo (§5a), owner visual sign-off on a real customer
+report, and removing the legacy PDFKit renderer (`REPORT_RENDERER=legacy`) after one release.
+
 Format source: [../client-format-request/asiamost-sample-report-format.md](../client-format-request/asiamost-sample-report-format.md) (feature IDs F-D/C/S/P).
 
 ---
@@ -165,7 +173,7 @@ not in files.
 Adding the 4 customer/site fields is one small migration + form fields; it can be done now (fields
 stay empty) or when the client sends the data.
 
-## 6. Implementation plan
+## 6. Implementation plan (delivered)
 
 **Engine:** render this HTML template to PDF with headless Chromium on the API server.
 The template relies on things PDFKit does not do: `@page` header/footer with `Page N of M`,
@@ -178,10 +186,21 @@ pointed at `/usr/bin/chromium` (≈150–300 MB larger image). The font is bundl
 
 | Phase | Scope | Result |
 |---|---|---|
-| R1 — Report model | New `buildReportViewModel(report)` that keeps V7 **block structure** (checklist / measurement / repeatable_table / quantity_summary / comments → rows & columns) instead of `flatten()`. Loads `company-profile.json`. Existing `loadFinalServiceReport` validation untouched. Unit tests per block type. | Structured data, no visual change |
-| R2 — HTML renderer | `renderReportHtml(viewModel)` producing exactly the approved template markup (template CSS copied into `reports/template/report.css`). Pure function, HTML-escaped, snapshot-tested against the approved PDF look. | HTML identical to the approved design |
-| R3 — PDF engine swap | Chromium renderer behind the same `renderFinalServiceReportPdf` signature; two-pass render fills the Summary **PAGE** column; Dockerfile update; PDFKit path kept behind a flag for one release as fallback. | "Generate report" button produces the new PDF |
-| R4 — Pending fields | Migration for site address / fax / contract no. / frequency; manager form fields; auto report number at completion; technician team frozen at completion. | Blank cells start filling in |
+| R1 — Report model (DONE `183965b`) | New `buildReportViewModel(report)` that keeps V7 **block structure** (checklist / measurement / repeatable_table / quantity_summary / comments → rows & columns) instead of `flatten()`. Loads `company-profile.json`. Existing `loadFinalServiceReport` validation untouched. Unit tests per block type. | Structured data, no visual change |
+| R2 — HTML renderer (DONE) | `renderReportHtml(viewModel)` producing exactly the approved template markup (template CSS copied into `reports/template/report.css`). Pure function, HTML-escaped, snapshot-tested against the approved PDF look. | HTML identical to the approved design |
+| R3 — PDF engine swap (DONE `4c28d63`) | Chromium renderer behind the same `renderFinalServiceReportPdf` signature; two-pass render fills the Summary **PAGE** column; Dockerfile update; PDFKit path kept behind a flag for one release as fallback. | "Generate report" button produces the new PDF |
+| R4 — Pending fields (DONE `3740893`) | Migration for site address / fax / contract no. / frequency; manager form fields; auto report number at completion; technician team frozen at completion. | Blank cells start filling in |
 
 The route (`createFinalReportPdfHandler` in `apps/api/src/routes/inspectionJobs.ts`) and the
 "Generate report" button do not change — only what the renderer produces.
+
+| R5 — Person names + cover polish (DONE `95ae774`) | `users.display_name` (migration 032) with username fallback, frozen at completion; "Issued" = completion date; empty "Report No." label hidden; optional phone/fax joined without a dangling separator. | Cover reads as a formal document |
+
+### R6 closure and remaining cover observation
+
+- Every newly closed job receives a number; a legacy job without `service_date` uses the Malaysia-local
+  completion year. Historical closed rows with NULL numbers remain valid and hide the blank row.
+- The SERVICED BY Team line is omitted when there are no names beyond the test leader.
+- `downloadFinalReport` retains the Blob URL for 60 seconds after click, including a throwing click path.
+- The live cover list currently shows both "FM 200 System" and "FM200 System" as separate unchecked
+  entries. This predates R6 and needs a separate catalog/layout decision.

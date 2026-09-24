@@ -11,9 +11,9 @@ import { closePdfEngine, resolveNamedDestinationPages } from "../pdf/htmlToPdf.j
 import { extractPdfText } from "../pdf/extractPdfText.testSupport.js";
 import { PDFDocument } from "pdf-lib";
 after(closePdfEngine);
-const normalized = (html: string) => html.replace(/src:url\(data:[^)]+\)/g, "src:url(BUNDLED_FONT)");
+const normalized = (html: string) => html.replace(/src:url\(data:[^)]+\)/g, "src:url(BUNDLED_FONT)").replace(/\r\n/g, "\n");
 test("approved Hokuden four-system HTML snapshot", () => {
- assert.equal(normalized(renderReportHtml(sampleViewModel())),readFileSync(new URL('./sample.snapshot.html',import.meta.url),'utf8'));
+ assert.equal(normalized(renderReportHtml(sampleViewModel())),normalized(readFileSync(new URL('./sample.snapshot.html',import.meta.url),'utf8')));
 });
 test("all untrusted text remains text and margin-box CSS strings retain their value", async () => {
  const attack = '<script>alert(1)</script> "><img src=x onerror=alert(1)> </style> "} \\ {{customer}}';
@@ -42,6 +42,12 @@ test("cover report number and issued date follow frozen completion data", () => 
  vm.cover.reportNumber='MFE/SR/2026/0042';html=renderReportHtml(vm);
  assert.match(html,/<span>Report No\.<\/span><b data-bind="report\.number">MFE\/SR\/2026\/0042<\/b>/);
  assert.match(html,/@bottom-left\s*\{ content: "Report No\. MFE\/SR\/2026\/0042"/);
+});
+test("cover prints Team only when it has names beyond the test leader", () => {
+ const vm=buildReportViewModel({customer:'Customer',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Lead',technicians:['Lead'],systems:[],sections:[]});
+ assert.doesNotMatch(renderReportHtml(vm),/Team:/);
+ vm.cover.technicians=['Lead','Tech B'];
+ assert.match(renderReportHtml(vm),/Team: Tech B/);
 });
 test("optional telephone/fax and arrival/departure separators appear only between values", () => {
  const vm=buildReportViewModel({customer:'Customer',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[]});

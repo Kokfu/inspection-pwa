@@ -418,18 +418,21 @@ export async function closeInspectionJob(
       return { kind: "incomplete", completion: current };
     }
     const reportYearText = job.service_date?.slice(0, 4);
-    const reportYear = reportYearText && /^\d{4}$/.test(reportYearText) ? Number(reportYearText) : undefined;
-    let reportNumber: string | null = null;
-    if (reportYear) {
-      const counter = (await client.query<{ sequence: string | number }>(`
-        INSERT INTO report_number_year_counters(report_year, last_sequence)
-        VALUES($1, 1)
-        ON CONFLICT (report_year) DO UPDATE
-          SET last_sequence = report_number_year_counters.last_sequence + 1
-        RETURNING last_sequence AS sequence`, [reportYear])).rows[0];
-      if (!counter) throw new Error("Report number sequence could not be allocated");
-      reportNumber = formatReportNumber(reportYear, Number(counter.sequence));
+    const serviceYear = reportYearText && /^\d{4}$/.test(reportYearText) ? Number(reportYearText) : undefined;
+    const reportYear = serviceYear ?? Number((await client.query<{ year: number }>(
+      "SELECT EXTRACT(YEAR FROM now() AT TIME ZONE 'Asia/Kuala_Lumpur')::int AS year"
+    )).rows[0]?.year);
+    if (!Number.isInteger(reportYear) || reportYear < 1 || reportYear > 9999) {
+      throw new Error("Report year could not be determined");
     }
+    const counter = (await client.query<{ sequence: string | number }>(`
+      INSERT INTO report_number_year_counters(report_year, last_sequence)
+      VALUES($1, 1)
+      ON CONFLICT (report_year) DO UPDATE
+        SET last_sequence = report_number_year_counters.last_sequence + 1
+      RETURNING last_sequence AS sequence`, [reportYear])).rows[0];
+    if (!counter) throw new Error("Report number sequence could not be allocated");
+    const reportNumber = formatReportNumber(reportYear, Number(counter.sequence));
     // The frozen "team" currently contains the visit creator, not an assigned crew.
     const technicians = job.created_by_username ? [personName(job.created_by_username, job.created_by_display_name)] : [];
     const actorRow = (await client.query<{ username: string; display_name: string | null }>(

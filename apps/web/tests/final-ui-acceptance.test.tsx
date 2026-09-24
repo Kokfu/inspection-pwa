@@ -13,6 +13,10 @@ import { ManagerHome } from "../src/manager/ManagerHome.js";
 import { RoleSelection } from "../src/manager/RoleSelection.js";
 import { productRoleMatches } from "../src/manager/roleAccess.js";
 
+// Server-rendered component assertions run without browser storage.
+let sessionTab: string | null = null;
+Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { getItem: () => sessionTab, setItem: () => undefined } });
+
 const system = { enabledSystemId: "system-1", systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 1, definitionStatus: "confirmed" as const, zones: [], locations: [] };
 const baseJob: InspectionJob = {
   id: "job-1", reference: "SV-20260819-1", title: "Primary Service Site", status: "open",
@@ -35,14 +39,20 @@ test("normal job count appears once and routine refresh text is not rendered as 
   assert.doesNotMatch(html, /operational-message[^>]*>6 jobs available on this device/);
 });
 
-test("technician jobs retain every card while current work and completed history are grouped", () => {
+test("technician job tabs show current work and completed history", () => {
   const completed: InspectionJob = { ...baseJob, id: "job-completed", reference: "SV-HISTORY", status: "closed", completion: { ...baseJob.completion!, jobId: "job-completed", jobStatus: "closed", acceptedUnitCount: 1, completedAt: "2026-08-19T05:04:00.000Z", completedBy: { id: 1, username: "mobiletest" }, systems: [{ ...baseJob.completion!.systems[0], status: "accepted", units: [{ authorityKey: "primary", label: "Primary inspection", status: "accepted" }] }] } };
-  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
-  assert.match(html, /Current Service Jobs/);
-  assert.match(html, /Service History/);
-  assert.ok(html.indexOf(baseJob.reference) < html.indexOf(completed.reference));
-  assert.match(html, /SV-20260819-1/);
-  assert.match(html, /SV-HISTORY/);
+  try {
+    sessionTab = "progress";
+    const current = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
+    assert.match(current, /In Progress \(1\)/);
+    assert.match(current, /Completed \(1\)/);
+    assert.match(current, /SV-20260819-1/);
+    assert.doesNotMatch(current, /SV-HISTORY/);
+    sessionTab = "completed";
+    const history = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
+    assert.match(history, /SV-HISTORY/);
+    assert.doesNotMatch(history, /SV-20260819-1/);
+  } finally { sessionTab = null; }
 });
 
 test("incomplete completion requirements have separate semantic elements and no completion action", () => {
@@ -99,12 +109,14 @@ test("final report fields use a readable report stack rather than a collapsible 
   assert.doesNotMatch(css, /\.report-field \{ display: grid; grid-template-columns:/);
 });
 
-test("final report PDF uses authenticated Blob download without navigating away", async () => {
+test("final report PDF keeps its Blob URL through click and revokes it later", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const originalFetch = globalThis.fetch;
   const originalDocument = globalThis.document;
   const originalCreate = URL.createObjectURL;
   const originalRevoke = URL.revokeObjectURL;
   const clicked: string[] = [], revoked: string[] = [];
+  let attached = false;
   try {
     globalThis.fetch = (async (_input, init) => {
       assert.deepEqual(init, { credentials: "same-origin", cache: "no-store" });
@@ -112,10 +124,39 @@ test("final report PDF uses authenticated Blob download without navigating away"
     }) as typeof fetch;
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:final-report" });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: (url: string) => revoked.push(url) });
-    globalThis.document = { body: { append: () => undefined }, createElement: () => ({ href: "", download: "", style: {}, click() { clicked.push(this.download); }, remove() { return undefined; } }) } as unknown as Document;
+    globalThis.document = { body: { append: () => { attached = true; } }, createElement: () => ({ href: "", download: "", style: {}, click() { assert.equal(attached, true); assert.deepEqual(revoked, []); clicked.push(this.download); }, remove() { attached = false; } }) } as unknown as Document;
     await downloadFinalReport("job/one");
     assert.deepEqual(clicked, ["Service-Report_Test.pdf"]);
+    assert.equal(attached, false);
+    assert.deepEqual(revoked, []);
+    context.mock.timers.tick(59_999);
+    assert.deepEqual(revoked, []);
+    context.mock.timers.tick(1);
     assert.deepEqual(revoked, ["blob:final-report"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.document = originalDocument;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreate });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevoke });
+  }
+});
+
+test("a failed anchor click still schedules Blob URL revocation", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const originalFetch = globalThis.fetch, originalDocument = globalThis.document;
+  const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+  const revoked: string[] = [];
+  let removed = false;
+  try {
+    globalThis.fetch = (async () => new Response(new Blob(["%PDF-test"]), { status: 200 })) as typeof fetch;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:failed-click" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: (url: string) => revoked.push(url) });
+    globalThis.document = { body: { append: () => undefined }, createElement: () => ({ href: "", download: "", style: {}, click() { throw new Error("click failed"); }, remove() { removed = true; } }) } as unknown as Document;
+    await assert.rejects(() => downloadFinalReport("job-1"), /click failed/);
+    assert.equal(removed, true);
+    assert.deepEqual(revoked, []);
+    context.mock.timers.tick(60_000);
+    assert.deepEqual(revoked, ["blob:failed-click"]);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.document = originalDocument;
@@ -130,6 +171,20 @@ test("failed final report download surfaces the API message without creating a b
     globalThis.fetch = (async () => new Response(JSON.stringify({ message: "Final report is not ready." }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
     await assert.rejects(() => downloadFinalReport("job-1"), /Final report is not ready\./);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("an empty PDF response never creates a browser download", async () => {
+  const originalFetch = globalThis.fetch, originalCreate = URL.createObjectURL;
+  let created = false;
+  try {
+    globalThis.fetch = (async () => new Response(new Blob([]), { status: 200 })) as typeof fetch;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => { created = true; return "blob:empty"; } });
+    await assert.rejects(() => downloadFinalReport("job-1"), /PDF was empty/);
+    assert.equal(created, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreate });
+  }
 });
 
 test("role selection exposes Technician and Manager without using persisted backend role labels", () => {
@@ -152,18 +207,10 @@ test("role-selection mismatches fail safely against the authenticated server rol
   assert.equal(productRoleMatches("technician", admin), false);
 });
 
-test("Manager Operations presents truthful Open, Completed, and Total summary counts", () => {
-  const visit = (id: string, status: "open" | "closed") => ({ id, reference: `SV-${id}`, customer: "Operations Customer", site: "Operations Site", serviceDate: "2026-08-20", status, systems: ["Hose Reel"], inspectionProgress: { accepted: status === "closed" ? 1 : 0, required: 1 }, completion: { ...baseJob.completion!, jobId: id, jobStatus: status, acceptedUnitCount: status === "closed" ? 1 : 0, completedAt: status === "closed" ? "2026-08-20T10:00:00.000Z" : null, completedBy: status === "closed" ? { id: 2, username: "tech-one" } : null } });
-  const html = renderToStaticMarkup(<ManagerHome visits={[visit("open-one", "open"), visit("open-two", "open"), visit("closed", "closed")]} loading={false} message="" onRefresh={noop} onSelect={() => undefined} onBack={() => undefined} onViewReport={() => undefined} onDownloadReport={noop} />);
-  assert.match(html, /<dt>Open<\/dt><dd>2<\/dd>/);
-  assert.match(html, /<dt>Completed<\/dt><dd>1<\/dd>/);
-  assert.match(html, /<dt>Total<\/dt><dd>3<\/dd>/);
-  assert.doesNotMatch(html, /Awaiting Completion/);
-  assert.match(html, /Active Service Visits/);
-  assert.match(html, /Completed Service Visits/);
-  assert.match(html, /Service Completed/);
-  assert.match(html, /View Final Report/);
-  assert.match(html, /Download PDF/);
+test("Manager Home links to service operations and completed services", () => {
+  const html = renderToStaticMarkup(<ManagerHome navigate={() => undefined} />);
+  assert.match(html, /Services<\/button>/);
+  assert.match(html, /Current Services Done<\/button>/);
 });
 
 const detailedFinalReport: FinalReportPreview = {

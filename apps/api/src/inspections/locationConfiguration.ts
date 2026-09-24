@@ -27,7 +27,8 @@
  *  `systemConfigurationSystemKeys`. */
 export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
   "co2_fire_extinguisher",
-  "wet_chemical"
+  "wet_chemical",
+  "fm200_fire_suppression"
 ]);
 
 const maxZones = 100;

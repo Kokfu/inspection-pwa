@@ -2358,6 +2358,8 @@ export function sampleViewModel(): ReportViewModel {
  const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
  vm.systemPages = structuredClone(pages).map(page => ({...page,photos:((page as unknown as {photos:Array<Omit<SystemPage["photos"][number],"content">>}).photos).map(photo=>({...photo,content:pixel}))}));
  vm.summary = vm.systemPages.map(page=>({no:page.no,systemKey:page.systemKey,label:page.title,location:page.location,frequency:"QUARTERLY",condition:page.condition,conditionDetail:page.conditionDetail,mainFinding:summaryMainFinding(page.remarks)}));
+ // Keep the approved four-system sample fixed while the live catalog evolves.
+ vm.cover.systemsServiced = vm.cover.systemsServiced.filter(system=>system.systemKey!=="fm200_fire_suppression");
  vm.cover.systemsServiced.forEach(system=>system.serviced=vm.systemPages.some(page=>page.systemKey===system.systemKey));
  return vm;
 }

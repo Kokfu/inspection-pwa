@@ -11,6 +11,8 @@ import path from "node:path";
 import zlib from "node:zlib";
 import type { Server } from "node:http";
 import { createFinalReportPdfHandler } from "../routes/inspectionJobs.js";
+import { buildReportViewModel } from "./reportViewModel.js";
+import { renderReportHtml } from "./template/renderReportHtml.js";
 import { requireRole } from "../middleware/requireRole.js";
 import { deriveSystemCondition, finalReportFontAssetPath, FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf, sectionRemarkLines, type FinalReportSection, type FinalServiceReport } from "./finalServiceReport.js";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
@@ -71,6 +73,8 @@ class Database {
 test("completed service visit report uses accepted server history, preserves per-location sections, and produces a valid PDF", async () => {
   const database = new Database();
   const report = await loadFinalServiceReport(jobId, database as never);
+  assert.equal(report.reportNumber, undefined, "an already-closed legacy job keeps its blank number");
+  assert.doesNotMatch(renderReportHtml(buildReportViewModel(report)), /Report No\./);
   assert.equal(report.customer, "Acme Fire Safety");
   assert.equal(report.site, "Main Tower");
   assert.equal(report.jobReference, "SV/2026:08");

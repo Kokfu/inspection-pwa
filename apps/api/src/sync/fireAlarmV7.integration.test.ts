@@ -175,7 +175,7 @@ test("Fire Alarm V7 exact retry with an unsorted manifest is still duplicate suc
     assert.deepEqual(retry.duplicateIds, [clientUuid], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
     assert.deepEqual(retry.failed, []);
 
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, timestamp, actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, timestamp, actor]);
     assert.deepEqual((await acceptFireAlarmV7Inspection(envelope(manifest), actor)).duplicateIds, [clientUuid], "duplicate success survives Job closure");
 
     // A genuinely different manifest is still a conflict — one entry dropped

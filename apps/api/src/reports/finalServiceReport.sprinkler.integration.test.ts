@@ -86,7 +86,7 @@ test("PostgreSQL final report validates frozen Automatic Sprinkler evidence and 
         await pool.query(`INSERT INTO inspection_attachments(id,client_uuid,form_instance_id,evidence_policy_id,field_path,capture_source,storage_relative_path,source_sha256,stored_sha256,request_fingerprint,mime_type,source_size_bytes,source_width,source_height,stored_size_bytes,width,height,captured_at,uploaded_by_user_id)
           VALUES($1,$2,$3,$4,'measurements.jockey_pump_pressure.cut_in','camera',$5,$6,$6,$6,'image/jpeg',$7,8,8,$7,8,8,now(),$8)`, [randomUUID(), randomUUID(), evidenceFormId, policyId, relative, digest, content.length, userId]);
       }
-      await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='sprinkler-report-tech' WHERE id=$1", [jobId, userId]);
+      await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='sprinkler-report-tech',report_number='TEST/' || id::text,technician_team_snapshot='[]'::jsonb WHERE id=$1", [jobId, userId]);
       return jobId;
     };
 

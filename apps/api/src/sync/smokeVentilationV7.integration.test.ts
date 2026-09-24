@@ -221,7 +221,7 @@ test("Smoke Ventilation V7 exact retry with an unsorted manifest is still duplic
     assert.deepEqual(retry.failed, []);
 
     // Same again once the Job is closed — the case a technician actually hits.
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, fixture.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, fixture.actor]);
     const afterClose = await syncSmokeVentilationInspections([item], fixture.actor);
     assert.deepEqual(afterClose.duplicateIds, [clientUuid], JSON.stringify(afterClose));
 
@@ -410,7 +410,7 @@ test("Smoke Ventilation V7 exact retry after Job closure returns the same accept
     const item = fixture.envelope({ clientUuid, job, responses, evidenceManifest: [] });
     const first = await syncSmokeVentilationInspections([item], fixture.actor);
     assert.deepEqual(first.acceptedIds, [clientUuid], JSON.stringify(first));
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, fixture.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, fixture.actor]);
     const retry = await syncSmokeVentilationInspections([item], fixture.actor);
     assert.deepEqual(retry.duplicateIds, [clientUuid], JSON.stringify(retry));
     assert.deepEqual(retry.failed, []);
@@ -451,7 +451,7 @@ test("Smoke Ventilation V7 accepted inspection completes into a Final Report car
       const responses = smokeResponses([smokeRow(rowUuid, 1, { autoResult: "not_good", fieldRemarks: { autoResult: "Fan 1 does not start in Auto" } })]);
       const outcome = await syncSmokeVentilationInspections([fixture.envelope({ clientUuid, job, responses, evidenceManifest: [photo] })], fixture.actor);
       assert.deepEqual(outcome.acceptedIds, [clientUuid], JSON.stringify(outcome));
-      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Smoke Ventilation V7 closer' WHERE id=$1", [job, at, fixture.actor]);
+      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Smoke Ventilation V7 closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, fixture.actor]);
       const report = await loadFinalServiceReport(job, database);
       const section = report.sections.find((value) => value.systemKey === "smoke_ventilation");
       assert.ok(section, `Final Report must contain a Smoke Ventilation section: ${JSON.stringify(report.sections.map((value) => value.systemKey))}`);

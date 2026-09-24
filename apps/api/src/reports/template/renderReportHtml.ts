@@ -66,7 +66,8 @@ function cover(vm: ReportViewModel): string {
     siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone, c.fax].filter(Boolean).join(" / "), arrivalDeparture: [c.arrival, c.departure].filter(Boolean).join(" / "),
     technicians: c.technicians.join(" · "), team: c.technicians.filter(name => name !== c.testLeader).join(", ") };
   // Parse only the static template: interpolated business text is never re-parsed.
-  const template = c.reportNumber ? coverTemplate : coverTemplate.replace(/^[ \t]*<div><span>Report No\.<\/span><b data-bind="report\.number">\{\{reportNumber\}\}<\/b><\/div>\r?\n/m, "");
+  const numberedTemplate = c.reportNumber ? coverTemplate : coverTemplate.replace(/^[ \t]*<div><span>Report No\.<\/span><b data-bind="report\.number">\{\{reportNumber\}\}<\/b><\/div>\r?\n/m, "");
+  const template = values.team ? numberedTemplate : numberedTemplate.replace(/^[ \t]*<div style="font-size:7\.6pt;color:#333">Team: \{\{team\}\}<\/div>\r?\n/m, "");
   return template.split(/(\{\{logoMarkup\}\}|\{\{systemsMarkup\}\})/).map(part => {
     if (part === "{{logoMarkup}}") return logo ? `<img src="${e(logo)}" alt="MFE" style="width:62pt;height:62pt;object-fit:contain">` : '<div class="logo">MFE</div>';
     if (part === "{{systemsMarkup}}") return '<div class="sys-list">' + c.systemsServiced.map(system => `<div${system.serviced ? "" : ' class="off"'}><span class="box">${e(system.serviced ? "✓" : "")}</span>${e(system.label)}</div>`).join("") + '</div>';

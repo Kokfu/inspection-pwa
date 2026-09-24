@@ -1,7 +1,9 @@
 import { resolveHoseReelControls } from "./templates/definitionControls.js";
 import { resolveCo2Controls } from "./templates/co2DefinitionControls.js";
+import { resolveFm200Controls } from "./templates/fm200DefinitionControls.js";
 import { validateHoseReelSubmission } from "../sync/masterSystemInspectionSync.js";
 import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
+import { validateFm200Responses } from "../sync/fm200FormInstanceSync.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "./evidence/v7EvidenceContracts.js";
 import { parseDryWetRiserSystemConfiguration } from "./dryWetRiserConfiguration.js";
 
@@ -114,6 +116,48 @@ export function validateAcceptedCo2Detail(row: R) {
 
 export function validateAcceptedWetChemicalDetail(row: R) {
   return validateAcceptedSuppressionDetail(row, "wet_chemical");
+}
+
+/**
+ * FM200 clone of `validateAcceptedSuppressionDetail`, kept as its own function
+ * (rather than widening that CO2/Wet-Chemical one) because FM200 has no
+ * legacy pre-V7 contract: it is always `template.version === 7`, its
+ * `resolvedControls` are `ResolvedFm200Controls` from `resolveFm200Controls`
+ * (a fully independent resolver, not `resolveCo2Controls`), and its
+ * `inspectionSnapshot.schemaVersion` is therefore always `2`. FM200 shares
+ * CO2's exact per-location shape otherwise (same `instance`/`system` snapshot
+ * keys, same `repetitionMode: "per_location"`), since `fm200FormInstanceSync.ts`
+ * is a structural clone of `co2FormInstanceSync.ts`.
+ */
+export function validateAcceptedFm200Detail(row: R) {
+  if (!identity(row) || row.systemKey !== "fm200_fire_suppression" || typeof row.locationId !== "string" || !uuid.test(row.locationId)
+    || !(row.zoneId === null || typeof row.zoneId === "string" && uuid.test(row.zoneId))
+    || row.instanceKey !== `location:${row.locationId}` || !Number.isSafeInteger(row.displaySequence) || Number(row.displaySequence) < 1
+    || !rec(row.inspectionSnapshot) || !exact(row.inspectionSnapshot, ["schemaVersion", "acceptedAt", "job", "customer", "configuration", "template", "system", "instance"])
+    || row.inspectionSnapshot.schemaVersion !== 2 || !canonicalMillis(row.inspectionSnapshot.acceptedAt)
+    || !rec(row.inspectionSnapshot.job) || !exact(row.inspectionSnapshot.job, ["id", "reference", "title"])
+    || row.inspectionSnapshot.job.id !== row.jobId || !text(row.inspectionSnapshot.job.reference, 250) || !text(row.inspectionSnapshot.job.title, 300)
+    || !rec(row.inspectionSnapshot.customer) || !exact(row.inspectionSnapshot.customer, ["id", "code", "displayName"])
+    || typeof row.inspectionSnapshot.customer.id !== "string" || !uuid.test(row.inspectionSnapshot.customer.id)
+    || !text(row.inspectionSnapshot.customer.code, 100) || !text(row.inspectionSnapshot.customer.displayName, 250)
+    || !rec(row.inspectionSnapshot.template) || !rec(row.inspectionSnapshot.configuration)
+    || !rec(row.inspectionSnapshot.system) || !rec(row.inspectionSnapshot.instance) || !rec(row.responses)) return undefined;
+  const snapshot = row.inspectionSnapshot;
+  const template = snapshot.template as R, configuration = snapshot.configuration as R;
+  const system = snapshot.system as R, instance = snapshot.instance as R;
+  if (!exact(template, ["id", "code", "version"]) || template.id !== row.templateId || template.code !== "MFE-FSSR" || template.version !== 7
+    || !exact(configuration, ["revisionId", "revisionNumber"]) || configuration.revisionId !== row.configurationRevisionId
+    || system.key !== "fm200_fire_suppression" || system.repetitionMode !== "per_location"
+    || !exact(instance, ["instanceKey", "displaySequence", "zone", "location"])
+    || instance.instanceKey !== row.instanceKey || instance.displaySequence !== row.displaySequence
+    || !rec(instance.location) || instance.location.id !== row.locationId
+    || (row.zoneId === null ? instance.zone !== null : !rec(instance.zone) || instance.zone.id !== row.zoneId)) return undefined;
+  try {
+    const controls = resolveFm200Controls(system.definition, "MFE-FSSR", 7);
+    if (controls.source.systemKey !== "fm200_fire_suppression" || canonical(system.resolvedControls) !== canonical(controls)
+      || !validateFm200Responses(row.responses, controls)) return undefined;
+    return { snapshot, controls };
+  } catch { return undefined; }
 }
 
 /**

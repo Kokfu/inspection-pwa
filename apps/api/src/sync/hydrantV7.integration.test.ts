@@ -321,7 +321,7 @@ test("Hydrant V7 exact retry with an unsorted manifest is still duplicate succes
     assert.deepEqual(retry.failed, []);
 
     // Same again once the Job is closed — the case a technician actually hits.
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, fixture.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, fixture.actor]);
     assert.deepEqual((await syncHydrantInspections([item], fixture.actor)).duplicateIds, [clientUuid], "duplicate success survives Job closure");
 
     // A genuinely different manifest is still a conflict — one entry dropped

@@ -189,7 +189,7 @@ test("PostgreSQL 010 -> 011 -> 012 upgrade fails unresolved legacy retries close
     );
     assert.equal(concurrentCount.rows[0]?.count, "1");
     await database.query(
-      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",
+      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4, report_number = 'TEST/' || id::text, technician_team_snapshot = '[]'::jsonb WHERE id = $1",
       [created.id, "2026-08-18T12:00:00.000Z", actorA, "service-visit-a"]
     );
     const canonical = await loadCanonicalInspectionJob(created.id, database);

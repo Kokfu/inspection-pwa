@@ -197,6 +197,7 @@ class FakeCompletionDatabase {
         return { rowCount: this.rows.length, rows: this.rows };
       }
       if (normalized.startsWith("INSERT INTO report_number_year_counters")) return { rowCount: 1, rows: [{ sequence: "1" }] };
+      if (normalized.includes("EXTRACT(YEAR FROM now() AT TIME ZONE")) return { rowCount: 1, rows: [{ year: 2027 }] };
       if (normalized.includes("SELECT username, display_name FROM users")) return { rowCount: 1, rows: [{ username: "first-inspector", display_name: this.actorDisplayName }] };
       if (normalized.startsWith("UPDATE inspection_jobs")) {
         if (this.state.status !== "open") return { rowCount: 0, rows: [] };
@@ -264,6 +265,24 @@ test("repeated and concurrent close requests produce one immutable completion", 
   assert.equal(repeated.kind, "closed");
   assert.equal(repeated.kind === "closed" && repeated.alreadyCompleted, true);
   assert.equal(database.state.completed_by_user_id, 7);
+});
+
+test("a legacy job without service date receives a number from the completion year", async () => {
+  const database = new FakeCompletionDatabase();
+  database.state.service_date = null;
+  const result = await closeInspectionJob(ids.job, { id: 7, username: "first-inspector" }, database as never);
+  assert.equal(result.kind, "closed");
+  assert.equal(database.state.report_number, "MFE/SR/2027/0001");
+});
+
+test("already-closed legacy job keeps its null number on retry", async () => {
+  const database = new FakeCompletionDatabase();
+  database.state = { ...job("closed"), report_number: null };
+  const result = await closeInspectionJob(ids.job, { id: 7, username: "first-inspector" }, database as never);
+  assert.equal(result.kind, "closed");
+  assert.equal(result.kind === "closed" && result.alreadyCompleted, true);
+  assert.equal(database.state.report_number, null);
+  assert.equal(database.updates, 0);
 });
 
 test("new completion freezes a person's name and falls back to username", async () => {

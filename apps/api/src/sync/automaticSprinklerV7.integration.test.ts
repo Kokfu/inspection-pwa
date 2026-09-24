@@ -195,7 +195,7 @@ test("Automatic Sprinkler V7 exact retry with an unsorted manifest is still dupl
     assert.deepEqual(retry.duplicateIds, [client], `unsorted retry must be duplicate success: ${JSON.stringify(retry)}`);
     assert.deepEqual(retry.failed, []);
 
-    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer' WHERE id=$1", [job, at, f.actor]);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, at, f.actor]);
     assert.deepEqual((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, unsorted)], f.actor)).duplicateIds, [client], "duplicate success survives Job closure");
 
     // A genuinely different manifest is still a conflict — one entry dropped
@@ -225,7 +225,7 @@ test("Automatic Sprinkler V7 accepted inspection completes into a Final Report",
       const result = await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [a])], f.actor);
       assert.deepEqual(result.acceptedIds, [client], JSON.stringify(result));
       await database.query(
-        "UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Sprinkler V7 closer' WHERE id=$1",
+        "UPDATE inspection_jobs SET status='closed', completed_at=$2, completed_by_user_id=$3, completed_by_display_name='Sprinkler V7 closer', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1",
         [job, at, f.actor]
       );
       const report = await loadFinalServiceReport(job, database);

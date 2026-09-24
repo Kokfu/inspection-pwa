@@ -83,7 +83,7 @@ test("GET /manager/service-visits technicianId filter scopes to the creator, com
           [id, v7TemplateId, `SV-SLICEB-${String(sequence).padStart(2, "0")}`, site.displayName, customer.customer.id, customer.configuration.id, snapshot, site.id, serviceDate, creator]
         );
         if (status === "closed") {
-          await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='slice-b' WHERE id=$1", [id, creator ?? adminId]);
+          await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='slice-b', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [id, creator ?? adminId]);
         }
         return id;
       };

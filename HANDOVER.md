@@ -3,6 +3,23 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-24 — **Report R6 Sol review fixes completed (uncommitted).**
+Migration 034 rejects every open→closed transition without a report number while preserving
+historical closed NULLs. `closeInspectionJob` uses the Malaysia-local completion year when the
+service date is absent, inside the same locked transaction and yearly counter. The cover hides an
+empty Team line; the web download revokes its Blob URL after 60 seconds. Fresh isolated API
+container proof: `docs/report-template/r6-fresh-container-download.pdf` (real number
+`MFE/SR/2026/0001`, no empty Team label). The disposable database had zero unnumbered closed jobs
+at the time of this download; the migration test later created one intentional historical NULL
+fixture to verify replay, and the final disposable-database count was zero after subsequent suites
+reset the schema. API/web typechecks and builds, focused completion/service-visit/report suites,
+the standard historical/V6/V7 gates, and all directly affected integration fixtures passed with
+zero skips. The already-present duplicate FM200 cover-list labels remain a P2 outside R6's
+approved-layout scope. Sol's Windows CRLF snapshot failure is fixed by normalizing both sides of
+the assertion; the completion-year integration assertion now handles a new annual counter. Both
+affected suites pass with zero skips. The latest isolated numbering test left one intentional
+historical closed NULL fixture in its disposable database, which was removed with that container.
+
 **Last updated:** 2026-09-24 — **Report R5 person names and cover fixes completed (uncommitted).**
 Migration 032 adds nullable `users.display_name` without backfill. Manager Technician List and
 `ADMIN_DISPLAY_NAME` in the admin CLI can set names. New completions freeze the resolved name

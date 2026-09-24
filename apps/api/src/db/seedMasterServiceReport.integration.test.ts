@@ -243,7 +243,7 @@ test("production seed preserves completed demo runtime state and rejects immutab
     )).rows, createdRiserJob.rows, "fixture corruption checks never alter the legitimate Service Visit");
 
     await pool.query(
-      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",
+      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4, report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id = $1",
       [realServiceVisit.id, realCompletedAt, userId, "seed-integration-inspector"]
     );
     assert.ok((await listTechnicianInspectionJobs(pool)).some((job) => job.id === realServiceVisit.id && job.status === "closed"),
@@ -273,7 +273,7 @@ test("production seed preserves completed demo runtime state and rejects immutab
       [historyId, portableJobId, "portable_fire_extinguisher", userId]
     );
     await pool.query(
-      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4 WHERE id = $1",
+      "UPDATE inspection_jobs SET status = 'closed', completed_at = $2, completed_by_user_id = $3, completed_by_display_name = $4, report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id = $1",
       [portableJobId, completedAt, userId, "seed-integration-inspector"]
     );
 

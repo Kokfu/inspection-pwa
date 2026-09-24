@@ -9,6 +9,7 @@ import { FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf }
 import { resolveCo2Controls } from "../inspections/templates/co2DefinitionControls.js";
 import { createManagerCustomersRouter, ManagerCustomerError } from "../routes/managerCustomers.js";
 import { extractPdfText } from "./pdf/extractPdfText.testSupport.js";
+import { closeInspectionJob } from "../jobs/jobCompletion.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
 const seedCo2JobId = "00000000-0000-4000-8000-000000000679";
@@ -77,11 +78,17 @@ test("PostgreSQL final-report service accepts completed frozen CO2 history and f
         job.customer_configuration_revision_id, acceptedSnapshot, response, "a".repeat(64), userId
       ]);
       }
-      await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='Alice Tan' WHERE id=$1", [values.jobId, userId]);
+      if (values.jobId === reportJobId) {
+        const completion = await closeInspectionJob(values.jobId, { id: userId!, username: "report-tech" }, pool);
+        assert.equal(completion.kind, "closed");
+      } else {
+        await pool.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='Alice Tan', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [values.jobId, userId]);
+      }
     };
     await fixture({ jobId: reportJobId, groupId: inspectionId, identityBase: 100, reference: job.job_reference });
 
     const report = await loadFinalServiceReport(reportJobId, pool);
+    assert.match(report.reportNumber ?? "", /^MFE\/SR\/2026\/\d{4}$/);
     assert.equal(report.completedBy, "Alice Tan");
     assert.equal(report.fax, "03-222");
     assert.equal(report.contractNumber, "C-44");

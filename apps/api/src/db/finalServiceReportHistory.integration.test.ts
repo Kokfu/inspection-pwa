@@ -66,7 +66,7 @@ test("PostgreSQL 013 -> 014 preserves legacy completion proof and freezes comple
       repeat('a',64),'submitted',now(),$3 FROM inspection_jobs WHERE id=$4`,
       [openFormId, openGroupId, userId, portableJobId]);
     await pool.query(
-      "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech' WHERE id=$1",
+      "UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='history-tech', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1",
       [portableJobId, userId]
     );
     await assert.rejects(
