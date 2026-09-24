@@ -242,6 +242,74 @@ test("GET /manager/service-visits filters by customer/site/status/systemKey/date
         assert.equal((await get("?limit=0")).status, 400);
         assert.equal((await get("?cursor=%25%25not-valid%25%25")).status, 400);
 
+        // --- Service-visit/job soft archive, on a CLOSED job -------------------------------------
+        // `jobAlphaSprinklerClosed` is closed (status='closed', completed_at/completed_by set
+        // above). Archiving it must succeed, exclude it from the default list, include it with
+        // `includeArchived=true`, and — the most important regression check in this slice — every
+        // OTHER mutation `prevent_completed_service_visit_mutation`/
+        // `enforce_inspection_job_completion_state` already blocked on a closed job must STILL be
+        // blocked afterward, exactly as before migration 036.
+        const put = (path: string) => fetch(`http://127.0.0.1:${historyAddress.port}${path}`, { method: "PUT" });
+
+        const archiveResponse = await put(`/manager/service-visits/${jobAlphaSprinklerClosed}/archive`);
+        assert.equal(archiveResponse.status, 200);
+        const archivedBody = await archiveResponse.json() as { serviceVisit: { archivedAt: string | null } };
+        assert.ok(archivedBody.serviceVisit.archivedAt !== null, "archive sets archivedAt");
+        assert.deepEqual((await pool.query("SELECT archived_at IS NOT NULL AS archived, status FROM inspection_jobs WHERE id=$1", [jobAlphaSprinklerClosed])).rows[0], { archived: true, status: "closed" }, "archiving does not disturb status");
+
+        const excludedByDefault = await idsFor(`?customerId=${customerId}`);
+        assert.ok(!excludedByDefault.includes(jobAlphaSprinklerClosed), "archived job excluded from the default list");
+        const includedExplicitly = await idsFor(`?customerId=${customerId}&includeArchived=true`);
+        assert.ok(includedExplicitly.includes(jobAlphaSprinklerClosed), "includeArchived=true includes the archived job");
+
+        // Direct GET by id is unaffected by archive state (an admin can still open an archived
+        // visit's detail before deciding to restore it).
+        const directGetArchived = await fetch(`http://127.0.0.1:${historyAddress.port}/manager/service-visits/${jobAlphaSprinklerClosed}`);
+        assert.equal(directGetArchived.status, 200);
+
+        // Regression: every other previously-blocked mutation on this closed job is STILL blocked.
+        await assert.rejects(
+          () => pool.query("UPDATE inspection_jobs SET title='immutable drift' WHERE id=$1", [jobAlphaSprinklerClosed]),
+          /Completed inspection jobs are immutable historical service data/,
+          "title remains immutable on a closed job after archiving it"
+        );
+        await assert.rejects(
+          () => pool.query("UPDATE inspection_jobs SET status='open' WHERE id=$1", [jobAlphaSprinklerClosed]),
+          /Completed inspection job metadata is immutable/,
+          "status remains immutable on a closed job after archiving it"
+        );
+        await assert.rejects(
+          () => pool.query("UPDATE inspection_jobs SET completed_at=now() WHERE id=$1", [jobAlphaSprinklerClosed]),
+          /Completed inspection job metadata is immutable/,
+          "completed_at remains immutable on a closed job after archiving it"
+        );
+
+        // Archiving an already-archived job is idempotent (still 200, archivedAt stays set), and
+        // re-archiving does not disturb the immutability checks above either.
+        assert.equal((await put(`/manager/service-visits/${jobAlphaSprinklerClosed}/archive`)).status, 200);
+
+        const restoreResponse = await put(`/manager/service-visits/${jobAlphaSprinklerClosed}/restore`);
+        assert.equal(restoreResponse.status, 200);
+        const restoredBody = await restoreResponse.json() as { serviceVisit: { archivedAt: string | null } };
+        assert.equal(restoredBody.serviceVisit.archivedAt, null, "restore clears archivedAt");
+        assert.ok((await idsFor(`?customerId=${customerId}`)).includes(jobAlphaSprinklerClosed), "restored job reappears in the default list");
+
+        // Archiving is also unblocked on an OPEN job — the soft-archive column is not
+        // status-gated.
+        const archiveOpen = await put(`/manager/service-visits/${jobAlphaHoseOpen}/archive`);
+        assert.equal(archiveOpen.status, 200);
+        assert.ok(!(await idsFor(`?customerId=${customerId}`)).includes(jobAlphaHoseOpen));
+        assert.equal((await put(`/manager/service-visits/${jobAlphaHoseOpen}/restore`)).status, 200);
+
+        // A sample job is never archivable — `operationalWhere` (is_sample = false) scopes both
+        // the archive/restore UPDATEs, same as every other handler in this router.
+        assert.equal((await put(`/manager/service-visits/${sampleJob}/archive`)).status, 404, "sample jobs fall outside operationalWhere and are never archivable");
+        assert.equal((await put(`/manager/service-visits/${randomUUID()}/archive`)).status, 404, "unknown job id 404s");
+        assert.equal((await put(`/manager/service-visits/not-a-uuid/archive`)).status, 400, "malformed job id 400s");
+        historyRole.current = "inspector";
+        assert.equal((await put(`/manager/service-visits/${jobAlphaSprinklerClosed}/archive`)).status, 403, "archive stays admin-only");
+        historyRole.current = "admin";
+
         // -- EXPLAIN: customer_id / site_id filters use the migrations 004/010 indexes, not a
         // sequential scan on inspection_jobs, once the table has enough (and selective enough)
         // rows for the planner to prefer them. `buildOperationalListQuery()`'s SQL now also

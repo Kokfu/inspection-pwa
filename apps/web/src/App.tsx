@@ -108,6 +108,9 @@ import { claimManagerSession, clearManagerSession, readManagerReturn, rememberMa
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
+import { ManagerAddCustomer } from "./manager/ManagerAddCustomer";
+import { ManagerCommonRemarks } from "./manager/ManagerCommonRemarks";
+import { ManagerServiceCatalog } from "./manager/ManagerServiceCatalog";
 import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
 import { allowManagerHashChange } from "./manager/managerLeaveGuard";
 import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
@@ -192,6 +195,9 @@ type AppRoute =
   | { name: "manager-technicians" }
   | { name: "manager-technician"; technicianId: string }
   | { name: "manager-customers" }
+  | { name: "manager-add-customer" }
+  | { name: "manager-common-remarks" }
+  | { name: "manager-service-catalog" }
   | { name: "manager-operations" }
   | { name: "manager-services-done" }
   | { name: "manager-upcoming-services" }
@@ -219,6 +225,9 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-technicians") return { name: "manager-technicians" };
   if (parts[0] === "manager-technician" && parts[1]) return { name: "manager-technician", technicianId: parts[1] };
   if (parts[0] === "manager-customers") return { name: "manager-customers" };
+  if (parts[0] === "manager-add-customer") return { name: "manager-add-customer" };
+  if (parts[0] === "manager-common-remarks") return { name: "manager-common-remarks" };
+  if (parts[0] === "manager-service-catalog") return { name: "manager-service-catalog" };
   if (parts[0] === "manager-operations") return { name: "manager-operations" };
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
@@ -250,6 +259,9 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-technicians") return "#/manager-technicians";
   if (route.name === "manager-technician") return `#/manager-technician/${encodeURIComponent(route.technicianId)}`;
   if (route.name === "manager-customers") return "#/manager-customers";
+  if (route.name === "manager-add-customer") return "#/manager-add-customer";
+  if (route.name === "manager-common-remarks") return "#/manager-common-remarks";
+  if (route.name === "manager-service-catalog") return "#/manager-service-catalog";
   if (route.name === "manager-operations") return "#/manager-operations";
   if (route.name === "manager-services-done") return "#/manager-services-done";
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
@@ -2247,6 +2259,9 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           : <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-technicians" })}>Back to Technicians</button><p className="empty-state">Technician not found.</p></>)
         : route.name === "manager-upcoming-services" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerUpcomingServices key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-customers" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCustomerConfiguration customers={managerCustomers} loading={managerLoading} message={managerMessage} onRefresh={refreshManagerVisits} onManage={(customer) => navigate({ name: "manager-customer", customerId: customer.customer.id })} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-add-customer" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerAddCustomer onCreated={async () => { await refreshManagerVisits(); navigate({ name: "manager-customers" }); }} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
+        : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />

@@ -209,6 +209,49 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       assert.deepEqual((await database.query("SELECT site_code,display_name FROM customer_sites WHERE customer_id=$1 ORDER BY site_code", [createdId])).rows, [{ site_code: "PRIMARY", display_name: "Primary Service Site" }, { site_code: addedSite.site.code, display_name: "Miri Branch" }], "seed restart preserves Manager-created sites without duplicates");
       assert.deepEqual((await database.query<{ id: string; systems: string[] }>(`SELECT revision.id, array_agg(enabled.system_key ORDER BY enabled.sort_order) AS systems FROM customer_configuration_revisions revision INNER JOIN customer_enabled_systems enabled ON enabled.configuration_revision_id=revision.id WHERE revision.customer_id=$1 AND revision.status='active' GROUP BY revision.id`, [createdId])).rows, createdConfigurationBeforeSeed.rows, "seed restart preserves the Manager customer's active revision services");
       assert.deepEqual((await database.query("SELECT customer_code,is_active FROM customers WHERE customer_code IN ('DEMO-SINGLE-ZONE','DEMO-MULTI-ZONE') ORDER BY customer_code")).rows, [{ customer_code: "DEMO-MULTI-ZONE", is_active: false }, { customer_code: "DEMO-SINGLE-ZONE", is_active: false }], "seed restart retains demo deactivation");
+
+      // Whole-customer soft archive: disappears from the active list, appears in
+      // the archived list, restore brings it back. Reuses `rollbackId`, otherwise
+      // unused after its earlier rollback assertion.
+      assert.equal((await request(`/manager/customers/${rollbackId}/archive`, "PUT", "inspector")).status, 403);
+      const archived = await request(`/manager/customers/${rollbackId}/archive`, "PUT", "admin");
+      assert.equal(archived.status, 200);
+      assert.equal((await database.query("SELECT is_active FROM customers WHERE id=$1", [rollbackId])).rows[0]?.is_active, false);
+      type CustomerListBody = { customers: Array<{ customer: { id: string } } | undefined> };
+      const activeAfterArchive = await (await request("/manager/customers", "GET", "admin")).json() as CustomerListBody;
+      assert.ok(!activeAfterArchive.customers.some((entry) => entry?.customer.id === rollbackId), "archived customer disappears from the active list");
+      const archivedList = await (await request("/manager/customers/archived", "GET", "admin")).json() as CustomerListBody;
+      assert.ok(archivedList.customers.some((entry) => entry?.customer.id === rollbackId), "archived customer appears in the archived list");
+      assert.equal((await request(`/manager/customers/${rollbackId}/archive`, "PUT", "admin")).status, 404, "archiving an already-archived customer 404s, mirroring next-service-due-date's convention");
+      const restored = await request(`/manager/customers/${rollbackId}/restore`, "PUT", "admin");
+      assert.equal(restored.status, 200);
+      assert.equal((await database.query("SELECT is_active FROM customers WHERE id=$1", [rollbackId])).rows[0]?.is_active, true);
+      const activeAfterRestore = await (await request("/manager/customers", "GET", "admin")).json() as CustomerListBody;
+      assert.ok(activeAfterRestore.customers.some((entry) => entry?.customer.id === rollbackId), "restored customer reappears in the active list");
+      assert.equal((await request(`/manager/customers/71000000-0000-4000-8000-000000000099/archive`, "PUT", "admin")).status, 404, "archiving an unknown customer 404s");
+
+      // Service-catalog retirement: excluded from the dedicated Add-Customer
+      // catalog and blocks brand-new assignment; restore reverses both.
+      // `dry_wet_riser` is unused elsewhere in this fixture, so retiring it here
+      // cannot affect any assertion above.
+      type ServiceCatalogBody = { systems: Array<{ key: string; assignable: boolean }> };
+      const catalogBeforeRetire = await (await request("/manager/service-catalog", "GET", "admin")).json() as ServiceCatalogBody;
+      assert.ok(catalogBeforeRetire.systems.every((system) => system.assignable === true), "every non-retired catalog entry is always assignable:true");
+      assert.ok(catalogBeforeRetire.systems.some((system) => system.key === "dry_wet_riser"));
+      assert.equal((await request("/manager/service-catalog/dry_wet_riser/retire", "PUT", "inspector")).status, 403);
+      const retire = await request("/manager/service-catalog/dry_wet_riser/retire", "PUT", "admin");
+      assert.equal(retire.status, 200);
+      assert.equal((await retire.json() as { system: { retiredAt: string | null } }).system.retiredAt !== null, true);
+      const catalogAfterRetire = await (await request("/manager/service-catalog", "GET", "admin")).json() as ServiceCatalogBody;
+      assert.ok(!catalogAfterRetire.systems.some((system) => system.key === "dry_wet_riser"), "retired system excluded from the Add-Customer catalog");
+      const rejectedRetiredCreate = await request("/manager/customers", "POST", "admin", { displayName: "Retired Pick Rejected", siteDisplayName: "Primary", systemKeys: ["dry_wet_riser"] });
+      assert.equal(rejectedRetiredCreate.status, 409, "a brand-new customer cannot be assigned a retired system");
+      assert.equal((await rejectedRetiredCreate.json() as { error: string }).error, "RETIRED_SYSTEM_KEY");
+      const restoreCatalog = await request("/manager/service-catalog/dry_wet_riser/restore", "PUT", "admin");
+      assert.equal(restoreCatalog.status, 200);
+      assert.equal((await restoreCatalog.json() as { system: { retiredAt: string | null } }).system.retiredAt, null);
+      const catalogAfterRestore = await (await request("/manager/service-catalog", "GET", "admin")).json() as ServiceCatalogBody;
+      assert.ok(catalogAfterRestore.systems.some((system) => system.key === "dry_wet_riser"), "restore un-retires it back into the Add-Customer catalog");
     } finally { await close(server); }
   } finally { await database.end(); }
 });

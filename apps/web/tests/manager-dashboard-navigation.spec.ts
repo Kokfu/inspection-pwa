@@ -8,7 +8,9 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     if (url.pathname === "/api/auth/me") json = { user: { id: 804, username: "mobiletest", role: "admin" } };
     else if (url.pathname.endsWith("/technicians")) json = { technicians: [] };
     else if (url.pathname.endsWith("/upcoming-service")) json = { customers: [], unscheduledCustomers: [] };
+    else if (url.pathname.endsWith("/customers/archived")) json = { customers: [] };
     else if (url.pathname.endsWith("/customers")) json = { customers: [] };
+    else if (url.pathname.endsWith("/service-catalog")) json = { systems: [] };
     else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 0 };
     else if (url.pathname.endsWith("/inspection-jobs")) json = { jobs: [] };
     await route.fulfill({ json });
@@ -21,9 +23,11 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     ["Technician List", "manager-technicians", "Technician List"],
     ["Services", "manager-customers", "Customer Configuration"],
     ["Operations", "manager-operations", "Operations"],
-    ["Add Customer", "manager-customers", "Customer Configuration"],
+    ["Add Customer", "manager-add-customer", "Add Customer"],
     ["Current Services Done", "manager-services-done", "Current Services Done"],
-    ["Next Upcoming Service", "manager-upcoming-services", "Next Upcoming Service"]
+    ["Next Upcoming Service", "manager-upcoming-services", "Next Upcoming Service"],
+    ["Service Common Remarks", "manager-common-remarks", "Service common remarks"],
+    ["Service Catalog", "manager-service-catalog", "Service Catalog"]
   ]) {
     await page.getByRole("button", { name: label!, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`#/${hash}$`));

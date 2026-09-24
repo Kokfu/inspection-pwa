@@ -196,10 +196,13 @@ test("parseServiceVisitFilters rejects malformed params with stable 400 codes", 
   const tampered = [...validCursor].reverse().join("");
   assert.notEqual(tampered, validCursor);
   assert.equal(codeOf({ cursor: tampered }), "INVALID_CURSOR");
+  assert.equal(codeOf({ includeArchived: "yes" }), "INVALID_INCLUDE_ARCHIVED");
 
   assert.deepEqual(parseServiceVisitFilters({}), { limit: 50 });
   assert.deepEqual(parseServiceVisitFilters({ limit: "200" }), { limit: 200 }, "200 is the inclusive hard max");
   assert.deepEqual(parseServiceVisitFilters({ status: "open" }), { status: "open", limit: 50 });
+  assert.deepEqual(parseServiceVisitFilters({ includeArchived: "true" }), { includeArchived: true, limit: 50 });
+  assert.deepEqual(parseServiceVisitFilters({ includeArchived: "false" }), { limit: 50 }, '"false" is the same as omitted — never carried as an explicit false');
 });
 
 test("buildOperationalListQuery parameterizes every filter and never string-interpolates a value", () => {
@@ -243,6 +246,12 @@ test("buildOperationalListQuery parameterizes every filter and never string-inte
   const zero = buildOperationalListQuery({});
   assert.deepEqual(zero.values, [51]);
   assert.doesNotMatch(zero.sql, /customer_id = \$|site_id = \$|status = \$|systemKey|service_date >=|service_date <=/);
+  // Default-exclude archived rows; includeArchived:true drops that condition.
+  // Neither form binds a parameter for it — it is a static condition, never
+  // caller-controlled input.
+  assert.match(zero.sql, /archived_at IS NULL/);
+  const includingArchived = buildOperationalListQuery({ includeArchived: true });
+  assert.doesNotMatch(includingArchived.sql, /archived_at IS NULL/);
 });
 
 type CannedRow = {
@@ -527,4 +536,85 @@ test("manager API contract permits only the existing admin authority", () => {
   assert.deepEqual(invoke(), { status: 401, next: false });
   assert.deepEqual(invoke("inspector"), { status: 403, next: false });
   assert.deepEqual(invoke("admin"), { status: undefined, next: true });
+});
+
+test("service-visit archive/restore routes require admin authority before any database work", async () => {
+  let touched = false;
+  const database = {
+    async query() { touched = true; return { rows: [] }; },
+    async connect() { touched = true; throw new Error("protected handler must not run"); }
+  };
+  const app = express();
+  app.use((request, _response, next) => { const role = request.headers["x-role"]; if (role === "admin" || role === "inspector") request.currentUser = { id: 1, username: role, role }; next(); });
+  app.use(createManagerServiceVisitsRouter({ database: database as never }));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const address = server.address() as { port: number };
+  const jobId = "71000000-0000-4000-8000-000000000001";
+  const request = (path: string, role?: "admin" | "inspector") => fetch(`http://127.0.0.1:${address.port}${path}`, { method: "PUT", headers: role ? { "x-role": role } : undefined });
+  try {
+    for (const path of [`/manager/service-visits/${jobId}/archive`, `/manager/service-visits/${jobId}/restore`]) {
+      assert.equal((await request(path)).status, 401, `${path} unauthenticated`);
+      assert.equal((await request(path, "inspector")).status, 403, `${path} inspector`);
+    }
+    assert.equal(touched, false);
+  } finally { await close(server); }
+});
+
+test("PUT /manager/service-visits/:jobId/archive sets archived_at (audit-logged, scoped to the operational WHERE) and /restore clears it", async () => {
+  const jobId = "72000000-0000-4000-8000-000000000099";
+  const writes: string[] = [];
+  let archivedAt: string | null = null;
+  const client = {
+    async query(sql: string, values?: unknown[]) {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+      if (sql.includes("UPDATE inspection_jobs SET archived_at = now()")) {
+        writes.push(sql);
+        assert.match(sql, /master_template_version_id IS NOT NULL/, "reuses the same operationalWhere guard as every other handler in this router");
+        assert.match(sql, /is_sample = false/);
+        assert.equal(values?.[0], jobId);
+        archivedAt = "2026-09-24T00:00:00.000Z";
+        return { rows: [{ id: jobId }] };
+      }
+      if (sql.includes("UPDATE inspection_jobs SET archived_at = NULL")) {
+        writes.push(sql);
+        assert.equal(values?.[0], jobId);
+        archivedAt = null;
+        return { rows: [{ id: jobId }] };
+      }
+      if (sql.startsWith("INSERT INTO audit_events")) { writes.push(sql); return { rows: [] }; }
+      if (sql.includes("LEFT JOIN customer_sites")) {
+        return { rows: [{
+          id: jobId, reference: "SV-99", title: "Archive Test Site", status: "closed",
+          createdAt: "2026-08-20T01:30:00.000Z", serviceDate: "2026-08-20", serviceTime: null,
+          configurationSnapshot: { schemaVersion: 1, customer: { displayName: "Archive Test Customer" }, enabledSystems: [{ systemKey: "hose_reel", displayName: "Hose Reel" }] },
+          archivedAt, site: { id: "site-99", displayName: "Archive Test Site" }
+        }] };
+      }
+      if (sql.includes("FROM inspection_jobs job")) {
+        return { rows: [{ id: jobId, status: "closed", configuration_snapshot: { schemaVersion: 1, customer: { displayName: "Archive Test Customer" }, enabledSystems: [] }, completed_at: "2026-08-20T10:00:00.000Z", completed_by_user_id: 1, completed_by_username: "admin", completed_by_display_name: "Admin" }] };
+      }
+      if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
+      throw new Error(`Unexpected query ${sql}`);
+    },
+    release() {}
+  };
+  const app = express();
+  app.use((request, _response, next) => { request.currentUser = { id: 5, username: "admin", role: "admin" }; next(); });
+  app.use(createManagerServiceVisitsRouter({ database: { query: client.query, async connect() { return client; } } as never }));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const { port } = server.address() as { port: number };
+  const put = (path: string) => fetch(`http://127.0.0.1:${port}${path}`, { method: "PUT" });
+  try {
+    const archive = await put(`/manager/service-visits/${jobId}/archive`);
+    assert.equal(archive.status, 200);
+    const archiveBody = await archive.json() as { serviceVisit: { archivedAt: string | null } };
+    assert.equal(archiveBody.serviceVisit.archivedAt, "2026-09-24T00:00:00.000Z");
+    assert.ok(writes.some((sql) => sql.startsWith("INSERT INTO audit_events")), "archive is audit-logged");
+
+    const restore = await put(`/manager/service-visits/${jobId}/restore`);
+    assert.equal(restore.status, 200);
+    const restoreBody = await restore.json() as { serviceVisit: { archivedAt: string | null } };
+    assert.equal(restoreBody.serviceVisit.archivedAt, null);
+
+    const bogus = await put(`/manager/service-visits/not-a-uuid/archive`);
+    assert.equal(bogus.status, 400);
+  } finally { await close(server); }
 });

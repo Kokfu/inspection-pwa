@@ -194,7 +194,7 @@ function parseConfigurationRevisionLocations(
 const initialStructureRequiredSystemKeys = new Set(["dry_wet_riser"]);
 
 type Database = Pick<Pool, "connect" | "query">;
-type CatalogSystem = { key: string; displayName: string; sortOrder: number; definitionStatus: unknown; definition: unknown };
+type CatalogSystem = { key: string; displayName: string; sortOrder: number; definitionStatus: unknown; definition: unknown; retiredAt: string | null };
 type EnabledSystem = { id: string; key: string; displayName: string; sortOrder: number; systemConfiguration: unknown; evidencePolicyId: string | null; labelOverrides: unknown };
 type Zone = { id: string; enabledSystemId: string; key: string; displayName: string; sortOrder: number };
 type Location = { id: string; enabledSystemId: string; zoneId: string | null; key: string; displayName: string; presetRowCount: number; rowPreset: unknown; sortOrder: number };
@@ -282,10 +282,19 @@ function parseCustomerCreation(value: unknown): CustomerCreationInput {
     fax, contractNumber, serviceFrequency, siteAddress, fingerprint };
 }
 
+/**
+ * Every currently-implemented, contract-compatible system for the active
+ * catalog version — INCLUDING retired ones (`retiredAt !== null`). Retirement
+ * only blocks NEW assignment (see `assertNoRetiredAssignment` /
+ * `/manager/service-catalog`'s own filter below); it deliberately does not
+ * shrink this shared catalog, because `presentSupportedSystems` and
+ * `requireSupportedKeys` both read it to keep an EXISTING customer's
+ * already-enabled system (retired or not) fully visible and re-savable.
+ */
 async function loadSupportedCatalog(database: Pick<PoolClient, "query">): Promise<CatalogSystem[]> {
   const result = await database.query<CatalogSystem>(`
     SELECT system.system_key AS key, system.display_name AS "displayName", system.sort_order AS "sortOrder",
-      system.definition_status AS "definitionStatus", system.definition
+      system.definition_status AS "definitionStatus", system.definition, system.retired_at AS "retiredAt"
     FROM master_service_report_systems system
     INNER JOIN master_service_report_templates template ON template.id = system.template_version_id
     WHERE template.code = 'MFE-FSSR' AND template.version = $1 AND template.publication_status = 'published'
@@ -305,6 +314,22 @@ async function requireSupportedKeys(client: PoolClient, keys: string[]) {
   return catalog.filter((system) => keys.includes(system.key));
 }
 
+/**
+ * Blocks a NEW assignment of a retired system — a key in `keys` that is not
+ * already in `alreadyEnabledKeys`. A key the customer already has enabled is
+ * always allowed through, retired or not: retirement stops new assignment,
+ * never in-use functionality. `catalog` must be `loadSupportedCatalog`'s
+ * unfiltered result (carries `retiredAt` for every key, not just non-retired
+ * ones).
+ */
+function assertNoRetiredAssignment(catalog: CatalogSystem[], keys: string[], alreadyEnabledKeys: ReadonlySet<string>) {
+  const retiredKeys = new Set(catalog.filter((system) => Boolean(system.retiredAt)).map((system) => system.key));
+  const newlyAssignedRetired = keys.filter((key) => retiredKeys.has(key) && !alreadyEnabledKeys.has(key));
+  if (newlyAssignedRetired.length > 0) {
+    throw new ManagerCustomerError("RETIRED_SYSTEM_KEY", "One or more selected services are no longer offered for new assignment.", 409);
+  }
+}
+
 function hasValidLocationAuthority(system: EnabledSystem, configuration: Awaited<ReturnType<typeof loadConfiguration>>) {
   const zones = new Set(configuration.zones.filter((zone) => zone.enabledSystemId === system.id).map((zone) => zone.id));
   const locations = configuration.locations.filter((location) => location.enabledSystemId === system.id);
@@ -313,12 +338,12 @@ function hasValidLocationAuthority(system: EnabledSystem, configuration: Awaited
 
 function presentSupportedSystems(catalog: CatalogSystem[], configuration: Awaited<ReturnType<typeof loadConfiguration>>): SupportedSystem[] {
   const enabledByKey = new Map(configuration.enabled.map((system) => [system.key, system]));
-  return catalog.map(({ key, displayName, sortOrder }) => {
+  return catalog.map(({ key, displayName, sortOrder, retiredAt }) => {
     const existing = enabledByKey.get(key);
-    const assignable = !locationDependentSystemKeys.has(key) || !existing || hasValidLocationAuthority(existing, configuration);
+    const assignable = (!retiredAt || !!existing) && (!locationDependentSystemKeys.has(key) || !existing || hasValidLocationAuthority(existing, configuration));
     return {
       key, displayName, sortOrder, assignable,
-      ...(assignable ? {} : { unavailableReason: "Invalid location configuration" })
+      ...(assignable ? {} : { unavailableReason: retiredAt && !existing ? "This service is retired and cannot be newly assigned" : "Invalid location configuration" })
     };
   });
 }
@@ -416,12 +441,19 @@ async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: 
   return { revision, enabled: enabledResult.rows, zones, locations };
 }
 
-export async function loadManagerCustomer(customerId: string, database: Pick<Pool, "query"> = pool) {
+/**
+ * `isActive` selects which side of the soft-archive flag to load — `true`
+ * (default) for the normal operational path every existing caller uses,
+ * `false` for the archived-customers list/detail. Appended after the
+ * defaulted `database` param so every existing call site (`loadManagerCustomer(id)` /
+ * `loadManagerCustomer(id, database)`) is unaffected.
+ */
+export async function loadManagerCustomer(customerId: string, database: Pick<Pool, "query"> = pool, isActive = true) {
   const customerResult = await database.query<{ id: string; code: string; displayName: string; nextServiceDueDate: string | null; contactPhone: string | null; contactPerson: string | null; fax: string | null; contractNumber: string | null; serviceFrequency: string | null }>(`
     SELECT id, customer_code AS code, display_name AS "displayName", next_service_due_date::text AS "nextServiceDueDate",
       contact_phone AS "contactPhone", contact_person AS "contactPerson", fax,
       contract_number AS "contractNumber", service_frequency AS "serviceFrequency" FROM customers
-    WHERE id = $1 AND is_active = true AND is_demo = false`, [customerId]);
+    WHERE id = $1 AND is_active = ${isActive ? "true" : "false"} AND is_demo = false`, [customerId]);
   const customer = customerResult.rows[0];
   if (!customer) return undefined;
   const sitesResult = await database.query<{ id: string; code: string; displayName: string; address: string | null }>(`
@@ -453,6 +485,12 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
 export async function listManagerCustomers(database: Pick<Pool, "query"> = pool) {
   const result = await database.query<{ id: string }>(`SELECT id FROM customers WHERE is_active = true AND is_demo = false ORDER BY display_name, id`);
   return Promise.all(result.rows.map(({ id }) => loadManagerCustomer(id, database)));
+}
+
+/** Same shape as `listManagerCustomers`, for the `is_active = false` side of the soft-archive flag. */
+export async function listArchivedManagerCustomers(database: Pick<Pool, "query"> = pool) {
+  const result = await database.query<{ id: string }>(`SELECT id FROM customers WHERE is_active = false AND is_demo = false ORDER BY display_name, id`);
+  return Promise.all(result.rows.map(({ id }) => loadManagerCustomer(id, database, false)));
 }
 
 async function copySelectedConfiguration(
@@ -563,7 +601,10 @@ async function createCustomer(
 ) {
   const replayCustomerId = await reserveCustomerCreationRequest(client, input, actorUserId);
   if (replayCustomerId) return { customerId: replayCustomerId, idempotent: true };
-  await requireSupportedKeys(client, input.systemKeys);
+  const catalogForCreation = await requireSupportedKeys(client, input.systemKeys);
+  // A brand-new customer has no existing enabled systems, so any retired key
+  // requested here is unconditionally a new assignment.
+  assertNoRetiredAssignment(catalogForCreation, input.systemKeys, new Set());
   assertLocationDependentAssignments(input.systemKeys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
   assertDryWetRiserAssignments(input.systemKeys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
   const customerId = randomUUID();
@@ -600,8 +641,24 @@ export function createManagerCustomersRouter(
       const systems = await loadSupportedCatalog(database);
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ systems: systems
-        .filter((system) => !initialStructureRequiredSystemKeys.has(system.key))
+        .filter((system) => !initialStructureRequiredSystemKeys.has(system.key) && !system.retiredAt)
         .map(({ key, displayName, sortOrder }) => ({ key, displayName, sortOrder })) });
+    } catch (error) { next(error); }
+  });
+  // Dedicated Add-Customer catalog: every currently-offered system, always
+  // `assignable: true` (a system with no per-customer configuration yet is
+  // always assignable — the same `!existing` default `presentSupportedSystems`
+  // already uses; zones/locations get set up after creation). Retired systems
+  // are excluded, since this endpoint exists specifically for NEW assignment
+  // (a brand-new customer, or any customer's picker of services to add).
+  router.get("/manager/service-catalog", requireRole("admin"), async (request, response, next) => {
+    try {
+      const includeRetired = request.query.includeRetired === "true";
+      const systems = await loadSupportedCatalog(database);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ systems: systems
+        .filter((system) => includeRetired || !system.retiredAt)
+        .map(({ key, displayName, sortOrder, retiredAt }) => ({ key, displayName, sortOrder, assignable: !retiredAt, retiredAt })) });
     } catch (error) { next(error); }
   });
   router.post("/customers", requireRole("admin", "inspector"), async (request, response, next) => {
@@ -625,6 +682,11 @@ export function createManagerCustomersRouter(
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ customers: result.rows.filter((row) => row.nextServiceDueDate !== null), unscheduledCustomers: result.rows.filter((row) => row.nextServiceDueDate === null) });
     } catch (error) { next(error); }
+  });
+  // Fixed-path GET registered here, before the bare `:customerId` GET route
+  // below, so "archived" is never captured as a customerId.
+  router.get("/manager/customers/archived", requireRole("admin"), async (_request, response, next) => {
+    try { response.setHeader("Cache-Control", "private, no-store"); response.json({ customers: await listArchivedManagerCustomers(database) }); } catch (error) { next(error); }
   });
   router.put("/manager/customers/:customerId/next-service-due-date", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;
@@ -705,7 +767,9 @@ export function createManagerCustomersRouter(
       const contactPhone = optionalText(body.contactPhone, "contactPhone", 40); const contactPerson = optionalText(body.contactPerson, "contactPerson", 160);
       const fax = optionalText(body.fax, "fax", 40); const contractNumber = optionalText(body.contractNumber, "contractNumber", 160);
       const serviceFrequency = optionalServiceFrequency(body.serviceFrequency); const siteAddress = optionalText(body.siteAddress, "siteAddress", 500);
-      await client.query("BEGIN"); await requireSupportedKeys(client, keys);
+      await client.query("BEGIN");
+      const catalogForCreation = await requireSupportedKeys(client, keys);
+      assertNoRetiredAssignment(catalogForCreation, keys, new Set());
       assertLocationDependentAssignments(keys, { revision: { id: "", revision: 0, templateId: "" }, enabled: [], zones: [], locations: [] });
       const duplicate = await client.query(`SELECT id FROM customers WHERE is_active = true AND lower(btrim(display_name)) = lower(btrim($1)) LIMIT 1 FOR UPDATE`, [displayName]);
       if (duplicate.rows[0]) throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
@@ -767,6 +831,14 @@ export function createManagerCustomersRouter(
       await client.query("BEGIN");
       const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
       if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      // Retirement blocks only a NEW assignment: a key this customer does not
+      // already have enabled. Re-saving an already-enabled retired system
+      // (e.g. editing a different field while keeping `systemKeys` the same)
+      // must keep working exactly as before.
+      const currentBeforeRevision = await loadConfiguration(client, customerId);
+      const alreadyEnabledKeys = new Set(currentBeforeRevision.enabled.map((system) => system.key));
+      const catalogForRevision = await loadSupportedCatalog(client);
+      assertNoRetiredAssignment(catalogForRevision, keys, alreadyEnabledKeys);
       if (evidencePolicyBySystemKey) {
         for (const [systemKey, policyId] of evidencePolicyBySystemKey) {
           if (policyId === null) continue;
@@ -1136,7 +1208,14 @@ export function createManagerCustomersRouter(
       }
       const current = await loadConfiguration(client, customerId);
       const keys = current.enabled.map((system) => system.key);
-      if (!keys.includes(systemKey)) keys.push(systemKey);
+      const alreadyEnabledKeys = new Set(keys);
+      if (!keys.includes(systemKey)) {
+        // Newly enabling this location-dependent system via its own locations
+        // PUT is a new assignment; retirement blocks it exactly like any
+        // other newly-added system.
+        assertNoRetiredAssignment(await loadSupportedCatalog(client), [systemKey], alreadyEnabledKeys);
+        keys.push(systemKey);
+      }
       const revisionId = await copySelectedConfiguration(
         client, customerId, keys,
         { zonesLocationsBySystemKey: new Map([[systemKey, parsed]]) }
@@ -1153,6 +1232,106 @@ export function createManagerCustomersRouter(
       });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });
+
+  // Whole-customer soft archive (`customers.is_active`). Mirrors the
+  // `next-service-due-date` PUT handler's shape exactly. The archive/restore
+  // PUTs are registered here (their `/:customerId/archive` and
+  // `/:customerId/restore` paths are more specific than, and so never shadow
+  // or get shadowed by, the bare `GET /manager/customers/:customerId` route
+  // above) — but the fixed-path `GET /manager/customers/archived` is
+  // registered separately, earlier, alongside the router's other fixed-path
+  // GETs, since Express matches routes in registration order and a
+  // `GET /manager/customers/:customerId` registered first would otherwise
+  // swallow it (treating "archived" as a customerId).
+  router.put("/manager/customers/:customerId/archive", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(`UPDATE customers SET is_active=false WHERE id=$1 AND is_active=true AND is_demo=false RETURNING id`, [customerId]);
+      if (!result.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_customer_archived", "customer", customerId);
+      await client.query("COMMIT");
+      response.json({ customer: await loadManagerCustomer(customerId, database, false) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+  router.put("/manager/customers/:customerId/restore", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(`UPDATE customers SET is_active=true WHERE id=$1 AND is_active=false AND is_demo=false RETURNING id`, [customerId]);
+      if (!result.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_customer_restored", "customer", customerId);
+      await client.query("COMMIT");
+      response.json({ customer: await loadManagerCustomer(customerId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+
+  // System-wide service-catalog soft retirement
+  // (`master_service_report_systems.retired_at`). Scoped to the row(s)
+  // `loadSupportedCatalog()` actually reads for NEW assignment: the current
+  // published `customerCatalogVersion` of MFE-FSSR for this `system_key`
+  // (that table's primary key is `(template_version_id, system_key)`, so a
+  // system is versioned per template — retiring the row for every OTHER,
+  // non-current template version would be a no-op for this endpoint's stated
+  // goal and would also incorrectly reach into historical template versions
+  // this task must not touch). This is a deliberate scoping choice: see the
+  // task report for the full reasoning.
+  const parseServiceCatalogSystemKey = (request: { params: Record<string, unknown> }) => {
+    const systemKey = request.params.systemKey;
+    if (typeof systemKey !== "string" || systemKey.length === 0 || systemKey.length > 80) {
+      throw new ManagerCustomerError("INVALID_SYSTEM_KEY", "systemKey is invalid.");
+    }
+    return systemKey;
+  };
+  router.put("/manager/service-catalog/:systemKey/retire", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const systemKey = parseServiceCatalogSystemKey(request);
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query<{ key: string; displayName: string; sortOrder: number; retiredAt: string | null }>(`
+        UPDATE master_service_report_systems SET retired_at = now()
+        WHERE system_key = $1
+          AND template_version_id = (SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$2 AND publication_status='published')
+        RETURNING system_key AS key, display_name AS "displayName", sort_order AS "sortOrder", retired_at AS "retiredAt"`,
+      [systemKey, customerCatalogVersion]);
+      const system = result.rows[0];
+      if (!system) throw new ManagerCustomerError("SYSTEM_NOT_FOUND", "Service catalog entry was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_service_catalog_retired", "master_service_report_system", systemKey);
+      await client.query("COMMIT");
+      response.json({ system });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+  router.put("/manager/service-catalog/:systemKey/restore", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const systemKey = parseServiceCatalogSystemKey(request);
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query<{ key: string; displayName: string; sortOrder: number; retiredAt: string | null }>(`
+        UPDATE master_service_report_systems SET retired_at = NULL
+        WHERE system_key = $1
+          AND template_version_id = (SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$2 AND publication_status='published')
+        RETURNING system_key AS key, display_name AS "displayName", sort_order AS "sortOrder", retired_at AS "retiredAt"`,
+      [systemKey, customerCatalogVersion]);
+      const system = result.rows[0];
+      if (!system) throw new ManagerCustomerError("SYSTEM_NOT_FOUND", "Service catalog entry was not found.", 404);
+      await audit(client, request.currentUser!.id, "manager_service_catalog_restored", "master_service_report_system", systemKey);
+      await client.query("COMMIT");
+      response.json({ system });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+
   return router;
 }
 

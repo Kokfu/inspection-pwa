@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
+import type { PoolClient } from "pg";
 import { pool } from "../db/pool.js";
 import { loadJobCompletion } from "../jobs/jobCompletion.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -17,6 +18,7 @@ type OperationalJobRow = {
   site: { id: string; displayName: string } | null;
   technician?: ManagerServiceVisitTechnician | null;
   configurationSnapshot: unknown;
+  archivedAt: string | null;
   totalCount: number;
 };
 
@@ -47,6 +49,7 @@ export type ManagerServiceVisit = {
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
   completion: NonNullable<Awaited<ReturnType<typeof loadJobCompletion>>>;
+  archivedAt: string | null;
 };
 
 const operationalWhere = `
@@ -65,6 +68,7 @@ function operationalJobQuery(byId = false) {
       inspection_jobs.service_date::text AS "serviceDate",
       to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
+      inspection_jobs.archived_at AS "archivedAt",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
       ) END AS site,
@@ -121,7 +125,8 @@ async function presentOperationalJob(
       accepted: completion.acceptedUnitCount,
       required: completion.requiredUnitCount
     },
-    completion
+    completion,
+    archivedAt: job.archivedAt
   };
 }
 
@@ -187,6 +192,7 @@ export type ManagerServiceVisitFilters = {
   systemKey?: string;
   from?: string;
   to?: string;
+  includeArchived?: boolean;
   limit?: number;
   cursor?: ManagerServiceVisitCursor;
 };
@@ -260,6 +266,10 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
   if (typeof fromRaw === "string" && typeof toRaw === "string" && fromRaw > toRaw) {
     throw new ManagerServiceVisitQueryError("INVALID_DATE_RANGE", "from must not be after to.");
   }
+  const includeArchivedRaw = query.includeArchived;
+  if (includeArchivedRaw !== undefined && includeArchivedRaw !== "true" && includeArchivedRaw !== "false") {
+    throw new ManagerServiceVisitQueryError("INVALID_INCLUDE_ARCHIVED", 'includeArchived must be "true" or "false".');
+  }
   let limit = defaultServiceVisitPageSize;
   const limitRaw = query.limit;
   if (limitRaw !== undefined) {
@@ -286,6 +296,7 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
     ...(typeof systemKeyRaw === "string" ? { systemKey: systemKeyRaw } : {}),
     ...(typeof fromRaw === "string" ? { from: fromRaw } : {}),
     ...(typeof toRaw === "string" ? { to: toRaw } : {}),
+    ...(includeArchivedRaw === "true" ? { includeArchived: true } : {}),
     limit,
     ...(cursor ? { cursor } : {})
   };
@@ -346,6 +357,9 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
     values.push(filters.technicianId);
     filterConditions.push(`inspection_jobs.created_by_user_id = $${values.length}::bigint`);
   }
+  if (!filters.includeArchived) {
+    filterConditions.push(`inspection_jobs.archived_at IS NULL`);
+  }
 
   let cursorCondition = "";
   if (filters.cursor) {
@@ -389,6 +403,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
         inspection_jobs.service_date::text AS "serviceDate",
         to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
         inspection_jobs.configuration_snapshot AS "configurationSnapshot",
+        inspection_jobs.archived_at AS "archivedAt",
         CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id', site.id, 'displayName', site.display_name
         ) END AS site,
@@ -414,10 +429,14 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
 }
 
 type ManagerRouteDependencies = {
-  database?: Pick<typeof pool, "query">;
+  database?: Pick<typeof pool, "query" | "connect">;
   loadReport?: typeof loadFinalServiceReport;
   renderPdf?: typeof renderFinalServiceReportPdf;
 };
+
+async function audit(client: PoolClient, actorUserId: number, action: string, entityType: string, entityId: string) {
+  await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result) VALUES ($1,$2,$3,$4,'success')`, [actorUserId, action, entityType, entityId]);
+}
 
 function managerReportHandler(
   database: Pick<typeof pool, "query">,
@@ -481,6 +500,51 @@ export function createManagerServiceVisitsRouter({
   requireRole("admin"),
   managerReportHandler(database, createFinalReportPdfHandler({ database, loadReport, renderPdf }))
   );
+
+  // Service-visit/job soft archive (`inspection_jobs.archived_at`). Works
+  // regardless of job status: neither `009_job_completion.sql`'s nor
+  // `010_service_visits.sql`'s immutability trigger blocks a targeted
+  // `archived_at`-only UPDATE on a closed job (see migration
+  // `036_inspection_job_archive.sql` for the full trigger-safety analysis).
+  // `operationalWhere` is reused so this can only ever touch a real
+  // operational job (never a sample/regression fixture, never a legacy
+  // non-master-system row), matching every other handler in this router.
+  router.put("/manager/service-visits/:jobId/archive", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) { response.status(400).json({ error: "INVALID_JOB_ID" }); return; }
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE inspection_jobs SET archived_at = now() WHERE id = $1 AND ${operationalWhere} RETURNING id`, [jobId]
+      );
+      if (!result.rows[0]) { response.status(404).json({ error: "SERVICE_VISIT_NOT_FOUND" }); await client.query("ROLLBACK"); return; }
+      await audit(client, request.currentUser!.id, "manager_service_visit_archived", "inspection_job", jobId);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ serviceVisit: await loadManagerServiceVisit(jobId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+  router.put("/manager/service-visits/:jobId/restore", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) { response.status(400).json({ error: "INVALID_JOB_ID" }); return; }
+      client = await database.connect();
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE inspection_jobs SET archived_at = NULL WHERE id = $1 AND ${operationalWhere} RETURNING id`, [jobId]
+      );
+      if (!result.rows[0]) { response.status(404).json({ error: "SERVICE_VISIT_NOT_FOUND" }); await client.query("ROLLBACK"); return; }
+      await audit(client, request.currentUser!.id, "manager_service_visit_restored", "inspection_job", jobId);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ serviceVisit: await loadManagerServiceVisit(jobId, database) });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
 
   router.get("/manager/service-visits/:jobId", requireRole("admin"), async (request, response, next) => {
   try {

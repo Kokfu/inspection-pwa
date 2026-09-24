@@ -103,6 +103,12 @@ const reportNumberRequiredMigrationUrl = new URL(
 const serviceCommonRemarksMigrationUrl = new URL(
   "../../migrations/035_service_common_remarks.sql", import.meta.url
 );
+const inspectionJobArchiveMigrationUrl = new URL(
+  "../../migrations/036_inspection_job_archive.sql", import.meta.url
+);
+const serviceCatalogRetirementMigrationUrl = new URL(
+  "../../migrations/037_service_catalog_retirement.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -512,6 +518,10 @@ export async function runMigrations(
   // CREATE OR REPLACE FUNCTION is safe to replay on an upgraded database.
   await database.query(await readFile(reportNumberRequiredMigrationUrl, "utf8"));
   await database.query(await readFile(serviceCommonRemarksMigrationUrl, "utf8"));
+  // ADD COLUMN IF NOT EXISTS / CREATE OR REPLACE FUNCTION / DROP+CREATE TRIGGER
+  // (same trigger name) are all safe to replay on an upgraded database.
+  await database.query(await readFile(inspectionJobArchiveMigrationUrl, "utf8"));
+  await database.query(await readFile(serviceCatalogRetirementMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

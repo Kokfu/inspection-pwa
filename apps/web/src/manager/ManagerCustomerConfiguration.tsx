@@ -1,14 +1,16 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
   activateManagerCustomerConfiguration,
-  createManagerCustomer,
+  archiveManagerCustomer,
   createManagerCustomerSite,
   evidencePolicyAssignableSystemKeys,
+  loadArchivedManagerCustomers,
   loadManagerEvidencePolicy,
   loadManagerLocations,
   loadManagerSystemConfiguration,
   locationConfigurableSystemKeys,
   ManagerApiError,
+  restoreManagerCustomer,
   saveCustomerContactDetails,
   saveCustomerSiteAddress,
   saveManagerEvidencePolicy,
@@ -26,27 +28,65 @@ import { ManagerCustomerServices } from "./ManagerCustomerServices";
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
   customers: ManagerCustomer[]; loading: boolean; message: string; onRefresh: () => Promise<void>; onManage: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState(""); const [site, setSite] = useState("Primary Service Site"); const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const [telephone, setTelephone] = useState(""); const [contact, setContact] = useState("");
-  const [fax, setFax] = useState(""); const [contractNumber, setContractNumber] = useState("");
-  const [serviceFrequency, setServiceFrequency] = useState(""); const [siteAddress, setSiteAddress] = useState("");
-  const catalog = customers[0]?.supportedSystems ?? [];
-  const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  const [error, setError] = useState("");
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedCustomers, setArchivedCustomers] = useState<ManagerCustomer[]>([]);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  const fail = (reason: unknown, fallback: string) => {
+    if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+    else setError(reason instanceof Error ? reason.message : fallback);
+  };
+
+  const loadArchived = async () => {
+    setArchivedLoading(true); setError("");
+    try { setArchivedCustomers(await loadArchivedManagerCustomers()); }
+    catch (reason) { fail(reason, "Archived customers could not be loaded."); }
+    finally { setArchivedLoading(false); }
+  };
+
+  const toggleArchived = () => {
+    const next = !archivedOpen;
+    setArchivedOpen(next);
+    if (next) void loadArchived();
+  };
+
+  const archive = async (customer: ManagerCustomer) => {
+    if (!window.confirm(`Archive customer “${customer.customer.displayName}”? It will no longer appear in active lists, and can be restored later.`)) return;
+    setArchivingId(customer.customer.id); setError("");
+    try { await archiveManagerCustomer(customer.customer.id); await onRefresh(); if (archivedOpen) await loadArchived(); }
+    catch (reason) { fail(reason, "Customer could not be archived."); }
+    finally { setArchivingId(null); }
+  };
+
+  const restore = async (customer: ManagerCustomer) => {
+    setRestoringId(customer.customer.id); setError("");
+    try { await restoreManagerCustomer(customer.customer.id); await Promise.all([onRefresh(), loadArchived()]); }
+    catch (reason) { fail(reason, "Customer could not be restored."); }
+    finally { setRestoringId(null); }
+  };
+
   return <section aria-labelledby="manager-customers-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-customers-title">Customer Configuration</h2><p>Manage customer service assignments online.</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>Refresh</button></div>
     {message || error ? <p className="form-message" role="alert">{error || message}</p> : null}
-    <button type="button" onClick={() => { setAdding(true); setError(""); }}>Add Customer</button>
-    {adding ? <form className="report-summary" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { await createManagerCustomer({ displayName: name, siteDisplayName: site, systemKeys: keys, ...(telephone.trim() ? { contactPhone: telephone.trim() } : {}), ...(contact.trim() ? { contactPerson: contact.trim() } : {}), ...(fax.trim() ? { fax: fax.trim() } : {}), ...(contractNumber.trim() ? { contractNumber: contractNumber.trim() } : {}), ...(serviceFrequency ? { serviceFrequency } : {}), ...(siteAddress.trim() ? { siteAddress: siteAddress.trim() } : {}) }); setAdding(false); setName(""); setKeys([]); setTelephone(""); setContact(""); setFax(""); setContractNumber(""); setServiceFrequency(""); setSiteAddress(""); await onRefresh(); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Customer could not be created."); } finally { setSaving(false); } }}>
-      <h3>Add Customer</h3><label>Customer display name<input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label><label>Initial Site<input required maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
-      <label>Telephone No<input maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label><label>Contact<input maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>
-      <label>Fax<input maxLength={40} value={fax} onChange={(event) => setFax(event.target.value)} /></label><label>Contract No.<input maxLength={160} value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} /></label>
-      <label>Service Frequency<select value={serviceFrequency} onChange={(event) => setServiceFrequency(event.target.value)}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></label>
-      <label>Site Address<input maxLength={500} value={siteAddress} onChange={(event) => setSiteAddress(event.target.value)} /></label>
-      <fieldset className="manager-service-picker"><legend>Initial Assigned Services</legend>{catalog.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <small className="manager-service-option-reason">{system.unavailableReason}</small> : null}</span></label>)}</fieldset>
-      <div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={() => setAdding(false)}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Creating…" : "Create Customer"}</button></div>
-    </form> : null}
-    {customers.length ? <ul className="job-card-list">{customers.map((customer) => <li key={customer.customer.id}><button type="button" className="job-card" onClick={() => onManage(customer)}><div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{customer.customer.displayName}</strong></div><span className="status-badge status-badge--complete">Current settings</span></div><div className="job-service-line"><span className="job-card-label">Sites</span><strong>{customer.sites.map((siteValue) => siteValue.displayName).join(", ") || "No active site"}</strong></div><div className="job-service-line"><span className="job-card-label">Assigned Services</span><strong>{customer.configuration.enabledSystems.map((system) => system.displayName).join(", ") || "None"}</strong></div><span className="job-reference">Version {customer.configuration.revision} · Manage configuration</span></button></li>)}</ul> : <p className="empty-state">No operational customers are configured.</p>}
+    {customers.length ? <ul className="job-card-list">{customers.map((customer) => <li key={customer.customer.id}>
+      <button type="button" className="job-card" onClick={() => onManage(customer)}><div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{customer.customer.displayName}</strong></div><span className="status-badge status-badge--complete">Current settings</span></div><div className="job-service-line"><span className="job-card-label">Sites</span><strong>{customer.sites.map((siteValue) => siteValue.displayName).join(", ") || "No active site"}</strong></div><div className="job-service-line"><span className="job-card-label">Assigned Services</span><strong>{customer.configuration.enabledSystems.map((system) => system.displayName).join(", ") || "None"}</strong></div><span className="job-reference">Version {customer.configuration.revision} · Manage configuration</span></button>
+      <div className="inline-actions"><button type="button" className="secondary-command" disabled={archivingId === customer.customer.id} onClick={() => void archive(customer)}>{archivingId === customer.customer.id ? "Archiving…" : "Archive"}</button></div>
+    </li>)}</ul> : <p className="empty-state">No operational customers are configured.</p>}
+    <section aria-labelledby="manager-archived-customers-title">
+      <button type="button" className="secondary-command" aria-expanded={archivedOpen} onClick={toggleArchived}>{archivedOpen ? "Hide archived customers" : "Show archived customers"}</button>
+      {archivedOpen ? <div>
+        <h3 id="manager-archived-customers-title">Archived customers</h3>
+        {archivedLoading ? <p role="status">Loading archived customers…</p> : null}
+        {!archivedLoading && archivedCustomers.length === 0 ? <p className="empty-state">No archived customers.</p> : null}
+        {archivedCustomers.length ? <ul className="job-card-list">{archivedCustomers.map((customer) => <li key={customer.customer.id}>
+          <div className="job-card"><div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{customer.customer.displayName}</strong></div><span className="status-badge">Archived</span></div></div>
+          <div className="inline-actions"><button type="button" disabled={restoringId === customer.customer.id} onClick={() => void restore(customer)}>{restoringId === customer.customer.id ? "Restoring…" : "Restore"}</button></div>
+        </li>)}</ul> : null}
+      </div> : null}
+    </section>
   </section>;
 }
 

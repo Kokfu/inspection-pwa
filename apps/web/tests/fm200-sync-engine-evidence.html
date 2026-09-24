@@ -1,0 +1,44 @@
+<!doctype html><html><body><button id="run">Run FM200 sync check</button><pre id="result">Ready</pre><script type="module">
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { syncPendingRecords } from "/src/sync/syncEngine.ts";
+const result = document.querySelector("#result");
+document.querySelector("#run").onclick = async () => {
+  const clientUuid = crypto.randomUUID(), photoUuid = crypto.randomUUID(), jobId = crypto.randomUUID();
+  const parentOperationId = crypto.randomUUID(), photoOperationId = crypto.randomUUID();
+  const sha = "a".repeat(64), fieldPath = "fm200_test_field";
+  const manifest = [{ photoUuid, fieldPath, sourceSha256: sha }];
+  const record = { clientUuid, jobId, groupKey: crypto.randomUUID(), instanceKey: `location:${crypto.randomUUID()}`, systemKey: "fm200_fire_suppression", syncStatus: "Pending", masterTemplate: { id: "00000000-0000-4000-8000-000000000807", version: 7 } };
+  const attachment = { photoUuid, inspectionClientUuid: clientUuid, systemKey: "fm200_fire_suppression", protocolVersion: 7, contractSha256: "b".repeat(64), fieldPath, captureSource: "gallery", capturedAt: new Date().toISOString(), sha256: sha, sizeBytes: 1, width: 1, height: 1, blob: new Blob(["x"], { type: "image/jpeg" }), syncStatus: "Pending" };
+  const now = new Date().toISOString();
+  const evidenceWork = { operationId: photoOperationId, entityType: "v7StagedEvidence", entityId: photoUuid, action: "create", payload: {}, createdAt: now, attempts: 0, status: "Pending", activeKey: `v7StagedEvidence:create:${photoUuid}` };
+  const parentWork = { operationId: parentOperationId, entityType: "masterSystemFormInstance", entityId: clientUuid, action: "create", payload: { clientUuid, systemKey: record.systemKey, evidenceManifest: manifest }, createdAt: now, attempts: 0, status: "Pending", activeKey: `masterSystemFormInstance:create:${clientUuid}` };
+  const calls = [], originalFetch = globalThis.fetch;
+  try {
+    await localDatabase.open();
+    await localDatabase.masterSystemFormInstances.put(record);
+    await localDatabase.inspectionAttachments.put(attachment);
+    await localDatabase.syncOutbox.bulkPut([evidenceWork, parentWork]);
+    globalThis.fetch = async (input, init) => {
+      const url = String(input); calls.push(url);
+      if (url.includes("/v7-evidence/stage")) {
+        const body = init.body;
+        return new Response(JSON.stringify({ outcome: "staged", photoUuid: body.get("photoUuid"), fieldPath: body.get("fieldPath"), sourceSha256: body.get("sha256"), storedSha256: "c".repeat(64) }), { status: 201 });
+      }
+      if (url.includes("/api/sync")) return new Response(JSON.stringify({ acceptedIds: [clientUuid], duplicateIds: [], failed: [] }), { status: 200 });
+      throw Error(`Unexpected request ${url}`);
+    };
+    await syncPendingRecords();
+    const photo = await localDatabase.inspectionAttachments.get(photoUuid);
+    const parent = await localDatabase.masterSystemFormInstances.get(clientUuid);
+    const work = await localDatabase.syncOutbox.bulkGet([photoOperationId, parentOperationId]);
+    const passed = calls.length === 2 && calls[0].includes("/v7-evidence/stage") && calls[1].includes("/api/sync") && photo.syncStatus === "Synced" && parent.syncStatus === "Synced" && work.every((item) => item.status === "Completed");
+    result.textContent = JSON.stringify({ status: passed ? "PASS" : "FAIL", calls, photoStatus: photo.syncStatus, parentStatus: parent.syncStatus, workStatuses: work.map((item) => item.status) });
+  } catch (error) { result.textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), calls }); }
+  finally {
+    globalThis.fetch = originalFetch;
+    await localDatabase.syncOutbox.bulkDelete([photoOperationId, parentOperationId]);
+    await localDatabase.inspectionAttachments.delete(photoUuid);
+    await localDatabase.masterSystemFormInstances.delete(clientUuid);
+  }
+};
+</script></body></html>

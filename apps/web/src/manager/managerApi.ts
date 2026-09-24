@@ -23,6 +23,11 @@ export type ManagerServiceVisit = {
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
   completion: JobCompletion;
+  /** Set once an archived (closed) service visit has been archived; null otherwise.
+   *  Field name assumed to match the API's `inspection_jobs.archived_at` column
+   *  (migration `036_inspection_job_archive.sql`) — adjust if the API agent used
+   *  a different field name. */
+  archivedAt: string | null;
 };
 
 export type ManagerCustomer = {
@@ -159,6 +164,20 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
   return readResponse<ManagerServiceVisit>(response, "serviceVisit");
 }
 
+export async function archiveManagerServiceVisit(jobId: string): Promise<void> {
+  let response: Response;
+  try { response = await fetch(`/api/manager/service-visits/${encodeURIComponent(jobId)}/archive`, { method: "PUT", credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
+  await readBody(response);
+}
+
+export async function restoreManagerServiceVisit(jobId: string): Promise<void> {
+  let response: Response;
+  try { response = await fetch(`/api/manager/service-visits/${encodeURIComponent(jobId)}/restore`, { method: "PUT", credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
+  await readBody(response);
+}
+
 export type ManagerServiceHistoryFilters = {
   customerId?: string;
   siteId?: string;
@@ -169,6 +188,10 @@ export type ManagerServiceHistoryFilters = {
   to?: string;
   cursor?: string;
   limit?: number;
+  /** When true, includes archived (closed) service visits in the result. Omitted
+   *  entirely from the query string when false/absent, matching every other
+   *  filter's conditional-inclusion style below. */
+  includeArchived?: boolean;
 };
 
 /**
@@ -191,7 +214,8 @@ export async function loadManagerServiceHistory(
     ...(filters.from ? { from: filters.from } : {}),
     ...(filters.to ? { to: filters.to } : {}),
     ...(filters.cursor ? { cursor: filters.cursor } : {}),
-    ...(filters.limit !== undefined ? { limit: String(filters.limit) } : {})
+    ...(filters.limit !== undefined ? { limit: String(filters.limit) } : {}),
+    ...(filters.includeArchived ? { includeArchived: "true" } : {})
   });
   let response: Response;
   try { response = await fetch(`/api/manager/service-visits?${query}`, { credentials: "same-origin", cache: "no-store", signal }); }
@@ -277,12 +301,100 @@ export function loadManagerCustomer(customerId: string, signal?: AbortSignal) {
   return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}`, "GET", "customer", undefined, signal);
 }
 
+/** `GET /manager/customers/archived` — same `ManagerCustomer` shape/validator as
+ *  the active customer list, but `is_active = false`. */
+export async function loadArchivedManagerCustomers(signal?: AbortSignal) {
+  const customers = await managerRequest<unknown>("/api/manager/customers/archived", "GET", "customers", undefined, signal);
+  if (!Array.isArray(customers)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
+  return customers as ManagerCustomer[];
+}
+
+export async function archiveManagerCustomer(customerId: string): Promise<void> {
+  let response: Response;
+  try { response = await fetch(`/api/manager/customers/${encodeURIComponent(customerId)}/archive`, { method: "PUT", credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  await readBody(response);
+}
+
+export async function restoreManagerCustomer(customerId: string): Promise<void> {
+  let response: Response;
+  try { response = await fetch(`/api/manager/customers/${encodeURIComponent(customerId)}/restore`, { method: "PUT", credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new ManagerApiError("Manager Customer Configuration cannot be verified or refreshed right now.", "unavailable"); }
+  await readBody(response);
+}
+
 export function createManagerCustomer(input: {
   displayName: string; siteDisplayName: string; systemKeys: string[];
   contactPhone?: string; contactPerson?: string; fax?: string; contractNumber?: string;
   serviceFrequency?: string; siteAddress?: string;
 }) {
   return managerRequest<ManagerCustomer>("/api/manager/customers", "POST", "customer", input);
+}
+
+/**
+ * Service catalog entry as returned by `GET /manager/service-catalog`. Used by
+ * `ManagerAddCustomer` (a new, not-yet-existing customer — every non-retired
+ * system is always assignable, mirroring the `!existing` branch of the server's
+ * `presentSupportedSystems()`) and by `ManagerServiceCatalog` (the retirement
+ * admin page, `includeRetired: true`) to show every system with its retirement
+ * state.
+ */
+export type ManagerServiceCatalogEntry = {
+  key: string; displayName: string; sortOrder: number; assignable: boolean;
+  retiredAt: string | null;
+};
+
+function isManagerServiceCatalogEntry(value: unknown, includeRetired: boolean): value is ManagerServiceCatalogEntry {
+  if (!isPlainObject(value)) return false;
+  const retiredAt = value.retiredAt;
+  const validRetiredAt = typeof retiredAt === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(retiredAt)
+    && Number.isFinite(Date.parse(retiredAt))
+    && new Date(retiredAt).toISOString() === retiredAt;
+  return typeof value.key === "string" && typeof value.displayName === "string"
+    && typeof value.sortOrder === "number" && typeof value.assignable === "boolean"
+    && (retiredAt === null || validRetiredAt)
+    && (retiredAt === null ? value.assignable === true : value.assignable === false)
+    && (includeRetired || retiredAt === null);
+}
+
+/**
+ * `GET /manager/service-catalog`. Response envelope `{ systems: [...] }`,
+ * mirroring the other list loaders in this file (`{ technicians: [...] }`,
+ * `{ customers: [...] }`). By default, excludes retired systems and returns
+ * `assignable: true` for every row (the correct default for a brand-new
+ * customer with no existing configuration — see `ManagerAddCustomer.tsx`).
+ * With `includeRetired: true`, every system is returned with its real
+ * `retiredAt`/`assignable` state, used by `ManagerServiceCatalog.tsx` to show
+ * and restore already-retired entries.
+ */
+export async function loadManagerServiceCatalog(options?: { includeRetired?: boolean }, signal?: AbortSignal): Promise<ManagerServiceCatalogEntry[]> {
+  const query = options?.includeRetired ? "?includeRetired=true" : "";
+  const result = await managerRequest<unknown>(`/api/manager/service-catalog${query}`, "GET", "systems", undefined, signal);
+  if (!Array.isArray(result) || !result.every((entry) => isManagerServiceCatalogEntry(entry, !!options?.includeRetired))
+    || new Set(result.map((row) => row.key)).size !== result.length) unavailable();
+  return result;
+}
+
+export type ManagerServiceCatalogRetirement = { key: string; displayName: string; sortOrder: number; retiredAt: string | null };
+
+function isManagerServiceCatalogRetirement(value: unknown): value is ManagerServiceCatalogRetirement {
+  return isPlainObject(value) && typeof value.key === "string" && typeof value.displayName === "string"
+    && typeof value.sortOrder === "number" && (value.retiredAt === null || typeof value.retiredAt === "string");
+}
+
+/** PUT .../retire — server responds `{ system: { key, displayName, sortOrder, retiredAt } }`. */
+export async function retireManagerServiceCatalogEntry(systemKey: string): Promise<ManagerServiceCatalogRetirement> {
+  const result = await managerRequest<unknown>(`/api/manager/service-catalog/${encodeURIComponent(systemKey)}/retire`, "PUT", "system");
+  if (!isManagerServiceCatalogRetirement(result) || result.key !== systemKey || result.retiredAt === null) unavailable();
+  return result;
+}
+
+/** PUT .../restore — server responds `{ system: { key, displayName, sortOrder, retiredAt } }`. */
+export async function restoreManagerServiceCatalogEntry(systemKey: string): Promise<ManagerServiceCatalogRetirement> {
+  const result = await managerRequest<unknown>(`/api/manager/service-catalog/${encodeURIComponent(systemKey)}/restore`, "PUT", "system");
+  if (!isManagerServiceCatalogRetirement(result) || result.key !== systemKey || result.retiredAt !== null) unavailable();
+  return result;
 }
 
 export function createManagerCustomerSite(customerId: string, displayName: string, address?: string) {

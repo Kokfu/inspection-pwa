@@ -68,7 +68,8 @@ const customer = {
     { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true },
     // Assignable so the lone-zone untick assertion can re-tick to restore state,
     // and so it adds no second "editor below" pointer (that check stays scoped).
-    { key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 4, assignable: true }
+    { key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 4, assignable: true },
+    { key: "hydrant", displayName: "Hydrant System", sortOrder: 5, assignable: false, unavailableReason: "This service is retired and cannot be newly assigned" }
   ]
 };
 
@@ -153,6 +154,10 @@ document.querySelector("#run").onclick = async () => {
     const picker = view.querySelector(".manager-service-picker");
     const optionFor = (name) => [...picker.querySelectorAll(".manager-service-option")].find((el) => el.textContent.includes(name));
     const co2Option = optionFor("CO2 Fire Extinguisher System");
+    const retiredCheckbox = optionFor("Hydrant System").querySelector("input[type=checkbox]");
+    ok("retired unassigned service is visible but cannot be selected", !retiredCheckbox.checked && retiredCheckbox.disabled);
+    ok("retired unassigned service explains why", optionFor("Hydrant System").textContent.includes("retired"));
+    ok("already-enabled retired service stays selected and re-savable", optionFor("Wet Chemical System").querySelector("input[type=checkbox]").checked && !optionFor("Wet Chemical System").querySelector("input[type=checkbox]").disabled);
 
     // 1a. Location setup no longer blocks selection.
     ok("co2 remains assignable", !co2Option.querySelector("input").disabled);

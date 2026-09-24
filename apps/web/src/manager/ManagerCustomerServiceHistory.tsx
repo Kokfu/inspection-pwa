@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadManagerServiceHistory, ManagerApiError, type ManagerCustomer, type ManagerServiceHistoryFilters, type ManagerServiceVisit, type ManagerTechnician } from "./managerApi";
+import { archiveManagerServiceVisit, loadManagerServiceHistory, ManagerApiError, restoreManagerServiceVisit, type ManagerCustomer, type ManagerServiceHistoryFilters, type ManagerServiceVisit, type ManagerTechnician } from "./managerApi";
 import { formatClientDate, formatMalaysiaDateTime } from "../uiPresentation";
 
 type StatusFilter = "" | "open" | "closed";
@@ -25,7 +25,7 @@ export function isServiceHistoryFilterValues(value: unknown): value is ServiceHi
     && [candidate.from, candidate.to].every((date) => date === "" || /^\d{4}-\d{2}-\d{2}$/.test(date as string));
 }
 
-function toQuery(customerId: string, filters: ServiceHistoryFilterValues): ManagerServiceHistoryFilters {
+function toQuery(customerId: string, filters: ServiceHistoryFilterValues, includeArchived: boolean): ManagerServiceHistoryFilters {
   return {
     customerId,
     ...(filters.siteId ? { siteId: filters.siteId } : {}),
@@ -33,7 +33,8 @@ function toQuery(customerId: string, filters: ServiceHistoryFilterValues): Manag
     ...(filters.systemKey ? { systemKey: filters.systemKey } : {}),
     ...(filters.from ? { from: filters.from } : {}),
     ...(filters.to ? { to: filters.to } : {}),
-    ...(filters.technicianId ? { technicianId: Number(filters.technicianId) } : {})
+    ...(filters.technicianId ? { technicianId: Number(filters.technicianId) } : {}),
+    ...(includeArchived ? { includeArchived: true } : {})
   };
 }
 
@@ -72,6 +73,9 @@ export function ManagerCustomerServiceHistory({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   // Bumped by every filter/customer change and on unmount: a Load more response from an older
   // generation must never append old-filter rows or an old cursor to the current list.
   const requestGeneration = useRef(0);
@@ -87,7 +91,7 @@ export function ManagerCustomerServiceHistory({
     setLoading(true); setLoadingMore(false); setError(""); setVisits([]); setNextCursor(null);
     (async () => {
       try {
-        const result = await loadManagerServiceHistory(toQuery(customer.customer.id, applied));
+        const result = await loadManagerServiceHistory(toQuery(customer.customer.id, applied, showArchived));
         if (!current) return;
         setVisits(result.serviceVisits);
         setNextCursor(result.nextCursor);
@@ -100,7 +104,7 @@ export function ManagerCustomerServiceHistory({
     })();
     return () => { current = false; requestGeneration.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer.customer.id, applied.siteId, applied.status, applied.systemKey, applied.from, applied.to, applied.technicianId]);
+  }, [customer.customer.id, applied.siteId, applied.status, applied.systemKey, applied.from, applied.to, applied.technicianId, showArchived]);
 
   const loadMore = async () => {
     if (!nextCursor) return;
@@ -108,7 +112,7 @@ export function ManagerCustomerServiceHistory({
     const isCurrent = () => generation === requestGeneration.current;
     setLoadingMore(true); setError("");
     try {
-      const result = await loadManagerServiceHistory({ ...toQuery(customer.customer.id, applied), cursor: nextCursor });
+      const result = await loadManagerServiceHistory({ ...toQuery(customer.customer.id, applied, showArchived), cursor: nextCursor });
       if (!isCurrent()) return;
       setVisits((current) => [...current, ...result.serviceVisits]);
       setNextCursor(result.nextCursor);
@@ -118,6 +122,38 @@ export function ManagerCustomerServiceHistory({
     } finally {
       if (isCurrent()) setLoadingMore(false);
     }
+  };
+
+  const reload = async () => {
+    const generation = ++requestGeneration.current;
+    const isCurrent = () => generation === requestGeneration.current;
+    setLoading(true); setError("");
+    try {
+      const result = await loadManagerServiceHistory(toQuery(customer.customer.id, applied, showArchived));
+      if (!isCurrent()) return;
+      setVisits(result.serviceVisits);
+      setNextCursor(result.nextCursor);
+      setTotalCount(result.totalCount);
+    } catch (reason) {
+      if (isCurrent()) fail(reason);
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  };
+
+  const archive = async (visit: ManagerServiceVisit) => {
+    if (!window.confirm(`Archive service visit ${visit.reference}? It will no longer appear in active history, and can be restored later.`)) return;
+    setArchivingId(visit.id); setError("");
+    try { await archiveManagerServiceVisit(visit.id); await reload(); }
+    catch (reason) { fail(reason); }
+    finally { setArchivingId(null); }
+  };
+
+  const restore = async (visit: ManagerServiceVisit) => {
+    setRestoringId(visit.id); setError("");
+    try { await restoreManagerServiceVisit(visit.id); await reload(); }
+    catch (reason) { fail(reason); }
+    finally { setRestoringId(null); }
   };
 
   const change = (patch: Partial<ServiceHistoryFilterValues>) => {
@@ -154,6 +190,9 @@ export function ManagerCustomerServiceHistory({
         <div className="inline-actions manager-report-actions">
           <button type="button" className="secondary-command" onClick={() => onViewFinalReport(visit.id)}>View Final Report</button>
           <button type="button" onClick={() => void onDownloadFinalReport(visit.id)}>Download PDF</button>
+          {visit.archivedAt
+            ? <button type="button" className="secondary-command" disabled={restoringId === visit.id} onClick={() => void restore(visit)}>{restoringId === visit.id ? "Restoring…" : "Restore"}</button>
+            : <button type="button" className="secondary-command" disabled={archivingId === visit.id} onClick={() => void archive(visit)}>{archivingId === visit.id ? "Archiving…" : "Archive"}</button>}
         </div>
       ) : (
         <div className="inline-actions">
@@ -232,6 +271,7 @@ export function ManagerCustomerServiceHistory({
       {visits.length > 0 || loading ? <span>{visits.length} of {totalCount} visits</span> : null}
     </div>
     {filterControls}
+    <label className="manager-show-archived"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} /> Show archived visits</label>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     {loading ? <p role={explicitApply ? "status" : undefined}>Loading service history…</p> : null}
     {!loading && visits.length === 0 && !error ? <p className="empty-state">{explicitApply ? "No service visits match these filters." : "No service history for the selected filter."}</p> : null}

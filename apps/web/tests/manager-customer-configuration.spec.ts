@@ -47,6 +47,9 @@ test("Manager customer configuration: Services cards, summary chips, Assigned Se
   const checks: Array<{ name: string; value: boolean }> = JSON.parse(await page.locator("#result").innerText()).checks;
   const byName = Object.fromEntries(checks.map((check) => [check.name, check.value]));
   for (const name of [
+    "retired unassigned service is visible but cannot be selected",
+    "retired unassigned service explains why",
+    "already-enabled retired service stays selected and re-savable",
     "co2 remains assignable",
     "no service asks for location configuration before assignment",
     "already-enabled riser with unset riserMode surfaces the inline Riser mode control",

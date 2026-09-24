@@ -3,6 +3,23 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-25 — **Service catalog validation now requires `retiredAt` on every entry (uncommitted).**
+
+The default and includeRetired catalog responses both fail closed when an entry
+omits `retiredAt`. Active entries use `null`; retired entries use a canonical UTC
+timestamp and are available only with includeRetired. Focused web tests cover
+both response modes.
+
+**Last updated:** 2026-09-24 — **Phase 8e review findings remediated (uncommitted).**
+
+FM200 V7 evidence now passes the web sync engine's form-instance gate and stages
+before its parent. Retired services remain visible in an existing customer's
+picker; new assignments are disabled while already-enabled services remain
+re-savable, with the API rejection retained. Manager catalog responses now
+reject malformed retirement timestamps and inconsistent assignment states.
+Focused browser, manager, historical, FM200/CO2, and disposable PostgreSQL
+regressions are the review gates for this change.
+
 **Last updated:** 2026-09-24 — **CO2, Wet Chemical, and FM200 location presets made optional (uncommitted).**
 
 Managers can assign all three services without first configuring locations.
