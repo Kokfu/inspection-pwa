@@ -1,4 +1,5 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
+import { refreshCommonRemarks, type CommonRemark } from "../inspectionControls/commonRemarks";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -221,6 +222,25 @@ const completedOutboxRetentionMs = 30 * 24 * 60 * 60 * 1000;
 
 function shouldSync(item: SyncOutboxItem) {
   return item.status === "Pending" || item.status === "Failed";
+}
+
+async function syncPendingCommonRemarks() {
+  const items = (await localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray()).filter(shouldSync);
+  let confirmed = 0;
+  for (const item of items) {
+    const remark = item.payload as CommonRemark;
+    if (!remark || remark.id !== item.entityId) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local common remark is malformed" }); continue; }
+    await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: new Date().toISOString() });
+    try {
+      const response = await fetch("/api/service-common-remarks", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...expectedActorHeaders() }, body: JSON.stringify({ id: remark.id, systemKey: remark.systemKey, wording: remark.wording, detailLabel: remark.detailLabel, detailOptions: remark.detailOptions }) });
+      const body = await response.json() as { remark?: { id?: unknown }; message?: string };
+      if (!response.ok || body.remark?.id !== remark.id) throw new Error(body.message ?? "Common remark was not confirmed by the server");
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", completedAt: new Date().toISOString(), lastError: undefined });
+      confirmed++;
+    } catch (error) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: failureMessage(error) }); }
+  }
+  if (confirmed) await refreshCommonRemarks().catch(() => undefined);
+  return { confirmed, failed: items.length - confirmed, attempted: items.length };
 }
 
 function failureMessage(error: unknown) {
@@ -479,6 +499,8 @@ export async function syncPendingRecords(actorUserId?: number) {
     await assertSyncIdentity();
     await recoverInterruptedSync();
 
+    const commonRemarks = await syncPendingCommonRemarks();
+
     const v6Evidence = await syncPendingV6Evidence();
     const v7Evidence = await syncPendingV7Evidence();
 
@@ -487,7 +509,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && shouldSync(item)
+        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
@@ -500,8 +522,8 @@ export async function syncPendingRecords(actorUserId?: number) {
       const evidence = await syncPendingAttachments();
       return {
         started: true,
-        message: v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
-          ? `Evidence sync finished: ${evidence.accepted} confirmed, ${evidence.failed} failed, ${evidence.pending} waiting for parent`
+        message: commonRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
+          ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${evidence.accepted} attachments confirmed`
           : "No pending records"
       };
     }

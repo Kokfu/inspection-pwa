@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { masterServiceReportV1 } from "../inspections/templates/masterServiceReportV1.js";
 import { masterServiceReportV4 } from "../inspections/templates/masterServiceReportV4.js";
+import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
 import { createServiceVisit, ServiceVisitError } from "./serviceVisits.js";
 import { loadCanonicalInspectionJob, parseCreateServiceVisit } from "../routes/inspectionJobs.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -17,6 +18,7 @@ const ids = {
 const hoseDefinition = masterServiceReportV1.systems.find((system) => system.key === "hose_reel")!;
 const co2Definition = masterServiceReportV1.systems.find((system) => system.key === "co2_fire_extinguisher")!;
 const wetChemicalDefinition = masterServiceReportV4.systems.find((system) => system.key === "wet_chemical")!;
+const fm200Definition = masterServiceReportV7.systems.find((system) => system.key === "fm200_fire_suppression")!;
 
 class FakeServiceVisitDatabase {
   inserts = 0;
@@ -92,18 +94,22 @@ class UnresolvedLegacyServiceVisitDatabase extends FakeServiceVisitDatabase {
 }
 
 class ConfiguredAuthorityDatabase extends FakeServiceVisitDatabase {
-  constructor(private readonly systemKey: "co2_fire_extinguisher" | "wet_chemical", private readonly malformed = false) { super(); }
+  constructor(private readonly systemKey: "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression", private readonly malformed = false, private readonly missing = false) { super(); }
 
   async query(sql: string, values: unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
+    if (this.systemKey === "fm200_fire_suppression" && normalized.includes("FROM customer_configuration_revisions")) {
+      return { rows: [{ revisionId: ids.revision, revisionNumber: 1, templateId: masterServiceReportV7.id, templateCode: "MFE-FSSR", templateName: "Master", templateVersion: 7 }], rowCount: 1 };
+    }
     if (normalized.includes("FROM customer_enabled_systems")) {
-      const definition = this.systemKey === "co2_fire_extinguisher" ? co2Definition : wetChemicalDefinition;
+      const definition = this.systemKey === "co2_fire_extinguisher" ? co2Definition : this.systemKey === "wet_chemical" ? wetChemicalDefinition : fm200Definition;
       return { rows: [{ enabledSystemId: ids.enabled, systemKey: this.systemKey, displayName: this.systemKey,
         sortOrder: 1, definitionStatus: "confirmed", definition, evidencePolicyId: null,
         evidencePolicyCode: null, evidencePolicyVersion: null, evidencePolicySchemaVersion: null,
         evidencePolicyDefinition: null, evidencePolicySha256: null, systemConfiguration: {} }], rowCount: 1 };
     }
     if (normalized.includes("FROM customer_system_locations")) {
+      if (this.missing) return { rows: [], rowCount: 0 };
       return { rows: [{ id: "10000000-0000-4000-8000-000000000099", enabledSystemId: ids.enabled,
         zoneId: "10000000-0000-4000-8000-000000000098", key: "location", displayName: "Configured location",
         presetRowCount: 1, rowPreset: {}, sortOrder: 1,
@@ -253,7 +259,7 @@ test("an unresolved legacy request id fails closed without creating or exposing 
   assert.equal(database.rollbacks, 1);
 });
 
-for (const systemKey of ["co2_fire_extinguisher", "wet_chemical"] as const) {
+for (const systemKey of ["co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"] as const) {
   test(`${systemKey} preserves valid configured location authority`, async () => {
     const database = new ConfiguredAuthorityDatabase(systemKey);
     const result = await createServiceVisit(database as never, { requestId: ids.request,
@@ -271,6 +277,20 @@ for (const systemKey of ["co2_fire_extinguisher", "wet_chemical"] as const) {
     );
     assert.equal(database.inserts, 0);
     assert.equal(database.rollbacks, 1);
+  });
+
+  test(`${systemKey} freezes one server-owned General zone and location when none are configured`, async () => {
+    const database = new ConfiguredAuthorityDatabase(systemKey, false, true);
+    await createServiceVisit(database as never, { requestId: ids.request,
+      customerId: ids.customer, siteId: ids.site, systemKeys: [systemKey] }, 7);
+    assert.equal(database.inserts, 1);
+    const frozen = database.insertedSnapshot.enabledSystems[0];
+    assert.equal(frozen.zones.length, 1);
+    assert.equal(frozen.locations.length, 1);
+    assert.equal(frozen.zones[0].displayName, "General");
+    assert.equal(frozen.locations[0].displayName, "General");
+    assert.equal(frozen.locations[0].zoneId, frozen.zones[0].id);
+    assert.match(frozen.locations[0].id, /^[0-9a-f-]{36}$/);
   });
 }
 

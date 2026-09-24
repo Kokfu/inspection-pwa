@@ -270,6 +270,24 @@ test("Preset rows and Settings tabs save exactly as the previous editors did", a
   expect(await indexedDbCounts(page)).toEqual(storesBefore);
 });
 
+test("FM200 can be opened in Manager Preset rows and given its first location", async ({ page }) => {
+  const api = await installFakeManagerApi(page);
+  await openFakeCustomer(page);
+  const card = page.locator(".manager-service-card", { hasText: "FM200 System" });
+  await expect(card).toContainText("General location in new visits");
+  await openService(page, /FM200 System/);
+  await expect(page.getByRole("tab")).toHaveText(["Preset rows"]);
+  await page.getByRole("button", { name: "Add zone" }).click();
+  await page.locator(".manager-locations-zone-list input").fill("Server Room");
+  await page.getByRole("button", { name: "Add location" }).click();
+  await page.locator(".manager-locations-location-list input").first().fill("FM200 Panel");
+  await page.getByRole("button", { name: "Save zones & locations" }).click();
+  await expect(page.getByText("Saved. A new configuration version was created.")).toBeVisible();
+  expect(api.puts("/fm200_fire_suppression/locations")).toHaveLength(1);
+  await page.getByRole("button", { name: "Back to Harbour View Tower" }).click();
+  await expect(page.locator(".manager-service-card", { hasText: "FM200 System" })).toContainText("1 location set");
+});
+
 test("keyboard-only wording edit and tab navigation", async ({ page }) => {
   const api = await installFakeManagerApi(page);
   await openFakeCustomer(page);

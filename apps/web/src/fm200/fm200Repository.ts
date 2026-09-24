@@ -132,7 +132,7 @@ export async function initializeFm200InspectionGroup(
   const systemKey = system.systemKey;
   const expected = expectedInstances(system);
   if (expected.length === 0) {
-    throw new Error("No configured FM200 locations exist. A manager must create a new configuration revision and job.");
+    throw new Error("This visit has no FM200 locations. Start a new service visit to use the General location.");
   }
   const { definition, controls } = definitionFor(catalog, job);
   const groupKey = `${job.id}:${systemKey}`;

@@ -46,12 +46,14 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
   const overrides: Record<string, Record<string, string>> = { hose_reel: {}, automatic_sprinkler: {}, wet_chemical: {}, ...structuredClone(initialOverrides) };
   let riserConfiguration: Record<string, string> = { riserMode: "dry" };
   let evidencePolicyId: string | null = null;
+  let fm200Enabled = false;
   const locationSets: Record<string, { zones: Array<{ id: string; key: string; displayName: string; sortOrder: number }>; locations: Array<{ id: string; key: string; displayName: string; zoneId: string; presetRowCount: number }> }> = {
     wet_chemical: {
       zones: [{ id: id(961), key: "kitchen", displayName: "Kitchen Level 1", sortOrder: 1 }],
       locations: [{ id: id(971), key: "hood1", displayName: "Hood 1", zoneId: id(961), presetRowCount: 2 }]
     },
-    co2_fire_extinguisher: { zones: [], locations: [] }
+    co2_fire_extinguisher: { zones: [], locations: [] },
+    fm200_fire_suppression: { zones: [], locations: [] }
   };
   const options = { omitFormLayout: false, poisonFormLayout: false };
   const requests: Captured[] = [];
@@ -62,7 +64,8 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
     { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, systemConfiguration: riserConfiguration, evidencePolicyId: null, labelOverrides: {}, zones: [], locations: [] },
     { key: "fire_alarm_detector", displayName: "Fire Alarm & Detector System", sortOrder: 4, systemConfiguration: {}, evidencePolicyId: null, labelOverrides: {}, zones: [], locations: [] },
     { key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 5, systemConfiguration: {}, evidencePolicyId: null, labelOverrides: overrides.wet_chemical,
-      zones: locationSets.wet_chemical!.zones, locations: locationSets.wet_chemical!.locations }
+      zones: locationSets.wet_chemical!.zones, locations: locationSets.wet_chemical!.locations },
+    ...(fm200Enabled ? [{ key: "fm200_fire_suppression", displayName: "FM200 System", sortOrder: 7, systemConfiguration: {}, evidencePolicyId: null, labelOverrides: {}, zones: locationSets.fm200_fire_suppression!.zones, locations: locationSets.fm200_fire_suppression!.locations }] : [])
   ];
   const customer = () => ({
     customer: { id: customerId, code: "C950", displayName: "Harbour View Tower", nextServiceDueDate: null, contactPhone: "03-5550 1234", contactPerson: "Ms Tan" },
@@ -74,7 +77,8 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
       { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true },
       { key: "fire_alarm_detector", displayName: "Fire Alarm & Detector System", sortOrder: 4, assignable: true },
       { key: "wet_chemical", displayName: "Wet Chemical System", sortOrder: 5, assignable: true },
-      { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 6, assignable: false, unavailableReason: "Location configuration required" }
+      { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 6, assignable: true },
+      { key: "fm200_fire_suppression", displayName: "FM200 System", sortOrder: 7, assignable: true }
     ]
   });
 
@@ -165,6 +169,7 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
             zones,
             locations: draft.locations.map((location, index) => ({ id: id(1200 + index), key: location.key, displayName: location.displayName, zoneId: zones.find((zone) => zone.key === location.zoneId)?.id ?? "", presetRowCount: location.presetRowCount }))
           };
+          if (systemKey === "fm200_fire_suppression") fm200Enabled = true;
           revision += 1;
           return json({ customer: customer(), ...locationsBody(systemKey) });
         }

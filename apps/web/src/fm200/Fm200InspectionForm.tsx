@@ -122,7 +122,7 @@ export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal
             readOnly={readOnly}
             onChange={(result) => updateChecklist(group, definition.key, { result })}
           />
-          <RemarksField
+          <RemarksField systemKey="fm200_fire_suppression"
             label="Remarks"
             definition={definition.remarks}
             value={responses[group][definition.key]?.remarks ?? ""}
@@ -168,7 +168,7 @@ export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal
           <label>{labelAt("detectorRows.location", controls.detectorRows.location.label)}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
           {(() => { const heatLabel = labelAt("detectorRows.heatDetector", controls.detectorRows.heatDetector.label); return <div><strong>{heatLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={row.heatDetectorStatus as Fm200DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>; })()}
           {(() => { const smokeLabel = labelAt("detectorRows.smokeDetector", controls.detectorRows.smokeDetector.label); return <div><strong>{smokeLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={row.smokeDetectorStatus as Fm200DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>; })()}
-          <RemarksField label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
+          <RemarksField systemKey="fm200_fire_suppression" label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
           {!readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));
           }}>Remove Row</button> : null}
@@ -182,7 +182,7 @@ export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal
     {checklistSection("Main Function Keys", "mainFunctionKeys", controls.mainFunctionKeys)}
     <fieldset id="fm200-comments" className={invalidTargets.has("fm200-comments") ? "field-invalid" : ""} disabled={readOnly}>
       <legend>System Comments</legend>
-      <RemarksField label="Comments" definition={controls.comments} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} />
+      <RemarksField systemKey="fm200_fire_suppression" label="Comments" definition={controls.comments} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} />
     </fieldset>
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Inspection</button></div> : null}

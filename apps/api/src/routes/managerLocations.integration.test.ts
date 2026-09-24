@@ -242,7 +242,7 @@ test("locations endpoints: auth matrix, unsupported system", { skip: !databaseUr
   } finally { await pool.end(); }
 });
 
-test("locations PUT fresh-enables a location-dependent system and unblocks its Assigned Services checkbox", { skip: !databaseUrl }, async () => {
+test("CO2 can be assigned without presets and later receives configured locations", { skip: !databaseUrl }, async () => {
   const pool = new pg.Pool({ connectionString: databaseUrl });
   try {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
@@ -268,18 +268,18 @@ test("locations PUT fresh-enables a location-dependent system and unblocks its A
       const configPath = `/manager/customers/${makSitiId}/configuration`;
       const before = await (await call("GET", configPath)).json() as { supportedSystems: Array<{ key: string; assignable: boolean; unavailableReason?: string }> };
       const co2Before = before.supportedSystems.find((system) => system.key === "co2_fire_extinguisher")!;
-      assert.equal(co2Before.assignable, false, "co2 is unassignable before locations are defined");
-      assert.equal(co2Before.unavailableReason, "Location configuration required");
+      assert.equal(co2Before.assignable, true, "co2 can be assigned without preset locations");
+      assert.equal(co2Before.unavailableReason, undefined);
 
-      // configuration-revisions with co2 but NO locations still 409s.
+      // Assigning CO2 without presets succeeds; new visits use General.
       const currentKeys = (await pool.query<{ key: string }>(
         `SELECT enabled.system_key AS key FROM customer_enabled_systems enabled
          INNER JOIN customer_configuration_revisions revision ON revision.id = enabled.configuration_revision_id
          WHERE revision.customer_id=$1 AND revision.status='active' ORDER BY enabled.sort_order`, [makSitiId]
       )).rows.map((row) => row.key);
-      assert.equal((await call("POST", `/manager/customers/${makSitiId}/configuration-revisions`, { systemKeys: ["hose_reel", "co2_fire_extinguisher"] })).status, 409, "co2 without locations is still rejected");
+      assert.equal((await call("POST", `/manager/customers/${makSitiId}/configuration-revisions`, { systemKeys: ["hose_reel", "co2_fire_extinguisher"] })).status, 201, "co2 without locations is assignable");
 
-      // PUT locations for co2 on makSiti (no co2 enabled) -> fresh-enable.
+      // PUT replaces the empty location authority with real locations.
       const put = await call("PUT", `/manager/customers/${makSitiId}/systems/co2_fire_extinguisher/locations`, { zones: submission.zones, locations: submission.locations });
       assert.equal(put.status, 200, JSON.stringify(await put.clone().json()));
       const saved = await put.json() as { zones: unknown[]; locations: unknown[]; customer: { configuration: { enabledSystems: Array<{ key: string }> }; supportedSystems: Array<{ key: string; assignable: boolean }> } };

@@ -29,7 +29,7 @@ import { requireRole } from "../middleware/requireRole.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = loadConfig().customerCatalogVersion;
-const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical"]);
+const locationDependentSystemKeys = new Set(["co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"]);
 // Systems whose per-customer display labels a Manager may override. Bounded to
 // the systems that expose a server-side resolved-controls tree — the canonical
 // path grammar (see `labelOverrides.ts`) is that tree's own object path, so a
@@ -189,10 +189,9 @@ function parseConfigurationRevisionLocations(
   }
   return map;
 }
-// These contracts need structural information that the small shared-customer
-// creation command intentionally does not collect. The API, not the browser,
-// is the capability authority for this initial-format choice.
-const initialStructureRequiredSystemKeys = new Set([...locationDependentSystemKeys, "dry_wet_riser"]);
+// Dry/Wet Riser still needs a mode at creation. Suppression systems receive a
+// server-owned General location when a new visit is frozen without presets.
+const initialStructureRequiredSystemKeys = new Set(["dry_wet_riser"]);
 
 type Database = Pick<Pool, "connect" | "query">;
 type CatalogSystem = { key: string; displayName: string; sortOrder: number; definitionStatus: unknown; definition: unknown };
@@ -309,17 +308,17 @@ async function requireSupportedKeys(client: PoolClient, keys: string[]) {
 function hasValidLocationAuthority(system: EnabledSystem, configuration: Awaited<ReturnType<typeof loadConfiguration>>) {
   const zones = new Set(configuration.zones.filter((zone) => zone.enabledSystemId === system.id).map((zone) => zone.id));
   const locations = configuration.locations.filter((location) => location.enabledSystemId === system.id);
-  return locations.length > 0 && locations.every((location) => location.zoneId !== null && zones.has(location.zoneId));
+  return locations.every((location) => location.zoneId !== null && zones.has(location.zoneId));
 }
 
 function presentSupportedSystems(catalog: CatalogSystem[], configuration: Awaited<ReturnType<typeof loadConfiguration>>): SupportedSystem[] {
   const enabledByKey = new Map(configuration.enabled.map((system) => [system.key, system]));
   return catalog.map(({ key, displayName, sortOrder }) => {
     const existing = enabledByKey.get(key);
-    const assignable = !locationDependentSystemKeys.has(key) || Boolean(existing && hasValidLocationAuthority(existing, configuration));
+    const assignable = !locationDependentSystemKeys.has(key) || !existing || hasValidLocationAuthority(existing, configuration);
     return {
       key, displayName, sortOrder, assignable,
-      ...(assignable ? {} : { unavailableReason: "Location configuration required" })
+      ...(assignable ? {} : { unavailableReason: "Invalid location configuration" })
     };
   });
 }
@@ -329,8 +328,8 @@ function assertLocationDependentAssignments(keys: string[], configuration: Await
   for (const key of keys) {
     if (!locationDependentSystemKeys.has(key)) continue;
     const existing = enabledByKey.get(key);
-    if (!existing || !hasValidLocationAuthority(existing, configuration)) {
-      throw new ManagerCustomerError("LOCATION_CONFIGURATION_REQUIRED", "Selected service requires valid existing location configuration.", 409);
+    if (existing && !hasValidLocationAuthority(existing, configuration)) {
+      throw new ManagerCustomerError("LOCATION_CONFIGURATION_INVALID", "Selected service has an invalid location and zone configuration.", 409);
     }
   }
 }
@@ -1064,9 +1063,9 @@ export function createManagerCustomersRouter(
   });
 
   // Per-customer zone / location configuration for the location-dependent master
-  // systems (`co2_fire_extinguisher`, `wet_chemical`). Defining at least one zone
-  // + one location here is what flips the system's "Assigned Services" checkbox
-  // from disabled ("Location configuration required") to assignable. Mechanism
+  // systems (`co2_fire_extinguisher`, `wet_chemical`, `fm200_fire_suppression`).
+  // Locations are optional; new visits use General when none are configured.
+  // An invalid non-empty configuration still fails closed. Mechanism
   // mirrors the `system-configuration` / `evidence-policy` routes exactly. No
   // migration — `customer_system_zones` / `customer_system_locations` exist since
   // migrations 004/006.

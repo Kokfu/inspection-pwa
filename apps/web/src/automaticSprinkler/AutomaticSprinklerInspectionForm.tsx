@@ -168,7 +168,7 @@ export function AutomaticSprinklerInspectionForm({
         readOnly={readOnly}
         onChange={(result) => updateChecklist(section, key, { result })}
       />
-      <RemarksField
+      <RemarksField systemKey="automatic_sprinkler"
         label="Remarks"
         definition={definition.remarks}
         value={response.remarks}
@@ -226,7 +226,7 @@ export function AutomaticSprinklerInspectionForm({
         readOnly={readOnly}
         onChange={(result) => updateMeasurement(measurementKey, { result })}
       />
-      <RemarksField
+      <RemarksField systemKey="automatic_sprinkler"
         label="Remarks"
         definition={definition.remarks}
         value={response.remarks}
@@ -331,7 +331,7 @@ export function AutomaticSprinklerInspectionForm({
     {isV7 ? <fieldset disabled={readOnly}><legend>Test Run Fire Pump 30 Minutes</legend>{controls.checklist.testRunFirePump.map((definition) => checklistRow("testRunFirePump", definition.key))}</fieldset> : null}
     <fieldset id="sprinkler-comments" className={invalidTargets.has("sprinkler-comments") ? "field-invalid" : ""} disabled={readOnly}>
       <legend>Comments</legend>
-      <RemarksField
+      <RemarksField systemKey="automatic_sprinkler"
         label="Comments"
         definition={controls.comments}
         value={responses.comments}

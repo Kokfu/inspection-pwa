@@ -1,3 +1,4 @@
+import * as React from "react";
 import type { JobSystemSnapshot } from "./jobTypes";
 import type { SystemProgress } from "./jobProgress";
 import { inspectionStatusLabel, inspectionStatusTone } from "../uiPresentation";
@@ -8,6 +9,7 @@ type SystemNavigatorProps = {
   onBack: () => void;
   onOpenHoseReel?: () => void;
   onOpenSuppressionLocations?: () => void;
+  onNewServiceVisit?: () => void;
   onOpenPortableFireExtinguisher?: () => void;
 };
 
@@ -23,7 +25,7 @@ function presetDescription(rowPreset: unknown) {
   return undefined;
 }
 
-export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOpenSuppressionLocations, onOpenPortableFireExtinguisher }: SystemNavigatorProps) {
+export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOpenSuppressionLocations, onNewServiceVisit, onOpenPortableFireExtinguisher }: SystemNavigatorProps) {
   const zones = system.zones.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const locations = system.locations.slice().sort((left, right) => left.sortOrder - right.sortOrder);
   const unzonedLocations = locations.filter((location) => location.zoneId === null);
@@ -73,7 +75,8 @@ export function SystemNavigator({ system, progress, onBack, onOpenHoseReel, onOp
     {zones.length === 0 && locations.length === 0 ? (
       <p className="empty-state">This system has no configured zones or locations.</p>
     ) : null}
-    {system.systemKey === "hose_reel" && onOpenHoseReel ? <button type="button" onClick={onOpenHoseReel}>Open Hose Reel Inspection</button>
+    {system.systemKey === "fm200_fire_suppression" && locations.length === 0 ? <div className="offline-notice" role="alert"><p>This service visit was created without FM200 locations. Its saved configuration cannot be changed. Create a new service visit after the manager has saved an FM200 location.</p>{onNewServiceVisit ? <button type="button" onClick={onNewServiceVisit}>Start New Service Visit</button> : null}</div>
+      : system.systemKey === "hose_reel" && onOpenHoseReel ? <button type="button" onClick={onOpenHoseReel}>Open Hose Reel Inspection</button>
       : (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical" || system.systemKey === "fm200_fire_suppression") && onOpenSuppressionLocations ? <button type="button" onClick={onOpenSuppressionLocations}>Open {system.systemKey === "wet_chemical" ? "Wet Chemical" : system.systemKey === "fm200_fire_suppression" ? "FM200" : "CO2"} Locations</button>
         : system.systemKey === "portable_fire_extinguisher" && onOpenPortableFireExtinguisher ? <button type="button" onClick={onOpenPortableFireExtinguisher}>Open Portable Fire Extinguisher Inspection</button>
         : <p className="form-message">Detailed inspection entry is not available for this system yet.</p>}

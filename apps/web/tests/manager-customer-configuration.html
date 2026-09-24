@@ -60,11 +60,10 @@ const customer = {
       }
     ]
   },
-  // co2 is intentionally NOT assignable (no valid zone/location authority yet) so
-  // the STEP 3.1-final-polish checks can assert the actionable "Zones &
-  // locations" pointer; it stays ticked because it is already in enabledSystems.
+  // Location configuration is optional; configured CO2 and unconfigured Wet
+  // Chemical are both assignable in the current server contract.
   supportedSystems: [
-    { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: false, unavailableReason: "Location configuration required" },
+    { key: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", sortOrder: 1, assignable: true },
     { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 2, assignable: true },
     { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true },
     // Assignable so the lone-zone untick assertion can re-tick to restore state,
@@ -141,8 +140,8 @@ document.querySelector("#run").onclick = async () => {
     ok("co2 card: 1 custom label + locations set", chipsFor("CO2 Fire Extinguisher System").join("|") === "1 custom label|1 location set");
     ok("sprinkler card: standard wording + evidence policy set", chipsFor("Automatic Sprinkler System").join("|") === "Standard wording|Evidence policy set");
     ok("riser card: wording not customisable + settings need attention", chipsFor("Dry / Wet Riser System").join("|") === "Wording not customisable|Settings need attention");
-    ok("lone-zone wet_chemical zones & locations -> reported as saved config", chipsFor("Wet Chemical System").includes("1 zone, no locations"));
-    ok("attention chips carry the attention tone class", view.querySelectorAll(".manager-service-card .manager-config-flag--attention").length === 2);
+    ok("lone-zone wet_chemical uses General while showing saved zone", chipsFor("Wet Chemical System").includes("1 zone, General location in new visits"));
+    ok("attention chips carry the attention tone class", view.querySelectorAll(".manager-service-card .manager-config-flag--attention").length === 1);
     ok("no per-service fetch on mount", !requested.some((url) => url.includes("/systems/")));
 
     // 3. A card opens that service's editor.
@@ -155,13 +154,10 @@ document.querySelector("#run").onclick = async () => {
     const optionFor = (name) => [...picker.querySelectorAll(".manager-service-option")].find((el) => el.textContent.includes(name));
     const co2Option = optionFor("CO2 Fire Extinguisher System");
 
-    // 1a. A location-dependent system that is not yet assignable keeps the server
-    // reason AND gains an actionable pointer to the "Zones & locations" editor.
-    ok("unassignable co2 still shows the server reason", co2Option.textContent.includes("Location configuration required"));
-    ok("unassignable co2 points the Manager at the Zones & locations editor below",
-      co2Option.textContent.includes("Zones & locations") && co2Option.textContent.includes("below"));
-    ok("the actionable pointer is scoped to location-dependent systems only",
-      [...picker.querySelectorAll(".manager-service-option")].filter((el) => el.textContent.includes("editor below")).length === 1);
+    // 1a. Location setup no longer blocks selection.
+    ok("co2 remains assignable", !co2Option.querySelector("input").disabled);
+    ok("no service asks for location configuration before assignment",
+      !picker.textContent.includes("Location configuration required"));
 
     // 1b. An already-enabled dry_wet_riser whose stored riserMode is unset
     // surfaces the inline Riser mode control (not only on a fresh tick).
@@ -192,7 +188,7 @@ document.querySelector("#run").onclick = async () => {
     // contradictory signals on one screen. Now both say "has something".
     const wetOption = optionFor("Wet Chemical System");
     const wetCheckbox = wetOption.querySelector("input[type=checkbox]");
-    const wetChipSet = () => chipsFor("Wet Chemical System").includes("1 zone, no locations");
+    const wetChipSet = () => chipsFor("Wet Chemical System").includes("1 zone, General location in new visits");
     ok("lone-zone wet_chemical checkbox starts ticked and interactive", wetCheckbox.checked && !wetCheckbox.disabled);
     ok("lone-zone wet_chemical: service card chip reports the saved zone before any untick", wetChipSet());
     wetCheckbox.click();

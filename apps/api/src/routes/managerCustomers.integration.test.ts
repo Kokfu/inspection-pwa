@@ -150,8 +150,8 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       assert.equal(technicianSites.status, 200); assert.deepEqual((await technicianSites.json() as { sites: Array<{ displayName: string }> }).sites.map((site) => site.displayName), ["Miri Branch", "Primary Service Site"], "normal Technician site endpoint sees Manager-created site");
       assert.equal((await request(`/manager/customers/${createdId}/sites`, "POST", "admin", { displayName: "miri branch" })).status, 409, "normalized duplicate active site is rejected");
       assert.equal((await request("/manager/customers", "POST", "admin", { displayName: "integration customer", siteDisplayName: "Another", systemKeys: ["hose_reel"] })).status, 409, "normalized duplicate name rejected");
-      const rejected = await request("/manager/customers", "POST", "admin", { displayName: "Invalid CO2 Customer", siteDisplayName: "Primary", systemKeys: ["co2_fire_extinguisher"] });
-      assert.equal(rejected.status, 409); assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name='Invalid CO2 Customer'")).rows[0]?.count, 0, "invalid create rolls back all rows");
+      const withoutPresets = await request("/manager/customers", "POST", "admin", { displayName: "CO2 Without Presets", siteDisplayName: "Primary", systemKeys: ["co2_fire_extinguisher"] });
+      assert.equal(withoutPresets.status, 201); assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name='CO2 Without Presets'")).rows[0]?.count, 1, "CO2 can be assigned without saved locations");
       await database.query(`INSERT INTO customer_enabled_systems (id,configuration_revision_id,template_version_id,system_key,sort_order) VALUES ('a2000000-0000-4000-8000-000000000001',(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'),$2,'co2_fire_extinguisher',2)`, [createdId, v7]);
       await database.query("INSERT INTO customer_system_zones (id,enabled_system_id,zone_key,display_name,sort_order) VALUES ('a2000000-0000-4000-8000-000000000002','a2000000-0000-4000-8000-000000000001','retained-zone','Retained Zone',1)");
       await database.query("INSERT INTO customer_system_locations (id,enabled_system_id,zone_id,location_key,display_name,preset_row_count,row_preset,sort_order) VALUES ('a2000000-0000-4000-8000-000000000003','a2000000-0000-4000-8000-000000000001','a2000000-0000-4000-8000-000000000002','retained-location','Retained Location',1,'{}',1)");
@@ -181,7 +181,10 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       const nextVisitClient = await database.connect();
       try { await createServiceVisit(nextVisitClient, { requestId: "a1000000-0000-4000-8000-000000000002", customerId: makSitiId, siteId: makSitiSiteId, systemKeys: ["automatic_sprinkler"] }, userId); } finally { nextVisitClient.release(); }
       assert.equal((await database.query("SELECT count(*)::int AS count FROM inspection_jobs WHERE customer_id=$1 AND customer_configuration_revision_id=(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active')", [makSitiId])).rows[0]?.count, 1, "new technician visit uses N+1");
-      for (const key of ["co2_fire_extinguisher", "wet_chemical"]) assert.equal((await request(`/manager/customers/${makSitiId}/configuration-revisions`, "POST", "admin", { systemKeys: ["hose_reel", key] })).status, 409, `${key} without locations rejected`);
+      const locationOptions = await request(`/manager/customers/${makSitiId}/configuration`, "GET", "admin");
+      assert.equal(locationOptions.status, 200);
+      const supportedSystems = (await locationOptions.json() as { supportedSystems: Array<{ key: string; assignable: boolean }> }).supportedSystems;
+      for (const key of ["co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"]) assert.equal(supportedSystems.find((system) => system.key === key)?.assignable, true, `${key} is assignable without saved locations`);
 
       const rollbackCustomer = await request("/manager/customers", "POST", "admin", { displayName: "Post Write Rollback", siteDisplayName: "Primary", systemKeys: ["hose_reel"] });
       assert.equal(rollbackCustomer.status, 201); const rollbackId = (await rollbackCustomer.json() as { customer: { customer: { id: string } } }).customer.customer.id;

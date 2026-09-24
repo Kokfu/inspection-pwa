@@ -100,6 +100,9 @@ const v7Fm200EvidenceMigrationUrl = new URL(
 const reportNumberRequiredMigrationUrl = new URL(
   "../../migrations/034_report_number_required.sql", import.meta.url
 );
+const serviceCommonRemarksMigrationUrl = new URL(
+  "../../migrations/035_service_common_remarks.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -508,6 +511,7 @@ export async function runMigrations(
   }
   // CREATE OR REPLACE FUNCTION is safe to replay on an upgraded database.
   await database.query(await readFile(reportNumberRequiredMigrationUrl, "utf8"));
+  await database.query(await readFile(serviceCommonRemarksMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

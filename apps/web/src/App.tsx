@@ -2143,6 +2143,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
               const completedJob = jobs.find((candidate) => candidate.id === route.jobId && candidate.status === "closed");
+              const cachedJob = jobs.find((candidate) => candidate.id === route.jobId);
+              const cachedSystem = cachedJob?.configurationSnapshot.enabledSystems.find((candidate) => candidate.systemKey === route.systemKey);
               const acceptedLocations = serverMasterSystemInspections.filter((summary) => summary.jobId === route.jobId && summary.systemKey === route.systemKey);
               return completedJob ? (
                 <section className="workspace">
@@ -2159,7 +2161,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                   onOpen={(record) => navigate({ name: "fm200-form", clientUuid: record.clientUuid })}
                 />
               ) : (
-                <section className="workspace"><h2>FM200 locations unavailable</h2><p>Open this system from the cached job to initialize its configured locations.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
+                <section className="workspace"><h2>FM200 locations unavailable</h2><p>{cachedSystem?.locations.length ? "This visit has FM200 locations, but they are not initialized on this device yet." : "This service visit was created without FM200 locations. Its saved configuration cannot be changed; start a new service visit to use the General location."}</p>{cachedJob && cachedSystem?.locations.length ? <button type="button" onClick={() => void handleOpenFm200(cachedJob, cachedSystem)}>Open FM200 Locations</button> : <button type="button" onClick={() => navigate({ name: "new-service-visit" })}>Start New Service Visit</button>}<button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
               );
             })()
           ) : route.name === "new-service-visit" ? (

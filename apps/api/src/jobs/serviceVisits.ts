@@ -155,11 +155,8 @@ async function buildSnapshot(
       ORDER BY location.enabled_system_id, location.sort_order`, [ids])
   ]);
   for (const system of systems) {
-    if (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical") {
+    if (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical" || system.systemKey === "fm200_fire_suppression") {
       const locations = locationsResult.rows.filter((location) => location.enabledSystemId === system.enabledSystemId);
-      if (locations.length === 0) {
-        throw new ServiceVisitError("CONFIGURATION_INVALID", `${system.displayName} requires configured locations.`, 409);
-      }
       if (locations.some((location) => location.zoneId === null
         || location.zoneEnabledSystemId !== system.enabledSystemId)) {
         throw new ServiceVisitError("CONFIGURATION_INVALID", `${system.displayName} has an invalid configured location/zone relationship.`, 409);
@@ -173,6 +170,10 @@ async function buildSnapshot(
     configuration: { revisionId: configuration.revisionId, revisionNumber: configuration.revisionNumber },
     template: { id: configuration.templateId, code: configuration.templateCode, name: configuration.templateName, version: configuration.templateVersion },
     enabledSystems: systems.map((system) => {
+      const configuredZones = zonesResult.rows.filter((zone) => zone.enabledSystemId === system.enabledSystemId);
+      const configuredLocations = locationsResult.rows.filter((location) => location.enabledSystemId === system.enabledSystemId);
+      const useGeneralLocation = (system.systemKey === "co2_fire_extinguisher" || system.systemKey === "wet_chemical" || system.systemKey === "fm200_fire_suppression") && configuredLocations.length === 0;
+      const generalZoneId = useGeneralLocation ? randomUUID() : "";
       const { evidencePolicyId, evidencePolicyCode, evidencePolicyVersion, evidencePolicySchemaVersion,
         evidencePolicyDefinition, evidencePolicySha256, systemConfiguration, labelOverrides, definition: _definition, ...base } = system;
       return {
@@ -190,8 +191,8 @@ async function buildSnapshot(
         ...(evidencePolicyId ? { evidencePolicy: { id: evidencePolicyId, code: evidencePolicyCode,
           version: evidencePolicyVersion, schemaVersion: evidencePolicySchemaVersion,
           definition: evidencePolicyDefinition, definitionSha256: evidencePolicySha256 } } : {}),
-        zones: zonesResult.rows.filter((zone) => zone.enabledSystemId === system.enabledSystemId),
-        locations: locationsResult.rows.filter((location) => location.enabledSystemId === system.enabledSystemId)
+        zones: useGeneralLocation ? [{ id: generalZoneId, enabledSystemId: system.enabledSystemId, key: "general", displayName: "General", sortOrder: 1 }] : configuredZones,
+        locations: useGeneralLocation ? [{ id: randomUUID(), enabledSystemId: system.enabledSystemId, zoneId: generalZoneId, key: "general", displayName: "General", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] : configuredLocations
       };
     })
   };

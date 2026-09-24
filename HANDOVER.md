@@ -3,7 +3,59 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-24 — **Report R6 Sol review fixes completed (uncommitted).**
+**Last updated:** 2026-09-24 — **CO2, Wet Chemical, and FM200 location presets made optional (uncommitted).**
+
+Managers can assign all three services without first configuring locations.
+For each such service, a new visit freezes a server-generated General zone and
+one General location into its job snapshot; saved customer locations take
+precedence. Existing visits keep their original snapshots, so a visit created
+without locations must be replaced to gain General. The technician new-service
+format options include all three services. Malformed configured location/zone
+relationships still fail closed. Focused visit tests, manager API integration
+tests on disposable PostgreSQL, manager browser tests, typechecks, and builds
+were run for this change. No production database or runtime container was changed.
+
+**Last updated:** 2026-09-24 — **FM200 technician open route regression fixed (uncommitted).**
+
+The technician FM200 system button once again invokes the local group
+initializer before navigating to the location list. A direct location URL with
+a cached configured visit now offers Open FM200 Locations to initialize the
+group. Visits whose frozen snapshot contains no FM200 location offer a new
+service visit instead. Browser checks cover button dispatch and Dexie group
+creation from the frozen job. The running Docker app was not rebuilt here.
+
+**Last updated:** 2026-09-24 — **Remarks layout corrected and FM200 manager location configuration enabled (uncommitted).**
+
+**Follow-up 2026-09-24:** The six-service field control now shows one Remark
+picker and selected remarks; only Others reveals text entry and the optional
+common-catalog action. Manager Home Services opens customer service configuration
+instead of the read-only Operations list, which has its own tile. FM200 opens an
+overview first. Legacy visits with no frozen FM200 locations show a Start New
+Service Visit action; configured visits show Open FM200 Locations. This follows
+the frozen-job contract: a later customer location revision cannot alter an
+existing visit. Focused web unit and browser checks passed; final build and
+diff check are reported in the task response.
+
+Common choices now sit in the same Remarks section, with no quantity input.
+Others accepts technician text and offers Add to common remarks after entry;
+multiple selections append to the existing final remark. The manager Preset
+rows editor now permits FM200 zones and locations. New configuration revisions
+and service visits freeze those locations when provided. New visits without
+presets now receive General; existing visits retain their frozen manifest.
+Focused
+browser, API unit, and disposable-Postgres integration checks passed; final
+build and diff checks are recorded in the task response.
+
+**Last updated:** 2026-09-24 — **Service common remarks picker and global catalog implemented (uncommitted; browser acceptance pending).**
+
+The six client-requested services now have a shared picker in their existing
+remarks/comments fields. Migration 035 seeds 38 service-specific choices and
+adds a global catalog. Technician and manager additions save to IndexedDB
+first and sync by UUID; manager edits/removals use authenticated API routes.
+The selected wording remains in each inspection's existing remark text, so
+V7 per-field evidence and frozen accepted responses keep their authority.
+Focused tests, typechecks and builds passed; physical phone/offline acceptance
+has not been performed at this checkpoint.
 Migration 034 rejects every open→closed transition without a report number while preserving
 historical closed NULLs. `closeInspectionJob` uses the Malaysia-local completion year when the
 service date is absent, inside the same locked transaction and yearly counter. The cover hides an

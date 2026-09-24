@@ -652,10 +652,10 @@ export async function saveManagerLabelOverrides(
 /** Systems whose per-customer zone/location configuration a Manager may edit.
  *  Mirrors the API `locationConfigurableSystemKeys` bound
  *  (apps/api/src/inspections/locationConfiguration.ts) — widenable without a
- *  migration. Defining at least one zone + location for one of these is what
- *  unlocks its "Assigned Services" checkbox. */
+ *  migration. These services use a General location in new visits when the
+ *  manager has not configured a location. */
 export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
-  "co2_fire_extinguisher", "wet_chemical"
+  "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"
 ]);
 
 export type ManagerZone = {

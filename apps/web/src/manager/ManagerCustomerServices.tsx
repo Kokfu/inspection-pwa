@@ -74,8 +74,7 @@ export function managerServiceChips(entry: ManagerServiceEntry): Chip[] {
     const locations = system?.locations.length ?? 0;
     chips.push(locations > 0
       ? { label: `${locations} ${locations === 1 ? "location" : "locations"} set`, tone: "set" }
-      : zones > 0 ? { label: `${zones} ${zones === 1 ? "zone" : "zones"}, no locations`, tone: "attention" }
-        : { label: "Needs zones & locations", tone: "attention" });
+      : { label: `${zones > 0 ? `${zones} ${zones === 1 ? "zone" : "zones"}, ` : ""}General location in new visits`, tone: "unset" });
   }
   if (entry.enabled && systemConfigurationSystemKeys.has(entry.key)) {
     const configuration = system?.systemConfiguration;

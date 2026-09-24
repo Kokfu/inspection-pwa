@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
  * 2026-09-19: the per-service frame below was replaced by a "Services" area of
  * one card per service (each opening the per-service editor, covered by
  * manager-service-editor.spec.ts); the layout checks were updated to the cards.
- * The Assigned Services checks (1a/1b/1c + lone-zone) are unchanged.
+ * The Assigned Services checks cover optional location presets and lone-zone state.
  *
  * DoD (Phase 8H STEP 3.1 slice 3b): the Manager customer-configuration screen
  * wraps the four per-system editors (label overrides, system configuration,
@@ -16,9 +16,7 @@ import { expect, test } from "@playwright/test";
  * unified "No unsaved changes." line on expand).
  *
  * DoD (STEP 3.1 final polish — the "Assigned Services" tick-list itself):
- *  - 1a an unassignable location-dependent system keeps its server
- *    `unavailableReason` AND gains an actionable pointer to the "Zones &
- *    locations" editor below (copy only — no scroll hijack, no new route);
+ *  - 1a location presets do not block service assignment;
  *  - 1b an already-enabled `dry_wet_riser` with an unset `riserMode` still
  *    surfaces the inline Riser mode control (the save is otherwise safely
  *    rejected server-side with `RISER_MODE_REQUIRED` before any revision write);
@@ -49,15 +47,14 @@ test("Manager customer configuration: Services cards, summary chips, Assigned Se
   const checks: Array<{ name: string; value: boolean }> = JSON.parse(await page.locator("#result").innerText()).checks;
   const byName = Object.fromEntries(checks.map((check) => [check.name, check.value]));
   for (const name of [
-    "unassignable co2 still shows the server reason",
-    "unassignable co2 points the Manager at the Zones & locations editor below",
-    "the actionable pointer is scoped to location-dependent systems only",
+    "co2 remains assignable",
+    "no service asks for location configuration before assignment",
     "already-enabled riser with unset riserMode surfaces the inline Riser mode control",
     "untick warning names the removed system",
     "untick warning enumerates the settings that are dropped",
     "no untick warning while co2 (unchanged) is still ticked",
     "re-ticking clears the untick warning without an authority failure",
-    "lone-zone wet_chemical zones & locations -> reported as saved config",
+    "lone-zone wet_chemical uses General while showing saved zone",
     "lone-zone wet_chemical: service card chip reports the saved zone before any untick",
     "lone-zone wet_chemical: unticking fires the drop-config warning naming it",
     "lone-zone wet_chemical: service card chip and untick warning agree (both 'has something')",

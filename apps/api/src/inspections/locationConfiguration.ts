@@ -21,9 +21,9 @@
 // UUIDs are minted by `copySelectedConfiguration` at INSERT time — so this
 // module needs no `uuidPattern`. It never imports route code by design.
 
-/** Master systems whose "Assigned Services" checkbox is gated on valid existing
- *  zone/location authority (`locationDependentSystemKeys` in
- *  `managerCustomers.ts`). Widenable without a migration, exactly like
+/** Master systems with optional per-customer zone/location authority.
+ *  New visits use a server-owned General location when none are set.
+ *  Widenable without a migration, exactly like
  *  `systemConfigurationSystemKeys`. */
 export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
   "co2_fire_extinguisher",
@@ -48,7 +48,7 @@ export type LocationConfigurationZoneInput = {
 };
 
 /** One normalised location in a submitted zone/location payload. `zoneId` is the
- *  `key` of a submitted zone (never null for a location-dependent system —
+ *  `key` of a submitted zone (never null for a configured location —
  *  enforced here so the `serviceVisits.ts` buildSnapshot invariant, ~:131,
  *  always holds). `rowPreset` is frozen opaquely into the job snapshot. */
 export type LocationConfigurationLocationInput = {

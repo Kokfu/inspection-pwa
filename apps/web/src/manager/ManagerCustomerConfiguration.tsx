@@ -494,7 +494,7 @@ export function ManagerCustomerLocations({ customer, onSaved, onAuthorityFailure
   if (editable.length === 0) return null;
   return <section className="manager-per-service-block" aria-labelledby="manager-locations-title">
     <h4 id="manager-locations-title">Zones &amp; locations</h4>
-    <p>Define the zones and preset locations a technician records against for this customer. Defining at least one zone and one location here is what unlocks the CO2 / Wet Chemical checkboxes in “Assigned Services”. Saving creates a new configuration version; existing service visits keep the zones and locations they were created with.</p>
+    <p>Optionally define zones and locations for this customer. CO2, Wet Chemical, and FM200 use one General location in new visits when none are configured. Saving creates a new configuration version; existing service visits keep the locations they were created with.</p>
     {editable.map((system) => (
       <ManagerLocationsEditor
         key={system.key}

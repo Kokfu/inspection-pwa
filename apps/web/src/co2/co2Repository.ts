@@ -134,7 +134,7 @@ export async function initializeCo2InspectionGroup(
   const systemKey = system.systemKey;
   const expected = expectedInstances(system);
   if (expected.length === 0) {
-    throw new Error(`No configured ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} locations exist. A manager must create a new configuration revision and job.`);
+    throw new Error(`This visit has no ${systemKey === wetChemicalSystemKey ? "Wet Chemical" : "CO2"} locations. Start a new service visit to use the General location.`);
   }
   const { definition, controls } = definitionFor(catalog, systemKey, job);
   const groupKey = `${job.id}:${systemKey}`;

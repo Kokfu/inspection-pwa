@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("dashboard has five working App hash routes and no dashboard data fetch", async ({ page }) => {
+test("dashboard routes Services to customer configuration and keeps Operations available", async ({ page }) => {
   const requests: string[] = [];
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()); requests.push(url.pathname + url.search);
@@ -19,7 +19,8 @@ test("dashboard has five working App hash routes and no dashboard data fetch", a
   expect(requests.filter((r) => r.startsWith("/api/manager/"))).toEqual([]);
   for (const [label, hash, heading] of [
     ["Technician List", "manager-technicians", "Technician List"],
-    ["Services", "manager-operations", "Operations"],
+    ["Services", "manager-customers", "Customer Configuration"],
+    ["Operations", "manager-operations", "Operations"],
     ["Add Customer", "manager-customers", "Customer Configuration"],
     ["Current Services Done", "manager-services-done", "Current Services Done"],
     ["Next Upcoming Service", "manager-upcoming-services", "Next Upcoming Service"]

@@ -87,6 +87,21 @@ is transcription only, not an implementation plan.
 
 ## Open questions / needs confirmation
 
+**Resolved 2026-09-24:** The client confirmed the picker belongs on every
+existing remarks/comments field in each of the six services. A field may hold
+multiple common remarks plus technician text. V7 finding remarks remain owned
+by their individual fields and still require their individual photos. Both
+technicians and managers may add global, service-specific common remarks;
+new entries become available to other users after sync. Only managers may edit
+or remove existing entries. Battery sizes, starter-panel choices and pressure
+ranges are dependent reference choices. Fire Alarm item 9 is omitted. FM200
+and CO2 keep separate catalog entries. The two noted spelling corrections are
+approved. The form shows one Remark picker and a list of selected remarks;
+there is no separate Remarks textarea or quantity input. Selecting Others
+reveals technician text entry and an optional Add to common remarks action.
+The numbered
+questions below are retained as the source decision log.
+
 1. **Scope of the picker** — is this catalog meant to seed a remarks field on
    every relevant *field* inside each system's form, or one shared
    "system-level" comments box per system (matching the CO2 paper form's

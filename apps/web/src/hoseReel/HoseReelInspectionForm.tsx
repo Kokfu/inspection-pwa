@@ -303,7 +303,7 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <RemarksField
+            <RemarksField systemKey="hose_reel"
               label="Remarks"
               definition={definition.remarks}
               value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -341,7 +341,7 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <RemarksField
+            <RemarksField systemKey="hose_reel"
               label="Remarks"
               definition={definition.remarks}
               value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -387,7 +387,7 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(result) => updateJockey({ result })}
           />
-          <RemarksField
+          <RemarksField systemKey="hose_reel"
             label="Remarks"
             definition={jockeyDefinition.remarks}
             value={responses.measurements.jockey_pump_pressure.remarks}
@@ -428,7 +428,7 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(result) => updateStandby({ result })}
           />
-          <RemarksField
+          <RemarksField systemKey="hose_reel"
             label="Remarks"
             definition={standbyDefinition.remarks}
             value={responses.measurements.standby_pump_cut_in.remarks}
@@ -465,7 +465,7 @@ export function HoseReelInspectionForm({
                 readOnly={readOnly}
                 onChange={(result) => updateChecklist(definition.key, { result })}
               />
-              <RemarksField
+              <RemarksField systemKey="hose_reel"
                 label="Remarks"
                 definition={definition.remarks}
                 value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -624,7 +624,7 @@ export function HoseReelInspectionForm({
                   />
                   {isV7 && isHoseReelV7EvidenceFinding(result) ? (
                     <section>
-                      <RemarksField
+                      <RemarksField systemKey="hose_reel"
                         label={`${shownLabel} Remark *`}
                         definition={controls.repeatableRows.remarks}
                         value={row.fieldRemarks?.[field] ?? ""}
@@ -644,7 +644,7 @@ export function HoseReelInspectionForm({
                 </div>
                 );
               })}
-              <RemarksField
+              <RemarksField systemKey="hose_reel"
                 label="Remarks"
                 definition={controls.repeatableRows.remarks}
                 value={row.remarks}
@@ -686,7 +686,7 @@ export function HoseReelInspectionForm({
         disabled={readOnly}
       >
         <legend>Comments</legend>
-        <RemarksField
+        <RemarksField systemKey="hose_reel"
           label="Comments"
           definition={controls.comments}
           value={responses.comments}

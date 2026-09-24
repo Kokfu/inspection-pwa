@@ -297,6 +297,7 @@ export function TechnicianHome({
         onBack={() => onBackToSystems(selectedJob)}
         onOpenHoseReel={() => onOpenHoseReel(selectedJob, selectedSystem)}
         onOpenSuppressionLocations={selectedSystem.systemKey === "co2_fire_extinguisher" || selectedSystem.systemKey === "wet_chemical" ? () => onOpenCo2(selectedJob, selectedSystem) : selectedSystem.systemKey === "fm200_fire_suppression" ? () => onOpenFm200(selectedJob, selectedSystem) : undefined}
+        onNewServiceVisit={onNewServiceVisit}
         onOpenPortableFireExtinguisher={selectedSystem.systemKey === "portable_fire_extinguisher" ? () => onOpenPortableFireExtinguisher(selectedJob, selectedSystem) : undefined}
       />
     ) : selectedJob ? (

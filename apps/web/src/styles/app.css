@@ -633,6 +633,10 @@ dd {
   gap: 8px;
 }
 
+.sprinkler-measurement-evidence > .common-remarks-field {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 767px) {
   .sprinkler-measurement-evidence { grid-template-columns: 1fr; }
 }
@@ -765,6 +769,12 @@ button:not(:disabled):active { transform: translateY(1px); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: var(--focus-outline); outline-offset: 2px; }
 input, select, textarea { min-height: 44px; border-color: var(--border-strong); border-radius: 9px; }
 textarea { min-height: 104px; }
+.common-remarks-field { display: grid; gap: .65rem; min-width: 0; }
+.common-remarks-picker { display: grid; gap: .65rem; }
+.common-remarks-picker button { justify-self: start; }
+.selected-common-remarks { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.selected-common-remarks li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-muted); }
+.selected-common-remarks button { flex: 0 0 auto; }
 h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 
 .app-shell { gap: 18px; padding: 16px clamp(12px, 3vw, 36px) calc(112px + env(safe-area-inset-bottom)); }
