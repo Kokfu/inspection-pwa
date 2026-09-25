@@ -62,7 +62,11 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
     try {
       assert.deepEqual((await get("a", "/customers/service-format-options")).status, 200);
       const options = await (await get("a", "/customers/service-format-options")).json() as { systems: Array<{ key: string }> };
-      assert(!options.systems.some((system) => system.key === "co2_fire_extinguisher" || system.key === "wet_chemical" || system.key === "dry_wet_riser"), "simple customer setup must not advertise systems needing additional structure");
+      // co2/wet_chemical no longer require additional structure up front: an unconfigured
+      // location now falls back to an auto-generated "General" location in new visits
+      // (see the "automatically generate General location" commit). dry_wet_riser still
+      // requires an explicit riser mode before it can be assigned.
+      assert(!options.systems.some((system) => system.key === "dry_wet_riser"), "simple customer setup must not advertise systems needing additional structure");
 
       const firstRequest = input(uuid("1"), "Technician Shared Customer");
       const first = await post("a", firstRequest);

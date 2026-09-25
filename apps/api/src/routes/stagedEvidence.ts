@@ -1,5 +1,5 @@
 import { ownedMultipart, OwnershipUploadError } from "../jobs/ownedMultipart.js";
-import { requireExpectedActor, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
+import { requireExpectedActor, requireReviewerOrOwnership, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -41,8 +41,8 @@ stagedEvidenceRouter.post("/v7-evidence/stage", requireRole("admin", "inspector"
 });
 
 /** Accepted-history read path. It intentionally excludes staged/unbound files. */
-stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
+stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -52,14 +52,14 @@ stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspecto
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key='fire_alarm_detector'
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.inspection_client_uuid=$1 AND evidence.status='accepted'
-        AND ($2::text='admin' OR job.technician_visible=true)
+        AND ($2::text IN ('admin','supervisor') OR job.technician_visible=true)
       ORDER BY evidence.field_path, evidence.photo_uuid`, [inspectionClientUuid, request.currentUser!.role]);
     response.json({ evidence: result.rows });
   } catch (error) { next(error); }
 });
 
-stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
+stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
   try {
     const photoUuid = request.params.photoUuid;
     if (typeof photoUuid !== "string" || !uuid.test(photoUuid)) { response.status(400).json({ error: "INVALID_ATTACHMENT_ID" }); return; }
@@ -69,7 +69,7 @@ stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key='fire_alarm_detector'
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.photo_uuid=$1 AND evidence.status='accepted'
-        AND ($2::text='admin' OR job.technician_visible=true)`, [photoUuid, request.currentUser!.role]);
+        AND ($2::text IN ('admin','supervisor') OR job.technician_visible=true)`, [photoUuid, request.currentUser!.role]);
     const existing = result.rows[0];
     if (!existing) { response.status(404).json({ error: "ACCEPTED_EVIDENCE_NOT_FOUND" }); return; }
     const uploadsRoot = path.resolve(loadConfig().uploadsPath);
@@ -85,8 +85,8 @@ stagedEvidenceRouter.get("/v6-evidence/accepted/:photoUuid/content", requireRole
 });
 
 /** V7 accepted evidence is readable only through a submitted per-location form. */
-stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
+stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.query.inspectionClientUuid), async (request, response, next) => {
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -96,14 +96,14 @@ stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspecto
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector','hydrant','hose_reel','automatic_sprinkler','dry_wet_riser','smoke_ventilation','fire_intercom','fm200_fire_suppression')
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.inspection_client_uuid=$1 AND evidence.master_template_version=7 AND evidence.status='accepted'
-        AND ($2::text='admin' OR (job.technician_visible=true AND form.synced_by_user_id=$3))
+        AND ($2::text IN ('admin','supervisor') OR (job.technician_visible=true AND form.synced_by_user_id=$3))
       ORDER BY evidence.field_path,evidence.photo_uuid`, [inspectionClientUuid, request.currentUser!.role, request.currentUser!.id]);
     response.json({ evidence: result.rows });
   } catch (error) { next(error); }
 });
 
-stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
+stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("evidence", (request) => request.params.photoUuid), async (request, response, next) => {
   try {
     const photoUuid = request.params.photoUuid;
     if (typeof photoUuid !== "string" || !uuid.test(photoUuid)) { response.status(400).json({ error: "INVALID_ATTACHMENT_ID" }); return; }
@@ -112,7 +112,7 @@ stagedEvidenceRouter.get("/v7-evidence/accepted/:photoUuid/content", requireRole
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector','hydrant','hose_reel','automatic_sprinkler','dry_wet_riser','smoke_ventilation','fire_intercom','fm200_fire_suppression')
       INNER JOIN inspection_jobs job ON job.id=inspection.job_id
       WHERE evidence.photo_uuid=$1 AND evidence.master_template_version=7 AND evidence.status='accepted'
-        AND ($2::text='admin' OR (job.technician_visible=true AND form.synced_by_user_id=$3))`, [photoUuid, request.currentUser!.role, request.currentUser!.id]);
+        AND ($2::text IN ('admin','supervisor') OR (job.technician_visible=true AND form.synced_by_user_id=$3))`, [photoUuid, request.currentUser!.role, request.currentUser!.id]);
     const existing = result.rows[0];
     if (!existing) { response.status(404).json({ error: "ACCEPTED_EVIDENCE_NOT_FOUND" }); return; }
     const uploadsRoot = path.resolve(loadConfig().uploadsPath); const filePath = path.resolve(uploadsRoot, ...existing.storage_relative_path.split("/"));

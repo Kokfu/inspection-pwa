@@ -1,4 +1,5 @@
 import { requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
+import { visitHasCorrections } from "./managerCorrections.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { pool } from "../db/pool.js";
@@ -158,9 +159,11 @@ type FinalReportRouteDependencies = {
 };
 
 function reportAccessFor(request: Request) {
-  // This route is already protected by requireRole. The product-facing Manager
-  // maps only to the server-owned admin role.
-  return request.currentUser?.role === "admin" ? "manager" as const : "technician" as const;
+  // Every caller is already protected by requireRole. The product-facing Manager is
+  // the admin, or (T4) a supervisor on the Manager report routes, which see the same
+  // visits as the admin; the technician report routes never admit a supervisor.
+  const role = request.currentUser?.role;
+  return role === "admin" || role === "supervisor" ? "manager" as const : "technician" as const;
 }
 
 function finalReportFailure(error: unknown, response: Response) {
@@ -201,6 +204,13 @@ export function createFinalReportPdfHandler({ database = pool, loadReport = load
         return;
       }
       const report = await loadReport(jobId, database, reportAccessFor(request));
+      // T5 (owner decision): a visit corrected after submission gets no PDF until the PDF work renders the
+      // corrections; a PDF silently showing the uncorrected values would be worse than none. Checked after
+      // the report's own access check, so unknown and forbidden visits still look the same.
+      if (await visitHasCorrections(database, jobId)) {
+        response.status(409).json({ error: "FINAL_REPORT_HAS_CORRECTIONS", message: "This visit was corrected after submission. The PDF will be available once the report includes the corrections; the web report lists them." });
+        return;
+      }
       const filename = finalReportFilename(report);
       response.setHeader("Content-Type", "application/pdf");
       response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { UserRole } from "../auth/authTypes.js";
 import { auditLog } from "../audit/auditLog.js";
 import { createSession, clearSessionCookie, setSessionCookie } from "../auth/sessionTokens.js";
 import { verifyPassword } from "../auth/passwords.js";
@@ -9,7 +10,7 @@ type UserRow = {
   id: string;
   username: string;
   password_hash: string;
-  role: "admin" | "inspector";
+  role: UserRole;
   is_active: boolean;
 };
 

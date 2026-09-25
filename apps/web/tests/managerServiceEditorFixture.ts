@@ -192,7 +192,7 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
 export async function openFakeCustomer(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
-  await page.getByRole("button", { name: "Add Customer", exact: true }).click();
+  await page.getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /Harbour View Tower/ }).click();
   await page.getByRole("heading", { name: "Harbour View Tower", level: 2 }).waitFor();
 }

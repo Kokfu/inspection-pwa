@@ -112,6 +112,19 @@ const serviceCatalogRetirementMigrationUrl = new URL(
 const generalLocationFormIdentityMigrationUrl = new URL(
   "../../migrations/038_general_location_form_identity.sql", import.meta.url
 );
+// NOTE: renumbered from 031/032 during the claude/autopilot merge — both branches
+// independently created migrations 031/032 for unrelated purposes. This side's
+// 031 (report cover fields) and 032 (user display names) were already
+// established as part of a continuous 031-038 sequence, so the autopilot
+// migrations were moved to the next free numbers (039/040) instead of
+// renumbering the already-sequenced files. See docs/autopilot/designs/T4.md
+// and T5.md for the original (031/032) numbers referenced in that history.
+const supervisorRoleMigrationUrl = new URL(
+  "../../migrations/039_supervisor_role.sql", import.meta.url
+);
+const inspectionCorrectionsMigrationUrl = new URL(
+  "../../migrations/040_inspection_corrections.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -528,6 +541,25 @@ export async function runMigrations(
   // 006 replays its original trigger function on startup; reapply this forward
   // replacement afterward so both fresh and upgraded databases keep the rule.
   await database.query(await readFile(generalLocationFormIdentityMigrationUrl, "utf8"));
+  // Migration 039 (originally numbered 031 on claude/autopilot; renumbered to
+  // avoid colliding with this branch's own 031) widens `users_role_check` to
+  // include 'supervisor'; a CHECK that already names 'supervisor' is the replay marker.
+  const supervisorRole = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='users_role_check'
+      AND conrelid='users'::regclass AND pg_get_constraintdef(oid) LIKE '%''supervisor''%') AS exists`
+  );
+  if (!supervisorRole.rows[0]?.exists) {
+    await database.query(await readFile(supervisorRoleMigrationUrl, "utf8"));
+  }
+  // Migration 040 (originally numbered 032 on claude/autopilot; renumbered for
+  // the same reason) creates `inspection_corrections`; the table's presence is
+  // the replay marker.
+  const inspectionCorrections = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.inspection_corrections') IS NOT NULL AS exists`
+  );
+  if (!inspectionCorrections.rows[0]?.exists) {
+    await database.query(await readFile(inspectionCorrectionsMigrationUrl, "utf8"));
+  }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

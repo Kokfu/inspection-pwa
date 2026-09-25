@@ -19,7 +19,7 @@ const storageKey = "manager-report-return:v2";
 const ownerKey = "manager-session-owner:v1";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 /** Prefixes of every sessionStorage key a Manager screen writes. */
-const managerSessionKeyPrefixes = ["manager-report-return:", "manager-services-done:", "manager-technician-tab:", "manager-service-tab:", "manager-session-owner:"];
+const managerSessionKeyPrefixes = ["manager-report-return:", "manager-services-done:", "manager-technician-tab:", "manager-service-tab:", "manager-experience:", "manager-session-owner:"];
 
 function isManagerReturnRoute(value: unknown): value is ManagerReturnRoute {
   if (typeof value !== "object" || value === null) return false;
@@ -27,6 +27,23 @@ function isManagerReturnRoute(value: unknown): value is ManagerReturnRoute {
   return typeof hash === "string" && /^#\/manager-[a-z-]+(\/[A-Za-z0-9%_-]+)?$/.test(hash)
     && typeof label === "string" && label.length > 0 && label.length <= 60
     && typeof jobId === "string" && uuidPattern.test(jobId);
+}
+
+const experienceKey = "manager-experience:v1";
+
+/**
+ * Remembers, for this tab, that the verified admin chose the Manager experience, so a reload returns to
+ * Manager instead of the role chooser. Only written once the Manager experience is verified; like every
+ * Manager key it is bound to the owner stamp, so logout, login and any change of verified user clear it.
+ * `false` forgets it (any fail-closed exit to the role chooser).
+ */
+export function rememberManagerExperience(active: boolean) {
+  writeManagerSession(experienceKey, active ? "manager" : null);
+}
+
+/** `true` when this tab remembers a Manager choice. Read only after `claimManagerSession` for the verified user. */
+export function readManagerExperience(): boolean {
+  return readManagerSession(experienceKey, (value): value is "manager" => value === "manager") === "manager";
 }
 
 export function rememberManagerReturn(value: ManagerReturnRoute | null) {
@@ -39,7 +56,7 @@ export function readManagerReturn(jobId: string): ManagerReturnRoute | null {
   return stored && stored.jobId === jobId ? stored : null;
 }
 
-/** Removes every Manager session key (return routes, Services Done selection, technician tabs, per-service editor tabs, owner stamp). Never throws. */
+/** Removes every Manager session key (return routes, Services Done selection, technician tabs, per-service editor tabs, remembered Manager choice, owner stamp). Never throws. */
 export function clearManagerSession() {
   try {
     const keys: string[] = [];

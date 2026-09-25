@@ -234,7 +234,9 @@ function ManagerFormWording({ customerId, systemKey, systemLabel, onSaved, onAut
   const editingDirty = editing !== null && (withValueFor(editing.path, editing.value) !== draftValue(editing.path));
   const customCount = labels ? labels.filter((node) => isCustom(node.path)).length : 0;
 
-  useEffect(() => { onUnsavedChange(unsaved); }, [unsaved]);
+  // An open inline editor holding typed text counts as one unsaved change, so the leave guard covers it.
+  const pending = unsaved + (editingDirty && editing !== null && !isChanged(editing.path) ? 1 : 0);
+  useEffect(() => { onUnsavedChange(pending); }, [pending]);
   useEffect(() => () => onUnsavedChange(0), []);
 
   function withValueFor(path: string, value: string) {

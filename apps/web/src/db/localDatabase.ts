@@ -36,7 +36,7 @@ export type DeviceAuthState = {
   schemaVersion?: 1;
   userId?: number;
   username?: string;
-  role?: "admin" | "inspector";
+  role?: "admin" | "inspector" | "supervisor";
   lastVerifiedAt?: string;
   cachedAt?: string;
   explicitLogout?: boolean;

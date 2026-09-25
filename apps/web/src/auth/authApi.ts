@@ -1,8 +1,16 @@
 export type AuthUser = {
   id: number;
   username: string;
-  role: "admin" | "inspector";
+  role: "admin" | "inspector" | "supervisor";
 };
+
+/** A user who may be recorded as an inspection's device-reported creator. */
+export type InspectionCreatorUser = AuthUser & { role: "admin" | "inspector" };
+
+/** Supervisors review; they never create inspections (T4), so they are never a creator. */
+export function inspectionCreatorUser(user: AuthUser | undefined): InspectionCreatorUser | undefined {
+  return user && user.role !== "supervisor" ? { id: user.id, username: user.username, role: user.role } : undefined;
+}
 
 export type AuthProbeResult =
   | { status: "authenticated"; user: AuthUser }

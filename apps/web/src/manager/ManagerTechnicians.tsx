@@ -6,6 +6,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
+  const [role, setRole] = useState<"inspector" | "supervisor">("inspector");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(true);
   const mounted = useRef(false);
@@ -29,26 +30,31 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   return <section aria-labelledby="technicians-title"><h2 id="technicians-title">Technician List</h2>
     <form className="manager-inline-form" onSubmit={(event) => {
       event.preventDefault();
-      void mutate(async () => { await createManagerTechnician({ username, password, displayName: newDisplayName.trim() || null }); setUsername(""); setPassword(""); setNewDisplayName(""); });
+      void mutate(async () => { await createManagerTechnician({ username, password, displayName: newDisplayName.trim() || null, role }); setUsername(""); setPassword(""); setNewDisplayName(""); setRole("inspector"); });
     }}><h3>Add Technician</h3>
       <label>Username<input required maxLength={100} autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
       <label>Person’s name<input maxLength={160} autoComplete="name" value={newDisplayName} onChange={(event) => setNewDisplayName(event.target.value)} /></label>
       <label>Password<input required type="password" minLength={12} maxLength={1024} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-      <button disabled={busy} type="submit">Add Technician</button>
+      <label>Role<select value={role} onChange={(event) => setRole(event.target.value === "supervisor" ? "supervisor" : "inspector")}>
+        <option value="inspector">Technician</option>
+        <option value="supervisor">Supervisor (review only)</option>
+      </select></label>
+      <button disabled={busy} type="submit">{role === "supervisor" ? "Add Supervisor" : "Add Technician"}</button>
     </form>
     {message && <p role="alert" className="form-message">{message}</p>}
     {busy && <p role="status">Updating technicians…</p>}
     <ul className="manager-technician-list">{technicians.map((technician) => <li key={technician.id}>
-      {onOpen
+      {onOpen && technician.role === "inspector"
         ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
         : <strong>{technician.username}</strong>}
+      {technician.role === "supervisor" && <span className="status-badge status-badge--neutral">Supervisor</span>}
       <span className={`status-badge status-badge--${technician.isActive ? "complete" : "attention"}`}>{technician.isActive ? "Active" : "Inactive"}</span>
       <form onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("displayName"); if (typeof value === "string") void mutate(() => updateManagerTechnicianDisplayName(technician.id, value.trim() || null)); }}>
         <label>Person’s name<input name="displayName" maxLength={160} defaultValue={technician.displayName ?? ""} key={`${technician.id}:${technician.displayName}`} /></label>
         <button type="submit" className="secondary-command" disabled={busy}>Save name</button>
       </form>
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
-        if (window.confirm("Deactivate this technician? They will no longer be able to log in.")) void mutate(() => deactivateManagerTechnician(technician.id));
+        if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "supervisor" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}
     </li>)}</ul>
     {!busy && !technicians.length && <p className="empty-state">No technicians.</p>}

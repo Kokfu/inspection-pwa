@@ -1,0 +1,12 @@
+<!doctype html><html><body><div id="view"></div><script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { AcceptedCorrectionsPanel } from "/src/corrections/AcceptedCorrectionsPanel.tsx";
+const clientUuid = new URLSearchParams(location.search).get("clientUuid") ?? "00000000-0000-4000-8000-000000000901";
+// The panel sits above an accepted detail; the stand-in below must survive whatever the panel's fetch does.
+createRoot(document.getElementById("view")).render(React.createElement(React.Fragment, null,
+  React.createElement(AcceptedCorrectionsPanel, { clientUuid }),
+  React.createElement("section", { id: "accepted-detail" }, "Accepted inspection detail")
+));
+</script></body></html>

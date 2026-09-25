@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { archiveManagerServiceVisit, loadManagerServiceHistory, ManagerApiError, restoreManagerServiceVisit, type ManagerCustomer, type ManagerServiceHistoryFilters, type ManagerServiceVisit, type ManagerTechnician } from "./managerApi";
+import { archiveManagerServiceVisit, loadManagerServiceHistory, ManagerApiError, restoreManagerServiceVisit, type ManagerCustomerSummary, type ManagerServiceHistoryFilters, type ManagerServiceVisit, type ManagerTechnician } from "./managerApi";
 import { formatClientDate, formatMalaysiaDateTime } from "../uiPresentation";
 
 type StatusFilter = "" | "open" | "closed";
@@ -54,7 +54,7 @@ export function ManagerCustomerServiceHistory({
   customer, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onAuthorityFailure,
   variant = "configuration", technicians = [], initialFilters, onFiltersApplied
 }: {
-  customer: ManagerCustomer;
+  customer: ManagerCustomerSummary;
   onViewServiceVisit: (jobId: string) => void;
   onViewFinalReport: (jobId: string) => void;
   onDownloadFinalReport: (jobId: string) => Promise<void>;

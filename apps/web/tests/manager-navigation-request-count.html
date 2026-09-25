@@ -78,7 +78,7 @@
         clickContaining("Manager");
         auth.resolve(json({ user: admin }));
         await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard");
-        clickContaining("Services");
+        clickContaining("Operations");
         await waitFor(() => window.location.hash === "#/manager-operations" && mount.querySelector("#manager-home-title") && mount.textContent.includes(visit.customer), "Manager Operations");
 
         clickContaining(visit.customer);

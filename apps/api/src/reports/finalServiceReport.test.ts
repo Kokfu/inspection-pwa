@@ -66,6 +66,8 @@ class Database {
       completed_at: this.closed ? "2026-08-19T08:00:00.000Z" : null, completed_by_user_id: this.closed ? 7 : null, completed_by_username: null, completed_by_display_name: this.closed ? "inspector-one" : null,
       reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] };
     if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: forms.length, rows: forms };
+    // T5: the PDF route asks whether the visit was corrected after submission.
+    if (sql.includes("inspection_corrections")) return { rowCount: 1, rows: [{ hasCorrections: false }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }

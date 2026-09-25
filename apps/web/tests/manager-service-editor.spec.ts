@@ -150,6 +150,36 @@ test("unsaved-changes guard on Back and browser navigation", async ({ page }) =>
   expect(dialogs).toHaveLength(3);
 });
 
+test("guard covers text typed into an open wording editor and Sign out", async ({ page }) => {
+  await installFakeManagerApi(page);
+  await openFakeCustomer(page);
+  await openService(page, /Hose Reel System/);
+  // Typed but not committed with Done: still an unsaved change.
+  await page.getByRole("button", { name: "Edit wording: Drum", exact: true }).click();
+  await page.getByLabel("New wording").fill("Reel drum");
+
+  const dialogs: string[] = [];
+  page.once("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
+  await page.getByRole("button", { name: "Back to Harbour View Tower" }).click();
+  expect(dialogs).toEqual(["You have 1 unsaved wording change. Leave without saving?"]);
+  await expect(page).toHaveURL(/\/service\/hose_reel$/);
+  await expect(page.getByLabel("New wording")).toHaveValue("Reel drum");
+
+  // Sign out asks too; declining keeps the session, the screen and the typed text.
+  page.once("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
+  await page.getByRole("button", { name: "Sign out" }).click();
+  expect(dialogs).toHaveLength(2);
+  await expect(page).toHaveURL(/\/service\/hose_reel$/);
+  await expect(page.getByLabel("New wording")).toHaveValue("Reel drum");
+
+  // Accepting signs out.
+  page.once("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.accept(); });
+  await page.getByRole("button", { name: "Sign out" }).click();
+  expect(dialogs).toHaveLength(3);
+  await expect(page.getByLabel("New wording")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+});
+
 test("search, only-custom filter and Preview as technician", async ({ page }) => {
   await installFakeManagerApi(page);
   await openFakeCustomer(page);

@@ -210,6 +210,74 @@ The rebuilt container excludes `/app/docs` and renders nine pages with destinati
 as the unchanged filename and is an 11-page, 423,897-byte PDF. Every page of both regenerated PDFs
 was rendered and visually checked; opening pages have no visible suffix and overflow pages do.
 
+**Last updated:** 2026-09-25 — **`claude/autopilot` merged into `phase-8e-client-demo-polish`.**
+Brings T1–T6 (per-service editor UI polish, Wet Chemical parser hardening, remembered Manager choice,
+Supervisor role, append-only corrections to accepted V7 records, T6 report-approval design) together
+with this branch's FM200 system, manager UI navigation split, and soft-archive/retirement work. See the
+`claude/autopilot` entries immediately below for that branch's own history up to the merge.
+
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T6 report-approval design written — waiting for owner approval.**
+`docs/autopilot/designs/T6.md`: append-only `report_approvals` (migration 033) with derived state, a
+correction after approval reverting to awaiting approval, and the PDF released only once approved. Six
+owner questions (§8). Also open: T5d (corrections panel vs inline effective values).
+
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5c landed — supervisors read accepted records and evidence; corrections show on Accepted Detail (committed on the branch, not merged).**
+Read-only widening only (`requireReviewerOrOwnership`); technicians still see their own records and now
+their corrections. OPEN OWNER DECISION T5d: corrections are a panel above the record, not the inline
+effective value + badge of design §3.4. Details: `docs/autopilot/BACKLOG.md` T5c/T5d.
+
+**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5b Manager correction screens landed (committed on the branch, not merged).**
+Visit detail lists accepted records → correction screen (required reason, unsaved-changes guard, original
+always shown); Final Report lists corrections and withholds the PDF until they are rendered. Next: T5c
+(supervisor accepted-detail + evidence reads, corrections on Accepted Detail).
+Details: `docs/autopilot/BACKLOG.md` T5b.
+
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5a corrections API landed (committed on the branch, not merged).**
+Append-only `inspection_corrections` (migration 032 — needs running on the client DB at deploy); accepted
+records are never written; supervisors/admins correct V7 records of 8 systems through
+`/manager/inspections/:clientUuid/corrections`; PDF download is refused (409) for a corrected visit until
+the PDF work renders corrections. Next: T5b (Manager correction screen), T5c (accepted detail).
+Details: `docs/autopilot/BACKLOG.md` T5a, `docs/autopilot/designs/T5.md` §8b.
+
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T5 corrections design written — waiting for owner approval.**
+`docs/autopilot/designs/T5.md`: append-only `inspection_corrections` (migration 032) pointing at the
+accepted form instance; effective value = accepted value + latest correction; accepted rows never
+written; report/PDF integration handed to the PDF work as a view-model proposal. Six owner questions (§9).
+
+**Last updated:** 2026-09-20 — **Branch `claude/autopilot`: T4 supervisor role implemented (committed on the branch, not merged).**
+Review-only Manager access for `supervisor` (migration 031 — must run on the client DB at deploy),
+created by an admin from the technician form; accepted-detail/evidence reads deferred to T5 (owner).
+Details: `docs/autopilot/BACKLOG.md` T4, `docs/autopilot/designs/T4.md` §9.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T4 Supervisor role design written (approved 2026-09-20).**
+`docs/autopilot/designs/T4.md`: new `supervisor` role via forward migration 031, explicit per-route
+`requireRole` lists (no hierarchy), review-only Manager screens, admin creates supervisors from the
+technician form, audit via `audit_events`. Three owner questions in its §8.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T3 — a reload keeps the Manager choice (committed on the branch, not merged).**
+Per tab, for the same verified admin only (`manager-experience:v1`, cleared with the Manager session on
+login, logout and identity change; forgotten on every exit to the role chooser). Technician unchanged.
+Details: `docs/autopilot/BACKLOG.md` T3.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T2 landed the Wet Chemical accepted-detail parser and live-spec gating (committed on the branch, not merged).**
+Parser takes the shared suppression detail shape (V4 good/poor, V5/V6 as V4, V7 4-state); live specs
+run only with `PLAYWRIGHT_LIVE=1`; `Test-ManagerScheduling.ps1` is the main-tree version plus this
+branch's tests. Details: `docs/autopilot/BACKLOG.md` T2.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T1b landed the UI token system / polish (committed on the branch, not merged).**
+Main-tree `app.css` token refactor + post-login route keep (`landingHash`, `App.tsx`), with fixes: focus
+outline restored (main-tree copy had a self-referential `--focus-outline`), `--muted-on-sunken` for AA
+contrast on sunken backgrounds, 560 px stacking breakpoint kept. Final Report card region verified
+pixel-identical. Details: `docs/autopilot/BACKLOG.md` T1b.
+
+**Last updated:** 2026-09-19 — **Branch `claude/autopilot`: T1 landed the Manager per-service editor (committed on the branch, not merged).**
+The editor from the main tree (see "Manager form-shaped per-service editor" below) is now committed on
+`claude/autopilot`, with two review fixes: text typed into an open wording editor counts as unsaved
+(Back, browser Back and reload ask first), and Sign out asks before discarding unsaved wording
+(`confirmManagerLeave`, `managerLeaveGuard.ts`). `app.css` only gained the tokens the editor uses; the
+main tree's full token refactor and the post-login `landingHash` change are backlog T1b.
+Status per task: `docs/autopilot/BACKLOG.md`.
+
 **Last updated:** 2026-09-19 — **V7 live-spec test hardening (uncommitted; tests + one test script only).**
 **Wet Chemical checklist.** `tests/wet-chemical-v7-live-accepted-detail.spec.ts` now asserts the full
 paragraph with `toHaveText`, as CO2 does: `"Battery: Good"`, `"Charger: No Need Checking / N.A."`,

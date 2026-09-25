@@ -57,6 +57,21 @@ export function requireExpectedActor(action: string, entityType: string): Reques
   };
 }
 
+/**
+ * T5c: a supervisor reviews every accepted record, so read-only review routes skip the technician
+ * ownership check for that role only. `technicianOwns` itself gains no supervisor branch — no write path
+ * can inherit this. Every caller must be a GET that only reads accepted data.
+ */
+export function requireReviewerOrOwnership(
+  kind: OwnershipIdentity, identity: (request: Request) => unknown, action?: string
+): RequestHandler {
+  const owned = requireTechnicianOwnership(kind, identity, action);
+  return (request, response, next) => {
+    if (request.currentUser?.role === "supervisor") { next(); return; }
+    owned(request, response, next);
+  };
+}
+
 export function requireTechnicianOwnership(
   kind: OwnershipIdentity, identity: (request: Request) => unknown, action?: string
 ): RequestHandler {

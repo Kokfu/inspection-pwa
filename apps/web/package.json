@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test:fire-alarm-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmAcceptedDetailTuple.test.ts",
+    "test:role-access": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/roleAccess.test.ts",
     "test:wet-chemical-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/wetChemicalAcceptedDetailParser.test.ts",
     "test:label-overrides-parity": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/labelOverridesParity.test.ts",
     "test:label-overrides-technician": "playwright test tests/label-override-technician-form.spec.ts",

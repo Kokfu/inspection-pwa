@@ -1,5 +1,5 @@
 import { ownedMultipart, OwnershipUploadError } from "../jobs/ownedMultipart.js";
-import { requireExpectedActor, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
+import { requireExpectedActor, requireReviewerOrOwnership, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { stat, unlink } from "node:fs/promises";
@@ -661,8 +661,8 @@ inspectionAttachmentsRouter.post(
 
 inspectionAttachmentsRouter.get(
   "/inspection-attachments",
-  requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.query.inspectionClientUuid),
+  requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.query.inspectionClientUuid),
   async (request, response, next) => {
     try {
       const inspectionClientUuid = request.query.inspectionClientUuid;
@@ -701,8 +701,8 @@ inspectionAttachmentsRouter.get(
 
 inspectionAttachmentsRouter.get(
   "/inspection-attachments/:photoUuid/content",
-  requireRole("admin", "inspector"),
-  requireTechnicianOwnership("attachment", (request) => request.params.photoUuid),
+  requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("attachment", (request) => request.params.photoUuid),
   async (request, response, next) => {
     try {
       const photoUuid = request.params.photoUuid;

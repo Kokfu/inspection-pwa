@@ -25,7 +25,8 @@ import { resolveCo2Controls } from "../inspections/templates/co2DefinitionContro
 import { resolveHoseReelControls } from "../inspections/templates/definitionControls.js";
 import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
-import { requireRole } from "../middleware/requireRole.js";
+import type { UserRole } from "../auth/authTypes.js";
+import { requireRoleAudited } from "../middleware/requireRole.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = loadConfig().customerCatalogVersion;
@@ -482,6 +483,15 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
   };
 }
 
+/** The read-only customer view a supervisor receives from the customer list (T4). */
+export function supervisorCustomerSummary(value: NonNullable<Awaited<ReturnType<typeof loadManagerCustomer>>>) {
+  return {
+    customer: { id: value.customer.id, code: value.customer.code, displayName: value.customer.displayName },
+    sites: value.sites.map((site) => ({ id: site.id, code: site.code, displayName: site.displayName })),
+    supportedSystems: value.supportedSystems.map((system) => ({ key: system.key, displayName: system.displayName, sortOrder: system.sortOrder }))
+  };
+}
+
 export async function listManagerCustomers(database: Pick<Pool, "query"> = pool) {
   const result = await database.query<{ id: string }>(`SELECT id FROM customers WHERE is_active = true AND is_demo = false ORDER BY display_name, id`);
   return Promise.all(result.rows.map(({ id }) => loadManagerCustomer(id, database)));
@@ -636,6 +646,8 @@ export function createManagerCustomersRouter(
   options: { afterCustomerInserted?: () => Promise<void> | void } = {}
 ) {
   const router = Router();
+  // Every Manager route decision goes through the audited guard (supervisor refusals are logged).
+  const requireRole = (...roles: UserRole[]) => requireRoleAudited(database, ...roles);
   router.get("/customers/service-format-options", requireRole("admin", "inspector"), async (_request, response, next) => {
     try {
       const systems = await loadSupportedCatalog(database);
@@ -672,8 +684,14 @@ export function createManagerCustomersRouter(
       response.status(created.idempotent ? 200 : 201).json({ customer: await loadManagerCustomer(created.customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });
-  router.get("/manager/customers", requireRole("admin"), async (_request, response, next) => {
-    try { response.setHeader("Cache-Control", "private, no-store"); response.json({ customers: await listManagerCustomers(database) }); } catch (error) { next(error); }
+  router.get("/manager/customers", requireRole("admin", "supervisor"), async (request, response, next) => {
+    try {
+      response.setHeader("Cache-Control", "private, no-store");
+      const customers = await listManagerCustomers(database);
+      // A supervisor may search customers for Services Done only: identity, sites and the system
+      // catalogue — never configuration, contact details or due dates (T4 design, owner Q1).
+      response.json({ customers: request.currentUser?.role === "supervisor" ? customers.flatMap((customer) => customer ? [supervisorCustomerSummary(customer)] : []) : customers });
+    } catch (error) { next(error); }
   });
   router.get("/manager/customers/upcoming-service", requireRole("admin"), async (_request, response, next) => {
     try {

@@ -1,5 +1,6 @@
-import { requireTechnicianOwnership, technicianOwns, jobNotFound } from "../jobs/technicianOwnership.js";
+import { requireReviewerOrOwnership, requireTechnicianOwnership, technicianOwns, jobNotFound } from "../jobs/technicianOwnership.js";
 import { Router } from "express";
+import type { UserRole } from "../auth/authTypes.js";
 import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
@@ -52,7 +53,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression", actor: { id: number; role: "admin" | "inspector" }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression", actor: { id: number; role: UserRole }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
@@ -73,7 +74,7 @@ async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "c
     LEFT JOIN users creator ON creator.id=instance.original_created_by_user_id
     INNER JOIN users syncer ON syncer.id=instance.synced_by_user_id
     WHERE instance.client_uuid=$1 AND instance.status='submitted' AND inspection.system_key=$2
-      AND ($3::text='admin' OR instance.snapshot_schema_version<>2 OR instance.synced_by_user_id=$4)`,
+      AND ($3::text IN ('admin','supervisor') OR instance.snapshot_schema_version<>2 OR instance.synced_by_user_id=$4)`,
     [clientUuid, systemKey, actor.role, actor.id]
   );
   return result.rows[0] as Record<string, unknown> | undefined;
@@ -123,8 +124,8 @@ function acceptedDetailResponse(row: Record<string, unknown>, systemLabel: strin
   };
 }
 
-masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -141,8 +142,8 @@ masterSystemInspectionsRouter.get("/hose-reel-inspections/:clientUuid", requireR
   } catch (error) { next(error); }
 });
 
-masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -153,8 +154,13 @@ masterSystemInspectionsRouter.get("/co2-inspections/:clientUuid", requireRole("a
   } catch (error) { next(error); }
 });
 
-masterSystemInspectionsRouter.get("/fm200-inspections/:clientUuid", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+// NOTE (merge, claude/autopilot T5c): FM200 did not exist on claude/autopilot when the
+// supervisor read-widening (requireReviewerOrOwnership) was designed for the other 8 V7
+// systems. Owner decision (post-merge): widen FM200 the same way, for consistency with
+// the other 8 systems and with FM200 evidence (/v7-evidence/accepted), which already
+// grants supervisor reads.
+masterSystemInspectionsRouter.get("/fm200-inspections/:clientUuid", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -165,8 +171,8 @@ masterSystemInspectionsRouter.get("/fm200-inspections/:clientUuid", requireRole(
   } catch (error) { next(error); }
 });
 
-masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
+masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid), async (request, response, next) => {
   try {
     const clientUuid = request.params.clientUuid;
     if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
@@ -179,13 +185,13 @@ masterSystemInspectionsRouter.get("/wet-chemical-inspections/:clientUuid", requi
 
 masterSystemInspectionsRouter.get(
   "/fire-alarm-inspections/:clientUuid",
-  requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
+  requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid=request.params.clientUuid;
       if(typeof clientUuid!=="string"||!uuidPattern.test(clientUuid)){response.status(400).json({error:"INVALID_INSPECTION_ID"});return;}
-      const result=await pool.query(`SELECT instance.client_uuid AS "clientUuid",instance.id AS "serverFormInstanceId",instance.inspection_group_id AS "inspectionGroupId",inspection.id AS "parentId",job.id AS "jobId",job.job_reference AS "jobReference",job.title AS "jobTitle",customer.id AS "customerId",customer.customer_code AS "customerCode",customer.display_name AS "customerName",inspection.system_key AS "systemKey",instance.instance_key AS "instanceKey",instance.zone_id AS "zoneId",instance.location_id AS "locationId",instance.display_sequence AS "displaySequence",instance.status,to_char(instance.performed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "performedAt",to_char(instance.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",instance.master_template_version_id AS "templateId",instance.customer_configuration_revision_id AS "configurationRevisionId",instance.snapshot_schema_version AS "snapshotSchemaVersion",instance.response_schema_version AS "responseSchemaVersion",instance.inspection_snapshot AS "inspectionSnapshot",instance.response_payload AS responses,instance.original_creator_snapshot AS "originalCreatorSnapshot",instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",creator.username AS "verifiedOriginalCreatorUsername",syncer.username AS "syncedByUsername" FROM master_system_form_instances instance INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id INNER JOIN inspection_jobs job ON job.id=inspection.job_id INNER JOIN customers customer ON customer.id=job.customer_id LEFT JOIN users creator ON creator.id=instance.original_created_by_user_id INNER JOIN users syncer ON syncer.id=instance.synced_by_user_id WHERE instance.client_uuid=$1 AND instance.status='submitted' AND inspection.system_key='fire_alarm_detector' AND ($2::text='admin' OR instance.snapshot_schema_version<>2 OR instance.synced_by_user_id=$3)`,[clientUuid,request.currentUser!.role,request.currentUser!.id]);
+      const result=await pool.query(`SELECT instance.client_uuid AS "clientUuid",instance.id AS "serverFormInstanceId",instance.inspection_group_id AS "inspectionGroupId",inspection.id AS "parentId",job.id AS "jobId",job.job_reference AS "jobReference",job.title AS "jobTitle",customer.id AS "customerId",customer.customer_code AS "customerCode",customer.display_name AS "customerName",inspection.system_key AS "systemKey",instance.instance_key AS "instanceKey",instance.zone_id AS "zoneId",instance.location_id AS "locationId",instance.display_sequence AS "displaySequence",instance.status,to_char(instance.performed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "performedAt",to_char(instance.received_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "receivedAt",instance.master_template_version_id AS "templateId",instance.customer_configuration_revision_id AS "configurationRevisionId",instance.snapshot_schema_version AS "snapshotSchemaVersion",instance.response_schema_version AS "responseSchemaVersion",instance.inspection_snapshot AS "inspectionSnapshot",instance.response_payload AS responses,instance.original_creator_snapshot AS "originalCreatorSnapshot",instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",creator.username AS "verifiedOriginalCreatorUsername",syncer.username AS "syncedByUsername" FROM master_system_form_instances instance INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id INNER JOIN inspection_jobs job ON job.id=inspection.job_id INNER JOIN customers customer ON customer.id=job.customer_id LEFT JOIN users creator ON creator.id=instance.original_created_by_user_id INNER JOIN users syncer ON syncer.id=instance.synced_by_user_id WHERE instance.client_uuid=$1 AND instance.status='submitted' AND inspection.system_key='fire_alarm_detector' AND ($2::text IN ('admin','supervisor') OR instance.snapshot_schema_version<>2 OR instance.synced_by_user_id=$3)`,[clientUuid,request.currentUser!.role,request.currentUser!.id]);
       const row=result.rows[0] as Record<string,unknown>|undefined;
       if(!row){response.status(404).json({error:"INSPECTION_NOT_FOUND"});return;}
       const stored=validateStoredFireAlarmDetail(row);
@@ -197,8 +203,8 @@ masterSystemInspectionsRouter.get(
 
 masterSystemInspectionsRouter.get(
   "/dry-wet-riser-inspections/:clientUuid",
-  requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
+  requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid = request.params.clientUuid;
@@ -277,7 +283,8 @@ masterSystemInspectionsRouter.get(
 
 masterSystemInspectionsRouter.get(
   "/master-system-inspections",
-  requireRole("admin", "inspector"),
+  // A supervisor reviews every job's accepted records; the inspector filter below keeps technicians to theirs.
+  requireRole("admin", "inspector", "supervisor"),
   async (request, response, next) => {
     try {
       const jobId = typeof request.query.jobId === "string"
@@ -305,7 +312,8 @@ masterSystemInspectionsRouter.get(
         return;
       }
 
-      if (jobId && !await technicianOwns(request, "job", jobId)) {
+      // A supervisor reviews any job (read-only); technicians stay scoped to jobs they own.
+      if (jobId && request.currentUser!.role !== "supervisor" && !await technicianOwns(request, "job", jobId)) {
         response.status(404).json(jobNotFound); return;
       }
       const values: unknown[] = [];
@@ -488,8 +496,8 @@ masterSystemInspectionsRouter.get(
 
 masterSystemInspectionsRouter.get(
   "/master-system-inspections/:clientUuid",
-  requireRole("admin", "inspector"),
-  requireTechnicianOwnership("form", (request) => request.params.clientUuid),
+  requireRole("admin", "inspector", "supervisor"),
+  requireReviewerOrOwnership("form", (request) => request.params.clientUuid),
   async (request, response, next) => {
     try {
       const clientUuid = request.params.clientUuid;

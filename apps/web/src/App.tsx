@@ -34,6 +34,7 @@ import { HydrantInspectionForm } from "./hydrant/HydrantInspectionForm";
 import { returnFailedHydrantToDraft, saveHydrantDraft, submitLocalHydrant } from "./hydrant/hydrantRepository";
 import type { HydrantInspectionRecord, HydrantResponses } from "./hydrant/hydrantTypes";
 import type { ServerHydrantDetail } from "./hydrant/serverHydrantApi";
+import { AcceptedCorrectionsPanel } from "./corrections/AcceptedCorrectionsPanel";
 import { ServerHydrantView } from "./hydrant/ServerHydrantView";
 import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute, type HydrantAuthorityResolution } from "./hydrant/hydrantResolution";
 import { SmokeVentilationInspectionForm } from "./smokeVentilation/SmokeVentilationInspectionForm";
@@ -84,7 +85,7 @@ import type { Fm200Responses } from "./fm200/fm200Types";
 import { ServerWetChemicalView } from "./wetChemical/ServerWetChemicalView";
 import { loadServerWetChemicalDetail, type ServerWetChemicalDetail } from "./wetChemical/serverWetChemicalApi";
 import { resolveWetChemicalAuthority } from "./wetChemical/wetChemicalAuthority";
-import { getCurrentUser, login, logout, type AuthUser } from "./auth/authApi";
+import { getCurrentUser, inspectionCreatorUser, login, logout, type AuthUser } from "./auth/authApi";
 import {
   clearLocalIdentity,
   getDeviceAuthState,
@@ -104,18 +105,19 @@ import { ManagerHome } from "./manager/ManagerHome";
 import { ManagerOperations } from "./manager/ManagerOperations";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
 import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
-import { claimManagerSession, clearManagerSession, readManagerReturn, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
+import { claimManagerSession, clearManagerSession, readManagerExperience, readManagerReturn, rememberManagerExperience, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
 import { ManagerAddCustomer } from "./manager/ManagerAddCustomer";
 import { ManagerCommonRemarks } from "./manager/ManagerCommonRemarks";
 import { ManagerServiceCatalog } from "./manager/ManagerServiceCatalog";
+import { ManagerCorrectionEditor } from "./manager/ManagerCorrectionEditor";
 import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
-import { allowManagerHashChange } from "./manager/managerLeaveGuard";
-import { ManagerApiError, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
+import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
+import { ManagerApiError, loadAcceptedRecords, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerAcceptedRecord, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
-import { productRoleMatches } from "./manager/roleAccess";
+import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
 import { activateUserWorkspace, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
@@ -204,6 +206,7 @@ type AppRoute =
   | { name: "manager-customer"; customerId: string }
   | { name: "manager-customer-service"; customerId: string; systemKey: string }
   | { name: "manager-service-visit"; jobId: string }
+  | { name: "manager-correction"; clientUuid: string }
   | { name: "manager-final-report"; jobId: string }
   | { name: "system"; jobId: string; systemKey: string }
   | { name: "inspection"; clientUuid: string }
@@ -235,6 +238,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-customer" && parts[1] && parts[2] === "service" && parts[3]) return { name: "manager-customer-service", customerId: parts[1], systemKey: parts[3] };
   if (parts[0] === "manager-customer" && parts[1]) return { name: "manager-customer", customerId: parts[1] };
   if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
+  if (parts[0] === "manager-correction" && parts[1]) return { name: "manager-correction", clientUuid: parts[1] };
   if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
   if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
   if (parts[0] === "final-report" && parts[1]) return { name: "final-report", jobId: parts[1] };
@@ -269,6 +273,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-customer") return `#/manager-customer/${encodeURIComponent(route.customerId)}`;
   if (route.name === "manager-customer-service") return `#/manager-customer/${encodeURIComponent(route.customerId)}/service/${encodeURIComponent(route.systemKey)}`;
   if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
+  if (route.name === "manager-correction") return `#/manager-correction/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "new-service-visit") return "#/new-service-visit";
   if (route.name === "final-report") return `#/final-report/${encodeURIComponent(route.jobId)}`;
@@ -303,11 +308,16 @@ export function App() {
   const [authAuthorityGeneration, setAuthAuthorityGeneration] = useState(0);
   const [connectivityRecoveryActive, setConnectivityRecoveryActive] = useState(false);
   const [selectedExperience, setSelectedExperience] = useState<ProductRole>();
+  // A reload restores a remembered Manager choice once, at this page load's first completed verification.
+  const managerChoiceRestoreAttempted = useRef(false);
   const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
+  // T5: the accepted records of the visit on screen, for review and correction.
+  const [managerAcceptedRecords, setManagerAcceptedRecords] = useState<ManagerAcceptedRecord[]>([]);
+  const [managerAcceptedRecordsUnavailable, setManagerAcceptedRecordsUnavailable] = useState(false);
   const [managerCustomers, setManagerCustomers] = useState<ManagerCustomer[]>([]);
   const [managerCustomer, setManagerCustomer] = useState<ManagerCustomer>();
   const [managerLoading, setManagerLoading] = useState(false);
@@ -783,6 +793,13 @@ export function App() {
       if (!isCurrentReconciliation()) return undefined;
       installVerifiedAuthority(decision.user, authorityReplacement);
       setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
+      // Reload of a verified admin who had chosen Manager in this tab: skip the role chooser, once, at
+      // this page load's first completed verification (an offline start that reconnects still restores).
+      // The key survives only for the same verified user (owner stamp claimed above).
+      if (!managerChoiceRestoreAttempted.current) {
+        managerChoiceRestoreAttempted.current = true;
+        if (isManagerRole(decision.user.role) && readManagerExperience()) setSelectedExperience((current) => current ?? "manager");
+      }
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return undefined;
       await refreshServerWorkspace(decision.user, operation);
@@ -1018,7 +1035,11 @@ export function App() {
   // unlocks it, even after a previously verified login.
   const managerExperience = selectedExperience === "manager"
     && authState.status === "verified"
-    && currentUser?.role === "admin";
+    && currentUser !== undefined && isManagerRole(currentUser.role);
+  // A supervisor gets the review-only part of the Manager experience (T4).
+  const supervisorExperience = managerExperience && currentUser?.role === "supervisor";
+  // Remember the Manager choice for this tab only while the verified Manager experience is active.
+  useEffect(() => { if (managerExperience) rememberManagerExperience(true); }, [managerExperience]);
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
     ? readManagerReturn(route.jobId)
     : null;
@@ -1027,6 +1048,7 @@ export function App() {
     setRoleMessage("");
     if (currentUser && !productRoleMatches(role, currentUser)) {
       setSelectedExperience(undefined);
+      rememberManagerExperience(false);
       setRoleMessage(role === "manager"
         ? "This signed-in account does not have Manager access. Choose Technician to continue."
         : "This signed-in account does not have Technician access. Choose Manager to continue.");
@@ -1060,6 +1082,7 @@ export function App() {
     // Server-derived Manager views are unusable when their authority cannot
     // be refreshed. This does not alter verified session state by itself.
     setSelectedExperience(undefined);
+    rememberManagerExperience(false);
     setRoleMessage(message);
     if (revalidate) void revalidateAuthentication();
   }
@@ -1076,6 +1099,7 @@ export function App() {
       // A protected Manager endpoint rejected the session. Do not retain a
       // selected Manager presentation while the authoritative session check runs.
       setSelectedExperience(undefined);
+      rememberManagerExperience(false);
       setRoleMessage(message);
     }
     failClosedManagerOperations(message, error instanceof ManagerApiError && error.kind === "authorization");
@@ -1083,6 +1107,7 @@ export function App() {
 
   function handleManagerReportAuthorizationFailure(message: string) {
     setSelectedExperience(undefined);
+    rememberManagerExperience(false);
     setRoleMessage(message);
     failClosedManagerOperations(message);
   }
@@ -1147,10 +1172,23 @@ export function App() {
       return;
     }
     if (!route.name.startsWith("manager-")) { navigate({ name: "manager-home" }); return; }
+    // A supervisor deep-linking to an admin-only Manager screen lands on Manager Home (T4).
+    if (supervisorExperience && !supervisorAllowsRoute(route.name)) { navigate({ name: "manager-home" }); return; }
     if (route.name === "manager-operations" || route.name === "manager-customers") void refreshManagerVisits();
     if (route.name === "manager-service-visit") {
       const request = beginManagerRequest();
       setManagerVisit(undefined);
+      setManagerAcceptedRecords([]);
+      setManagerAcceptedRecordsUnavailable(false);
+      void loadAcceptedRecords(route.jobId, request.signal).then(
+        (records) => { if (managerRequestIsCurrent(request)) setManagerAcceptedRecords(records); },
+        (error: unknown) => {
+          if (!managerRequestIsCurrent(request)) return;
+          // The visit detail itself does not depend on this list; only an authority failure fails closed.
+          if (error instanceof ManagerApiError && error.kind === "authorization") { handleManagerRequestFailure(error); return; }
+          setManagerAcceptedRecordsUnavailable(true);
+        }
+      );
       setManagerLoading(true);
       setManagerMessage("");
       void loadManagerServiceVisit(route.jobId, request.signal).then(
@@ -1169,7 +1207,7 @@ export function App() {
       ).finally(() => { if (managerRequestIsCurrent(request)) setManagerLoading(false); });
     }
     return () => managerRequestGuard.current.invalidate();
-  }, [managerExperience, route]);
+  }, [managerExperience, supervisorExperience, route]);
   const jobIsCompleted = (jobId: string) => jobs.some((job) => job.id === jobId && job.status === "closed");
   const mayRenderLocalHydrant = canRenderLocalHydrant(
     activeHydrant,
@@ -1363,6 +1401,8 @@ export function App() {
   }
 
   async function handleLogout() {
+    // Unsaved Manager wording edits are asked about before signing out, never dropped silently.
+    if (!confirmManagerLeave()) return;
     const operation = beginExplicitAuthOperation();
     try {
       clearManagerSession();
@@ -1447,7 +1487,7 @@ export function App() {
       if (job.status === "closed") throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
-      const record = await getOrCreateHoseReelInspection(job, system, catalog, currentUser);
+      const record = await getOrCreateHoseReelInspection(job, system, catalog, inspectionCreatorUser(currentUser));
       setActiveHoseReel(record);
       await refreshMasterSystemInspections();
       navigate({ name: "inspection", clientUuid: record.clientUuid });
@@ -1470,7 +1510,7 @@ export function App() {
       }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
-      await initializeCo2InspectionGroup(job, system, catalog, currentUser);
+      await initializeCo2InspectionGroup(job, system, catalog, inspectionCreatorUser(currentUser));
       await refreshCo2Inspections();
       navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
     } catch (error) {
@@ -1492,7 +1532,7 @@ export function App() {
       }
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("FM200 reference data is not cached yet. Refresh jobs online first.");
-      await initializeFm200InspectionGroup(job, system, catalog, currentUser);
+      await initializeFm200InspectionGroup(job, system, catalog, inspectionCreatorUser(currentUser));
       await refreshCo2Inspections();
       navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
     } catch (error) {
@@ -2042,7 +2082,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               </div>
             </section>
           ) : route.name === "inspection" ? (
-            hoseReelAuthorityState === "server" && serverHoseReel ? <ServerHoseReelView inspection={serverHoseReel} onBack={()=>navigate({name:"job",jobId:serverHoseReel.jobId})}/> : hoseReelAuthorityState === "local" && activeHoseReel && !jobIsCompleted(activeHoseReel.jobId) ? (
+            hoseReelAuthorityState === "server" && serverHoseReel ? <><AcceptedCorrectionsPanel key={serverHoseReel.clientUuid} clientUuid={serverHoseReel.clientUuid} /><ServerHoseReelView inspection={serverHoseReel} onBack={()=>navigate({name:"job",jobId:serverHoseReel.jobId})}/></> : hoseReelAuthorityState === "local" && activeHoseReel && !jobIsCompleted(activeHoseReel.jobId) ? (
               <HoseReelInspectionForm
                 record={activeHoseReel}
                 onSaveDraft={handleSaveHoseReelDraft}
@@ -2068,13 +2108,16 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 onAttachmentsChange={refreshInspectionAttachments}
               />
             ) : serverAutomaticSprinkler ? (
-              <ServerAutomaticSprinklerView
-                inspection={serverAutomaticSprinkler}
-                onBack={() => navigate({
-                  name: "job",
-                  jobId: serverAutomaticSprinkler.jobId
-                })}
-              />
+              <>
+                <AcceptedCorrectionsPanel key={serverAutomaticSprinkler.clientUuid} clientUuid={serverAutomaticSprinkler.clientUuid} />
+                <ServerAutomaticSprinklerView
+                  inspection={serverAutomaticSprinkler}
+                  onBack={() => navigate({
+                    name: "job",
+                    jobId: serverAutomaticSprinkler.jobId
+                  })}
+                />
+              </>
             ) : (
               <section className="workspace">
                 <h2>Automatic Sprinkler inspection unavailable</h2>
@@ -2091,13 +2134,13 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               </section>
             )
           ) : route.name === "riser-form" ? (
-            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <><AcceptedCorrectionsPanel key={serverDryWetRiser.clientUuid} clientUuid={serverDryWetRiser.clientUuid} /><ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /></> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
             activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading completed inspection detail.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "wet-chemical-form" ? (
-            wetChemicalAuthorityState === "server" && serverWetChemical ? <ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            wetChemicalAuthorityState === "server" && serverWetChemical ? <><AcceptedCorrectionsPanel key={serverWetChemical.clientUuid} clientUuid={serverWetChemical.clientUuid} /><ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /></> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
-            co2AuthorityState === "server" && serverCo2 ? <ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/> : co2AuthorityState === "local" && activeCo2Form && !jobIsCompleted(activeCo2Form.jobId) ? (
+            co2AuthorityState === "server" && serverCo2 ? <><AcceptedCorrectionsPanel key={serverCo2.clientUuid} clientUuid={serverCo2.clientUuid} /><ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/></> : co2AuthorityState === "local" && activeCo2Form && !jobIsCompleted(activeCo2Form.jobId) ? (
               <Co2InspectionForm
                 record={activeCo2Form}
                 onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })}
@@ -2121,13 +2164,13 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               <section className="workspace"><h2>FM200 form unavailable</h2><p>{fm200AuthorityState==="loading"?"Checking inspection completion for this configured location.":fm200RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "hydrant-form" ? (
-            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading completed Hydrant inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <><AcceptedCorrectionsPanel key={serverHydrant.clientUuid} clientUuid={serverHydrant.clientUuid} /><ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /></> : <section className="workspace"><h2>Hydrant inspection unavailable</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading completed Hydrant inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "smoke-ventilation-form" ? (
-            mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} /> : serverSmokeVentilation ? <ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /> : <section className="workspace"><h2>Smoke Ventilation inspection unavailable</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading completed Smoke Ventilation inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} /> : serverSmokeVentilation ? <><AcceptedCorrectionsPanel key={serverSmokeVentilation.clientUuid} clientUuid={serverSmokeVentilation.clientUuid} /><ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /></> : <section className="workspace"><h2>Smoke Ventilation inspection unavailable</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading completed Smoke Ventilation inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "fire-intercom-form" ? (
-            mayRenderLocalFireIntercom && activeFireIntercom && !jobIsCompleted(activeFireIntercom.jobId) ? <FireIntercomInspectionForm record={activeFireIntercom} onBack={()=>navigate({name:"job",jobId:activeFireIntercom.jobId})} onSaveDraft={handleSaveFireIntercom} onSubmitLocal={handleSubmitFireIntercom} onEditFailed={handleEditFailedFireIntercom} /> : serverFireIntercom ? <ServerFireIntercomView inspection={serverFireIntercom} onBack={()=>navigate({name:"job",jobId:serverFireIntercom.jobId})} /> : <section className="workspace"><h2>Fire Intercom inspection unavailable</h2><p>{activeFireIntercom&&jobIsCompleted(activeFireIntercom.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Loading completed Fire Intercom inspection.":fireIntercomRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireIntercomRouteMessage||"The completed Fire Intercom inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalFireIntercom && activeFireIntercom && !jobIsCompleted(activeFireIntercom.jobId) ? <FireIntercomInspectionForm record={activeFireIntercom} onBack={()=>navigate({name:"job",jobId:activeFireIntercom.jobId})} onSaveDraft={handleSaveFireIntercom} onSubmitLocal={handleSubmitFireIntercom} onEditFailed={handleEditFailedFireIntercom} /> : serverFireIntercom ? <><AcceptedCorrectionsPanel key={serverFireIntercom.clientUuid} clientUuid={serverFireIntercom.clientUuid} /><ServerFireIntercomView inspection={serverFireIntercom} onBack={()=>navigate({name:"job",jobId:serverFireIntercom.jobId})} /></> : <section className="workspace"><h2>Fire Intercom inspection unavailable</h2><p>{activeFireIntercom&&jobIsCompleted(activeFireIntercom.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Loading completed Fire Intercom inspection.":fireIntercomRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireIntercomRouteMessage||"The completed Fire Intercom inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
-            activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading completed Portable Fire Extinguisher inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <><AcceptedCorrectionsPanel key={serverPortable.clientUuid} clientUuid={serverPortable.clientUuid} /><ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /></> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading completed Portable Fire Extinguisher inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
             (() => {
               const group = masterSystemInspectionGroups.find((candidate) => candidate.groupKey === `${route.jobId}:${route.systemKey}`);
@@ -2243,8 +2286,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           )}
         </>
       ) : managerExperience ? (
-        !route.name.startsWith("manager-") ? <p role="status">Opening Manager Home…</p>
-        : route.name === "manager-home" ? <ManagerHome navigate={navigate} />
+        !route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
+        : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} />
         : route.name === "manager-technicians" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
         : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
           ? <ManagerTechnicianDetail
@@ -2265,6 +2308,13 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
+        ) : route.name === "manager-correction" ? (
+          <ManagerCorrectionEditor
+            key={`${authAuthorityGuard.current.currentGeneration}:${route.clientUuid}`}
+            clientUuid={route.clientUuid}
+            onBack={(jobId) => navigate(jobId ? { name: "manager-service-visit", jobId } : { name: "manager-operations" })}
+            onAuthorityFailure={handleManagerRequestFailure}
+          />
         ) : route.name === "manager-customer-service" ? (
           managerCustomer && managerCustomer.customer.id === route.customerId
             ? <ManagerServiceEditor
@@ -2299,6 +2349,9 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             loading={managerLoading}
             message={managerMessage}
             selectedVisit={route.name === "manager-service-visit" ? managerVisit : undefined}
+            acceptedRecords={managerAcceptedRecords}
+            acceptedRecordsUnavailable={managerAcceptedRecordsUnavailable}
+            onCorrect={route.name === "manager-service-visit" ? (record) => navigate({ name: "manager-correction", clientUuid: record.clientUuid }) : undefined}
             onRefresh={refreshManagerVisits}
             backLabel={route.name === "manager-service-visit" ? managerReturn?.label : undefined}
             onSelect={(visit) => openManagerVisit("manager-service-visit", visit.id, null)}

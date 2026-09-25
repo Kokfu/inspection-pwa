@@ -4,6 +4,9 @@ import { resolveHoseReelAuthority } from "../src/hoseReel/hoseReelAuthority.js";
 import { resolveCo2Authority } from "../src/co2/co2Authority.js";
 import { resolveFm200Authority } from "../src/fm200/fm200Authority.js";
 import { resolveWetChemicalAuthority } from "../src/wetChemical/wetChemicalAuthority.js";
+import { resolveFireIntercomRoute } from "../src/fireIntercom/fireIntercomResolution.js";
+import { resolveHydrantRoute } from "../src/hydrant/hydrantResolution.js";
+import { resolveSmokeVentilationRoute } from "../src/smokeVentilation/smokeVentilationResolution.js";
 
 /**
  * A mid-session connectivity drop (status "verified", not "offline-unverified")
@@ -70,4 +73,48 @@ test("Wet Chemical: a network TypeError falls back to the local draft when one e
     loadDetail: async () => { throw new Error("should not be called"); }
   });
   assert.deepEqual(result, { kind: "local", record: wetChemicalLocal });
+});
+
+/**
+ * The `*Resolution.ts` route resolvers (as opposed to the `*Authority.ts` ones above) fetch their
+ * local record through an injectable `getLocal`, so the same mid-session-TypeError fallback is
+ * covered directly here for the three that share that shape (fireIntercom/hydrant/smokeVentilation
+ * resolveXRoute). fireAlarmResolution.ts and portableFireExtinguisher.ts got the identical one-line
+ * fix but their local lookup is not dependency-injected (hardcoded to the real IndexedDB-backed
+ * repository), so they are not unit-tested here — see the merge report.
+ */
+const fireIntercomLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
+
+test("Fire Intercom: a network TypeError falls back to the local draft when one exists", async () => {
+  const result = await resolveFireIntercomRoute(
+    "requested-uuid", undefined, "verified",
+    async () => fireIntercomLocal,
+    async () => { throw new TypeError("Failed to fetch"); },
+    async () => { throw new Error("should not be called"); }
+  );
+  assert.deepEqual(result, { kind: "local", record: fireIntercomLocal });
+});
+
+const hydrantLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
+
+test("Hydrant: a network TypeError falls back to the local draft when one exists", async () => {
+  const result = await resolveHydrantRoute(
+    "requested-uuid", undefined, "verified",
+    async () => hydrantLocal,
+    async () => { throw new TypeError("Failed to fetch"); },
+    async () => { throw new Error("should not be called"); }
+  );
+  assert.deepEqual(result, { kind: "local", record: hydrantLocal });
+});
+
+const smokeVentilationLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
+
+test("Smoke Ventilation: a network TypeError falls back to the local draft when one exists", async () => {
+  const result = await resolveSmokeVentilationRoute(
+    "requested-uuid", undefined, "verified",
+    async () => smokeVentilationLocal,
+    async () => { throw new TypeError("Failed to fetch"); },
+    async () => { throw new Error("should not be called"); }
+  );
+  assert.deepEqual(result, { kind: "local", record: smokeVentilationLocal });
 });

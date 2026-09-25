@@ -1,4 +1,4 @@
-import type { AuthUser } from "../auth/authApi";
+import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { findServerMasterSystemInspection, type ServerMasterSystemInspectionSummary } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -99,6 +99,7 @@ export async function resolveFireIntercomRoute(
     }
     return { kind: "server", inspection };
   } catch (error) {
+    if (local && error instanceof TypeError) return { kind: "local", record: local };
     return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Accepted Fire Intercom detail is unavailable" };
   }
 }
@@ -134,5 +135,5 @@ export async function resolveFireIntercomOpenTarget(
 
   const catalog = await loadCatalog();
   if (!catalog) return { kind: "server-unavailable", message: "Fire Intercom reference data is not cached yet. Refresh jobs online first." };
-  return { kind: "local", record: await createLocal(job, system, catalog, user) };
+  return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) };
 }

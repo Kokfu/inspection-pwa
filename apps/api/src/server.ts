@@ -18,6 +18,7 @@ import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { managerCustomersRouter } from "./routes/managerCustomers.js";
 import { managerTechniciansRouter } from "./routes/managerTechnicians.js";
 import { serviceCommonRemarksRouter } from "./routes/serviceCommonRemarks.js";
+import { managerCorrectionsRouter } from "./routes/managerCorrections.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -39,6 +40,7 @@ app.use(managerServiceVisitsRouter);
 app.use(managerCustomersRouter);
 app.use(managerTechniciansRouter);
 app.use(serviceCommonRemarksRouter);
+app.use(managerCorrectionsRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);
 app.use(stagedEvidenceRouter);

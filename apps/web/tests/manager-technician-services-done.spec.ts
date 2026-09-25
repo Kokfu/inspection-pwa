@@ -6,10 +6,12 @@ type Visit = {
 };
 
 const technicians = [
-  { id: 11, username: "tech-alpha", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
-  { id: 12, username: "tech-bravo", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
-  { id: 13, username: "tech-charlie", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
-  { id: 14, username: "tech-delta", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" }
+  { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
+  { id: 12, username: "tech-bravo", displayName: null, role: "inspector", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
+  { id: 13, username: "tech-charlie", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
+  { id: 14, username: "tech-delta", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" },
+  // A supervisor (T4) is listed by the API but never offered as a "created by" filter.
+  { id: 15, username: "super-echo", displayName: null, role: "supervisor", isActive: true, createdAt: "2026-09-05T00:00:00.000Z" }
 ];
 const alpha = { id: 11, displayName: "tech-alpha" };
 const bravo = { id: 12, displayName: "tech-bravo" };
@@ -241,6 +243,8 @@ test("Services Done is customer-first with search, site grouping, technician fil
   await expectNoHorizontalScroll(page);
   await page.setViewportSize({ width: 1280, height: 800 });
 
+  // The filter offers technicians only (T4: the listed supervisor never creates visits).
+  await expect(page.getByLabel("Technician").locator("option")).toHaveText(["All technicians", "tech-alpha", "tech-bravo (inactive)", "tech-charlie", "tech-delta"]);
   // Technician filter narrows only after Apply.
   await page.getByLabel("Technician").selectOption({ label: "tech-alpha" });
   await expect(page.locator(".job-card")).toHaveCount(4);
@@ -414,7 +418,7 @@ async function servicesDoneSettled(page: Page) {
   await expect(page.getByText("Loading customers…")).toHaveCount(0);
 }
 
-/** After a reload the role chooser is shown (the chosen experience is in memory only); choose Manager and return to Services Done. */
+/** After a reload by a different verified user the role chooser is shown (T3 restores Manager only for the same verified manager); choose Manager and return to Services Done. */
 async function resumeManagerOnServicesDone(page: Page) {
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   // Choosing Manager navigates Home only once verified; either way, return to Services Done.
@@ -487,7 +491,10 @@ test("a reload by the same manager keeps the remembered Services Done selection"
   await selectAcmeInServicesDone(page);
 
   await page.reload();
-  await resumeManagerOnServicesDone(page);
+  // T3: the same verified manager is restored into Manager on this screen, without the role chooser.
+  await expect(page).toHaveURL(/#\/manager-services-done$/);
+  await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
+  await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
   await expect(page.locator(".app-account-name")).toHaveText("mobiletest");
   await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toBeVisible();
   await expect(page.locator(".job-card")).toHaveCount(4);

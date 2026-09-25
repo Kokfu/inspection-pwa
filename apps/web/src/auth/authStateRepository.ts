@@ -26,7 +26,7 @@ export function identityFromDeviceState(
     || (state.schemaVersion !== undefined && state.schemaVersion !== 1)
     || typeof state.userId !== "number"
     || typeof state.username !== "string"
-    || (state.role !== "admin" && state.role !== "inspector")
+    || (state.role !== "admin" && state.role !== "inspector" && state.role !== "supervisor")
     || typeof state.lastVerifiedAt !== "string"
   ) {
     return undefined;

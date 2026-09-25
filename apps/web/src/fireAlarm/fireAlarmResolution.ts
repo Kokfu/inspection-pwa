@@ -1,4 +1,4 @@
-import type { AuthUser } from "../auth/authApi";
+import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -26,6 +26,7 @@ export async function resolveFireAlarmRoute(clientUuid:string,expectedJobId:stri
     if(error instanceof FireAlarmDetailNotFoundError)return{kind:"inconsistent",message:local?"The local Synced record has no matching accepted server detail.":"No accepted Fire Alarm inspection exists for this UUID."};
     if(error instanceof FireAlarmAuthenticationError)return{kind:"signed-out"};
     if(error instanceof InvalidFireAlarmDetailError)return{kind:"invalid",message:error.message};
+    if(local&&error instanceof TypeError)return{kind:"local",record:local};
     return{kind:"server-unavailable",message:error instanceof Error?error.message:"Accepted Fire Alarm detail is unavailable"};
   }
 }
@@ -54,6 +55,6 @@ export async function resolveFireAlarmOpenTarget(job: InspectionJob, system: Job
       return { kind: "server", clientUuid: server.clientUuid };
     }
     if (!catalog) throw new Error("Fire Alarm reference data is not cached yet. Refresh jobs online first.");
-    return { kind: "local", record: await createLocal(job, system, catalog, user) };
+    return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) };
   } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Fire Alarm server summary is currently unavailable" }; }
 }

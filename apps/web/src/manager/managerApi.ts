@@ -46,17 +46,29 @@ export type ManagerCustomer = {
   supportedSystems: Array<{ key: string; displayName: string; sortOrder: number; assignable: boolean; unavailableReason?: string }>;
 };
 
+/**
+ * What the review screens (Services Done, service history) read from a customer. A supervisor's
+ * customer list contains only these fields (T4), so those screens must not depend on more.
+ */
+export type ManagerCustomerSummary = {
+  customer: Pick<ManagerCustomer["customer"], "id" | "code" | "displayName">;
+  sites: ManagerCustomer["sites"];
+  supportedSystems: Array<Pick<ManagerCustomer["supportedSystems"][number], "key" | "displayName" | "sortOrder">>;
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export type ManagerTechnician = { id: number; username: string; displayName: string | null; isActive: boolean; createdAt: string };
+/** A field account on the Technician List: a technician (`inspector`) or, since T4, a supervisor. */
+export type ManagerTechnician = { id: number; username: string; displayName: string | null; role: "inspector" | "supervisor"; isActive: boolean; createdAt: string };
 export type ScheduledCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string | null };
 export type UpcomingServices = { customers: ScheduledCustomer[]; unscheduledCustomers: ScheduledCustomer[] };
 
 function unavailable(): never { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); }
 function isTechnician(value: unknown): value is ManagerTechnician {
   return isPlainObject(value) && Number.isSafeInteger(value.id) && Number(value.id) > 0
-    && typeof value.username === "string" && (value.displayName === null || (typeof value.displayName === "string" && !!value.displayName.trim())) && typeof value.isActive === "boolean"
+    && typeof value.username === "string" && (value.displayName === null || (typeof value.displayName === "string" && !!value.displayName.trim()))
+    && (value.role === "inspector" || value.role === "supervisor") && typeof value.isActive === "boolean"
     && typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt));
 }
 function isDate(value: unknown): value is string {
@@ -72,9 +84,9 @@ export async function loadManagerTechnicians(signal?: AbortSignal): Promise<Mana
   if (!Array.isArray(result) || !result.every(isTechnician) || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
   return result;
 }
-export async function createManagerTechnician(input: { username: string; password: string; displayName?: string | null }): Promise<ManagerTechnician> {
+export async function createManagerTechnician(input: { username: string; password: string; displayName?: string | null; role?: "inspector" | "supervisor" }): Promise<ManagerTechnician> {
   const result = await managerRequest<unknown>("/api/manager/technicians", "POST", "technician", input);
-  if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive) unavailable();
+  if (!isTechnician(result) || result.username !== input.username.trim() || !result.isActive || result.role !== (input.role ?? "inspector")) unavailable();
   return result;
 }
 export async function updateManagerTechnicianDisplayName(id: number, displayName: string | null): Promise<ManagerTechnician> {
@@ -136,7 +148,7 @@ async function readBody(response: Response): Promise<Record<string, unknown>> {
   if (!isPlainObject(data)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   if (!response.ok) {
     const message = typeof data.message === "string" ? data.message : typeof data.error === "string" ? data.error : "Manager request could not be completed.";
-    if (response.status === 400 || response.status === 404 || response.status === 409) throw new ManagerApiError(message, "domain");
+    if (response.status === 400 || response.status === 404 || response.status === 409 || response.status === 422) throw new ManagerApiError(message, "domain");
     throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   }
   return data;
@@ -663,7 +675,11 @@ function asLabelFormLayout(value: unknown, labels: ManagerLabelOverrideNode[]): 
   const labelPaths = new Set(labels.map((node) => node.path));
   if (placed.size !== labelPaths.size || [...placed.keys()].some((path) => !labelPaths.has(path))) fail();
   for (const field of placed.values()) {
-    if (field.parentPath !== null && placed.get(field.parentPath)?.control !== "measurement") fail();
+    if (field.parentPath === null) continue;
+    // The parent must be a top-level measurement row: no self-parenting and no cycles,
+    // which would otherwise hide fields from the editor without failing validation.
+    const parent = placed.get(field.parentPath);
+    if (field.parentPath === field.path || parent?.control !== "measurement" || parent.parentPath !== null) fail();
   }
   return value as ManagerLabelFormLayout;
 }
@@ -881,4 +897,87 @@ export async function saveManagerLocations(
   const data = await readBody(response);
   if (!isManagerCustomer(data.customer)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   return { locations: asManagerLocations(systemKey, data), customer: data.customer };
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * T5 corrections. An Accepted record is immutable: a correction is an append-only entry that carries
+ * the field, the value it replaced, the new value, who made it, when and why. The screens show the
+ * effective value and always keep the original visible.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type CorrectionKind = "result" | "text" | "reading";
+export type CorrectionValue = string | number | null;
+export type ManagerCorrection = {
+  id: string; fieldPath: string; sequence: number; previousValue: CorrectionValue; newValue: CorrectionValue;
+  reason: string; correctedBy: string; correctedByRole: "admin" | "supervisor"; correctedAt: string; requestId: string;
+};
+export type ManagerCorrectableField = {
+  fieldPath: string; label: string; kind: CorrectionKind; value: CorrectionValue; originalValue: CorrectionValue;
+  corrected: boolean; options?: string[];
+};
+export type ManagerInspectionCorrections = {
+  clientUuid: string; jobId: string; jobReference: string; systemKey: string; instanceKey: string;
+  supported: boolean; fields: ManagerCorrectableField[]; corrections: ManagerCorrection[];
+};
+export type ManagerAcceptedRecord = {
+  clientUuid: string; systemKey: string; systemLabel: string; instanceKey: string;
+  zoneLabel: string | null; locationLabel: string | null; performedAt: string; correctionCount: number; supported: boolean;
+};
+export type ManagerVisitCorrection = ManagerCorrection & { clientUuid: string; systemKey: string; instanceKey: string; label: string };
+
+const isCorrectionValue = (value: unknown): value is CorrectionValue =>
+  value === null || typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
+
+function isCorrection(value: unknown): value is ManagerCorrection {
+  return isPlainObject(value) && typeof value.id === "string" && typeof value.fieldPath === "string"
+    && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1
+    && isCorrectionValue(value.previousValue) && isCorrectionValue(value.newValue)
+    && typeof value.reason === "string" && typeof value.correctedBy === "string"
+    && (value.correctedByRole === "admin" || value.correctedByRole === "supervisor")
+    && typeof value.correctedAt === "string" && Number.isFinite(Date.parse(value.correctedAt))
+    && typeof value.requestId === "string";
+}
+
+function isCorrectableField(value: unknown): value is ManagerCorrectableField {
+  return isPlainObject(value) && typeof value.fieldPath === "string" && typeof value.label === "string"
+    && (value.kind === "result" || value.kind === "text" || value.kind === "reading")
+    && isCorrectionValue(value.value) && isCorrectionValue(value.originalValue) && typeof value.corrected === "boolean"
+    && (value.options === undefined || (Array.isArray(value.options) && value.options.every((option) => typeof option === "string")));
+}
+
+/** The correction editor's view of one accepted record: correctable fields and the full history. */
+export async function loadInspectionCorrections(clientUuid: string, signal?: AbortSignal): Promise<ManagerInspectionCorrections> {
+  const data = await managerRequest<unknown>(`/api/manager/inspections/${encodeURIComponent(clientUuid)}/corrections`, "GET", null, undefined, signal) as Record<string, unknown>;
+  if (!isPlainObject(data) || typeof data.clientUuid !== "string" || typeof data.jobId !== "string" || typeof data.jobReference !== "string"
+    || typeof data.systemKey !== "string" || typeof data.instanceKey !== "string" || typeof data.supported !== "boolean"
+    || !Array.isArray(data.fields) || !data.fields.every(isCorrectableField)
+    || !Array.isArray(data.corrections) || !data.corrections.every(isCorrection)) unavailable();
+  return data as unknown as ManagerInspectionCorrections;
+}
+
+/** Submits one or more field corrections with a shared reason. The accepted record is never changed. */
+export async function saveInspectionCorrections(
+  clientUuid: string,
+  input: { requestId: string; reason: string; changes: Array<{ fieldPath: string; expectedCurrentValue: CorrectionValue; newValue: CorrectionValue }> }
+): Promise<ManagerCorrection[]> {
+  const corrections = await managerRequest<unknown>(`/api/manager/inspections/${encodeURIComponent(clientUuid)}/corrections`, "POST", "corrections", input);
+  if (!Array.isArray(corrections) || !corrections.every(isCorrection)) unavailable();
+  return corrections;
+}
+
+export async function loadAcceptedRecords(jobId: string, signal?: AbortSignal): Promise<ManagerAcceptedRecord[]> {
+  const records = await managerRequest<unknown>(`/api/manager/service-visits/${encodeURIComponent(jobId)}/accepted-records`, "GET", "records", undefined, signal);
+  if (!Array.isArray(records) || !records.every((record) => isPlainObject(record) && typeof record.clientUuid === "string"
+    && typeof record.systemKey === "string" && typeof record.systemLabel === "string" && typeof record.instanceKey === "string"
+    && (record.zoneLabel === null || typeof record.zoneLabel === "string") && (record.locationLabel === null || typeof record.locationLabel === "string")
+    && typeof record.performedAt === "string" && Number.isSafeInteger(record.correctionCount) && typeof record.supported === "boolean")) unavailable();
+  return records as ManagerAcceptedRecord[];
+}
+
+export async function loadVisitCorrections(jobId: string, signal?: AbortSignal): Promise<ManagerVisitCorrection[]> {
+  const corrections = await managerRequest<unknown>(`/api/manager/service-visits/${encodeURIComponent(jobId)}/corrections`, "GET", "corrections", undefined, signal);
+  if (!Array.isArray(corrections) || !corrections.every((correction) => isCorrection(correction)
+    && typeof (correction as unknown as ManagerVisitCorrection).clientUuid === "string"
+    && typeof (correction as unknown as ManagerVisitCorrection).label === "string")) unavailable();
+  return corrections as ManagerVisitCorrection[];
 }

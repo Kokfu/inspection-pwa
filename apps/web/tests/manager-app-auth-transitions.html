@@ -106,7 +106,7 @@
           if (url === "/api/auth/me") return json({ user });
           if (url.startsWith("/api/manager/service-visits")) return json({ serviceVisits: visits, nextCursor: null, totalCount: visits.length });
           if (url === "/api/manager/customers") return json({ customers: [customer] });
-          if (url === "/api/manager/service-catalog") return json({ systems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, assignable: true }] });
+          if (url === "/api/manager/service-catalog") return json({ systems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, assignable: true, retiredAt: null }] });
           if (url === "/api/inspection-jobs") return json({ jobs: [] });
           if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
           return new Response("", { status: 503 });
@@ -126,7 +126,7 @@
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
         click("Manager");
         transport.auth.resolve(json({ user: admin }));
-        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Services");
+        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Operations");
         await waitFor(() => mount.textContent.includes("Operations") && mount.textContent.includes(visit.customer), "Manager Operations");
         if (mount.textContent.includes("My Service Jobs")) throw new Error("Technician Home rendered for Manager authority");
       }));
@@ -162,7 +162,7 @@
       }, async () => {
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
         click("Manager");
-        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Services");
+        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Operations");
         await waitFor(() => mount.textContent.includes(visit.customer), "loaded Manager visit");
         click("Refresh");
         await waitFor(() => mount.textContent.includes("Choose how you are signing in") && !mount.textContent.includes(visit.customer), "authorization fail-closed state");
@@ -185,7 +185,7 @@
       }, async transport => {
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "Role Selection");
         click("Manager");
-        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Services");
+        await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard"); click("Operations");
         await waitFor(() => transport.calls.includes("/api/manager/service-visits"), "in-flight Manager request");
         click("Sign out");
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "logged-out role state");

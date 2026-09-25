@@ -30,3 +30,14 @@ export function allowManagerHashChange(nextHash: string): { allow: true } | { al
   if (current.confirmLeave()) { current = null; return { allow: true }; }
   return { allow: false, restoreHash: current.hash };
 }
+
+/**
+ * Asks before an in-app action that would discard the guarded screen (Sign out).
+ * `true` when there is no guard or the Manager accepts; the guard is then cleared.
+ */
+export function confirmManagerLeave(): boolean {
+  if (!current) return true;
+  if (!current.confirmLeave()) return false;
+  current = null;
+  return true;
+}
