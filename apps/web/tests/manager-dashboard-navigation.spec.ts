@@ -11,14 +11,19 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     else if (url.pathname.endsWith("/customers/archived")) json = { customers: [] };
     else if (url.pathname.endsWith("/customers")) json = { customers: [] };
     else if (url.pathname.endsWith("/service-catalog")) json = { systems: [] };
-    else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 0 };
+    else if (url.pathname.endsWith("/dashboard/clients")) json = { totalClients: 12 };
+    else if (url.pathname.endsWith("/dashboard/inspections-per-day")) json = { days: [{ day: url.searchParams.get("to"), count: 2 }] };
+    else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 7 };
     else if (url.pathname.endsWith("/inspection-jobs")) json = { jobs: [] };
     await route.fulfill({ json });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
-  expect(requests.filter((r) => r.startsWith("/api/manager/"))).toEqual([]);
+  await expect(page.getByText("12", { exact: true })).toBeVisible();
+  await expect(page.getByText("7", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
+  expect(await page.locator(".trend-line").evaluate((line) => getComputedStyle(line).stroke)).not.toBe("none");
   for (const [label, hash, heading] of [
     ["Technician List", "manager-technicians", "Technician List"],
     ["Services", "manager-customers", "Customer Configuration"],
@@ -36,5 +41,10 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     await expect(page).toHaveURL(/#\/manager$/);
   }
   // Services Done is customer-first: it never fetches a flat service-visit list before a customer is chosen.
-  expect(requests.filter((r) => r.startsWith("/api/manager/service-visits?"))).toEqual([]);
+  const homeCountRequests = requests.filter((r) => r.startsWith("/api/manager/service-visits?"));
+  expect(homeCountRequests.length).toBeGreaterThan(0);
+  expect(homeCountRequests.every((r) => r.includes("limit=1"))).toBe(true);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

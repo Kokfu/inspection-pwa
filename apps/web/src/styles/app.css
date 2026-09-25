@@ -1062,7 +1062,7 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: var(-
 .accepted-record-notice strong { display: block; margin-bottom: 3px; color: var(--brand-dark); font-size: 1rem; }
 .accepted-record-notice p { margin: 3px 0 0; color: var(--muted); font-size: .9rem; }
 .selected-services-summary, .support-metadata { margin: 0; color: var(--muted); font-size: .86rem; }
-.operations-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.operations-summary { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; margin: 0; }
 .operations-summary > div { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .operations-summary dd { color: var(--brand-dark); font-size: 1.35rem; }
 .accepted-location-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 10px 20px; align-items: start; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
@@ -1270,7 +1270,15 @@ a.secondary-command { display: inline-flex; box-sizing: border-box; width: fit-c
 /* Manager screens: same page width and heading scale as the technician side. */
 .app-shell > :is(section[aria-labelledby="manager-dashboard-title"], section[aria-labelledby="technicians-title"], section[aria-labelledby="upcoming-title"]) { display: grid; width: min(var(--page-width), 100%); align-content: start; gap: var(--space-4); }
 .app-shell > .secondary-command { justify-self: start; margin-inline-start: max(0px, calc((100% - var(--page-width)) / 2)); }
-:is(#manager-dashboard-title, #technicians-title, #upcoming-title, #services-done-title) { margin: 0; font-size: clamp(1.6rem, 4vw, 2.25rem); letter-spacing: -.03em; line-height: 1.15; }
+:is(#manager-dashboard-title, #technicians-title, #upcoming-title, #services-done-title, #manager-add-customer-title, #manager-service-catalog-title, #manager-common-remarks-title) { margin: 0; font-size: clamp(1.6rem, 4vw, 2.25rem); letter-spacing: -.03em; line-height: 1.15; }
+.dashboard-trend { min-width: 0; }
+.dashboard-trend svg { display: block; width: 100%; height: auto; }
+.trend-grid { stroke: var(--border); stroke-width: 1; }
+.trend-line { fill: none; stroke: var(--info-ink); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.trend-point { fill: var(--info-ink); }
+.trend-label { fill: var(--muted); font-size: 12px; }
+.common-remark-card { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-4); border: 1px solid var(--border); border-left: 4px solid var(--brand); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-sm); overflow-wrap: anywhere; }
+.common-remark-card p { margin: 0; color: var(--muted); }
 section[aria-labelledby="upcoming-title"] > section > h3, .manager-inline-form h3 { margin: 0; font-size: var(--text-lg); }
 .manager-dashboard { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-3); }
 .manager-dashboard-card { position: relative; display: flex; box-sizing: border-box; min-height: 96px; align-items: center; overflow: hidden; padding: 18px 44px 18px 22px; border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--ink); background: var(--surface); box-shadow: var(--shadow-sm); font-size: 1.05rem; line-height: 1.3; }

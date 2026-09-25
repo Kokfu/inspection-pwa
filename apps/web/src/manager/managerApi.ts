@@ -244,6 +244,26 @@ export async function loadManagerServiceHistory(
   };
 }
 
+export async function loadDashboardClients(signal?: AbortSignal): Promise<number> {
+  const data = await managerRequest<Record<string, unknown>>("/api/manager/dashboard/clients", "GET", null, undefined, signal);
+  if (!Number.isSafeInteger(data.totalClients) || (data.totalClients as number) < 0) unavailable();
+  return data.totalClients as number;
+}
+
+export async function loadDashboardTrend(from: string, to: string, signal?: AbortSignal): Promise<Array<{ day: string; count: number }>> {
+  const query = new URLSearchParams({ from, to });
+  const data = await managerRequest<Record<string, unknown>>(`/api/manager/dashboard/inspections-per-day?${query}`, "GET", null, undefined, signal);
+  if (!Array.isArray(data.days) || !data.days.every((row: unknown) => isPlainObject(row)
+    && typeof row.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(row.day)
+    && Number.isFinite(Date.parse(`${row.day}T00:00:00Z`))
+    && new Date(`${row.day}T00:00:00Z`).toISOString().slice(0, 10) === row.day
+    && row.day >= from && row.day <= to
+    && Number.isSafeInteger(row.count) && (row.count as number) >= 0)) unavailable();
+  const days = data.days as Array<{ day: string; count: number }>;
+  if (new Set(days.map((row) => row.day)).size !== days.length) unavailable();
+  return days;
+}
+
 /** Systems whose per-customer display labels a Manager may override. Mirrors the
  *  API `labelOverrideSystemKeys` bound (apps/api/src/routes/managerCustomers.ts).
  *  `automatic_sprinkler` joined in slice 1a-iii, once the API resolver gained its

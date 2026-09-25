@@ -3,6 +3,10 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-26 — **Manager Home dashboard implemented (uncommitted).**
+
+Home now shows active non-demo customer count, this month's operational service-visit count, and a daily SVG trend for Admin and Supervisor. The existing navigation remains. Operations shares the KPI tiles, common remarks uses the shared heading and card styles, and Technician headings were checked without changes. See `apps/api/src/routes/managerDashboard.ts` and `apps/web/src/manager/ManagerHome.tsx`. Dashboard counts are server-backed and show an unavailable state on request failure.
+
 **Last updated:** 2026-09-25 — **Windows review-gate Chromium setup corrected.**
 
 The standard gate block in `.agents/skills/codex-task-brief/SKILL.md` now resolves

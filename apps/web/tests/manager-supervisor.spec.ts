@@ -33,7 +33,10 @@ async function installSupervisorApi(page: Page) {
     requests.push(`${route.request().method()} ${path}`);
     const json = (payload: unknown, status = 200) => route.fulfill({ status, json: payload, headers: { "cache-control": "no-store" } });
     if (path === "/api/auth/me") return json({ user: supervisor });
+    if (path === "/api/manager/dashboard/clients") return json({ totalClients: 4 });
+    if (path === "/api/manager/dashboard/inspections-per-day") return json({ days: [] });
     if (path === "/api/manager/service-visits") {
+      if (url.searchParams.has("from") && url.searchParams.has("to")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       return url.searchParams.has("customerId")
         ? json({ serviceVisits: [], nextCursor: null, totalCount: 0 })
         : json({ serviceVisits: [visit] });
@@ -62,6 +65,9 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done"]);
+  await expect(page.getByText("4", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
+  await expect(page.getByText("No inspections scheduled in this period.")).toBeVisible();
 
   await page.getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-SUPERVISOR-830/ }).click();
@@ -105,6 +111,7 @@ test("supervisor cannot use the Technician experience", async ({ page }) => {
 test("a reload restores the supervisor into Manager (T3)", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
+  await expect(page.getByText("4", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   await page.reload();
