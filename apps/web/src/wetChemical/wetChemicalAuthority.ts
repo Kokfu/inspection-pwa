@@ -32,6 +32,7 @@ export async function resolveWetChemicalAuthority(
     if (inspection.instanceKey !== local.instanceKey) throw new Error("Accepted Wet Chemical detail does not match configured location");
     return { kind: "server", inspection };
   } catch (error) {
+    if (local && error instanceof TypeError) return { kind: "local", record: local };
     return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Accepted Wet Chemical detail is unavailable" };
   }
 }
