@@ -1,5 +1,4 @@
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
-import { suppressionPanelSystem } from "./masterServiceReportV1.js";
 import type { FieldDefinition, MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
 
 const v7ResultValues = ["good", "not_good", "complete_repair", "na"] as const;
@@ -356,17 +355,22 @@ const fireIntercom: SystemDefinition = {
  *
  * Unlike Smoke Ventilation / Fire Intercom, FM200's data-entry structure is not
  * a fresh reading of a paper form - it is confirmed to be IDENTICAL to CO2's
- * (`suppressionPanelSystem("co2_fire_extinguisher", ...)`), so it reuses that
- * factory directly rather than being hand-built. Only the top-level
+ * so it copies the frozen CO2 definition from V6 rather than changing a
+ * published template factory. Only the top-level
  * `displayName` differs ("FM200 System"); every internal section/field label
  * stays worded exactly as CO2's (e.g. "CO2 Control Panel", "CO2 Cylinder") per
  * the confirmed label-scope decision. `upgradeV7EvidenceSystem` is applied
  * explicitly (rather than inherited from a V6 source, since there is none) to
  * carry the same four-state V7 result model CO2's own V7 entry gets.
  */
-const fm200FireSuppression: SystemDefinition = upgradeV7EvidenceSystem(
-  suppressionPanelSystem("fm200_fire_suppression", "FM200 System", 12)
-);
+const co2Source = masterServiceReportV6.systems.find((system) => system.key === "co2_fire_extinguisher");
+if (!co2Source) throw new Error("V6 CO2 definition is unavailable for FM200 V7 composition");
+const fm200FireSuppression: SystemDefinition = upgradeV7EvidenceSystem({
+  ...structuredClone(co2Source),
+  key: "fm200_fire_suppression",
+  displayName: "FM200 System",
+  sortOrder: 12
+});
 
 /**
  * The first multi-system shared-evidence template. Fire Alarm is structurally

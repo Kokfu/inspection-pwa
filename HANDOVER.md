@@ -3,6 +3,43 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-25 — **Windows review-gate Chromium setup corrected.**
+
+The standard gate block in `.agents/skills/codex-task-brief/SKILL.md` now resolves
+Playwright Chromium before the PDF-bearing historical matrix. Starting with an
+inherited `/usr/bin/chromium` value, the corrected setup resolved the installed
+Windows binary and the historical matrix passed 20/20. Disposable database URL
+overrides remain inside the integration-test block. No app source changed for
+this review-gate fix.
+
+**Last updated:** 2026-09-25 — **Published V1 source restored to the accepted baseline.**
+
+FM200 V7 now clones the CO2 definition inside `masterServiceReportV7.ts`, leaving
+the V1 suppression factory private and byte-identical to `e30c649` (Git blob
+`a81e75eb4ec9773ab080635095f0fab5221ba454`). API/web typechecks and builds,
+V7 contract tests (15/15), historical matrix (20/20), V6 evidence (10/10),
+Wet Chemical definition (2/2), config (3/3), web stale evidence (1/1), and
+disposable-PostgreSQL V6/CO2/Wet Chemical/Fire Alarm/V7 race/FM200 integration
+passed. The current edits remain unstaged.
+
+**Last updated:** 2026-09-25 — **Level 3 General-location and accepted-detail blockers remediated in the working tree.**
+
+The isolated Level 3 browser run found that no-preset FM200 drafts saved offline but
+failed server acceptance: migration 006's trigger and preset foreign keys rejected
+the frozen General IDs. Forward migration 038 now validates the exact server-owned
+General pair while retaining configured-location and reference-deletion checks.
+The technician configuration endpoint now includes CO2, Wet Chemical, and FM200
+assignments with no saved presets, while still hiding malformed saved locations.
+Accepted-detail validation now handles the complete customer snapshot created by
+Manager service visits as well as the historical three-field format, with strict
+known keys and value checks. The isolated HTTPS browser run confirmed that a
+no-preset FM200 inspection saved offline, survived browser reopen, synced once,
+returned an exact duplicate on replay, opened as accepted detail, closed its
+visit, and appeared in the final report. Disposable PostgreSQL FM200 integration
+(2/2), historical matrix (20/20), and final-report tests (18/18) passed. A
+physical-phone run and client-domain deployment verification remain for final
+release acceptance; the isolated stack used a local self-signed proxy certificate.
+
 **Last updated:** 2026-09-25 — **Service catalog validation now requires `retiredAt` on every entry (uncommitted).**
 
 The default and includeRetired catalog responses both fail closed when an entry

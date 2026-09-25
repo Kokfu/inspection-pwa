@@ -83,6 +83,10 @@ apps/api/src/reports/fireAlarmV6FinalReport.integration.test.ts
 
 ```
 cd C:\PWA_OfflineRecordWebApp
+cd apps/web
+$env:REPORT_CHROMIUM_PATH=(node -e "import('@playwright/test').then(m=>console.log(m.chromium.executablePath()))").Trim()
+if (!(Test-Path -LiteralPath $env:REPORT_CHROMIUM_PATH)) { throw 'Playwright Chromium is unavailable' }
+cd C:\PWA_OfflineRecordWebApp
 cd apps/api
 npm run typecheck; if ($LASTEXITCODE -ne 0) { throw 'API typecheck failed' }
 npm run build; if ($LASTEXITCODE -ne 0) { throw 'API build failed' }
@@ -108,9 +112,6 @@ try {
   $env:NODE_ENV='test'
   $env:SEED_INTEGRATION_DATABASE_URL='postgres://inspection_app:replace-with-a-real-secret-outside-git@127.0.0.1:55432/phase6_seed_integration'
   $env:DATABASE_URL=$env:SEED_INTEGRATION_DATABASE_URL # V7 tests require the URLs to match.
-  cd apps/web
-  $env:REPORT_CHROMIUM_PATH=(node -e "import('@playwright/test').then(m=>console.log(m.chromium.executablePath()))").Trim()
-  if (!(Test-Path -LiteralPath $env:REPORT_CHROMIUM_PATH)) { throw 'Playwright Chromium is unavailable' }
   cd C:\PWA_OfflineRecordWebApp\apps\api
   npm run test:v6-integration; if ($LASTEXITCODE -ne 0) { throw 'V6 integration failed' }
   # Separate processes: each suite closes its shared database pool.

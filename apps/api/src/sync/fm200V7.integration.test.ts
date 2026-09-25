@@ -87,6 +87,7 @@ test("FM200 V7 stages distinct multipart evidence and atomically binds it to its
       assert.equal((await syncFm200FormInstances([invalid], actor)).failed[0]?.code, "VALIDATION_ERROR");
       const acceptedB = await syncFm200FormInstances([itemB], actor); assert.deepEqual(acceptedB.acceptedIds, [clientB]);
       const detail = await fetch(`${origin}/fm200-inspections/${clientUuid}`); assert.equal(detail.status, 200, "owner reads accepted FM200 V7 detail"); const detailBody = await detail.json() as { inspection?: { responses?: typeof response; template?: { version?: number }; systemLabel?: string } }; assert.equal(detailBody.inspection?.template?.version, 7); assert.equal(detailBody.inspection?.systemLabel, "FM200 System"); assert.equal(detailBody.inspection?.responses?.chargerAndBatteries.main_supply.remarks, "Runtime FM200 Poor A"); assert.equal(detailBody.inspection?.responses?.physicalOutlook.co2_cylinder.remarks, "Runtime FM200 Poor B"); assert.equal(detailBody.inspection?.responses?.physicalOutlook.co2_cylinder.result, "not_good");
+      await assert.rejects(() => database.query("DELETE FROM customer_system_locations WHERE id=$1", [location]), /Accepted form still references this customer system location/, "accepted configured locations retain FK-equivalent delete protection");
       assert.equal((await fetch(`${origin}/fm200-inspections/${clientUuid}`, { headers: { "x-test-actor": "foreign" } })).status, 404, "foreign actor cannot load another actor's FM200 V7 accepted detail");
 
       const clientD = id(); const dA = await stage(clientD, "charger_batteries.charger_battery_checks.main_supply", "yellow"); const dB = await stage(clientD, "physical_outlook.physical_outlook_checks.co2_cylinder", "purple"); assert.equal(dA.http.status, 201); assert.equal(dB.http.status, 201); const itemD = structuredClone(itemB); itemD.operationId = id(); itemD.entityId = clientD; itemD.payload.clientUuid = clientD; itemD.payload.instanceKey = `location:${locationC}`; itemD.payload.configuredLocationId = locationC; itemD.payload.displaySequence = 3; itemD.payload.inspectionSnapshot.instance = { instanceKey: `location:${locationC}`, displaySequence: 3 }; itemD.payload.evidenceManifest = manifest(dA, dB); assert.deepEqual((await syncFm200FormInstances([itemD], actor)).acceptedIds, [clientD]);
@@ -97,7 +98,7 @@ test("FM200 V7 stages distinct multipart evidence and atomically binds it to its
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819277)").catch(() => undefined); isolationLock.release(); await database.end(); await rm(uploads, { recursive: true, force: true }); }
 });
 
-test("FM200 V7 accepts a fully clean per-location draft with zero findings and no reservation, and CO2 stays unaffected", { skip: !databaseUrl }, async () => {
+test("FM200 V7 accepts a no-preset General location, retries exactly, and leaves CO2 unaffected", { skip: !databaseUrl }, async () => {
   const database = new pg.Pool({ connectionString: databaseUrl });
   const isolationLock = await database.connect(); await isolationLock.query("SELECT pg_advisory_lock(819277)");
   try {
@@ -109,10 +110,8 @@ test("FM200 V7 accepts a fully clean per-location draft with zero findings and n
     await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'FM200 V7 Clean',true)", [customer, `FM200C-${customer}`]);
     await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
     await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'fm200_fire_suppression',1,'{}')", [enabled, revision, template.id]);
-    await database.query("INSERT INTO customer_system_zones(id,enabled_system_id,zone_key,display_name,sort_order) VALUES($1,$2,'z','Zone',1)", [zone, enabled]);
-    await database.query("INSERT INTO customer_system_locations(id,enabled_system_id,zone_id,location_key,display_name,sort_order) VALUES($1,$2,$3,'fm200','FM200 Room',1)", [location, enabled, zone]);
-    const system = { enabledSystemId: enabled, systemKey: "fm200_fire_suppression", displayName: "FM200 System", sortOrder: 12, definitionStatus: "confirmed", zones: [{ id: zone, key: "z", displayName: "Zone", sortOrder: 1 }], locations: [{ id: location, zoneId: zone, key: "fm200", displayName: "FM200 Room", sortOrder: 1 }] };
-    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `FM200C-${customer}`, displayName: "FM200 V7 Clean" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    const system = { enabledSystemId: enabled, systemKey: "fm200_fire_suppression", displayName: "FM200 System", sortOrder: 12, definitionStatus: "confirmed", zones: [{ id: zone, enabledSystemId: enabled, key: "general", displayName: "General", sortOrder: 1 }], locations: [{ id: location, enabledSystemId: enabled, zoneId: zone, key: "general", displayName: "General", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `FM200C-${customer}`, displayName: "FM200 V7 Clean", contactPhone: null, contactPerson: null, fax: null, contractNumber: null, serviceFrequency: null }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
     await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'FM200 V7 Clean','open',false,true,$4,$5,$6,'2026-09-05')", [job, template.id, `FM200C-${job}`, customer, revision, snapshot]);
     const allGood = (keys: readonly string[]) => Object.fromEntries(keys.map((key) => [key, result("good")]));
     const response = {
@@ -124,8 +123,16 @@ test("FM200 V7 accepts a fully clean per-location draft with zero findings and n
       comments: ""
     };
     const item = { operationId: id(), entityType: "masterSystemFormInstance", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "fm200_fire_suppression", instanceKey: `location:${location}`, configuredZoneId: zone, configuredLocationId: location, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: time, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" }, instance: { instanceKey: `location:${location}`, displaySequence: 1 } }, responses: response, evidenceManifest: [], performedAt: time } };
-    const accepted = await syncFm200FormInstances([item], (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`fm200-v7-clean-${id()}`])).rows[0]!.id);
+    const actorId = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`fm200-v7-clean-${id()}`])).rows[0]!.id;
+    const accepted = await syncFm200FormInstances([item], actorId);
     assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
+    await runMigrations(database);
+    assert.deepEqual((await syncFm200FormInstances([item], actorId)).duplicateIds, [clientUuid], "the exact General-location retry is idempotent");
+    assert.equal((await database.query("SELECT 1 FROM master_system_form_instances WHERE client_uuid=$1", [clientUuid])).rowCount, 1);
     assert.equal((await database.query("SELECT 1 FROM master_system_inspections WHERE job_id=$1 AND system_key='co2_fire_extinguisher'", [job])).rowCount, 0, "FM200 acceptance creates no CO2 row");
+    await database.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='fm200-v7', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, actorId]);
+    const report = await loadFinalServiceReport(job, database);
+    assert.equal(report.sections.length, 1, "the no-preset General FM200 form appears in the final report with the current customer snapshot");
+    assert.equal(report.sections[0]?.systemKey, "fm200_fire_suppression");
   } finally { await isolationLock.query("SELECT pg_advisory_unlock(819277)").catch(() => undefined); isolationLock.release(); await database.end(); }
 });

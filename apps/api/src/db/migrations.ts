@@ -109,6 +109,9 @@ const inspectionJobArchiveMigrationUrl = new URL(
 const serviceCatalogRetirementMigrationUrl = new URL(
   "../../migrations/037_service_catalog_retirement.sql", import.meta.url
 );
+const generalLocationFormIdentityMigrationUrl = new URL(
+  "../../migrations/038_general_location_form_identity.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -522,6 +525,9 @@ export async function runMigrations(
   // (same trigger name) are all safe to replay on an upgraded database.
   await database.query(await readFile(inspectionJobArchiveMigrationUrl, "utf8"));
   await database.query(await readFile(serviceCatalogRetirementMigrationUrl, "utf8"));
+  // 006 replays its original trigger function on startup; reapply this forward
+  // replacement afterward so both fresh and upgraded databases keep the rule.
+  await database.query(await readFile(generalLocationFormIdentityMigrationUrl, "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

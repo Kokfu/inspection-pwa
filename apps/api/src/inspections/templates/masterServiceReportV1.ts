@@ -368,17 +368,8 @@ const hoseReel: SystemDefinition = {
   ]
 };
 
-/**
- * Exported so `masterServiceReportV7.ts` can reuse it for FM200: FM200 is a
- * fully independent V7-only system (own key, own records/evidence/sync) but
- * clones CO2's exact field/section structure and wording (only the top-level
- * `displayName` differs - internal labels like "CO2 Cylinder" stay worded
- * exactly as CO2's, per the confirmed decision). FM200 has no V1-V6 lineage,
- * so this function is never called with `"fm200_fire_suppression"` from this
- * V1 file's own `systems` array below - only from the V7 composition.
- */
-export function suppressionPanelSystem(
-  key: "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression",
+function suppressionPanelSystem(
+  key: "co2_fire_extinguisher" | "wet_chemical",
   displayName: string,
   sortOrder: number
 ): SystemDefinition {

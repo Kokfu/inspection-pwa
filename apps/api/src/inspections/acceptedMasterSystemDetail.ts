@@ -25,6 +25,20 @@ const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.m
   : rec(value) ? `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`
     : JSON.stringify(value);
 
+function validAcceptedCustomer(value: unknown): value is R {
+  if (!rec(value)) return false;
+  const historical = exact(value, ["id", "code", "displayName"]);
+  const current = exact(value, ["id", "code", "displayName", "contactPhone", "contactPerson", "fax", "contractNumber", "serviceFrequency"]);
+  if (!historical && !current) return false;
+  if (typeof value.id !== "string" || !uuid.test(value.id) || !text(value.code, 100) || !text(value.displayName, 250)) return false;
+  if (historical) return true;
+  const nullableText = (field: unknown, maximum: number) => field === null || text(field, maximum);
+  return nullableText(value.contactPhone, 40) && nullableText(value.contactPerson, 160)
+    && nullableText(value.fax, 40) && nullableText(value.contractNumber, 160)
+    && (value.serviceFrequency === null || typeof value.serviceFrequency === "string"
+      && ["MONTHLY", "QUARTERLY", "HALF_YEARLY", "ANNUALLY"].includes(value.serviceFrequency));
+}
+
 function identity(row: R) {
   return exact(row, acceptedRowKeys) && typeof row.clientUuid === "string" && uuid.test(row.clientUuid)
     && typeof row.serverFormInstanceId === "string" && uuid.test(row.serverFormInstanceId)
@@ -41,7 +55,7 @@ function snapshotBase(value: unknown): (R & { job: R; template: R; configuration
     || !canonicalMillis(value.acceptedAt)
     || !rec(value.job) || !exact(value.job, ["id", "reference", "title"]) || typeof value.job.id !== "string" || !uuid.test(value.job.id)
     || !text(value.job.reference, 250) || !text(value.job.title, 300)
-    || !rec(value.customer) || !exact(value.customer, ["id", "code", "displayName"])
+    || !rec(value.customer) || !validAcceptedCustomer(value.customer)
     || typeof value.customer.id !== "string" || !uuid.test(value.customer.id) || !text(value.customer.code, 100) || !text(value.customer.displayName, 250)
     || !rec(value.template) || !exact(value.template, ["id", "code", "version"])
     || typeof value.template.id !== "string" || !uuid.test(value.template.id) || value.template.code !== "MFE-FSSR"
@@ -85,7 +99,7 @@ function validateAcceptedSuppressionDetail(row: R, expectedSystemKey: "co2_fire_
     || !canonicalMillis(row.inspectionSnapshot.acceptedAt)
     || !rec(row.inspectionSnapshot.job) || !exact(row.inspectionSnapshot.job, ["id", "reference", "title"])
     || row.inspectionSnapshot.job.id !== row.jobId || !text(row.inspectionSnapshot.job.reference, 250) || !text(row.inspectionSnapshot.job.title, 300)
-    || !rec(row.inspectionSnapshot.customer) || !exact(row.inspectionSnapshot.customer, ["id", "code", "displayName"])
+    || !rec(row.inspectionSnapshot.customer) || !validAcceptedCustomer(row.inspectionSnapshot.customer)
     || typeof row.inspectionSnapshot.customer.id !== "string" || !uuid.test(row.inspectionSnapshot.customer.id)
     || !text(row.inspectionSnapshot.customer.code, 100) || !text(row.inspectionSnapshot.customer.displayName, 250)
     || !rec(row.inspectionSnapshot.template) || !rec(row.inspectionSnapshot.configuration)
@@ -137,7 +151,7 @@ export function validateAcceptedFm200Detail(row: R) {
     || row.inspectionSnapshot.schemaVersion !== 2 || !canonicalMillis(row.inspectionSnapshot.acceptedAt)
     || !rec(row.inspectionSnapshot.job) || !exact(row.inspectionSnapshot.job, ["id", "reference", "title"])
     || row.inspectionSnapshot.job.id !== row.jobId || !text(row.inspectionSnapshot.job.reference, 250) || !text(row.inspectionSnapshot.job.title, 300)
-    || !rec(row.inspectionSnapshot.customer) || !exact(row.inspectionSnapshot.customer, ["id", "code", "displayName"])
+    || !rec(row.inspectionSnapshot.customer) || !validAcceptedCustomer(row.inspectionSnapshot.customer)
     || typeof row.inspectionSnapshot.customer.id !== "string" || !uuid.test(row.inspectionSnapshot.customer.id)
     || !text(row.inspectionSnapshot.customer.code, 100) || !text(row.inspectionSnapshot.customer.displayName, 250)
     || !rec(row.inspectionSnapshot.template) || !rec(row.inspectionSnapshot.configuration)
@@ -175,7 +189,7 @@ export function validateAcceptedHydrantV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
@@ -219,7 +233,7 @@ export function validateAcceptedHoseReelV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
@@ -294,7 +308,7 @@ export function validateAcceptedAutomaticSprinklerV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
@@ -345,7 +359,7 @@ export function validateAcceptedDryWetRiserV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
@@ -411,7 +425,7 @@ export function validateAcceptedSmokeVentilationV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1
@@ -469,7 +483,7 @@ export function validateAcceptedFireIntercomV7Detail(row: R) {
     || snapshot.schemaVersion !== 2 || !canonicalMillis(snapshot.acceptedAt)
     || !rec(snapshot.job) || !exact(snapshot.job, ["id", "reference", "title"]) || snapshot.job.id !== row.jobId
     || !text(snapshot.job.reference, 250) || !text(snapshot.job.title, 300)
-    || !rec(snapshot.customer) || !exact(snapshot.customer, ["id", "code", "displayName"])
+    || !rec(snapshot.customer) || !validAcceptedCustomer(snapshot.customer)
     || typeof snapshot.customer.id !== "string" || !uuid.test(snapshot.customer.id) || !text(snapshot.customer.code, 100) || !text(snapshot.customer.displayName, 250)
     || !rec(snapshot.configuration) || !exact(snapshot.configuration, ["revisionId", "revisionNumber"]) || snapshot.configuration.revisionId !== row.configurationRevisionId
     || typeof snapshot.configuration.revisionId !== "string" || !uuid.test(snapshot.configuration.revisionId) || !Number.isSafeInteger(snapshot.configuration.revisionNumber) || Number(snapshot.configuration.revisionNumber) < 1

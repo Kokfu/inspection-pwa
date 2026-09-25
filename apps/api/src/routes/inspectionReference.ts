@@ -364,19 +364,18 @@ inspectionReferenceRouter.get(
             [enabledIds]
           );
 
-      // Location-dependent forms are unusable without a complete retained
-      // zone/location authority. Do not advertise malformed legacy data to a
-      // technician merely because it was once present in a configuration.
+      // No presets are valid: service-visit creation freezes a General location.
+      // If presets exist, keep rejecting broken zone/location relationships.
       const usableEnabledSystems = enabledResult.rows.filter((system) => {
         if (system.key === "dry_wet_riser") {
           return Boolean(parseDryWetRiserSystemConfiguration(system.systemConfiguration));
         }
-        if (system.key !== "co2_fire_extinguisher" && system.key !== "wet_chemical") return true;
+        if (system.key !== "co2_fire_extinguisher" && system.key !== "wet_chemical" && system.key !== "fm200_fire_suppression") return true;
         const zoneIds = new Set(
           zonesResult.rows.filter((zone) => zone.enabledSystemId === system.id).map((zone) => zone.id)
         );
         const locations = locationsResult.rows.filter((location) => location.enabledSystemId === system.id);
-        return locations.length > 0 && locations.every((location) => location.zoneId !== null && zoneIds.has(location.zoneId));
+        return locations.every((location) => location.zoneId !== null && zoneIds.has(location.zoneId));
       });
 
       response.json({
