@@ -1,0 +1,18 @@
+# Client PC requirements (human checklist; this is NOT a Python pip requirements file).
+# See docs/client-install-and-public-access.md for setup and public access.
+
+Windows 10/11 PC supported by the current Docker Desktop for Windows release
+WSL 2 and CPU virtualization enabled; at least 8 GB system RAM
+Docker Desktop installed, licensed for the client's organization, running Linux containers
+Docker Compose v2 (included with Docker Desktop)
+Internet access for the first image build and future updates
+Project source folder, including docker-compose.yml and both package-lock.json files
+Private .env configured from .env.example with a unique PostgreSQL password and matching DATABASE_URL
+C:/InspectionSystem/runtime on a persistent disk with space for uploads, logs, releases, and backups
+PC kept powered, awake, connected, and maintained during service hours
+Off-device backup destination and a tested restore procedure
+Client-owned domain and either the documented static-IP/router path or a separately designed named tunnel
+
+# No host Python, pip, Node.js, npm, PostgreSQL, or Caddy installation is needed.
+# Docker builds/installs container dependencies from the two npm lockfiles.
+# A GitHub source download is not a prebuilt Docker image and does not install Docker Desktop.
