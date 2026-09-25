@@ -56,7 +56,7 @@ test("same browser logout/login hides A's jobs and preserves unsynced draft for 
   await expect.poll(async()=>await page.evaluate(()=>(window as any).requests.filter((r:any)=>r.path==="/api/sync"&&r.actor===901).length)).toBe(1);
   await page.locator(".job-card").filter({hasText:"A-NEW"}).click();
   await page.getByRole("button",{name:/Hose Reel/}).click();
-  await expect(page.getByRole("textbox",{name:"Comments",exact:true})).toHaveValue("A unsynced draft survives");
+  await expect(page.locator("#hose-reel-comments").getByRole("list",{name:"Selected remarks"}).getByRole("listitem")).toContainText("A unsynced draft survives");
 });
 
 test("logout waits for a suspended local save before another identity can replace its workspace", async ({page})=>{
@@ -64,7 +64,10 @@ test("logout waits for a suspended local save before another identity can replac
   await page.getByRole("button",{name:/Technician/}).click();
   await page.locator(".job-card").filter({hasText:"A-NEW"}).click();
   await page.getByRole("button",{name:/Hose Reel/}).click();
-  await page.getByRole("textbox",{name:"Comments",exact:true}).fill("A saved during sign-out");
+  const comments = page.locator("#hose-reel-comments");
+  await comments.getByRole("button",{name:"Remove remark A unsynced draft survives"}).click();
+  await comments.getByRole("combobox",{name:"Remark",exact:true}).selectOption("others");
+  await comments.getByRole("textbox",{name:"Type a new remark"}).fill("A saved during sign-out");
   await page.evaluate(()=>(window as any).holdNextLocalTransaction());
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
   await page.getByRole("button",{name:"Sign out",exact:true}).click();

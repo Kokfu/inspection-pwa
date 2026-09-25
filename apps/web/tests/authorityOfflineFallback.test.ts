@@ -7,6 +7,8 @@ import { resolveWetChemicalAuthority } from "../src/wetChemical/wetChemicalAutho
 import { resolveFireIntercomRoute } from "../src/fireIntercom/fireIntercomResolution.js";
 import { resolveHydrantRoute } from "../src/hydrant/hydrantResolution.js";
 import { resolveSmokeVentilationRoute } from "../src/smokeVentilation/smokeVentilationResolution.js";
+import { resolveFireAlarmRoute } from "../src/fireAlarm/fireAlarmResolution.js";
+import { resolvePortableRoute } from "../src/portableFireExtinguisher/portableFireExtinguisher.js";
 
 /**
  * A mid-session connectivity drop (status "verified", not "offline-unverified")
@@ -78,10 +80,7 @@ test("Wet Chemical: a network TypeError falls back to the local draft when one e
 /**
  * The `*Resolution.ts` route resolvers (as opposed to the `*Authority.ts` ones above) fetch their
  * local record through an injectable `getLocal`, so the same mid-session-TypeError fallback is
- * covered directly here for the three that share that shape (fireIntercom/hydrant/smokeVentilation
- * resolveXRoute). fireAlarmResolution.ts and portableFireExtinguisher.ts got the identical one-line
- * fix but their local lookup is not dependency-injected (hardcoded to the real IndexedDB-backed
- * repository), so they are not unit-tested here — see the merge report.
+ * covered directly here without opening IndexedDB.
  */
 const fireIntercomLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
 
@@ -117,4 +116,38 @@ test("Smoke Ventilation: a network TypeError falls back to the local draft when 
     async () => { throw new Error("should not be called"); }
   );
   assert.deepEqual(result, { kind: "local", record: smokeVentilationLocal });
+});
+
+const fireAlarmLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
+
+test("Fire Alarm: a network TypeError falls back to the local record", async () => {
+  const result = await resolveFireAlarmRoute("requested-uuid", "job-1", "verified",
+    async () => { throw new TypeError("Failed to fetch"); },
+    async () => fireAlarmLocal);
+  assert.deepEqual(result, { kind: "local", record: fireAlarmLocal });
+});
+
+test("Fire Alarm: a non-network error does not fall back", async () => {
+  const result = await resolveFireAlarmRoute("requested-uuid", "job-1", "verified",
+    async () => { throw new Error("Malformed accepted detail"); },
+    async () => fireAlarmLocal);
+  assert.equal(result.kind, "server-unavailable");
+});
+
+const portableLocal = { jobId: "job-1", syncStatus: "Synced" } as never;
+
+test("Portable Fire Extinguisher: a network TypeError falls back to the local record", async () => {
+  const result = await resolvePortableRoute("requested-uuid", "requested-uuid", "verified",
+    async () => portableLocal,
+    async () => { throw new Error("should not be called"); },
+    async () => { throw new TypeError("Failed to fetch"); });
+  assert.deepEqual(result, { kind: "local", record: portableLocal });
+});
+
+test("Portable Fire Extinguisher: a non-network error does not fall back", async () => {
+  const result = await resolvePortableRoute("requested-uuid", "requested-uuid", "verified",
+    async () => portableLocal,
+    async () => { throw new Error("should not be called"); },
+    async () => { throw new Error("Malformed accepted detail"); });
+  assert.equal(result.kind, "server-unavailable");
 });

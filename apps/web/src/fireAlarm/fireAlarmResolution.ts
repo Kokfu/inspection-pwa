@@ -16,8 +16,8 @@ export type FireAlarmRouteResolution =
   | { kind: "invalid"; message: string }
   | { kind: "server-unavailable"; message: string };
 
-export async function resolveFireAlarmRoute(clientUuid:string,expectedJobId:string,authStatus:"verified"|"offline-unverified"|"logged-out",loadServer=loadServerFireAlarmDetail):Promise<FireAlarmRouteResolution>{
-  const local=await getFireAlarmInspectionByUuid(clientUuid);
+export async function resolveFireAlarmRoute(clientUuid:string,expectedJobId:string,authStatus:"verified"|"offline-unverified"|"logged-out",loadServer=loadServerFireAlarmDetail,getLocal=getFireAlarmInspectionByUuid):Promise<FireAlarmRouteResolution>{
+  const local=await getLocal(clientUuid);
   if(local&&local.jobId!==expectedJobId)return{kind:"inconsistent",message:"The local Fire Alarm inspection belongs to a different job."};
   if(local&&local.syncStatus!=="Synced")return{kind:"local",record:local};
   if(authStatus==="offline-unverified")return{kind:"not-cached"};
