@@ -79,6 +79,13 @@ Read only the skills applicable to the task before modifying related code.
   - Windows deployment
   - Customer-PC deployment
 
+- `.agents/skills/mobile-first-ui/SKILL.md`
+  - Screen layout, sizing, breakpoints, design tokens
+  - Touch targets, forms, status display
+  - Future mobile-app readiness
+  - Pair with `.claude/skills/web-design-guidelines` (UI audit) and
+    `.claude/skills/vercel-react-best-practices` (React performance)
+
 For cross-cutting tasks, load all relevant skills.
 
 Do not load unrelated skills merely because they exist.

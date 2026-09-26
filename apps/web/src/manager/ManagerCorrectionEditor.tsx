@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  loadInspectionCorrections, ManagerApiError, saveInspectionCorrections,
+  approveInspectionReview, loadInspectionCorrections, ManagerApiError, saveInspectionCorrections,
   type CorrectionValue, type ManagerCorrectableField, type ManagerInspectionCorrections
 } from "./managerApi";
 import { clearManagerLeaveGuard, setManagerLeaveGuard } from "./managerLeaveGuard";
@@ -35,8 +35,9 @@ function formatWhen(value: string) {
   return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : value;
 }
 
-export function ManagerCorrectionEditor({ clientUuid, onBack, onAuthorityFailure }: {
+export function ManagerCorrectionEditor({ clientUuid, canReview = false, onBack, onAuthorityFailure }: {
   clientUuid: string;
+  canReview?: boolean;
   /** Receives the visit this record belongs to, once it is known. */
   onBack: (jobId?: string) => void;
   onAuthorityFailure: (error: unknown) => void;
@@ -52,6 +53,7 @@ export function ManagerCorrectionEditor({ clientUuid, onBack, onAuthorityFailure
   const guardHash = useRef(window.location.hash);
   /** Held across retries: the same submission must stay idempotent on the server. */
   const requestId = useRef(crypto.randomUUID());
+  const reviewRequestId = useRef(crypto.randomUUID());
 
   const fetchRecord = async (signal?: AbortSignal) => {
     const loaded = await loadInspectionCorrections(clientUuid, signal);
@@ -128,6 +130,21 @@ export function ManagerCorrectionEditor({ clientUuid, onBack, onAuthorityFailure
     } finally { if (mounted.current) setBusy(false); }
   }
 
+  async function approveReview() {
+    if (!record?.review || record.review.status !== "pending" || pending.length > 0 || !canReview) return;
+    setBusy(true); setMessage("");
+    try {
+      await approveInspectionReview(clientUuid, { requestId: reviewRequestId.current, expectedCorrectionCount: record.review.correctionCount });
+      reviewRequestId.current = crypto.randomUUID();
+      const reloaded = await fetchRecord().then((done) => done, () => false);
+      if (mounted.current) setMessage(reloaded ? "Supervisor review recorded." : "Review recorded, but this screen could not refresh. Reload to verify it.");
+    } catch (error) {
+      if (!mounted.current) return;
+      if (error instanceof ManagerApiError && error.kind === "authorization") { onAuthorityFailure(error); return; }
+      setMessage(error instanceof ManagerApiError ? error.message : "Review could not be recorded. Reload and try again.");
+    } finally { if (mounted.current) setBusy(false); }
+  }
+
   const historyFor = (fieldPath: string) => (record?.corrections ?? []).filter((correction) => correction.fieldPath === fieldPath).sort((left, right) => left.sequence - right.sequence);
   const query = search.trim().toLocaleLowerCase();
   const visible = fields.filter((field) => (!query || field.label.toLocaleLowerCase().includes(query))
@@ -174,6 +191,13 @@ export function ManagerCorrectionEditor({ clientUuid, onBack, onAuthorityFailure
       {record.corrections.length > 0 && <span className="status-badge status-badge--waiting">{record.corrections.length} {record.corrections.length === 1 ? "correction" : "corrections"}</span>}
     </div>
     <p className="operational-message">The accepted inspection is never changed. A correction is recorded separately with the original value, your name and your reason; the report shows both.</p>
+    {record.review && <section className="operational-message" aria-label="Inspection review status">
+      <p>Submitted by Technician: {record.submittedBy ?? "identity unavailable"}.</p>
+      <p>{record.review.status === "reviewed" ? `Reviewed by Supervisor: ${record.review.reviewedBy} · ${formatWhen(record.review.reviewedAt!)}` : "Pending Review."}</p>
+      {canReview && record.review.status === "pending" && <button type="button" disabled={busy || pending.length > 0} onClick={() => void approveReview()}>
+        {busy ? "Saving…" : "Approve review"}
+      </button>}
+    </section>}
 
     {!record.supported && <p role="alert" className="form-message">Corrections are available for V7 inspections of the supported systems only. This record can be reviewed but not corrected.</p>}
     {record.supported && <>

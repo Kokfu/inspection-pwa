@@ -1,7 +1,7 @@
 export type FinalReportPreview = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED"; conditionDetail: string; locations: string[] }>;
-  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }> }>;
+  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }>; review?: { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number } }>;
 };
 
 export type FinalReportErrorKind = "authorization" | "domain" | "unavailable";

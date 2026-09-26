@@ -1,6 +1,6 @@
 import {
   deriveSystemCondition, sectionRemarkLines, v7DisplayLabelLookup, v7DisplayResponseKeyAliases,
-  type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
+  type FinalReportReview, type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
 } from "./finalServiceReport.js";
 import { companyProfile, type CompanyProfile } from "./companyProfile.js";
 export { companyProfile, companyProfileAssetPath, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
@@ -104,6 +104,7 @@ export type SystemPage = {
   comments: string | null;
   photos: ReportPhoto[];
   inspection: { date: string; inspectedBy: string[] };
+  review?: FinalReportReview;
 };
 
 export type ReportViewModel = {
@@ -415,7 +416,8 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
       condition, conditionDetail, structure: structured ? "v7" : "legacy",
       ...page, partsTally,
       photos: section.evidence.map((evidence, photoIndex) => ({ no: photoIndex + 1, caption: evidence.caption ?? null, field: evidence.field, width: evidence.width, height: evidence.height, content: evidence.content })),
-      inspection: { date: report.serviceDate, inspectedBy: report.technicians ?? [report.completedBy] }
+      inspection: { date: report.serviceDate, inspectedBy: report.technicians ?? [report.completedBy] },
+      ...(section.review ? { review: section.review } : {})
     };
   });
   const summary: ReportSummaryRow[] = systemPages.map((page) => ({

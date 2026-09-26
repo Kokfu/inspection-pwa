@@ -16,7 +16,7 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
     { label: "Completed By", value: report.completedBy },
   ];
   return <>
-    <section className="accepted-record-notice"><strong>Accepted inspection record</strong><p>This report shows the recorded field conditions accepted for this completed service visit.</p></section>
+    <section className="accepted-record-notice"><strong>Accepted inspection record</strong><p>This report shows the current recorded field conditions for this completed service visit.</p></section>
     <section className="report-summary report-summary--facts" aria-label="Service visit details">
       <dl className="job-facts">
         {jobFacts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value || "—"}</dd></div>)}
@@ -43,6 +43,11 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
     </section>
     {report.sections.map((section, index) => <section className="report-section" key={`${section.systemKey}:${section.location?.instanceKey ?? index}`}>
       <h3>{section.label}{section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}</h3>
+      {section.review ? <p className="operational-message" role="status">
+        Submitted by Technician: {section.review.submittedBy ?? "identity unavailable"}. {section.review.status === "reviewed"
+          ? `Reviewed by Supervisor: ${section.review.reviewedBy ?? "identity unavailable"}${section.review.reviewedAt ? ` on ${formatMalaysiaDateTime(section.review.reviewedAt)}` : ""}.`
+          : "Pending Review."}
+      </p> : null}
       <dl>{section.fields.map((field, fieldIndex) => <div className={`report-field report-field--depth-${Math.min(field.depth, 3)}`} key={`${field.label}:${fieldIndex}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
       {section.evidence.map((evidence) => <p className="evidence-confirmed" key={evidence.field}>Photo evidence is included in the downloaded PDF: {evidence.field.replace(/([a-z])([A-Z])/g, "$1 $2")}</p>)}
     </section>)}

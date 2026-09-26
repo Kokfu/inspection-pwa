@@ -125,6 +125,9 @@ const supervisorRoleMigrationUrl = new URL(
 const inspectionCorrectionsMigrationUrl = new URL(
   "../../migrations/040_inspection_corrections.sql", import.meta.url
 );
+const inspectionReviewsMigrationUrl = new URL(
+  "../../migrations/041_inspection_reviews.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -559,6 +562,12 @@ export async function runMigrations(
   );
   if (!inspectionCorrections.rows[0]?.exists) {
     await database.query(await readFile(inspectionCorrectionsMigrationUrl, "utf8"));
+  }
+  const inspectionReviews = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.inspection_reviews') IS NOT NULL AS exists`
+  );
+  if (!inspectionReviews.rows[0]?.exists) {
+    await database.query(await readFile(inspectionReviewsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

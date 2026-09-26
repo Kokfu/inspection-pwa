@@ -36,6 +36,7 @@ async function loadAcceptedRow(database: Queryable, clientUuid: string) {
       instance.inspection_snapshot AS "inspectionSnapshot", instance.response_payload AS responses,
       instance.original_creator_snapshot->>'username' AS "deviceReportedCreatorUsername",
       creator.username AS "verifiedOriginalCreatorUsername", syncer.username AS "syncedByUsername",
+      creator.role AS "creatorRole", syncer.role AS "syncerRole",
       template.version AS "templateVersion", job.is_sample AS "isSample", instance.synced_by_user_id::bigint AS "syncedByUserId"
     FROM master_system_form_instances instance
     INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
@@ -49,8 +50,10 @@ async function loadAcceptedRow(database: Queryable, clientUuid: string) {
   if (!found || found.isSample === true) throw new CorrectionError("INSPECTION_NOT_FOUND", "Accepted inspection was not found.", 404);
   // The Accepted Detail validators check the row's key set exactly, so the bookkeeping columns are kept
   // out of the row they see.
-  const { templateVersion, isSample: _isSample, syncedByUserId, ...row } = found;
-  return { row, templateVersion, syncedByUserId };
+  const { templateVersion, isSample: _isSample, syncedByUserId, creatorRole, syncerRole, ...row } = found;
+  const submittedBy = creatorRole === "inspector" ? row.verifiedOriginalCreatorUsername
+    : syncerRole === "inspector" ? row.syncedByUsername : null;
+  return { row, templateVersion, syncedByUserId, submittedBy: typeof submittedBy === "string" ? submittedBy : null };
 }
 
 /** Corrections are for V7 records of the systems in `correctableSystems`; everything else fails closed. */
@@ -78,6 +81,22 @@ async function loadCorrections(database: Queryable, where: "form" | "job", id: s
 }
 
 const publicCorrection = ({ requestFingerprint: _fingerprint, formInstanceId: _form, ...correction }: CorrectionRow & { formInstanceId?: string }) => correction;
+
+type ReviewRow = { id: string; correctionCount: number; reviewedBy: string; reviewedAt: string; requestId: string };
+async function loadReview(database: Queryable, formInstanceId: string): Promise<ReviewRow | undefined> {
+  const result = await database.query(`SELECT review.id, review.correction_count AS "correctionCount",
+      reviewer.username AS "reviewedBy", to_char(review.reviewed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "reviewedAt",
+      review.request_id AS "requestId"
+    FROM inspection_reviews review INNER JOIN users reviewer ON reviewer.id=review.reviewed_by_user_id
+    WHERE review.form_instance_id=$1 ORDER BY review.correction_count DESC LIMIT 1`, [formInstanceId]);
+  return result.rows[0] as ReviewRow | undefined;
+}
+
+function reviewState(review: ReviewRow | undefined, correctionCount: number) {
+  return review?.correctionCount === correctionCount
+    ? { status: "reviewed" as const, correctionCount, reviewedBy: review.reviewedBy, reviewedAt: review.reviewedAt }
+    : { status: "pending" as const, correctionCount, reviewedBy: null, reviewedAt: null };
+}
 
 function parseCorrectionBody(body: unknown) {
   const invalid = (message: string) => new CorrectionError("INVALID_CORRECTION_REQUEST", message, 400);
@@ -111,8 +130,10 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
       const accepted = await loadAcceptedRow(database, clientUuid);
       const row = accepted.row;
       const corrections = await loadCorrections(database, "form", String(row.serverFormInstanceId));
+      const review = accepted.templateVersion === 7 ? reviewState(await loadReview(database, String(row.serverFormInstanceId)), corrections.length) : null;
       response.setHeader("Cache-Control", "private, no-store");
-      const base = { clientUuid: row.clientUuid, jobId: row.jobId, jobReference: row.jobReference, systemKey: row.systemKey, instanceKey: row.instanceKey, corrections: corrections.map(publicCorrection) };
+      const base = { clientUuid: row.clientUuid, jobId: row.jobId, jobReference: row.jobReference, systemKey: row.systemKey, instanceKey: row.instanceKey,
+        submittedBy: accepted.submittedBy, review, corrections: corrections.map(publicCorrection) };
       if (!supportedRow(accepted)) { response.json({ ...base, supported: false, fields: [] }); return; }
       const acceptedPayload = row.responses as Json;
       const effective = applyCorrections(acceptedPayload, corrections);
@@ -123,6 +144,51 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
       }));
       response.json({ ...base, supported: true, fields });
     } catch (error) { next(error); }
+  });
+
+  /** Explicit supervisor approval of the current accepted+corrected revision. */
+  router.post("/manager/inspections/:clientUuid/review", requireRole("supervisor"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const clientUuid = request.params.clientUuid;
+      if (typeof clientUuid !== "string" || !uuidPattern.test(clientUuid)) throw new CorrectionError("INVALID_INSPECTION_ID", "Inspection ID is invalid.", 400);
+      const body = request.body as Record<string, unknown> | undefined;
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 2
+        || typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)
+        || !Number.isSafeInteger(body.expectedCorrectionCount) || (body.expectedCorrectionCount as number) < 0) {
+        throw new CorrectionError("INVALID_REVIEW_REQUEST", "A request ID and current correction count are required.", 400);
+      }
+      client = await database.connect();
+      await client.query("BEGIN");
+      const accepted = await loadAcceptedRow(client, clientUuid);
+      if (accepted.templateVersion !== 7) throw new CorrectionError("REVIEW_NOT_SUPPORTED", "Review is available for V7 inspections only.", 422);
+      const formInstanceId = String(accepted.row.serverFormInstanceId);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('inspection_corrections:' || $1))", [formInstanceId]);
+      const countResult = await client.query<{ count: number }>("SELECT count(*)::int AS count FROM inspection_corrections WHERE form_instance_id=$1", [formInstanceId]);
+      const correctionCount = countResult.rows[0]!.count;
+      if (body.expectedCorrectionCount !== correctionCount) throw new CorrectionError("REVIEW_CONFLICT", "This inspection changed since you opened it. Reload before reviewing.", 409);
+      const priorRequest = await client.query("SELECT correction_count FROM inspection_reviews WHERE form_instance_id=$1 AND request_id=$2", [formInstanceId, body.requestId]);
+      if (priorRequest.rows[0] && priorRequest.rows[0].correction_count !== correctionCount) {
+        throw new CorrectionError("REVIEW_REQUEST_REUSED", "This request ID was already used for another review revision.", 409);
+      }
+      const existing = await loadReview(client, formInstanceId);
+      if (existing?.correctionCount === correctionCount) {
+        await client.query("COMMIT");
+        response.status(200).json({ review: reviewState(existing, correctionCount) });
+        return;
+      }
+      await client.query("INSERT INTO inspection_reviews(id,form_instance_id,correction_count,reviewed_by_user_id,request_id) VALUES($1,$2,$3,$4,$5)",
+        [randomUUID(), formInstanceId, correctionCount, request.currentUser!.id, body.requestId]);
+      await client.query("INSERT INTO audit_events(actor_user_id,action,entity_type,entity_id,result) VALUES($1,'inspection.review','form_instance',$2,'success')",
+        [request.currentUser!.id, formInstanceId]);
+      const storedReview = await loadReview(client, formInstanceId);
+      if (!storedReview || storedReview.correctionCount !== correctionCount) throw new Error("Stored inspection review could not be verified");
+      await client.query("COMMIT");
+      response.status(201).json({ review: reviewState(storedReview, correctionCount) });
+    } catch (error) {
+      await client?.query("ROLLBACK").catch(() => undefined);
+      next(error);
+    } finally { client?.release(); }
   });
 
   router.post("/manager/inspections/:clientUuid/corrections", requireRole("admin", "supervisor"), async (request, response, next) => {
@@ -208,18 +274,30 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
           instance.zone_snapshot->>'displayName' AS "zoneLabel", instance.location_snapshot->>'displayName' AS "locationLabel",
           to_char(instance.performed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "performedAt",
           template.version AS "templateVersion",
-          (SELECT count(*)::int FROM inspection_corrections correction WHERE correction.form_instance_id=instance.id) AS "correctionCount"
+          (SELECT count(*)::int FROM inspection_corrections correction WHERE correction.form_instance_id=instance.id) AS "correctionCount",
+          CASE WHEN creator.role='inspector' THEN creator.username WHEN syncer.role='inspector' THEN syncer.username ELSE NULL END AS "submittedBy",
+          review.correction_count AS "reviewedCorrectionCount", reviewer.username AS "reviewedBy",
+          to_char(review.reviewed_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "reviewedAt"
         FROM master_system_form_instances instance
         INNER JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
         INNER JOIN master_service_report_templates template ON template.id=instance.master_template_version_id
+        LEFT JOIN users creator ON creator.id=instance.original_created_by_user_id
+        LEFT JOIN users syncer ON syncer.id=instance.synced_by_user_id
+        LEFT JOIN LATERAL (SELECT correction_count, reviewed_by_user_id, reviewed_at FROM inspection_reviews
+          WHERE form_instance_id=instance.id ORDER BY correction_count DESC LIMIT 1) review ON true
+        LEFT JOIN users reviewer ON reviewer.id=review.reviewed_by_user_id
         WHERE inspection.job_id=$1 AND instance.status='submitted'
         ORDER BY inspection.system_key, instance.display_sequence, instance.client_uuid`, [jobId]);
       response.setHeader("Cache-Control", "private, no-store");
       response.json({
-        records: (result.rows as Array<Record<string, unknown>>).map(({ templateVersion, ...row }) => ({
+        records: (result.rows as Array<Record<string, unknown>>).map(({ templateVersion, reviewedCorrectionCount, reviewedBy, reviewedAt, ...row }) => ({
           ...row,
           systemLabel: labels.get(String(row.systemKey)) ?? String(row.systemKey),
-          supported: supportedRow({ row, templateVersion })
+          supported: supportedRow({ row, templateVersion }), review: templateVersion === 7
+            ? reviewedCorrectionCount === row.correctionCount && typeof reviewedBy === "string"
+              ? { status: "reviewed", correctionCount: row.correctionCount, reviewedBy, reviewedAt }
+              : { status: "pending", correctionCount: row.correctionCount, reviewedBy: null, reviewedAt: null }
+            : null
         }))
       });
     } catch (error) { next(error); }
@@ -269,9 +347,13 @@ export function createManagerCorrectionsRouter(database: Database = pool) {
       }
       const corrections = await loadCorrections(database, "form", String(row.serverFormInstanceId));
       const labels = corrections.length ? listCorrectableFields(row.responses as Json, row.inspectionSnapshot) : [];
+      const review = accepted.templateVersion === 7
+        ? reviewState(await loadReview(database, String(row.serverFormInstanceId)), corrections.length) : null;
       response.setHeader("Cache-Control", "private, no-store");
       response.json({
         clientUuid: row.clientUuid,
+        submittedBy: accepted.submittedBy,
+        review,
         corrections: corrections.map((correction) => ({
           ...publicCorrection(correction),
           label: labels.find((field) => field.fieldPath === correction.fieldPath)?.label ?? correction.fieldPath

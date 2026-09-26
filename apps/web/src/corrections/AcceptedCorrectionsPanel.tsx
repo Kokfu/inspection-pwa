@@ -13,14 +13,26 @@ export type AcceptedCorrection = {
   previousValue: string | number | null; newValue: string | number | null;
   reason: string; correctedBy: string; correctedByRole: "admin" | "supervisor"; correctedAt: string;
 };
+type Review = { status: "pending" | "reviewed"; correctionCount: number; reviewedBy: string | null; reviewedAt: string | null };
+type DetailStatus = { submittedBy: string | null; review: Review | null; corrections: AcceptedCorrection[] };
 
 const resultLabels: Record<string, string> = { good: "Good", not_good: "Not Good", complete_repair: "Complete Repair", na: "N.A." };
 const show = (value: string | number | null) => value === null || value === "" ? "—" : resultLabels[String(value)] ?? String(value);
 const isValue = (value: unknown) => value === null || typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
 
-function parse(value: unknown): AcceptedCorrection[] | undefined {
+function parse(value: unknown): DetailStatus | undefined {
   if (typeof value !== "object" || value === null || !Array.isArray((value as { corrections?: unknown }).corrections)) return undefined;
-  const rows = (value as { corrections: unknown[] }).corrections;
+  const data = value as Record<string, unknown>;
+  if (!(data.submittedBy === null || typeof data.submittedBy === "string" && data.submittedBy.trim().length > 0)) return undefined;
+  const review = data.review;
+  if (review !== null && (typeof review !== "object" || Array.isArray(review)
+    || (review as Review).status !== "pending" && (review as Review).status !== "reviewed"
+    || !Number.isSafeInteger((review as Review).correctionCount) || (review as Review).correctionCount < 0
+    || ((review as Review).status === "pending"
+      ? (review as Review).reviewedBy !== null || (review as Review).reviewedAt !== null
+      : typeof (review as Review).reviewedBy !== "string" || !(review as Review).reviewedBy?.trim()
+        || typeof (review as Review).reviewedAt !== "string" || !Number.isFinite(Date.parse((review as Review).reviewedAt!))))) return undefined;
+  const rows = data.corrections as unknown[];
   const parsed: AcceptedCorrection[] = [];
   for (const row of rows) {
     if (typeof row !== "object" || row === null) return undefined;
@@ -32,7 +44,8 @@ function parse(value: unknown): AcceptedCorrection[] | undefined {
       || typeof correction.correctedAt !== "string") return undefined;
     parsed.push(correction as unknown as AcceptedCorrection);
   }
-  return parsed;
+  if (review !== null && (review as Review).correctionCount !== parsed.length) return undefined;
+  return { submittedBy: data.submittedBy as string | null, review: review as Review | null, corrections: parsed };
 }
 
 function formatWhen(value: string) {
@@ -41,13 +54,13 @@ function formatWhen(value: string) {
 }
 
 export function AcceptedCorrectionsPanel({ clientUuid }: { clientUuid: string }) {
-  const [corrections, setCorrections] = useState<AcceptedCorrection[]>([]);
+  const [status, setStatus] = useState<DetailStatus>();
   /** A check that failed is never silence: the record below may carry corrections this panel cannot show. */
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     let active = true;
-    setCorrections([]); setUnavailable(false);
+    setStatus(undefined); setUnavailable(false);
     void (async () => {
       try {
         const response = await fetch(`/api/inspections/${encodeURIComponent(clientUuid)}/corrections`, { credentials: "same-origin", cache: "no-store" });
@@ -55,7 +68,7 @@ export function AcceptedCorrectionsPanel({ clientUuid }: { clientUuid: string })
         if ([401, 403, 404].includes(response.status)) return;
         const parsed = response.ok ? parse(await response.json()) : undefined;
         if (!active) return;
-        if (parsed) setCorrections(parsed);
+        if (parsed) setStatus(parsed);
         else setUnavailable(true);
       } catch {
         // The accepted detail renders with or without this panel; the reader is still told the check failed.
@@ -67,17 +80,21 @@ export function AcceptedCorrectionsPanel({ clientUuid }: { clientUuid: string })
 
   if (unavailable) {
     return <p className="operational-message operational-message--warning" role="status">
-      Corrections made after submission could not be checked. The inspection below is shown as accepted.
+      Submission, review and corrections could not be checked. The inspection below is shown as accepted.
     </p>;
   }
-  if (!corrections.length) return null;
-  const ordered = [...corrections].sort((left, right) => left.correctedAt.localeCompare(right.correctedAt) || left.sequence - right.sequence);
+  if (!status || !status.review && !status.corrections.length) return null;
+  const ordered = [...status.corrections].sort((left, right) => left.correctedAt.localeCompare(right.correctedAt) || left.sequence - right.sequence);
   return <section className="operational-message operational-message--warning" aria-labelledby={`accepted-corrections-${clientUuid}`}>
-    <h3 id={`accepted-corrections-${clientUuid}`}>{ordered.length} {ordered.length === 1 ? "correction" : "corrections"} after submission</h3>
-    <p>The inspection below is shown exactly as it was accepted. These corrections were recorded separately.</p>
+    <h3 id={`accepted-corrections-${clientUuid}`}>{status.review
+      ? status.review.status === "reviewed" ? "Reviewed by Supervisor" : "Pending Review"
+      : `${ordered.length} ${ordered.length === 1 ? "correction" : "corrections"} after submission`}</h3>
+    {status.review ? <><p>Submitted by Technician: {status.submittedBy ?? "Identity unavailable"}</p>
+      {status.review.status === "reviewed" ? <p>Reviewed by Supervisor: {status.review.reviewedBy} · {formatWhen(status.review.reviewedAt!)}</p> : <p>Supervisor approval is pending.</p>}</> : null}
+    {ordered.length ? <><p>The inspection below is shown exactly as it was accepted. These corrections were recorded separately.</p>
     <ul>{ordered.map((correction) => <li key={correction.id}>
       <strong>{correction.label}</strong>: {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong>
       {" · "}{correction.correctedBy} ({correction.correctedByRole}) · {formatWhen(correction.correctedAt)} · {correction.reason}
-    </li>)}</ul>
+    </li>)}</ul></> : null}
   </section>;
 }

@@ -9,7 +9,7 @@ test("dashboard routes authorize reads and bind validated date filters", async (
   const queries: Array<{ sql: string; values?: unknown[] }> = [];
   const database = { async query(sql: string, values?: unknown[]) {
     queries.push({ sql, values });
-    return { rows: sql.includes("FROM customers") ? [{ totalClients: 8 }] : [{ day: "2026-09-02", count: 3 }] };
+    return { rows: sql.includes("FROM customers") ? [{ totalClients: 8 }] : sql.includes("FROM inspection_jobs job") ? [] : [{ day: "2026-09-02", count: 3 }] };
   } };
   const app = express();
   app.use((request, _response, next) => {
@@ -36,5 +36,16 @@ test("dashboard routes authorize reads and bind validated date filters", async (
     assert.match(trend.sql, /GROUP BY date_trunc\('day', service_date\)/);
     assert.match(trend.sql, /service_date >= \$1::date AND service_date <= \$2::date/);
     assert.deepEqual(trend.values, ["2026-09-01", "2026-09-30"]);
+    assert.equal((await get("/manager/dashboard/inspection-status?from=2026-09-01&to=2026-09-30")).status, 401);
+    assert.equal((await get("/manager/dashboard/inspection-status?from=2026-09-01&to=2026-09-30", "inspector")).status, 403);
+    assert.equal((await get("/manager/dashboard/inspection-status?from=2026-09-01&to=2026-10-03", "admin")).status, 400);
+    assert.equal((await get("/manager/dashboard/inspection-status?from=2026-02-30&to=2026-03-01", "admin")).status, 400);
+    assert.deepEqual(await (await get("/manager/dashboard/inspection-status?from=2026-09-01&to=2026-09-30", "supervisor")).json(), { passed: 0, notOk: 0, na: 0 });
+    const status = queries.at(-1)!;
+    assert.match(status.sql, /job\.is_sample = false AND job\.archived_at IS NULL/);
+    assert.match(status.sql, /job\.service_date >= \$1::date AND job\.service_date <= \$2::date/);
+    assert.match(status.sql, /instance\.status = 'submitted'/);
+    assert.match(status.sql, /inspection_corrections correction/);
+    assert.deepEqual(status.values, ["2026-09-01", "2026-09-30"]);
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 });

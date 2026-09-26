@@ -34,6 +34,7 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
         ? <p className="empty-state">No accepted records yet.</p>
         : <ul className="manager-technician-list">{acceptedRecords.map((record) => <li key={record.clientUuid}>
           <span><strong>{record.systemLabel}</strong>{record.locationLabel ? <small> · {record.zoneLabel ? `${record.zoneLabel} / ` : ""}{record.locationLabel}</small> : null}</span>
+          {record.review && <span className="support-metadata">Submitted by Technician: {record.submittedBy ?? "identity unavailable"} · {record.review.status === "reviewed" ? `Reviewed by Supervisor: ${record.review.reviewedBy}` : "Pending Review"}</span>}
           {record.correctionCount > 0 && <span className="status-badge status-badge--waiting">{record.correctionCount} {record.correctionCount === 1 ? "correction" : "corrections"}</span>}
           <button type="button" className="secondary-command" onClick={() => onCorrect(record)}>{record.supported ? "Review / correct" : "Review"}</button>
         </li>)}</ul>}

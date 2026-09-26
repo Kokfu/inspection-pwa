@@ -10,6 +10,7 @@ import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
 import { inspectionJobsRouter } from "./inspectionJobs.js";
 import { createManagerCorrectionsRouter } from "./managerCorrections.js";
 import { createManagerServiceVisitsRouter } from "./managerServiceVisits.js";
+import { createManagerDashboardRouter } from "./managerDashboard.js";
 import { masterSystemInspectionsRouter } from "./masterSystemInspections.js";
 import { stagedEvidenceRouter } from "./stagedEvidence.js";
 
@@ -53,17 +54,29 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
     };
     const app = express(); app.use(express.json());
     app.use((request, _response, next) => { const actor = actors[request.header("x-test-actor") ?? ""]; if (actor) request.currentUser = actor; next(); });
-    app.use(createManagerCorrectionsRouter(pool)); app.use(createManagerServiceVisitsRouter({ database: pool })); app.use(inspectionJobsRouter);
+    app.use(createManagerCorrectionsRouter(pool)); app.use(createManagerDashboardRouter(pool)); app.use(createManagerServiceVisitsRouter({ database: pool })); app.use(inspectionJobsRouter);
     app.use(masterSystemInspectionsRouter); app.use(stagedEvidenceRouter);
     const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
     const { port } = server.address() as { port: number };
     const call = (path: string, actor: string, method = "GET", body?: unknown) => fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { "content-type": "application/json", "x-test-actor": actor }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const post = (actor: string, body: unknown) => call(`/manager/inspections/${client}/corrections`, actor, "POST", body);
+    const review = (actor: string, expectedCorrectionCount: number, requestId = id()) => call(`/manager/inspections/${client}/review`, actor, "POST", { requestId, expectedCorrectionCount });
+    const dashboardStatus = async () => (await (await call("/manager/dashboard/inspection-status?from=2026-09-01&to=2026-09-30", "supervisor")).json()) as { passed: number; notOk: number; na: number };
     const count = async () => (await pool.query("SELECT count(*)::int AS n FROM inspection_corrections")).rows[0].n as number;
     try {
+      assert.deepEqual(await dashboardStatus(), { passed: 1, notOk: 0, na: 0 }, "accepted Good system initially passes");
       // Editor view: correctable fields exclude identity and the N/T/I detector arrays.
       const view = await (await call(`/manager/inspections/${client}/corrections`, "supervisor")).json() as { supported: boolean; fields: Array<{ fieldPath: string; kind: string; value: unknown; label: string }> };
       assert.equal(view.supported, true);
+      assert.equal((view as unknown as { submittedBy: string }).submittedBy, "corr-tech");
+      assert.equal((view as unknown as { review: { status: string } }).review.status, "pending");
+      assert.equal((await review("inspector", 0)).status, 403);
+      assert.equal((await review("admin", 0)).status, 403);
+      const firstReviewId = id();
+      assert.equal((await review("supervisor", 0, firstReviewId)).status, 201);
+      assert.equal((await review("supervisor", 0, firstReviewId)).status, 200, "review replay is idempotent");
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM inspection_reviews")).rows[0].n, 1);
+      assert.equal(((await (await call(`/manager/inspections/${client}/corrections`, "supervisor")).json()) as { review: { status: string; reviewedBy: string } }).review.status, "reviewed");
       const paths = view.fields.map((field) => field.fieldPath);
       assert.ok(paths.includes("chargerAndBatteries.main_supply.result") && paths.includes("controlPanelLocation") && paths.includes(`detectorRows.${detectorRow}.remarks`));
       assert.ok(!paths.some((path) => /Status|rowUuid|displaySequence/.test(path)), paths.join(","));
@@ -78,6 +91,9 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
       assert.equal((await post("nobody", first)).status, 401);
       const created = await post("supervisor", first);
       assert.equal(created.status, 201, await created.clone().text());
+      assert.deepEqual(await dashboardStatus(), { passed: 0, notOk: 1, na: 0 }, "dashboard reflects the later correction, not the accepted payload");
+      assert.equal(((await (await call(`/manager/inspections/${client}/corrections`, "supervisor")).json()) as { review: { status: string } }).review.status, "pending", "correction invalidates the prior review");
+      assert.equal((await review("supervisor", 0)).status, 409, "stale review cannot approve a corrected record");
       const createdRows = (await created.json() as { corrections: Array<{ fieldPath: string; sequence: number; previousValue: unknown; newValue: unknown; correctedBy: string; correctedByRole: string }> }).corrections;
       assert.deepEqual(createdRows.map((row) => [row.fieldPath, row.sequence, row.previousValue, row.newValue, row.correctedByRole]).sort(), [
         [mainRemarks, 1, "", "Battery terminal corroded", "supervisor"], [mainSupply, 1, "good", "not_good", "supervisor"]
@@ -116,6 +132,7 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
       assert.equal(second.status, 201);
       const [chained] = (await second.json() as { corrections: Array<{ sequence: number; previousValue: unknown }> }).corrections;
       assert.deepEqual([chained!.sequence, chained!.previousValue], [2, "not_good"]);
+      assert.equal((await review("supervisor", 3)).status, 201, "supervisor approves the corrected revision");
       const after = await (await call(`/manager/inspections/${client}/corrections`, "admin")).json() as { fields: Array<{ fieldPath: string; value: unknown; originalValue: unknown; corrected: boolean }>; corrections: unknown[] };
       const field = after.fields.find((entry) => entry.fieldPath === mainSupply)!;
       assert.deepEqual([field.value, field.originalValue, field.corrected], ["complete_repair", "good", true]);
@@ -167,7 +184,10 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
         const response = await call(path, actor);
         assert.equal(response.status, status, `${actor} ${path}`);
       }
-      const technicianView = await (await call(`/inspections/${client}/corrections`, "inspector")).json() as { corrections: Array<{ label: string; reason: string; newValue: unknown }> };
+      const technicianView = await (await call(`/inspections/${client}/corrections`, "inspector")).json() as { submittedBy: string; review: { status: string; reviewedBy: string }; corrections: Array<{ label: string; reason: string; newValue: unknown }> };
+      assert.equal(technicianView.submittedBy, "corr-tech");
+      assert.equal(technicianView.review.status, "reviewed");
+      assert.equal(technicianView.review.reviewedBy, "corr-review");
       assert.equal(technicianView.corrections.length, 3, "the creating technician reads the corrections to their own record");
       assert.ok(technicianView.corrections.every((correction) => correction.label.includes("›") && correction.reason.length > 0));
 
@@ -175,13 +195,21 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
       await assert.rejects(pool.query("UPDATE inspection_corrections SET reason='rewritten'"), /append-only/);
       await assert.rejects(pool.query("DELETE FROM inspection_corrections"), /append-only/);
       await assert.rejects(pool.query("TRUNCATE inspection_corrections"), /append-only/);
+      await assert.rejects(pool.query("UPDATE inspection_reviews SET correction_count=99"), /append-only/);
+      await assert.rejects(pool.query("DELETE FROM inspection_reviews"), /append-only/);
+      await assert.rejects(pool.query("TRUNCATE inspection_reviews"), /append-only/);
       assert.equal(await acceptedHash(), before);
 
-      // The JSON report still serves the accepted values; the PDF is refused while corrections exist.
+      // The V7 JSON report serves the corrected values and review attribution; the PDF remains refused.
       // 034 (report_number_required, landed after this test was first written) requires a
       // report_number and technician_team_snapshot together on the open->closed transition.
       await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='corr',report_number='TEST/' || id::text,technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, inspector]);
-      assert.equal((await call(`/manager/service-visits/${job}/final-report`, "supervisor")).status, 200);
+      const reportResponse = await call(`/manager/service-visits/${job}/final-report`, "supervisor");
+      assert.equal(reportResponse.status, 200);
+      const correctedReport = (await reportResponse.json()) as { report: { systems: Array<{ condition: string }>; sections: Array<{ fields: Array<{ value: string }>; review: { status: string; submittedBy: string; reviewedBy: string; reviewedAt: string | null } }> } };
+      assert.equal(correctedReport.report.systems[0]?.condition, "REFER DETAIL PAGE");
+      assert.ok(correctedReport.report.sections[0]?.fields.some((field) => field.value === "Complete Repair"));
+      assert.deepEqual(correctedReport.report.sections[0]?.review, { status: "reviewed", submittedBy: "corr-tech", reviewedBy: "corr-review", reviewedAt: correctedReport.report.sections[0]?.review.reviewedAt, correctionCount: 3 });
       for (const [path, actor] of [[`/manager/service-visits/${job}/final-report.pdf`, "admin"], [`/inspection-jobs/${job}/final-report.pdf`, "inspector"]] as const) {
         const pdf = await call(path, actor);
         assert.equal(pdf.status, 409, path);
@@ -189,6 +217,10 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
       }
       // A closed job still accepts review corrections.
       assert.equal((await post("supervisor", { requestId: id(), reason: "Wording fix after closure", changes: [{ fieldPath: "comments", expectedCurrentValue: "", newValue: "Checked with site lead" }] })).status, 201);
+      const afterLateCorrection = (await (await call(`/manager/service-visits/${job}/final-report`, "supervisor")).json()) as typeof correctedReport;
+      assert.equal(afterLateCorrection.report.sections[0]?.review.status, "pending", "later correction requires another supervisor review");
+      const pendingTechnicianView = await (await call(`/inspections/${client}/corrections`, "inspector")).json() as typeof technicianView;
+      assert.equal(pendingTechnicianView.review.status, "pending", "technician sees that the corrected form needs review again");
     } finally { server.close(); await once(server, "close"); }
   } finally { await pool.end(); }
 });

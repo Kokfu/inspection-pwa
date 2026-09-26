@@ -5,6 +5,8 @@ import {
   validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail
 } from "../inspections/acceptedMasterSystemDetail.js";
 import { resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
+import { applyCorrections, deniedKey, isObject, locate, maxSegments, parseFieldPath, segmentPattern, type Json, type StoredCorrection } from "./correctionApplication.js";
+export { applyCorrections, parseFieldPath, type Json, type StoredCorrection } from "./correctionApplication.js";
 
 /**
  * T5 corrections to Accepted V7 inspections (docs/autopilot/designs/T5.md).
@@ -20,10 +22,8 @@ import { resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceCon
  * the record's own frozen-contract validator (the same one Accepted Detail uses).
  */
 
-export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type CorrectionKind = "result" | "text" | "reading";
 export type CorrectableField = { fieldPath: string; label: string; kind: CorrectionKind; value: Json; options?: readonly string[] };
-export type StoredCorrection = { fieldPath: string; sequence: number; newValue: Json };
 
 /** The V7 four-state result model. */
 export const v7Results = ["good", "not_good", "complete_repair", "na"] as const;
@@ -42,38 +42,6 @@ export const correctableSystems: ReadonlyMap<string, DetailValidator> = new Map<
   ["fire_intercom", validateAcceptedFireIntercomV7Detail]
 ]);
 
-const segmentPattern = /^[A-Za-z0-9_-]{1,100}$/;
-const deniedKeys = new Set(["rowUuid", "source", "sortOrder", "displaySequence", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "schemaVersion", "unit",
-  // Never reachable anyway (every step needs an own property), refused explicitly so it stays that way.
-  "__proto__", "constructor", "prototype"]);
-const deniedKeyPattern = /(Id|Uuid|Sha256|At)$/;
-const maxSegments = 12;
-
-const isObject = (value: unknown): value is Record<string, Json> => typeof value === "object" && value !== null && !Array.isArray(value);
-const deniedKey = (key: string) => deniedKeys.has(key) || deniedKeyPattern.test(key);
-
-export function parseFieldPath(path: unknown): string[] | undefined {
-  if (typeof path !== "string" || path.length < 1 || path.length > 300) return undefined;
-  const segments = path.split(".");
-  if (segments.length > maxSegments || segments.some((segment) => !segmentPattern.test(segment) || deniedKey(segment))) return undefined;
-  return segments;
-}
-
-/** The parent container and key a path addresses, or undefined when the path does not resolve. */
-function locate(root: Json, segments: readonly string[]): { parent: Record<string, Json>; key: string } | undefined {
-  let node: Json = root;
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const segment = segments[index]!;
-    if (Array.isArray(node)) {
-      node = node.find((row) => isObject(row) && row.rowUuid === segment) ?? null;
-      if (node === null) return undefined;
-    } else if (isObject(node) && Object.hasOwn(node, segment)) {
-      node = node[segment]!;
-    } else return undefined;
-  }
-  const key = segments[segments.length - 1]!;
-  return isObject(node) && Object.hasOwn(node, key) ? { parent: node, key } : undefined;
-}
 
 function kindOf(value: Json): CorrectionKind | undefined {
   if (typeof value === "string") return (v7Results as readonly string[]).includes(value) ? "result" : "text";
@@ -100,30 +68,6 @@ export function acceptableNewValue(kind: CorrectionKind, next: unknown): next is
   if (kind === "result") return typeof next === "string" && (v7Results as readonly string[]).includes(next);
   if (kind === "text") return typeof next === "string" && next.length <= 4000;
   return next === null || (typeof next === "string" && next.length <= 200) || (typeof next === "number" && Number.isFinite(next));
-}
-
-/**
- * Accepted payload + corrections (latest `sequence` per path wins). Never mutates its input.
- *
- * A correction may turn a field into a finding (`not_good` / `complete_repair`) that has no accepted photo,
- * or clear one that has: the stored evidence manifest is frozen and stays as accepted (owner decision,
- * T5 §9 Q3). Anything rendering the effective payload must therefore pair it with a manifest derived from
- * that payload, as `effectivePayloadIsValid` does — never with the stored manifest.
- */
-export function applyCorrections(payload: Json, corrections: readonly StoredCorrection[]): Json {
-  const effective = structuredClone(payload);
-  const latest = new Map<string, StoredCorrection>();
-  for (const correction of corrections) {
-    const current = latest.get(correction.fieldPath);
-    if (!current || correction.sequence > current.sequence) latest.set(correction.fieldPath, correction);
-  }
-  for (const correction of latest.values()) {
-    const segments = parseFieldPath(correction.fieldPath);
-    const found = segments && locate(effective, segments);
-    if (!found) throw new Error(`Stored correction path no longer resolves: ${correction.fieldPath}`);
-    found.parent[found.key] = structuredClone(correction.newValue);
-  }
-  return effective;
 }
 
 function humanize(segment: string) {

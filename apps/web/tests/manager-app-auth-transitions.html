@@ -152,7 +152,11 @@
         transport.fetch = async input => {
           const url = String(input); transport.calls.push(url);
           if (url === "/api/auth/me") return managerCalls > 1 ? new Response("", { status: 403 }) : json({ user: admin });
-          if (url.startsWith("/api/manager/service-visits")) return ++managerCalls === 1 ? json({ serviceVisits: [visit], nextCursor: null, totalCount: 1 }) : new Response("", { status: 403 });
+          // The Home dashboard's own count query (`?from=...&limit=1`) is a distinct request from the
+          // Operations list fetch below; it must not consume the call-counter this case uses to arrange
+          // "Operations' first load succeeds, its second (post-Refresh) load gets a 403".
+          if (url.startsWith("/api/manager/service-visits?")) return json({ serviceVisits: [visit], nextCursor: null, totalCount: 1 });
+          if (url === "/api/manager/service-visits") return ++managerCalls === 1 ? json({ serviceVisits: [visit], nextCursor: null, totalCount: 1 }) : new Response("", { status: 403 });
           if (url === "/api/manager/customers") return json({ customers: [customer] });
           if (url === "/api/inspection-jobs") return json({ jobs: [] });
           if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });

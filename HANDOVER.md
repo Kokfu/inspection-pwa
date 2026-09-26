@@ -3,6 +3,12 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-26 — **Manager inspection status dashboard added (uncommitted).**
+
+Home now shows Passed, Not OK, and N/A counts with an SVG donut for Admin and Supervisor. The date-capped API reads accepted systems, applies append-only corrections, and uses the Final Report's field flattening and condition logic without changing its three-state output. V7 web Final Reports now show corrected values. Each accepted V7 form, including the technician's accepted detail, starts Pending Review and identifies its verified technician submitter when available. An explicit supervisor approval marks it Reviewed by Supervisor; a later correction returns it to Pending Review. Review history is append-only in forward migration 041. Reports remain viewable while pending. Corrected PDFs retain the existing refusal until their own correction rendering is implemented. Disposable PostgreSQL tests cover the correction and review lifecycle, and browser specs cover the new labels and action. The accepted payload stays unchanged.
+
+**Review findings fixed:** Condition roll-ups now use source-marked result controls, so free-text comments containing Good or Poor cannot change the dashboard or Final Report verdict or create a PDF finding. The Manager web report loads the report and correction history to the same append-only correction revision before displaying either; Check again reloads both. Focused unit, disposable PostgreSQL, and browser race regressions cover the cases.
+
 **Last updated:** 2026-09-26 — **Manager Playwright harness assumptions corrected (uncommitted).**
 
 The customer service-history harness now checks the required closed-row report actions while confirming Admin retains Archive. The Final Report failure matrix supplies a successful empty corrections check before exercising PDF error responses. Both changes are test-only. All 42 selected Manager, Supervisor, and Technician Playwright tests passed, as did the full web unit suite and both app typechecks and builds.

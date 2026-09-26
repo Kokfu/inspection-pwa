@@ -26,6 +26,7 @@ import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDe
 import { validateHydrantHistoricalPayload } from "../sync/hydrantInspectionSync.js";
 import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguisherSync.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
+import { applyCorrections, type Json, type StoredCorrection } from "../corrections/correctionApplication.js";
 
 type RecordValue = Record<string, unknown>;
 type Queryable = { query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }> };
@@ -35,17 +36,19 @@ export class FinalReportError extends Error {
   constructor(public readonly code: FinalReportErrorCode, public readonly status: number, message: string) { super(message); }
 }
 
-export type FinalReportField = { label: string; value: string; depth: number };
+export type FinalReportField = { label: string; value: string; depth: number; conditionResult?: boolean };
 export type FinalReportEvidence = { field: string; caption?: string; content: Buffer; width: number; height: number };
 export type FinalReportLocation = { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string };
 /**
- * R1: the raw accepted authority a section was built from, for the structured
+ * R1: the accepted authority a section was built from (effective response for
+ * corrected V7 records), for the structured
  * report view model (`reportViewModel.ts`). Attached by `loadFinalServiceReport`
  * as a NON-ENUMERABLE property so `JSON.stringify(report.sections)` (pinned
  * digests), `deepEqual` and the PDFKit renderer see exactly what they saw before.
  */
 export type FinalReportSectionSource = { snapshot: unknown; response: unknown; frozenSystem: unknown };
-export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[]; source?: FinalReportSectionSource };
+export type FinalReportReview = { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number };
+export type FinalReportSection = { systemKey: string; label: string; location?: FinalReportLocation; fields: FinalReportField[]; evidence: FinalReportEvidence[]; review?: FinalReportReview; source?: FinalReportSectionSource };
 /**
  * Derived, report-output-only per-system roll-up after the client's "Summary of
  * Testing" (docs/client-format-request/asiamost-sample-report-format.md §1,
@@ -73,7 +76,8 @@ type ReportJobRow = CompletionJobRow & {
   report_number: string | null;
   service_call_number: string | null; arrival_time: string | null; departure_time: string | null;
 };
-type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null };
+type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null;
+  corrections?: StoredCorrection[]; submitted_by?: string | null; reviewed_by?: string | null; reviewed_at?: string | Date | null; reviewed_correction_count?: number | null };
 const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fm200_fire_suppression"]);
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -276,7 +280,14 @@ function scalar(value: unknown) {
 /** Keeps the accepted response's JSON insertion order, which is the submitted form/section order. */
 function flatten(value: unknown, prefix = "", depth = 0, output: FinalReportField[] = [], lookup?: ReadonlyMap<string, string>) {
   const simple = scalar(value);
-  if (simple !== undefined) { output.push({ label: labelFor(prefix || "Result", lookup), value: simple, depth }); return output; }
+  if (simple !== undefined) {
+    const field: FinalReportField = { label: labelFor(prefix || "Result", lookup), value: simple, depth };
+    // Source keys identify result controls; displayed labels may be customer-defined or free text.
+    // Non-enumerable metadata leaves the published report JSON and pinned historical digests intact.
+    Object.defineProperty(field, "conditionResult", { value: /result$/i.test(prefix) });
+    output.push(field);
+    return output;
+  }
   if (Array.isArray(value)) {
     value.forEach((item, index) => flatten(item, `${prefix || "Item"} ${index + 1}`, depth + 1, output, lookup));
     return output;
@@ -497,6 +508,7 @@ export function deriveSystemCondition(systemSections: FinalReportSection[]): { c
   let referDetail = "";
   for (const section of systemSections) {
     for (const field of section.fields) {
+      if (field.conditionResult === false) continue;
       if (failedDetail === "" && (field.value === "Not Good" || field.value === "Poor")) failedDetail = `${field.label}: ${field.value}`.slice(0, 200);
       if (referDetail === "" && field.value === "Complete Repair") referDetail = `${field.label}: ${field.value}`.slice(0, 200);
     }
@@ -504,6 +516,14 @@ export function deriveSystemCondition(systemSections: FinalReportSection[]): { c
   if (failedDetail !== "") return { condition: "FAILED", conditionDetail: failedDetail };
   if (referDetail !== "") return { condition: "REFER DETAIL PAGE", conditionDetail: referDetail };
   return { condition: "GOOD CONDITIONS", conditionDetail: "" };
+}
+
+/** Dashboard-only fourth bucket. The Final Report's published three-state condition is unchanged. */
+export function deriveDashboardSystemCondition(systemSections: FinalReportSection[]): "passed" | "notOk" | "na" {
+  if (deriveSystemCondition(systemSections).condition !== "GOOD CONDITIONS") return "notOk";
+  const results = systemSections.flatMap((section) => section.fields.filter((field) => field.conditionResult !== false).map((field) => field.value))
+    .filter((value) => ["Good", "Poor", "Not Good", "Complete Repair", "No Need Checking / N.A.", "Not Relevant"].includes(value));
+  return results.length > 0 && results.every((value) => value === "No Need Checking / N.A." || value === "Not Relevant") ? "na" : "passed";
 }
 
 /**
@@ -548,7 +568,7 @@ export function sectionRemarkLines(section: FinalReportSection): string[] {
   };
   const lines: string[] = [];
   for (const field of section.fields) {
-    if (!isFinding(field.value)) continue;
+    if (field.conditionResult === false || !isFinding(field.value)) continue;
     const remark = ownRemark(field.label);
     lines.push(`${lines.length + 1}. ${field.label}: ${field.value}${remark ? ` — ${remark}` : ""}`);
   }
@@ -577,7 +597,7 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
   const context = fireAlarmV6ReportContext(snapshot, response);
   if (!context) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
   const fields: FinalReportField[] = [];
-  const add = (label: string, value: unknown, depth = 0) => {
+  const add = (label: string, value: unknown, depth = 0, conditionResult = false) => {
     const rendered = typeof value === "string" ? value
       : Array.isArray(value) && value.length > 0 && value.every((item, index) => typeof item === "string"
         && ["normal", "test", "isolation"].includes(item)
@@ -585,7 +605,9 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
         ? value.map((item) => item[0]!.toUpperCase() + item.slice(1)).join(", ")
         : undefined;
     if (!rendered) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
-    fields.push({ label, value: rendered, depth });
+    const field: FinalReportField = { label, value: rendered, depth };
+    Object.defineProperty(field, "conditionResult", { value: conditionResult });
+    fields.push(field);
   };
   add(context.controls.controlPanelLocation.label, context.response.controlPanelLocation);
   for (const [index, row] of context.response.primaryDeviceRows.entries()) {
@@ -605,7 +627,7 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
     for (const item of items) {
       const value = values[item.key]; if (!isRecord(value)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
       const result = v6Result(value.result); if (!result || typeof value.remarks !== "string") throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
-      add(`${title} - ${item.label}`, result); if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${title} - ${item.label} Remark`, value.remarks, 1);
+      add(`${title} - ${item.label}`, result, 0, true); if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${title} - ${item.label} Remark`, value.remarks, 1);
     }
   };
   checklist("Charger & Batteries", context.response.chargerAndBatteries, context.controls.chargerAndBatteries);
@@ -617,13 +639,31 @@ function fireAlarmV6Fields(snapshot: unknown, response: unknown) {
     if (assetReference) add(`${prefix} - ${context.controls.secondaryAlarmDeviceRows.assetReference.label}`, assetReference);
     for (const key of ["alarmBell", "manualCallPoint"] as const) {
       const result = v6Result(row[key]); if (!result) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted Fire Alarm V6 report data is invalid.");
-      add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"}`, result);
+      add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"}`, result, 0, true);
       if ((result === "Poor") || (context.controls.source.templateVersion === 7 && (result === "Not Good" || result === "Complete Repair"))) add(`${prefix} - ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`, row.fieldRemarks[key], 1);
     }
     if (typeof row.remarks === "string" && row.remarks) add(`${prefix} - Remarks`, row.remarks);
   }
   if (typeof context.response.comments === "string" && context.response.comments) add("Comments", context.response.comments);
   return fields;
+}
+
+/** The report and dashboard share this exact historical-system dispatch and flattening. */
+export function fieldsForAcceptedReportInstance(systemKey: string, snapshot: unknown, response: unknown, frozenSystem: unknown) {
+  const displayLabels = v7DisplayLabelLookup(systemKey, snapshot, frozenSystem);
+  const snapshotIsV7 = isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const fields = systemKey === "fire_alarm_detector" && snapshotIsV7
+    ? fireAlarmV6Fields(snapshot, response)
+    : flatten(response, "", 0, [], displayLabels?.display);
+  return { fields, displayLabels };
+}
+
+/** A single read-time correction and report-field path for Final Report and dashboard. */
+export function effectiveFieldsForAcceptedReportInstance(
+  systemKey: string, snapshot: unknown, acceptedResponse: unknown, frozenSystem: unknown, corrections: readonly StoredCorrection[]
+) {
+  const response = corrections.length ? applyCorrections(acceptedResponse as Json, corrections) : acceptedResponse;
+  return { response, ...fieldsForAcceptedReportInstance(systemKey, snapshot, response, frozenSystem) };
 }
 
 function fireAlarmV6EvidenceCaption(snapshot: unknown, response: unknown, fieldPath: string) {
@@ -797,9 +837,25 @@ export async function loadFinalServiceReport(
       attachment.mime_type AS attachment_mime_type, attachment.source_sha256 AS attachment_source_sha256, attachment.stored_sha256 AS attachment_stored_sha256,
       attachment.source_size_bytes AS attachment_source_size_bytes, attachment.stored_size_bytes AS attachment_stored_size_bytes,
       attachment.source_width AS attachment_source_width, attachment.source_height AS attachment_source_height, attachment.width AS attachment_width, attachment.height AS attachment_height,
-      instance.inspection_snapshot, instance.response_payload, attachment.stored_sha256, attachment.storage_relative_path, attachment.width, attachment.height
+      instance.inspection_snapshot, instance.response_payload, attachment.stored_sha256, attachment.storage_relative_path, attachment.width, attachment.height,
+      CASE WHEN creator.role = 'inspector' THEN creator.username WHEN syncer.role = 'inspector' THEN syncer.username ELSE NULL END AS submitted_by,
+      review_actor.username AS reviewed_by, review.reviewed_at, review.correction_count AS reviewed_correction_count,
+      COALESCE(correction_list.entries, '[]'::jsonb) AS corrections
     FROM master_system_form_instances instance INNER JOIN master_system_inspections inspection ON inspection.id = instance.inspection_group_id
     LEFT JOIN inspection_attachments attachment ON attachment.form_instance_id = instance.id
+    LEFT JOIN users creator ON creator.id = instance.original_created_by_user_id
+    LEFT JOIN users syncer ON syncer.id = instance.synced_by_user_id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(jsonb_build_object('fieldPath', correction.field_path, 'sequence', correction.sequence,
+        'newValue', correction.new_value) ORDER BY correction.sequence) AS entries
+      FROM inspection_corrections correction WHERE correction.form_instance_id = instance.id
+    ) correction_list ON true
+    LEFT JOIN LATERAL (
+      SELECT entry.correction_count, entry.reviewed_by_user_id, entry.reviewed_at
+      FROM inspection_reviews entry WHERE entry.form_instance_id = instance.id
+      ORDER BY entry.correction_count DESC LIMIT 1
+    ) review ON true
+    LEFT JOIN users review_actor ON review_actor.id = review.reviewed_by_user_id
     WHERE inspection.job_id = $1 AND instance.status = 'submitted'
     ORDER BY inspection.system_key, instance.display_sequence, attachment.field_path`, [jobId])).rows;
   const completion = buildJobCompletion(job, rows);
@@ -822,10 +878,12 @@ export async function loadFinalServiceReport(
       // Slice 1a-iv: per-customer display-label overrides + frozen definition
       // wording now reach the report. `undefined` for every out-of-scope system
       // and every non-V7 record -> `flatten` / captions are byte-identical.
-      const displayLabels = v7DisplayLabelLookup(completeSystem.systemKey, primaryRow.inspection_snapshot, system);
-      const fields = completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
-        ? fireAlarmV6Fields(primaryRow.inspection_snapshot, primaryRow.response_payload)
-        : flatten(primaryRow.response_payload, "", 0, [], displayLabels?.display);
+      const isV7 = primaryRow.master_template_version_id === "00000000-0000-4000-8000-000000000807";
+      const corrections = isV7 ? primaryRow.corrections ?? [] : [];
+      if (!Array.isArray(corrections)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Stored inspection corrections are invalid.");
+      const { fields, displayLabels, response: effectiveResponse } = effectiveFieldsForAcceptedReportInstance(
+        completeSystem.systemKey, primaryRow.inspection_snapshot, primaryRow.response_payload, system, corrections
+      );
       const evidence = completeSystem.systemKey === "automatic_sprinkler"
         ? (snapshotIsV7 ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedEvidence(matching, system))
         : completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
@@ -834,8 +892,15 @@ export async function loadFinalServiceReport(
             ? await validatedV7SuppressionEvidence(database, primaryRow)
             : [];
       if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);
-      const section: FinalReportSection = { systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location, fields, evidence };
-      Object.defineProperty(section, "source", { value: { snapshot: primaryRow.inspection_snapshot, response: primaryRow.response_payload, frozenSystem: system } satisfies FinalReportSectionSource, enumerable: false });
+      const reviewed = isV7 && primaryRow.reviewed_correction_count === corrections.length && typeof primaryRow.reviewed_by === "string";
+      const review: FinalReportReview | undefined = isV7 && primaryRow.corrections !== undefined ? {
+        status: reviewed ? "reviewed" : "pending", submittedBy: primaryRow.submitted_by ?? null,
+        reviewedBy: reviewed ? primaryRow.reviewed_by! : null,
+        reviewedAt: reviewed && primaryRow.reviewed_at ? (primaryRow.reviewed_at instanceof Date ? primaryRow.reviewed_at.toISOString() : primaryRow.reviewed_at) : null,
+        correctionCount: corrections.length
+      } : undefined;
+      const section: FinalReportSection = { systemKey: completeSystem.systemKey, label: completeSystem.systemLabel, location, fields, evidence, ...(review ? { review } : {}) };
+      Object.defineProperty(section, "source", { value: { snapshot: primaryRow.inspection_snapshot, response: effectiveResponse, frozenSystem: system } satisfies FinalReportSectionSource, enumerable: false });
       sections.push(section);
     }
   }

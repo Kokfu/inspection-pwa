@@ -264,6 +264,15 @@ export async function loadDashboardTrend(from: string, to: string, signal?: Abor
   return days;
 }
 
+export type DashboardInspectionStatus = { passed: number; notOk: number; na: number };
+export async function loadDashboardInspectionStatus(from: string, to: string, signal?: AbortSignal): Promise<DashboardInspectionStatus> {
+  const query = new URLSearchParams({ from, to });
+  const data = await managerRequest<Record<string, unknown>>(`/api/manager/dashboard/inspection-status?${query}`, "GET", null, undefined, signal);
+  if (!isPlainObject(data) || Object.keys(data).length !== 3
+    || ![data.passed, data.notOk, data.na].every((value) => Number.isSafeInteger(value) && (value as number) >= 0)) unavailable();
+  return data as DashboardInspectionStatus;
+}
+
 /** Systems whose per-customer display labels a Manager may override. Mirrors the
  *  API `labelOverrideSystemKeys` bound (apps/api/src/routes/managerCustomers.ts).
  *  `automatic_sprinkler` joined in slice 1a-iii, once the API resolver gained its
@@ -937,11 +946,14 @@ export type ManagerCorrectableField = {
 };
 export type ManagerInspectionCorrections = {
   clientUuid: string; jobId: string; jobReference: string; systemKey: string; instanceKey: string;
-  supported: boolean; fields: ManagerCorrectableField[]; corrections: ManagerCorrection[];
+  supported: boolean; submittedBy: string | null; review: ManagerReview | null;
+  fields: ManagerCorrectableField[]; corrections: ManagerCorrection[];
 };
+export type ManagerReview = { status: "pending" | "reviewed"; correctionCount: number; reviewedBy: string | null; reviewedAt: string | null };
 export type ManagerAcceptedRecord = {
   clientUuid: string; systemKey: string; systemLabel: string; instanceKey: string;
   zoneLabel: string | null; locationLabel: string | null; performedAt: string; correctionCount: number; supported: boolean;
+  submittedBy: string | null; review: ManagerReview | null;
 };
 export type ManagerVisitCorrection = ManagerCorrection & { clientUuid: string; systemKey: string; instanceKey: string; label: string };
 
@@ -964,15 +976,31 @@ function isCorrectableField(value: unknown): value is ManagerCorrectableField {
     && isCorrectionValue(value.value) && isCorrectionValue(value.originalValue) && typeof value.corrected === "boolean"
     && (value.options === undefined || (Array.isArray(value.options) && value.options.every((option) => typeof option === "string")));
 }
+function isManagerReview(value: unknown): value is ManagerReview {
+  if (!isPlainObject(value) || (value.status !== "pending" && value.status !== "reviewed")
+    || !Number.isSafeInteger(value.correctionCount) || (value.correctionCount as number) < 0) return false;
+  return value.status === "pending"
+    ? value.reviewedBy === null && value.reviewedAt === null
+    : typeof value.reviewedBy === "string" && value.reviewedBy.trim().length > 0
+      && typeof value.reviewedAt === "string" && Number.isFinite(Date.parse(value.reviewedAt));
+}
 
 /** The correction editor's view of one accepted record: correctable fields and the full history. */
 export async function loadInspectionCorrections(clientUuid: string, signal?: AbortSignal): Promise<ManagerInspectionCorrections> {
   const data = await managerRequest<unknown>(`/api/manager/inspections/${encodeURIComponent(clientUuid)}/corrections`, "GET", null, undefined, signal) as Record<string, unknown>;
   if (!isPlainObject(data) || typeof data.clientUuid !== "string" || typeof data.jobId !== "string" || typeof data.jobReference !== "string"
     || typeof data.systemKey !== "string" || typeof data.instanceKey !== "string" || typeof data.supported !== "boolean"
+    || !(data.submittedBy === null || typeof data.submittedBy === "string")
+    || !(data.review === null || isManagerReview(data.review))
     || !Array.isArray(data.fields) || !data.fields.every(isCorrectableField)
     || !Array.isArray(data.corrections) || !data.corrections.every(isCorrection)) unavailable();
   return data as unknown as ManagerInspectionCorrections;
+}
+
+export async function approveInspectionReview(clientUuid: string, input: { requestId: string; expectedCorrectionCount: number }): Promise<ManagerReview> {
+  const review = await managerRequest<unknown>(`/api/manager/inspections/${encodeURIComponent(clientUuid)}/review`, "POST", "review", input);
+  if (!isManagerReview(review) || review.status !== "reviewed" || review.correctionCount !== input.expectedCorrectionCount) unavailable();
+  return review;
 }
 
 /** Submits one or more field corrections with a shared reason. The accepted record is never changed. */
@@ -990,7 +1018,9 @@ export async function loadAcceptedRecords(jobId: string, signal?: AbortSignal): 
   if (!Array.isArray(records) || !records.every((record) => isPlainObject(record) && typeof record.clientUuid === "string"
     && typeof record.systemKey === "string" && typeof record.systemLabel === "string" && typeof record.instanceKey === "string"
     && (record.zoneLabel === null || typeof record.zoneLabel === "string") && (record.locationLabel === null || typeof record.locationLabel === "string")
-    && typeof record.performedAt === "string" && Number.isSafeInteger(record.correctionCount) && typeof record.supported === "boolean")) unavailable();
+    && typeof record.performedAt === "string" && Number.isSafeInteger(record.correctionCount) && typeof record.supported === "boolean"
+    && (record.submittedBy === null || typeof record.submittedBy === "string")
+    && (record.review === null || isManagerReview(record.review)))) unavailable();
   return records as ManagerAcceptedRecord[];
 }
 

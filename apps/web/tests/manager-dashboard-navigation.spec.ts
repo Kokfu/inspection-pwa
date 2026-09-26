@@ -24,7 +24,7 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   await expect(page.getByText("12", { exact: true })).toBeVisible();
   await expect(page.getByText("7", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
-  const status = page.locator('dl[aria-label="Inspection status summary"]');
+  const status = page.locator('dl[aria-label="Dashboard summary"]');
   await expect(status).toContainText("Passed1");
   await expect(status).toContainText("Not OK3");
   await expect(status).toContainText("N/A1");
