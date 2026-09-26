@@ -8,6 +8,7 @@ export type ApiConfig = {
   uploadsPath: string;
   reportChromiumPath: string;
   reportRenderer: "html" | "legacy";
+  companyProfilePath: string;
 };
 
 export function loadConfig(): ApiConfig {
@@ -26,6 +27,10 @@ export function loadConfig(): ApiConfig {
     nodeEnv,
     uploadsPath: process.env.UPLOADS_PATH ?? "/srv/uploads",
     reportChromiumPath: process.env.REPORT_CHROMIUM_PATH ?? "/usr/bin/chromium",
-    reportRenderer
+    reportRenderer,
+    // Lives inside the same `/srv/operational` bind mount as the acceptance manifests
+    // (docker-compose.yml's `INSPECTION_OPERATIONAL_PATH`), so a Manager's saved
+    // company profile survives container restarts/rebuilds without a new volume.
+    companyProfilePath: process.env.COMPANY_PROFILE_PATH ?? "/srv/operational/company-profile.json"
   };
 }

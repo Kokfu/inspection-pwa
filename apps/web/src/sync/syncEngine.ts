@@ -1,5 +1,6 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { refreshCommonRemarks, type CommonRemark } from "../inspectionControls/commonRemarks";
+import { syncPendingTechnicianCustomers } from "../jobs/technicianCustomerDraft";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -499,6 +500,8 @@ export async function syncPendingRecords(actorUserId?: number) {
     await assertSyncIdentity();
     await recoverInterruptedSync();
 
+    if (syncActorId !== undefined) await syncPendingTechnicianCustomers(syncActorId);
+
     const commonRemarks = await syncPendingCommonRemarks();
 
     const v6Evidence = await syncPendingV6Evidence();
@@ -509,7 +512,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && shouldSync(item)
+        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "technicianCustomer" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)

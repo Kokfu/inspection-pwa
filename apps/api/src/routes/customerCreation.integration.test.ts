@@ -82,11 +82,44 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
         (SELECT count(*)::int FROM customer_enabled_systems WHERE configuration_revision_id=(SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND revision=1)) AS systems,
         (SELECT count(*)::int FROM customer_creation_requests WHERE request_id=$2 AND customer_id=$1) AS request`, [firstId, firstRequest.requestId])).rows[0], { customer: 1, site: 1, revision: 1, systems: 1, request: 1 });
 
+      const staleActor = await fetch(`http://127.0.0.1:${address.port}/customers`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-actor": "b", "x-expected-user-id": String(users.a.id) },
+        body: JSON.stringify(input(uuid("71"), "Wrong Session Customer"))
+      });
+      assert.equal(staleActor.status, 409);
+      assert.equal((await staleActor.json() as { error: string }).error, "IDENTITY_MISMATCH");
+      assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name='Wrong Session Customer'")).rows[0]?.count, 0);
+
       const visibleToSecond = await get("b", "/customers");
       assert.equal(visibleToSecond.status, 200);
       assert((await visibleToSecond.json() as { customers: Array<{ id: string }> }).customers.some((customer) => customer.id === firstId), "second technician sees server-backed customer");
       const configurationToSecond = await get("b", `/customers/${firstId}/configuration`);
       assert.equal(configurationToSecond.status, 200);
+
+      const second = await post("b", input(uuid("70"), "Second Technician Customer"));
+      assert.equal(second.status, 201);
+      const secondId = (await second.json() as { customer: { customer: { id: string } } }).customer.customer.id;
+      await database.query("UPDATE customers SET next_service_due_date = CASE WHEN id=$1 THEN '2026-10-01'::date WHEN id=$2 THEN '2026-11-01'::date END WHERE id IN ($1,$2)", [firstId, secondId]);
+      const template = await database.query<{ id: string }>("SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=7 LIMIT 1");
+      for (const [customerId, actor, suffix] of [[firstId, users.a.id, "1"], [secondId, users.b.id, "2"]] as const) {
+        const revision = await database.query<{ id: string }>("SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'", [customerId]);
+        const site = await database.query<{ id: string }>("SELECT id FROM customer_sites WHERE customer_id=$1 LIMIT 1", [customerId]);
+        await database.query(`INSERT INTO inspection_jobs
+          (id, master_template_version_id, job_reference, title, status, is_sample,
+           customer_id, customer_configuration_revision_id, configuration_snapshot, site_id, created_by_user_id)
+          VALUES ($1,$2,$3,'Technician visit','open',false,$4,$5,'{}'::jsonb,$6,$7)`,
+          [uuid(`8${suffix}`), template.rows[0]!.id, `TECH-SCOPE-${suffix}`, customerId, revision.rows[0]!.id, site.rows[0]!.id, actor]);
+      }
+      const ownUpcoming = await get("a", "/customers/upcoming-service");
+      assert.equal(ownUpcoming.status, 200);
+      assert.equal(ownUpcoming.headers.get("cache-control"), "private, no-store");
+      const ownRows = await ownUpcoming.json() as { customers: Array<{ id: string; nextServiceDueDate: string }>; unscheduledCustomers: Array<{ id: string }> };
+      assert.deepEqual(ownRows.customers.map((row) => row.id), [firstId]);
+      assert.equal(ownRows.customers[0]?.nextServiceDueDate, "2026-10-01");
+      assert(!ownRows.unscheduledCustomers.some((row) => row.id === secondId));
+      const secondUpcoming = await get("b", "/customers/upcoming-service");
+      assert.deepEqual((await secondUpcoming.json() as { customers: Array<{ id: string }> }).customers.map((row) => row.id), [secondId]);
+      assert.equal((await fetch(`http://127.0.0.1:${address.port}/customers/upcoming-service`)).status, 401);
 
       const replay = await post("a", firstRequest);
       assert.equal(replay.status, 200);

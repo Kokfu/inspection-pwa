@@ -1031,3 +1031,45 @@ export async function loadVisitCorrections(jobId: string, signal?: AbortSignal):
     && typeof (correction as unknown as ManagerVisitCorrection).label === "string")) unavailable();
   return corrections as ManagerVisitCorrection[];
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * Company profile: the single, global report letterhead (name/address/contact/report-number
+ * format) shown on every PDF's cover page. Unlike every other Manager settings screen there is
+ * exactly one row and no `:customerId` — see `apps/api/src/reports/companyProfile.ts`.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type ManagerCompanyProfile = {
+  confirmed: boolean;
+  legalName: string; registrationNo: string; address: string;
+  tel: string; fax: string; email: string; complaintHotline: string;
+  logoFile: string;
+  verifiedBy: { name: string; title: string };
+  reportNumberFormat: string;
+};
+
+function isManagerCompanyProfile(value: unknown): value is ManagerCompanyProfile {
+  if (!isPlainObject(value) || typeof value.confirmed !== "boolean"
+    || typeof value.legalName !== "string" || typeof value.registrationNo !== "string" || typeof value.address !== "string"
+    || typeof value.tel !== "string" || typeof value.fax !== "string" || typeof value.email !== "string"
+    || typeof value.complaintHotline !== "string" || typeof value.logoFile !== "string"
+    || typeof value.reportNumberFormat !== "string" || !value.reportNumberFormat.includes("{YYYY}") || !value.reportNumberFormat.includes("{SEQ4}")
+    || !isPlainObject(value.verifiedBy) || typeof value.verifiedBy.name !== "string" || typeof value.verifiedBy.title !== "string") {
+    return false;
+  }
+  return true;
+}
+
+export async function loadManagerCompanyProfile(signal?: AbortSignal): Promise<ManagerCompanyProfile> {
+  const result = await managerRequest<unknown>("/api/manager/company-profile", "GET", "companyProfile", undefined, signal);
+  if (!isManagerCompanyProfile(result)) unavailable();
+  return result;
+}
+
+/** PUT the full editable profile (everything but `logoFile`, which the server carries over unchanged). */
+export async function saveManagerCompanyProfile(
+  profile: Omit<ManagerCompanyProfile, "logoFile">
+): Promise<ManagerCompanyProfile> {
+  const result = await managerRequest<unknown>("/api/manager/company-profile", "PUT", "companyProfile", { companyProfile: profile });
+  if (!isManagerCompanyProfile(result)) unavailable();
+  return result;
+}

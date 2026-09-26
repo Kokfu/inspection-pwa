@@ -34,15 +34,16 @@ function hasRealJobId(job: unknown): job is InspectionJob {
     && typeof (job as { id?: unknown }).id === "string" && (job as { id: string }).id.trim().length > 0;
 }
 
-export function NewServiceVisit({ onCreated, onCancel }: {
+export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   onCreated: (job: InspectionJob) => Promise<void>;
   onCancel: () => void;
+  initialCustomerId?: string;
 }) {
   const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [sites, setSites] = useState<ReferenceSite[]>([]);
   const [configuration, setConfiguration] = useState<CustomerConfigurationResponse>();
   const [configurationCustomerId, setConfigurationCustomerId] = useState<string>();
-  const [customerId, setCustomerId] = useState("");
+  const [customerId, setCustomerId] = useState(initialCustomerId ?? "");
   const [siteId, setSiteId] = useState("");
   const [systemKeys, setSystemKeys] = useState<string[]>([]);
   const [addingCustomer, setAddingCustomer] = useState(false);

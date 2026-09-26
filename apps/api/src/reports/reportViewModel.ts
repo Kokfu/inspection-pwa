@@ -2,8 +2,8 @@ import {
   deriveSystemCondition, sectionRemarkLines, v7DisplayLabelLookup, v7DisplayResponseKeyAliases,
   type FinalReportReview, type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
 } from "./finalServiceReport.js";
-import { companyProfile, type CompanyProfile } from "./companyProfile.js";
-export { companyProfile, companyProfileAssetPath, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
+import { currentCompanyProfile, type CompanyProfile } from "./companyProfile.js";
+export { companyProfile, companyProfileAssetPath, currentCompanyProfile, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
 
 /**
  * R1 — structured Final Service Report view model (docs/report-template/README.md §2–§5).
@@ -375,7 +375,7 @@ export function summaryMainFinding(remarks: readonly ReportRemark[]): string {
 }
 
 export function buildReportViewModel(report: FinalServiceReport, options: { company?: CompanyProfile } = {}): ReportViewModel {
-  const company = options.company ?? companyProfile;
+  const company = options.company ?? currentCompanyProfile();
   const serviced = new Set(report.systems.map((system) => system.systemKey));
   const frequency = report.serviceFrequency ? ({ MONTHLY: "Monthly", QUARTERLY: "Quarterly", HALF_YEARLY: "Half-yearly", ANNUALLY: "Annually" } as const)[report.serviceFrequency as "MONTHLY" | "QUARTERLY" | "HALF_YEARLY" | "ANNUALLY"] ?? null : null;
   const cover: ReportCover = {

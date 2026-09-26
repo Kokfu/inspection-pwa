@@ -6,6 +6,7 @@ import { appendCommonRemark, appendOtherRemark } from "./remarkFormatting";
 let refreshedAt = 0;
 let refreshTask: Promise<unknown> | undefined;
 function refreshOnce() {
+  if (!navigator.onLine) return;
   if (Date.now() - refreshedAt < 60_000) return;
   if (!refreshTask) refreshTask = refreshCommonRemarks().then(() => { refreshedAt = Date.now(); }).catch(() => undefined).finally(() => { refreshTask = undefined; });
 }

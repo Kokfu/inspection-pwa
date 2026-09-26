@@ -27,6 +27,7 @@ import { resolveFireAlarmControls, resolveFireAlarmV6Controls } from "../inspect
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import type { UserRole } from "../auth/authTypes.js";
 import { requireRoleAudited } from "../middleware/requireRole.js";
+import { requireExpectedActor } from "../jobs/technicianOwnership.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = loadConfig().customerCatalogVersion;
@@ -673,7 +674,7 @@ export function createManagerCustomersRouter(
         .map(({ key, displayName, sortOrder, retiredAt }) => ({ key, displayName, sortOrder, assignable: !retiredAt, retiredAt })) });
     } catch (error) { next(error); }
   });
-  router.post("/customers", requireRole("admin", "inspector"), async (request, response, next) => {
+  router.post("/customers", requireRole("admin", "inspector"), requireExpectedActor("technician_customer_created", "customer"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {
       client = await database.connect();

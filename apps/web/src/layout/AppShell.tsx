@@ -8,8 +8,13 @@ const ICONS: Record<string, ReactNode> = {
   "manager-add-customer": <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 15v3M8 21v-2a4 4 0 0 1 8 0v2" />,
   "manager-services-done": <path d="m9 12 2 2 4-4M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z" />,
   "manager-upcoming-services": <path d="M3 4h18v18H3zM16 2v4M8 2v4M3 10h18" />,
+  "new-service-visit": <path d="M12 5v14M5 12h14" />,
+  "technician-add-customer": <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 15v3M8 21v-2a4 4 0 0 1 8 0v2" />,
+  "technician-completed-services": <path d="m9 12 2 2 4-4M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z" />,
+  "technician-upcoming-services": <path d="M3 4h18v18H3zM16 2v4M8 2v4M3 10h18" />,
   "manager-common-remarks": <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />,
-  "manager-service-catalog": <path d="M9 11H5a2 2 0 0 0-2 2v7h6M9 5v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4" />
+  "manager-service-catalog": <path d="M9 11H5a2 2 0 0 0-2 2v7h6M9 5v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4" />,
+  "manager-company-profile": <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16M15 21h5M9 7h4M9 11h4M9 15h4" />
 };
 
 const FALLBACK_ICON = <circle cx="12" cy="12" r="4" />;
@@ -23,15 +28,22 @@ export function AppShell<TRouteName extends string>({
   navLinks,
   activeRouteName,
   onNavigate,
+  mobileNavigation = false,
   children
 }: {
   navLinks: Array<[label: string, routeName: TRouteName]>;
   activeRouteName: string;
   onNavigate: (routeName: TRouteName) => void;
+  mobileNavigation?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="app-shell-split">
+      {mobileNavigation ? <details className="app-mobile-navigation"><summary>Menu</summary><nav aria-label="Mobile navigation">
+        {navLinks.map(([label, routeName]) => <button key={routeName} type="button"
+          aria-current={routeName === activeRouteName ? "page" : undefined}
+          onClick={() => onNavigate(routeName)}>{label}</button>)}
+      </nav></details> : null}
       <nav className="app-sidebar" aria-label="Primary navigation">
         {navLinks.map(([label, routeName]) => {
           const active = routeName === activeRouteName;

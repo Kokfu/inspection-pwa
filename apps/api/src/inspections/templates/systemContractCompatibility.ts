@@ -5,7 +5,7 @@ import { masterServiceReportV4 } from "./masterServiceReportV4.js";
 import { masterServiceReportV5 } from "./masterServiceReportV5.js";
 import { masterServiceReportV6 } from "./masterServiceReportV6.js";
 import { masterServiceReportV7 } from "./masterServiceReportV7.js";
-import type { MasterServiceReportDefinition } from "./templateTypes.js";
+import type { FieldDefinition, MasterServiceReportDefinition, SystemDefinition } from "./templateTypes.js";
 
 export const implementedSystemKeys = [
   "automatic_sprinkler",
@@ -85,6 +85,48 @@ export type SystemContractVariant = {
   contract: string;
 };
 
+/**
+ * Frozen historical reconstruction of the V7 `fire_alarm_detector` contract as
+ * it existed between the shared-evidence foundation landing (`5bc968d`) and the
+ * Normal/Test/Isolation multi-select + four-state refinement (`0e04a64`,
+ * 2026-09-03), which mutated fields under the SAME masterTemplateId/version
+ * (807/7) in place instead of minting a new template identity. A record
+ * accepted in that window (e.g. `fire_alarm_detector` jobs frozen before
+ * 2026-09-03 20:38 +08) is frozen to this exact shape forever
+ * (`.agents/skills/v7-evidence-acceptance/SKILL.md`: "A frozen inspection is
+ * interpreted only by the exact template/contract it was frozen against") and
+ * must remain interpretable by the Final Report / dashboard reader
+ * (`resolveFireAlarmV6Controls` in `fireAlarmDefinitionControls.ts`), which
+ * re-validates the frozen contract on every read.
+ *
+ * Never edit this: it mirrors the pre-`0e04a64` `v7ResultValues` /
+ * `upgradeV7EvidenceSystem` from `masterServiceReportV7.ts` at that commit,
+ * applied to the still-frozen V6 source (`masterServiceReportV6.ts` has not
+ * changed since it was written). `co2_fire_extinguisher` / `wet_chemical` need
+ * no equivalent entry: their Final Report/dashboard rendering flattens the
+ * response generically and never re-validates the frozen definition's exact
+ * contract shape, so the same-day refinement never made their older accepted
+ * records unreadable the way it did Fire Alarm's.
+ */
+const preMultiselectV7ResultValues = ["good", "poor", "not_relevant"] as const;
+function preMultiselectUpgradeV7EvidenceSystem(system: SystemDefinition): SystemDefinition {
+  return {
+    ...system,
+    sections: system.sections.map((section) => ({
+      ...section,
+      blocks: section.blocks.map((block) => block.type !== "checklist" ? block : {
+        ...block,
+        items: block.items.map((field: FieldDefinition) => field.control === "good_poor"
+          ? { ...field, allowedValues: preMultiselectV7ResultValues }
+          : field)
+      })
+    }))
+  };
+}
+const preMultiselectFireAlarmV7System = preMultiselectUpgradeV7EvidenceSystem(
+  masterServiceReportV6.systems.find((system) => system.key === "fire_alarm_detector")!
+);
+
 /** Immutable registry indexed by frozen master identity.  The same system key
  * can intentionally resolve to a different parser in a later template. */
 export const systemContractVariants: readonly SystemContractVariant[] = [
@@ -106,7 +148,13 @@ export const systemContractVariants: readonly SystemContractVariant[] = [
     masterTemplateVersion: 7,
     systemKey,
     contract: canonicalize(runtimeContract(masterServiceReportV7.systems.find((system) => system.key === systemKey)!))
-  }))
+  })),
+  {
+    masterTemplateId: masterServiceReportV7.id,
+    masterTemplateVersion: 7,
+    systemKey: "fire_alarm_detector",
+    contract: canonicalize(runtimeContract(preMultiselectFireAlarmV7System))
+  }
 ];
 
 export function isImplementedSystemKey(value: string): value is ImplementedSystemKey {

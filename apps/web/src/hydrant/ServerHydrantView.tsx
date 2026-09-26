@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { formatClientDateTime } from "../uiPresentation";
 import { hydrantV7AcceptedEvidenceContentUrl, loadHydrantV7AcceptedEvidence, type HydrantV7AcceptedEvidence } from "./hydrantV7AcceptedEvidence";
 import type { ServerHydrantDetail } from "./serverHydrantApi";
@@ -9,7 +9,7 @@ const resultLabel = (value: unknown) => value === "good" ? "Good" : value === "n
 export function ServerHydrantView({ inspection, onBack }: { inspection: ServerHydrantDetail; onBack: () => void }) {
   const [evidence, setEvidence] = useState<HydrantV7AcceptedEvidence[]>([]);
   const [evidenceError, setEvidenceError] = useState("");
-  useEffect(() => {
+  useLayoutEffect(() => {
     let current = true;
     if (inspection.templateVersion !== 7) { setEvidence([]); setEvidenceError(""); return () => { current = false; }; }
     void loadHydrantV7AcceptedEvidence(inspection.clientUuid).then((items) => {

@@ -113,6 +113,7 @@ import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from
 import { ManagerAddCustomer } from "./manager/ManagerAddCustomer";
 import { ManagerCommonRemarks } from "./manager/ManagerCommonRemarks";
 import { ManagerServiceCatalog } from "./manager/ManagerServiceCatalog";
+import { ManagerCompanyProfile } from "./manager/ManagerCompanyProfile";
 import { ManagerCorrectionEditor } from "./manager/ManagerCorrectionEditor";
 import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
 import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
@@ -135,6 +136,10 @@ import {
 } from "./inspections/serverInspectionApi";
 import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
+import { TechnicianAddCustomer } from "./jobs/TechnicianAddCustomer";
+import { syncPendingTechnicianCustomers } from "./jobs/technicianCustomerDraft";
+import { TechnicianUpcomingServices } from "./jobs/TechnicianUpcomingServices";
+import { loadServiceFormatOptions } from "./referenceData/referenceDataApi";
 import { NewServiceVisit } from "./jobs/NewServiceVisit";
 import { FinalReportView } from "./jobs/FinalReportView";
 import { FinalReportApiError, downloadFinalReport } from "./jobs/finalReportApi";
@@ -191,7 +196,10 @@ import { usePwaUpdate } from "./pwa/usePwaUpdate";
 type ApiHealth = "Not checked" | "Reachable" | "Unavailable";
 type AppRoute =
   | { name: "jobs" }
-  | { name: "new-service-visit" }
+  | { name: "new-service-visit"; customerId?: string }
+  | { name: "technician-add-customer" }
+  | { name: "technician-completed-services" }
+  | { name: "technician-upcoming-services" }
   | { name: "job"; jobId: string }
   | { name: "final-report"; jobId: string }
   | { name: "manager-home" }
@@ -201,6 +209,7 @@ type AppRoute =
   | { name: "manager-add-customer" }
   | { name: "manager-common-remarks" }
   | { name: "manager-service-catalog" }
+  | { name: "manager-company-profile" }
   | { name: "manager-operations" }
   | { name: "manager-services-done" }
   | { name: "manager-upcoming-services" }
@@ -232,6 +241,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-add-customer") return { name: "manager-add-customer" };
   if (parts[0] === "manager-common-remarks") return { name: "manager-common-remarks" };
   if (parts[0] === "manager-service-catalog") return { name: "manager-service-catalog" };
+  if (parts[0] === "manager-company-profile") return { name: "manager-company-profile" };
   if (parts[0] === "manager-operations") return { name: "manager-operations" };
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
@@ -241,7 +251,10 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-service-visit" && parts[1]) return { name: "manager-service-visit", jobId: parts[1] };
   if (parts[0] === "manager-correction" && parts[1]) return { name: "manager-correction", clientUuid: parts[1] };
   if (parts[0] === "manager-final-report" && parts[1]) return { name: "manager-final-report", jobId: parts[1] };
-  if (parts[0] === "new-service-visit") return { name: "new-service-visit" };
+  if (parts[0] === "new-service-visit") return { name: "new-service-visit", ...(parts[1] ? { customerId: parts[1] } : {}) };
+  if (parts[0] === "technician-add-customer") return { name: "technician-add-customer" };
+  if (parts[0] === "technician-completed-services") return { name: "technician-completed-services" };
+  if (parts[0] === "technician-upcoming-services") return { name: "technician-upcoming-services" };
   if (parts[0] === "final-report" && parts[1]) return { name: "final-report", jobId: parts[1] };
   if (parts[0] === "inspection" && parts[1]) return { name: "inspection", clientUuid: parts[1] };
   if (parts[0] === "sprinkler-form" && parts[1]) return { name: "sprinkler-form", clientUuid: parts[1] };
@@ -267,6 +280,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-add-customer") return "#/manager-add-customer";
   if (route.name === "manager-common-remarks") return "#/manager-common-remarks";
   if (route.name === "manager-service-catalog") return "#/manager-service-catalog";
+  if (route.name === "manager-company-profile") return "#/manager-company-profile";
   if (route.name === "manager-operations") return "#/manager-operations";
   if (route.name === "manager-services-done") return "#/manager-services-done";
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
@@ -276,7 +290,10 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-service-visit") return `#/manager-service-visit/${encodeURIComponent(route.jobId)}`;
   if (route.name === "manager-correction") return `#/manager-correction/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "manager-final-report") return `#/manager-final-report/${encodeURIComponent(route.jobId)}`;
-  if (route.name === "new-service-visit") return "#/new-service-visit";
+  if (route.name === "new-service-visit") return route.customerId ? `#/new-service-visit/${encodeURIComponent(route.customerId)}` : "#/new-service-visit";
+  if (route.name === "technician-add-customer") return "#/technician-add-customer";
+  if (route.name === "technician-completed-services") return "#/technician-completed-services";
+  if (route.name === "technician-upcoming-services") return "#/technician-upcoming-services";
   if (route.name === "final-report") return `#/final-report/${encodeURIComponent(route.jobId)}`;
   if (route.name === "inspection") return `#/inspection/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "sprinkler-form") return `#/sprinkler-form/${encodeURIComponent(route.clientUuid)}`;
@@ -700,6 +717,8 @@ export function App() {
         isCurrentRefresh
       );
       if (!isCurrentRefresh()) return;
+      if (user.role === "inspector") await loadServiceFormatOptions(isCurrentRefresh).catch(() => undefined);
+      if (!isCurrentRefresh()) return;
       const loadedJobs = await loadCachedJobs(user.id, operation, refresh);
       if (!loadedJobs) return;
       refresh = loadedJobs.refresh ?? refresh;
@@ -1029,6 +1048,10 @@ export function App() {
 
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
+  useEffect(() => {
+    if (authState.status === "verified" && currentUser?.role === "inspector" && navigator.onLine)
+      void syncPendingTechnicianCustomers(currentUser.id).catch(() => undefined);
+  }, [authState.status, currentUser?.id, currentUser?.role]);
   const technicianExperience = selectedExperience === "technician"
     && (authState.status === "verified" || authState.status === "offline-unverified")
     && currentUser?.role === "inspector";
@@ -2007,8 +2030,9 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       ) : null}
 
       {technicianExperience ? (
-        <AppShell<"jobs">
-          navLinks={[["Home", "jobs"]]}
+        <AppShell<"jobs" | "new-service-visit" | "technician-add-customer" | "technician-completed-services" | "technician-upcoming-services">
+          mobileNavigation
+          navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Add Customer", "technician-add-customer"], ["Completed Services", "technician-completed-services"], ["Upcoming Services", "technician-upcoming-services"]]}
           activeRouteName={route.name}
           onNavigate={(name) => navigate({ name })}
         >
@@ -2225,8 +2249,14 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 <section className="workspace"><h2>FM200 locations unavailable</h2><p>{cachedSystem?.locations.length ? "This visit has FM200 locations, but they are not initialized on this device yet." : "This service visit was created without FM200 locations. Its saved configuration cannot be changed; start a new service visit to use the General location."}</p>{cachedJob && cachedSystem?.locations.length ? <button type="button" onClick={() => void handleOpenFm200(cachedJob, cachedSystem)}>Open FM200 Locations</button> : <button type="button" onClick={() => navigate({ name: "new-service-visit" })}>Start New Service Visit</button>}<button type="button" className="secondary-command" onClick={() => navigate({ name: "job", jobId: route.jobId })}>Back to Systems</button></section>
               );
             })()
+          ) : route.name === "technician-add-customer" ? (
+            <TechnicianAddCustomer actorUserId={currentUser!.id} canUseServer={canUseServer}
+              onStartVisit={(customerId) => navigate({ name: "new-service-visit", customerId })} onBackHome={() => navigate({ name: "jobs" })} />
+          ) : route.name === "technician-upcoming-services" ? (
+            <TechnicianUpcomingServices />
           ) : route.name === "new-service-visit" ? (
             <NewServiceVisit
+              initialCustomerId={route.customerId}
               onCancel={() => navigate({ name: "jobs" })}
               onCreated={async (job) => {
                 if (!currentUser || !canUseServer) {
@@ -2248,6 +2278,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             <FinalReportView jobId={route.jobId} onBack={() => navigate({ name: "job", jobId: route.jobId })} />
           ) : (
             <TechnicianHome
+              completedOnly={route.name === "technician-completed-services"}
               authState={authState}
               jobs={jobs}
               inspections={inspections}
@@ -2316,6 +2347,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-add-customer" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerAddCustomer onCreated={async () => { await refreshManagerVisits(); navigate({ name: "manager-customers" }); }} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
         : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-company-profile" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCompanyProfile onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />

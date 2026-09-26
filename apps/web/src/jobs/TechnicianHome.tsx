@@ -25,6 +25,8 @@ import {
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
 import { KpiTiles } from "../manager/KpiTiles";
+import { ServiceJobCard, completedServiceJobs } from "./ServiceJobCard";
+import { TechnicianCompletedServices } from "./TechnicianCompletedServices";
 import type {
   ServerMasterSystemInspectionSummary
 } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -68,6 +70,7 @@ export function deriveWetChemicalAuthorityProgress(
 }
 
 type TechnicianHomeProps = {
+  completedOnly?: boolean;
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
@@ -103,6 +106,7 @@ type TechnicianHomeProps = {
 };
 
 export function TechnicianHome({
+  completedOnly = false,
   authState,
   jobs,
   inspections,
@@ -247,23 +251,15 @@ export function TechnicianHome({
     : undefined;
   const newestFirst = (a: InspectionJob, b: InspectionJob) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
   const currentJobs = jobs.filter((job) => job.status !== "closed").sort(newestFirst);
-  const serviceHistory = jobs.filter((job) => job.status === "closed").sort(newestFirst);
+  const serviceHistory = completedServiceJobs(jobs);
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
-    return <li key={job.id}>
-      <button type="button" className="job-card" onClick={() => onSelectJob(job)}>
-        <div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{job.configurationSnapshot.customer.displayName}</strong></div><span className={`status-badge status-badge--${job.status === "closed" ? "complete" : "draft"}`}>{jobStatusLabel(job.status)}</span></div>
-        <div className="job-service-line"><span className="job-card-label">Site / Service</span><strong>{job.site?.displayName ?? job.title}</strong></div>
-        <div className="job-card-meta"><span><small>Service date</small><strong>{job.serviceDate ?? formatMalaysiaDateTime(job.createdAt)}</strong></span><span><small>Inspection progress</small><strong>{progress.complete} of {progress.total} systems</strong></span></div>
-        <div className="progress-track" aria-label={`${progress.complete} of ${progress.total} inspections complete`}><span style={{ width: progress.total ? `${(progress.complete / progress.total) * 100}%` : "0%" }} /></div>
-        <span className="job-reference">{job.reference}</span>
-      </button>
-      {job.status === "closed" ? <button type="button" className="job-report-action"
-        aria-label={`View Report for ${job.reference}`} disabled={!canUseServer}
-        title={canUseServer ? undefined : "Reconnect to view the final report"}
-        onClick={() => onViewFinalReport(job)}>View Report</button> : null}
-    </li>;
+    return <ServiceJobCard key={job.id} job={job} progress={progress} canViewReport={canUseServer}
+      onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
   };
+
+  if (completedOnly) return <TechnicianCompletedServices jobs={jobs} canViewReport={canUseServer}
+    jobProgress={jobProgress} onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
     {!selectedJob ? <div className="home-toolbar">

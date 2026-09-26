@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { loadConfig } from "../config/env.js";
 
 type RecordValue = Record<string, unknown>;
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -41,7 +44,97 @@ export function loadCompanyProfile(file: string = companyProfileAssetPath): Comp
 
 export const companyProfile = loadCompanyProfile();
 
-export function formatReportNumber(year: number, sequence: number, format = companyProfile.reportNumberFormat || defaultReportNumberFormat) {
+/** Where a Manager's saved edits persist (`apps/api/src/config/env.ts#companyProfilePath`). */
+export const companyProfileRuntimePath = () => loadConfig().companyProfilePath;
+
+/**
+ * Live profile used by report rendering. Until a Manager saves an edit through the
+ * API, the runtime path has never been written, so this falls back to the checked-in
+ * asset — the exact `companyProfile` singleton's data — keeping today's PDFs
+ * unchanged. Re-reads the file on every call (a few hundred bytes) so a save is
+ * reflected immediately, with no server restart and no stale in-memory cache.
+ */
+export function currentCompanyProfile(path: string = companyProfileRuntimePath()): CompanyProfile {
+  return loadCompanyProfile(existsSync(path) ? path : companyProfileAssetPath);
+}
+
+export class CompanyProfileError extends Error {
+  constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
+}
+
+const requiredText = (value: unknown, field: string, maximum: number): string => {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", `${field} must contain 1–${maximum} characters.`);
+  }
+  return value.trim();
+};
+const optionalText = (value: unknown, field: string, maximum: number): string => {
+  if (typeof value !== "string" || value.length > maximum) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", `${field} must contain at most ${maximum} characters.`);
+  }
+  return value.trim();
+};
+
+/**
+ * Validates a Manager's edit of the writable fields — everything the PDF letterhead
+ * shows except `logoFile` (image upload is a separate, not-yet-built feature) and
+ * `source` (server-derived). Mirrors `loadCompanyProfile`'s per-field length caps so a
+ * value that would round-trip cleanly through the loader is exactly what is accepted
+ * here.
+ */
+export function parseCompanyProfileInput(input: unknown): Omit<CompanyProfile, "logoFile" | "source"> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", "Company profile payload is invalid.");
+  }
+  const body = input as Record<string, unknown>;
+  const allowedKeys = new Set(["confirmed", "legalName", "registrationNo", "address", "tel", "fax", "email", "complaintHotline", "verifiedBy", "reportNumberFormat"]);
+  if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", "Company profile payload contains unknown fields.");
+  }
+  if (typeof body.confirmed !== "boolean") throw new CompanyProfileError("INVALID_COMPANY_PROFILE", "confirmed must be a boolean.");
+  const verifiedBy = body.verifiedBy;
+  if (typeof verifiedBy !== "object" || verifiedBy === null || Array.isArray(verifiedBy)) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", "verifiedBy must be an object.");
+  }
+  const reportNumberFormat = requiredText(body.reportNumberFormat, "reportNumberFormat", 100);
+  if (!reportNumberFormat.includes("{YYYY}") || !reportNumberFormat.includes("{SEQ4}")) {
+    throw new CompanyProfileError("INVALID_COMPANY_PROFILE", "reportNumberFormat must include {YYYY} and {SEQ4}.");
+  }
+  return {
+    confirmed: body.confirmed,
+    legalName: requiredText(body.legalName, "legalName", 500),
+    registrationNo: optionalText(body.registrationNo, "registrationNo", 100),
+    address: requiredText(body.address, "address", 500),
+    tel: optionalText(body.tel, "tel", 100),
+    fax: optionalText(body.fax, "fax", 100),
+    email: optionalText(body.email, "email", 200),
+    complaintHotline: optionalText(body.complaintHotline, "complaintHotline", 100),
+    verifiedBy: {
+      name: optionalText((verifiedBy as Record<string, unknown>).name, "verifiedBy.name", 200),
+      title: optionalText((verifiedBy as Record<string, unknown>).title, "verifiedBy.title", 200)
+    },
+    reportNumberFormat
+  };
+}
+
+/**
+ * Persists a Manager's edit. `logoFile` is carried over from whatever is currently
+ * effective (letterhead image upload is out of scope here) rather than reset, and the
+ * write is atomic (temp file + rename) so a mid-write crash/power loss on the client
+ * PC never leaves a half-written, unparsable profile behind.
+ */
+export function saveCompanyProfile(input: unknown, path: string = companyProfileRuntimePath()): CompanyProfile {
+  const patch = parseCompanyProfileInput(input);
+  const logoFile = currentCompanyProfile(path).logoFile;
+  const next: CompanyProfile = { ...patch, logoFile, source: "file" };
+  mkdirSync(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify({ ...next, source: undefined }, null, 2)}\n`, "utf8");
+  renameSync(temporaryPath, path);
+  return currentCompanyProfile(path);
+}
+
+export function formatReportNumber(year: number, sequence: number, format = currentCompanyProfile().reportNumberFormat || defaultReportNumberFormat) {
   const safeFormat = format.includes("{YYYY}") && format.includes("{SEQ4}") ? format : defaultReportNumberFormat;
   return safeFormat.replaceAll("{YYYY}", String(year).padStart(4, "0")).replaceAll("{SEQ4}", String(sequence).padStart(4, "0"));
 }

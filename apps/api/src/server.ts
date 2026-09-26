@@ -17,6 +17,7 @@ import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.
 import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { managerDashboardRouter } from "./routes/managerDashboard.js";
 import { managerCustomersRouter } from "./routes/managerCustomers.js";
+import { managerCompanyProfileRouter } from "./routes/managerCompanyProfile.js";
 import { managerTechniciansRouter } from "./routes/managerTechnicians.js";
 import { serviceCommonRemarksRouter } from "./routes/serviceCommonRemarks.js";
 import { managerCorrectionsRouter } from "./routes/managerCorrections.js";
@@ -40,6 +41,7 @@ app.use(inspectionJobsRouter);
 app.use(managerServiceVisitsRouter);
 app.use(managerDashboardRouter);
 app.use(managerCustomersRouter);
+app.use(managerCompanyProfileRouter);
 app.use(managerTechniciansRouter);
 app.use(serviceCommonRemarksRouter);
 app.use(managerCorrectionsRouter);

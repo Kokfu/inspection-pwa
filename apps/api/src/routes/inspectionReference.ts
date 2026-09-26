@@ -244,6 +244,32 @@ inspectionReferenceRouter.get(
 );
 
 inspectionReferenceRouter.get(
+  "/customers/upcoming-service",
+  requireRole("admin", "inspector"),
+  async (request, response, next) => {
+    try {
+      const result = await database.query<{
+        id: string; code: string; displayName: string; nextServiceDueDate: string | null;
+      }>(`SELECT customers.id, customers.customer_code AS code,
+          customers.display_name AS "displayName",
+          customers.next_service_due_date::text AS "nextServiceDueDate"
+        FROM customers
+        WHERE customers.is_active = true AND customers.is_demo = false
+          AND EXISTS (SELECT 1 FROM inspection_jobs
+            WHERE inspection_jobs.created_by_user_id = $1
+              AND inspection_jobs.customer_id = customers.id)
+        ORDER BY customers.next_service_due_date ASC NULLS LAST, customers.display_name, customers.id`,
+        [request.currentUser!.id]);
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({
+        customers: result.rows.filter((row) => row.nextServiceDueDate !== null),
+        unscheduledCustomers: result.rows.filter((row) => row.nextServiceDueDate === null)
+      });
+    } catch (error) { next(error); }
+  }
+);
+
+inspectionReferenceRouter.get(
   "/customers/:id/configuration",
   requireRole("admin", "inspector"),
   async (request, response, next) => {

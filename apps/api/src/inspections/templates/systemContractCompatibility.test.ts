@@ -107,3 +107,46 @@ test("V6 selects only the frozen Fire Alarm variant and leaves V1-V5 exact", () 
   const malformed = clone(v6) as any; malformed.sections[1].blocks[0].items[0].allowedValues = ["good", "poor"];
   assert.throws(() => resolveFireAlarmV6Controls(malformed));
 });
+
+/**
+ * `0e04a64` ("multi-select Normal/Test/Isolation for V7 detector tables",
+ * 2026-09-03) mutated the fire_alarm_detector/co2_fire_extinguisher/
+ * wet_chemical V7 systems in place (same `masterServiceReportV7.id`/`version`
+ * 807/7) instead of minting a new template identity, and migration
+ * `019_v7_detector_state_multiselect.sql` deliberately updates only the live
+ * catalog, never already-frozen `configuration_snapshot`/`inspection_snapshot`
+ * rows. A `fire_alarm_detector` job accepted before that commit is therefore
+ * frozen forever to the PRE-multiselect shape (three-value `good_poor`,
+ * single-select `normal_test_isolation`) yet still carries masterTemplateId
+ * 807/version 7 — `resolveFireAlarmV6Controls` (the only Final
+ * Report/dashboard reader that re-validates a frozen contract on every read)
+ * must keep recognising that shape, not just the current post-refinement one.
+ */
+test("a fire_alarm_detector V7 job frozen before the multi-select refinement remains readable", () => {
+  const preMultiselect = (() => {
+    const v7ResultValues = ["good", "poor", "not_relevant"];
+    const base = masterServiceReportV6.systems.find((candidate) => candidate.key === "fire_alarm_detector")!;
+    return {
+      ...base,
+      sections: base.sections.map((section) => ({
+        ...section,
+        blocks: section.blocks.map((block) => block.type !== "checklist" ? block : {
+          ...block,
+          items: (block as { items: any[] }).items.map((field) => field.control === "good_poor" ? { ...field, allowedValues: v7ResultValues } : field)
+        })
+      }))
+    };
+  })();
+  assert.equal(isCompatibleSystemContract("fire_alarm_detector", "confirmed", preMultiselect, { id: masterServiceReportV7.id, version: 7 }), true);
+  const controls = resolveFireAlarmV6Controls(preMultiselect, 7);
+  assert.deepEqual(controls.chargerAndBatteries[0].result.options.map((option) => option.value), ["good", "poor", "not_relevant"]);
+  assert.deepEqual(controls.primaryDeviceRows.manualCallPoint.options.map((option) => option.value), ["normal", "test", "isolation"]);
+  // The live post-refinement V7 shape must still resolve too - this is an
+  // additional recognised variant, not a replacement.
+  const live = masterServiceReportV7.systems.find((candidate) => candidate.key === "fire_alarm_detector")!;
+  assert.equal(isCompatibleSystemContract("fire_alarm_detector", "confirmed", live, { id: masterServiceReportV7.id, version: 7 }), true);
+  assert.notDeepEqual(preMultiselect, live, "the two recognised V7 fire_alarm_detector shapes must actually differ");
+  // A shape matching neither the pre- nor post-refinement contract must still fail closed.
+  const neither = clone(preMultiselect) as any; neither.sections[1].blocks[0].items[0].allowedValues = ["good", "poor"];
+  assert.equal(isCompatibleSystemContract("fire_alarm_detector", "confirmed", neither, { id: masterServiceReportV7.id, version: 7 }), false);
+});
