@@ -192,7 +192,10 @@ export async function installFakeManagerApi(page: Page, initialOverrides: Record
 export async function openFakeCustomer(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
-  await page.getByRole("button", { name: "Services", exact: true }).click();
+  // The sidebar (desktop) and the Home card grid (always present, sole survivor below the 767px
+  // breakpoint where the sidebar is hidden) both expose a "Services" control; take whichever the
+  // accessibility tree actually renders first, so this fixture works at any viewport this suite uses.
+  await page.getByRole("button", { name: "Services", exact: true }).first().click();
   await page.getByRole("button", { name: /Harbour View Tower/ }).click();
   await page.getByRole("heading", { name: "Harbour View Tower", level: 2 }).waitFor();
 }

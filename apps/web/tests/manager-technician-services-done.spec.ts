@@ -110,6 +110,7 @@ async function mockManagerApi(page: Page, options: { holdCursorPages?: Promise<v
       const visit = visits.find((candidate) => candidate.id === reportMatch[1]);
       return visit ? route.fulfill({ json: { report: report(visit) } }) : route.fulfill({ status: 404, json: { error: "SERVICE_VISIT_NOT_FOUND" } });
     }
+    if (/^\/api\/manager\/service-visits\/([^/]+)\/corrections$/.test(path)) return route.fulfill({ json: { corrections: [] } });
     const detailMatch = /^\/api\/manager\/service-visits\/([^/]+)$/.exec(path);
     if (detailMatch) {
       const visit = visits.find((candidate) => candidate.id === detailMatch[1]);
@@ -127,6 +128,8 @@ async function openManager(page: Page) {
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
 }
 
+const sidebar = (page: Page) => page.getByLabel("Primary navigation");
+
 async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
@@ -135,7 +138,7 @@ async function expectNoHorizontalScroll(page: Page) {
 test("Technicians row opens technician detail with In Progress / Completed counts, paging, and a report round trip", async ({ page }) => {
   const listQueries = await mockManagerApi(page);
   await openManager(page);
-  await page.getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
   // Add Technician and Deactivate are still present, unchanged.
   await expect(page.getByRole("button", { name: "Add Technician", exact: true })).toBeVisible();
   await expect(page.locator("li").filter({ hasText: "tech-alpha" }).getByRole("button", { name: "Deactivate", exact: true })).toBeVisible();
@@ -194,7 +197,7 @@ test("Services Done is customer-first with search, site grouping, technician fil
   const listQueries = await mockManagerApi(page);
   const customerListQueries = () => listQueries.filter((query) => new URLSearchParams(query).has("customerId"));
   await openManager(page);
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
   const search = page.getByLabel("Customer name or code");
   await expect(search).toBeVisible();
@@ -289,7 +292,7 @@ const managerOwner = () => sessionStorage.getItem("manager-session-owner:v1");
 test("a stored Back target applies only to its own report: a deep link to another report goes Back to Operations", async ({ page }) => {
   await mockManagerApi(page);
   await openManager(page);
-  await page.getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
   await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
   await page.getByRole("tab", { name: "Completed (22)" }).click();
   await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();
@@ -311,7 +314,7 @@ test("a Load more response that lands after Apply cannot append old-filter rows 
   const held = new Promise<void>((resolve) => { release = resolve; });
   const listQueries = await mockManagerApi(page, { holdCursorPages: held });
   await openManager(page);
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await page.getByLabel("Customer name or code").fill("crest");
   await page.getByLabel("Customer name or code").press("Enter");
   await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Crest Plaza/ }).click();
@@ -346,7 +349,7 @@ test("logout clears every Manager session key; logging back in shows Services Do
   await mockManagerApi(page);
   await openManager(page);
   // Technician tab + report return route.
-  await page.getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
   await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
   await page.getByRole("tab", { name: "Completed (22)" }).click();
   await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();
@@ -368,7 +371,7 @@ test("logout clears every Manager session key; logging back in shows Services Do
   await page.getByLabel("Password", { exact: true }).fill("test-only");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page.getByLabel("Customer name or code")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
   await expect(page.locator(".job-card")).toHaveCount(0);
@@ -383,7 +386,7 @@ test("a different manager signing in after an expired session (no logout) inheri
   await mockManagerApi(page, { session });
   await openManager(page);
   // Manager A (900) selects Acme in Services Done.
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await page.getByLabel("Customer name or code").fill("acme");
   await page.getByLabel("Customer name or code").press("Enter");
   await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Acme Towers/ }).click();
@@ -401,7 +404,7 @@ test("a different manager signing in after an expired session (no logout) inheri
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
   await expect.poll(() => page.evaluate(() => fetch("/api/auth/me").then((response) => response.json()).then((body) => body.user?.id))).toBe(901);
 
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page.getByLabel("Customer name or code")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
   await expect(page.locator(".job-card")).toHaveCount(0);
@@ -429,7 +432,7 @@ async function resumeManagerOnServicesDone(page: Page) {
 }
 
 async function selectAcmeInServicesDone(page: Page) {
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await page.getByLabel("Customer name or code").fill("acme");
   await page.getByLabel("Customer name or code").press("Enter");
   await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Acme Towers/ }).click();
@@ -520,7 +523,7 @@ test("the same manager signing in again after an expired session (no logout) sta
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
   await expect(page.locator(".app-account-name")).toHaveText("mobiletest");
 
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await servicesDoneSettled(page);
   await expect(page.getByRole("heading", { name: "Acme Towers", exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Customer name or code")).toBeVisible();

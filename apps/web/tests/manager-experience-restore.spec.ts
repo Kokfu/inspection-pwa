@@ -27,13 +27,14 @@ async function installFakeApi(page: Page) {
 
 const chooser = (page: Page) => page.getByText("Choose how you are signing in");
 const rememberedChoice = (page: Page) => page.evaluate(() => sessionStorage.getItem("manager-experience:v1"));
+const sidebar = (page: Page) => page.getByLabel("Primary navigation");
 
 async function enterManagerServicesDone(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
-  await page.getByRole("button", { name: /Current Services Done/ }).click();
+  await sidebar(page).getByRole("button", { name: /Current Services Done/ }).click();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
-  await expect(page.getByRole("button", { name: "Back to Home" })).toBeVisible();
+  await expect(sidebar(page).getByRole("button", { name: "Home", exact: true })).toBeVisible();
   await expect.poll(() => rememberedChoice(page)).toBe('"manager"');
 }
 
@@ -42,11 +43,11 @@ test("reload keeps Manager and the same screen for the same verified admin", asy
   await enterManagerServicesDone(page);
   await page.reload();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
-  await expect(page.getByRole("button", { name: "Back to Home" })).toBeVisible();
+  await expect(sidebar(page).getByRole("button", { name: "Home", exact: true })).toBeVisible();
   await expect(chooser(page)).toHaveCount(0);
   // A second reload still restores it.
   await page.reload();
-  await expect(page.getByRole("button", { name: "Back to Home" })).toBeVisible();
+  await expect(sidebar(page).getByRole("button", { name: "Home", exact: true })).toBeVisible();
   await expect(chooser(page)).toHaveCount(0);
 });
 
@@ -84,8 +85,8 @@ test("a fail-closed exit to the chooser is not undone by a reload", async ({ pag
   const api = await installFakeApi(page);
   await enterManagerServicesDone(page);
   api.forbidManager = true;
-  await page.getByRole("button", { name: "Back to Home" }).click();
-  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Home", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
   await expect(chooser(page)).toBeVisible();
   await expect.poll(() => rememberedChoice(page)).toBeNull();
   api.forbidManager = false;

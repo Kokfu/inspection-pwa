@@ -13,6 +13,7 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     else if (url.pathname.endsWith("/service-catalog")) json = { systems: [] };
     else if (url.pathname.endsWith("/dashboard/clients")) json = { totalClients: 12 };
     else if (url.pathname.endsWith("/dashboard/inspections-per-day")) json = { days: [{ day: url.searchParams.get("to"), count: 2 }] };
+    else if (url.pathname.endsWith("/dashboard/inspection-status")) json = { passed: 1, notOk: 3, na: 1 };
     else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 7 };
     else if (url.pathname.endsWith("/inspection-jobs")) json = { jobs: [] };
     await route.fulfill({ json });
@@ -23,7 +24,14 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   await expect(page.getByText("12", { exact: true })).toBeVisible();
   await expect(page.getByText("7", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
+  const status = page.locator('dl[aria-label="Inspection status summary"]');
+  await expect(status).toContainText("Passed1");
+  await expect(status).toContainText("Not OK3");
+  await expect(status).toContainText("N/A1");
+  await expect(page.getByRole("img", { name: "Inspection status: 1 passed, 3 not OK, 1 N/A" })).toBeVisible();
+  expect(await page.locator(".status-donut-segment").count()).toBe(3);
   expect(await page.locator(".trend-line").evaluate((line) => getComputedStyle(line).stroke)).not.toBe("none");
+  const sidebar = page.getByLabel("Primary navigation");
   for (const [label, hash, heading] of [
     ["Technician List", "manager-technicians", "Technician List"],
     ["Services", "manager-customers", "Customer Configuration"],
@@ -34,10 +42,11 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     ["Service Common Remarks", "manager-common-remarks", "Service common remarks"],
     ["Service Catalog", "manager-service-catalog", "Service Catalog"]
   ]) {
-    await page.getByRole("button", { name: label!, exact: true }).click();
+    await sidebar.getByRole("button", { name: label!, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`#/${hash}$`));
     await expect(page.getByRole("heading", { name: heading!, exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Back to Home", exact: true }).click();
+    await expect(sidebar.getByRole("button", { name: label!, exact: true })).toHaveAttribute("aria-current", "page");
+    await sidebar.getByRole("button", { name: "Home", exact: true }).click();
     await expect(page).toHaveURL(/#\/manager$/);
   }
   // Services Done is customer-first: it never fetches a flat service-visit list before a customer is chosen.
@@ -46,5 +55,6 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   expect(homeCountRequests.every((r) => r.includes("limit=1"))).toBe(true);
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Inspection status: 1 passed, 3 not OK, 1 N/A" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

@@ -36,6 +36,7 @@ async function installSupervisorApi(page: Page) {
     if (path === "/api/auth/me") return json({ user: supervisor });
     if (path === "/api/manager/dashboard/clients") return json({ totalClients: 4 });
     if (path === "/api/manager/dashboard/inspections-per-day") return json({ days: [] });
+    if (path === "/api/manager/dashboard/inspection-status") return json({ passed: 0, notOk: 0, na: 0 });
     if (path === "/api/manager/service-visits") {
       if (url.searchParams.has("from") && url.searchParams.has("to")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       return url.searchParams.has("customerId")
@@ -47,6 +48,7 @@ async function installSupervisorApi(page: Page) {
     if (path === `/api/manager/service-visits/${visit.id}/final-report`) return json({ report });
     // T5b: the visit detail lists the accepted records a supervisor may review.
     if (path === `/api/manager/service-visits/${visit.id}/accepted-records`) return json({ records: [] });
+    if (path === `/api/manager/service-visits/${visit.id}/corrections`) return json({ corrections: [] });
     if (path === "/api/manager/customers") return json({ customers: [customerSummary] });
     if (path === "/api/manager/technicians") return json({ technicians: [{ id: 21, username: "technician-one", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }] });
     // Every other Manager route is admin-only on the server.
@@ -57,6 +59,7 @@ async function installSupervisorApi(page: Page) {
 }
 
 const homeCards = (page: Page) => page.locator(".manager-dashboard-card").allInnerTexts();
+const sidebar = (page: Page) => page.getByLabel("Primary navigation");
 
 async function enterAsSupervisor(page: Page, hash = "#/manager") {
   await page.goto(`/tests/manager-service-editor.html${hash}`);
@@ -72,8 +75,10 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
   await expect(page.getByText("No inspections scheduled in this period.")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Inspection status: 0 passed, 0 not OK, 0 N/A" })).toBeVisible();
+  await expect(page.getByText("No accepted inspections in this period.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
   await expect(page.getByText("Supervisor workspace")).toBeVisible();
   await page.getByRole("button", { name: /SV-SUPERVISOR-830/ }).click();
   await expect(page.getByText(/Completed .* by technician-one\./)).toBeVisible();
@@ -89,7 +94,7 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
 test("supervisor Services Done searches the customer list without configuration", async ({ page }) => {
   const requests = await installSupervisorApi(page);
   await enterAsSupervisor(page);
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await page.getByLabel("Customer name or code").fill("supervisor");
   await page.getByLabel("Customer name or code").press("Enter");
   await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Supervisor Review Customer/ }).click();
@@ -127,7 +132,7 @@ test("a reload restores the supervisor into Manager (T3)", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await expect(page.getByText("4", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   await page.reload();
   await expect(page).toHaveURL(/#\/manager-services-done$/);

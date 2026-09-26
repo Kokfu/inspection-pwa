@@ -1,9 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadDashboardClients, loadDashboardTrend, loadManagerServiceHistory } from "./managerApi";
+import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, type DashboardInspectionStatus } from "./managerApi";
 import { InspectionTrend } from "./InspectionTrend";
+import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
 export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" };
+
+/**
+ * Single source of truth for the manager/supervisor top-level destinations, shared by the
+ * Home dashboard's card grid and the persistent sidebar (`AppShell`) so the two never drift.
+ */
+export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDashboardRoute["name"]]> {
+  return supervisor
+    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"]]
+    : [
+        ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
+        ["Operations", "manager-operations"],
+        ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
+        ["Next Upcoming Service", "manager-upcoming-services"],
+        ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"]
+      ];
+}
 
 function malaysiaToday() {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
@@ -19,21 +36,14 @@ function malaysiaToday() {
  * label as the pre-split single "Services" card T4 was designed and tested against, different target.
  */
 export function ManagerHome({ navigate, supervisor = false }: { navigate: (route: ManagerDashboardRoute) => void; supervisor?: boolean }) {
-  const links: Array<[string, ManagerDashboardRoute["name"]]> = supervisor
-    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"]]
-    : [
-        ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
-        ["Operations", "manager-operations"],
-        ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
-        ["Next Upcoming Service", "manager-upcoming-services"],
-        ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"]
-      ];
+  const links = managerNavLinks(supervisor);
   const today = useMemo(malaysiaToday, []);
   const from = `${today.slice(0, 7)}-01`;
   const to = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).toISOString().slice(0, 10);
   const [clients, setClients] = useState<number | null>(null);
   const [inspections, setInspections] = useState<number | null>(null);
   const [trend, setTrend] = useState<Array<{ day: string; count: number }> | null>(null);
+  const [status, setStatus] = useState<DashboardInspectionStatus | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
@@ -46,13 +56,18 @@ export function ManagerHome({ navigate, supervisor = false }: { navigate: (route
       if (!Number.isSafeInteger(history.totalCount) || history.totalCount < 0) throw new Error("Invalid dashboard count");
       setClients(totalClients); setInspections(history.totalCount); setTrend(days);
     }).catch(() => { if (!controller.signal.aborted) setError(true); });
+    void loadDashboardInspectionStatus(from, to, controller.signal)
+      .then((inspectionStatus) => { if (!controller.signal.aborted) setStatus(inspectionStatus); })
+      .catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
   }, [from, to]);
   return <section aria-labelledby="manager-dashboard-title">
     <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Supervisor workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
     <KpiTiles label="Dashboard summary" items={[{ label: "Total Clients", value: clients ?? "—" }, { label: "Total Inspections This Month", value: inspections ?? "—" }]} />
+    <KpiTiles label="Inspection status summary" items={[{ label: "Passed", value: status?.passed ?? "—" }, { label: "Not OK", value: status?.notOk ?? "—" }, { label: "N/A", value: status?.na ?? "—" }]} />
     {error ? <p className="form-message" role="alert">Dashboard data could not be loaded. Open Home again to retry.</p> : null}
     {trend ? <InspectionTrend from={from} to={to} days={trend} /> : null}
+    {status ? <StatusDonut counts={status} /> : null}
     <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{label}</button>)}</div>
   </section>;
 }

@@ -72,6 +72,7 @@
         if (url === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
         if (url === "/api/manager/customers") return json({ customers: [] });
         if (url === "/api/manager/service-visits/" + visit.id + "/final-report") return json({ report });
+        if (url === "/api/manager/service-visits/" + visit.id + "/corrections") return json({ corrections: [] });
         if (url === "/api/manager/service-visits/" + visit.id) { detailRequests += 1; return json({ serviceVisit: visit }); }
         if (url === "/api/inspection-jobs") return json({ jobs: [] });
         if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });

@@ -95,10 +95,10 @@ test("Form wording: sections, inline edit, Custom badge, exact PUT map, reset, d
   const putsBefore = api.puts("/hose_reel/label-overrides").length;
   await page.getByRole("button", { name: "Edit wording: Nozzle", exact: true }).click();
   await page.getByLabel("New wording").fill("Nozzle tip");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Edit wording: Pump room housekeeping" }).click();
   await page.getByLabel("New wording").fill("Keep Clean In Pump House");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.locator(".manager-wording-savebar")).toContainText("2 unsaved changes");
   await page.getByRole("button", { name: "Discard" }).click();
   await expect(page.locator(".manager-wording-savebar")).toContainText("No unsaved changes");
@@ -109,7 +109,7 @@ test("Form wording: sections, inline edit, Custom badge, exact PUT map, reset, d
   // Server validation surfaces inline; nothing persisted.
   await page.getByRole("button", { name: "Edit wording: Nozzle", exact: true }).click();
   await page.getByLabel("New wording").fill("REJECT me");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Save wording" }).click();
   await expect(page.getByRole("alert")).toContainText("must be 1-200 characters");
   expect(api.stored("hose_reel")).toEqual({ "checklist.pumpHouse.pump_house_clean": "Pump room housekeeping" });
@@ -121,7 +121,7 @@ test("unsaved-changes guard on Back and browser navigation", async ({ page }) =>
   await openService(page, /Hose Reel System/);
   await page.getByRole("button", { name: "Edit wording: Drum", exact: true }).click();
   await page.getByLabel("New wording").fill("Reel drum");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
 
   const dialogs: string[] = [];
   page.once("dialog", (dialog) => { dialogs.push(dialog.message()); void dialog.dismiss(); });
@@ -203,7 +203,7 @@ test("search, only-custom filter and Preview as technician", async ({ page }) =>
   // Preview hides every edit affordance and shows the effective wording (incl. drafts).
   await page.getByRole("button", { name: "Edit wording: Nozzle", exact: true }).click();
   await page.getByLabel("New wording").fill("Nozzle tip");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Preview as technician" }).click();
   await expect(page.getByRole("button", { name: "Preview as technician" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".manager-wording-label")).toHaveCount(0);
@@ -294,7 +294,7 @@ test("Preset rows and Settings tabs save exactly as the previous editors did", a
   await page.getByRole("tab", { name: "Form wording" }).click();
   await page.getByRole("button", { name: "Edit wording: Control Panel Location" }).click();
   await page.getByLabel("New wording").fill("Panel location (kitchen)");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Save wording" }).click();
   await expect(page.locator(".manager-wording-savebar")).toContainText("No unsaved changes");
   expect(await indexedDbCounts(page)).toEqual(storesBefore);

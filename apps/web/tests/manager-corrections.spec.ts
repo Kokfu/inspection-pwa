@@ -27,12 +27,19 @@ const reading = "measurements.jockey_pump.values.cut_in";
 
 type Correction = { id: string; fieldPath: string; sequence: number; previousValue: unknown; newValue: unknown; reason: string; correctedBy: string; correctedByRole: string; correctedAt: string; requestId: string; label?: string; clientUuid?: string; systemKey?: string; instanceKey?: string };
 
-async function installApi(page: Page, options: { conflict?: boolean; contractViolation?: boolean; breakReloadAfterSave?: boolean } = {}) {
+async function installApi(page: Page, options: { conflict?: boolean; contractViolation?: boolean; breakReloadAfterSave?: boolean; correctBetweenReportAndHistory?: boolean; historyFailureOnce?: boolean } = {}) {
   const state = {
     corrections: [] as Correction[],
+    reviewedCount: null as number | null,
     values: { [mainSupply]: "good" as unknown, "chargerAndBatteries.main_supply.remarks": "" as unknown, [reading]: 40 as unknown },
     posts: [] as Array<Record<string, unknown>>,
-    reloadBroken: false
+    reloadBroken: false,
+    reportLoads: 0,
+    historyLoads: 0
+  };
+  const addInterveningCorrection = () => {
+    state.values[mainSupply] = "not_good";
+    state.corrections.push({ id: "between-loads", fieldPath: mainSupply, sequence: 1, previousValue: "good", newValue: "not_good", reason: "Found during review", correctedBy: supervisor.username, correctedByRole: "supervisor", correctedAt: "2026-09-20T02:00:00.000Z", requestId: "between-loads" });
   };
   await page.route("**/api/**", async (route: Route) => {
     const request = route.request();
@@ -41,19 +48,38 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
     if (path === "/api/auth/me") return json({ user: supervisor });
     if (path === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
     if (path === `/api/manager/service-visits/${jobId}`) return json({ serviceVisit: visit });
-    if (path === `/api/manager/service-visits/${jobId}/final-report`) return json({ report });
+    const review = (count: number) => state.reviewedCount === count
+      ? { status: "reviewed", correctionCount: count, reviewedBy: supervisor.username, reviewedAt: "2026-09-20T03:00:00.000Z" }
+      : { status: "pending", correctionCount: count, reviewedBy: null, reviewedAt: null };
+    if (path === `/api/manager/service-visits/${jobId}/final-report`) {
+      state.reportLoads += 1;
+      const snapshot = { ...report, sections: report.sections.map((section) => ({ ...section,
+        fields: [{ label: "Main Supply", value: state.values[mainSupply] === "not_good" ? "Not Good" : "Good", depth: 2 }],
+        review: { ...review(state.corrections.length), submittedBy: "technician-one" }
+      })) };
+      if (options.correctBetweenReportAndHistory && state.reportLoads === 1) addInterveningCorrection();
+      return json({ report: snapshot });
+    }
     if (path === `/api/manager/service-visits/${jobId}/final-report.pdf`) return json({ error: "FINAL_REPORT_HAS_CORRECTIONS", message: "This visit was corrected after submission." }, 409);
     if (path === `/api/manager/service-visits/${jobId}/accepted-records`) {
       return json({ records: [
-        { clientUuid, systemKey: "wet_chemical", systemLabel: "Wet Chemical System", instanceKey: "location:1", zoneLabel: "Kitchen", locationLabel: "Kitchen A", performedAt: "2026-09-18T09:30:00.000Z", correctionCount: state.corrections.length, supported: true },
-        { clientUuid: legacyUuid, systemKey: "fire_alarm_detector", systemLabel: "Fire Alarm System", instanceKey: "primary", zoneLabel: null, locationLabel: null, performedAt: "2026-09-18T09:40:00.000Z", correctionCount: 0, supported: false }
+        { clientUuid, systemKey: "wet_chemical", systemLabel: "Wet Chemical System", instanceKey: "location:1", zoneLabel: "Kitchen", locationLabel: "Kitchen A", performedAt: "2026-09-18T09:30:00.000Z", correctionCount: state.corrections.length, supported: true, submittedBy: "technician-one", review: review(state.corrections.length) },
+        { clientUuid: legacyUuid, systemKey: "fire_alarm_detector", systemLabel: "Fire Alarm System", instanceKey: "primary", zoneLabel: null, locationLabel: null, performedAt: "2026-09-18T09:40:00.000Z", correctionCount: 0, supported: false, submittedBy: "technician-one", review: null }
       ] });
     }
     if (path === `/api/manager/service-visits/${jobId}/corrections`) {
+      state.historyLoads += 1;
+      if (options.historyFailureOnce && state.historyLoads === 1) { addInterveningCorrection(); return json({ error: "UNAVAILABLE" }, 503); }
       return json({ corrections: state.corrections.map((correction) => ({ ...correction, clientUuid, systemKey: "wet_chemical", instanceKey: "location:1", label: "Charger & Batteries › Main Supply › Result" })) });
     }
     if (path === `/api/manager/inspections/${legacyUuid}/corrections`) {
-      return json({ clientUuid: legacyUuid, jobId, jobReference: visit.reference, systemKey: "fire_alarm_detector", instanceKey: "primary", supported: false, fields: [], corrections: [] });
+      return json({ clientUuid: legacyUuid, jobId, jobReference: visit.reference, systemKey: "fire_alarm_detector", instanceKey: "primary", supported: false, submittedBy: "technician-one", review: null, fields: [], corrections: [] });
+    }
+    if (path === `/api/manager/inspections/${clientUuid}/review` && request.method() === "POST") {
+      const body = request.postDataJSON() as { expectedCorrectionCount: number };
+      if (body.expectedCorrectionCount !== state.corrections.length) return json({ error: "REVIEW_CONFLICT" }, 409);
+      state.reviewedCount = body.expectedCorrectionCount;
+      return json({ review: review(state.corrections.length) }, 201);
     }
     if (path === `/api/manager/inspections/${clientUuid}/corrections`) {
       if (request.method() === "POST") {
@@ -74,6 +100,7 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
       const original: Record<string, unknown> = { [mainSupply]: "good", "chargerAndBatteries.main_supply.remarks": "", [reading]: 40 };
       return json({
         clientUuid, jobId, jobReference: visit.reference, systemKey: "wet_chemical", instanceKey: "location:1", supported: true,
+        submittedBy: "technician-one", review: review(state.corrections.length),
         corrections: state.corrections,
         fields: [
           { fieldPath: mainSupply, label: "Charger & Batteries › Main Supply › Result", kind: "result", value: state.values[mainSupply], originalValue: original[mainSupply], corrected: state.corrections.some((row) => row.fieldPath === mainSupply), options: ["good", "not_good", "complete_repair", "na"] },
@@ -92,7 +119,7 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
 async function openVisit(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
-  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-CORRECT-840/ }).click();
   await expect(page.getByRole("heading", { name: "Accepted records" })).toBeVisible();
 }
@@ -119,6 +146,25 @@ test("supervisor corrects a result with a reason; the original stays visible", a
   expect(api.posts).toHaveLength(1);
   expect(api.posts[0]!.changes).toEqual([{ fieldPath: mainSupply, expectedCurrentValue: "good", newValue: "not_good" }]);
   expect(String(api.posts[0]!.reason)).toBe("Terminal corrosion found on the evidence photo");
+});
+
+test("supervisor explicitly approves a submitted form; a later correction returns it to Pending Review", async ({ page }) => {
+  await installApi(page);
+  await openVisit(page);
+  await expect(page.getByText(/Submitted by Technician: technician-one · Pending Review/)).toBeVisible();
+  await page.getByRole("button", { name: "Review / correct" }).click();
+  await expect(page.getByLabel("Inspection review status")).toContainText("Submitted by Technician: technician-one");
+  await page.getByRole("button", { name: "Approve review" }).click();
+  await expect(page.getByLabel("Inspection review status")).toContainText("Reviewed by Supervisor: review-lead");
+  const field = page.locator(".manager-wording-label-row", { hasText: "Main Supply › Result" });
+  await field.getByRole("button", { name: "Not Good" }).click();
+  await page.getByLabel(/Reason for these corrections/).fill("Supervisor correction after review");
+  await page.getByRole("button", { name: "Save corrections" }).click();
+  await expect(page.getByLabel("Inspection review status")).toContainText("Pending Review");
+  await page.getByRole("button", { name: "Back to service visit" }).click();
+  await page.getByRole("button", { name: "View Final Report" }).click();
+  await expect(page.getByText("Pending Review.")).toBeVisible();
+  await expect(page.locator(".report-section dd", { hasText: "Not Good" })).toBeVisible();
 });
 
 test("leaving with unsaved corrections asks first", async ({ page }) => {
@@ -166,6 +212,29 @@ test("the Final Report lists corrections and offers no PDF until they are includ
   await expect(page.getByRole("heading", { name: /1 correction was made after submission/ })).toBeVisible();
   await expect(page.getByText(/Main Supply › Result: Good → Not Good/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Download PDF" })).toBeDisabled();
+});
+
+test("a correction between report and history loads triggers a full report reload", async ({ page }) => {
+  const api = await installApi(page, { correctBetweenReportAndHistory: true });
+  await openVisit(page);
+  await page.getByRole("button", { name: /View report|Final Report/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Final Report" })).toBeVisible();
+  await expect(page.locator(".report-section dd", { hasText: "Not Good" })).toBeVisible();
+  await expect(page.getByText(/Main Supply › Result: Good → Not Good/)).toBeVisible();
+  await expect(page.getByText("Pending Review.", { exact: false })).toBeVisible();
+  expect(api.reportLoads).toBe(2);
+});
+
+test("Check again reloads both report and history after a failed history request", async ({ page }) => {
+  const api = await installApi(page, { historyFailureOnce: true });
+  await openVisit(page);
+  await page.getByRole("button", { name: /View report|Final Report/ }).first().click();
+  await expect(page.getByText("Report and correction history could not be shown together.")).toBeVisible();
+  await expect(page.getByText("Good", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.locator(".report-section dd", { hasText: "Not Good" })).toBeVisible();
+  await expect(page.getByText(/Main Supply › Result: Good → Not Good/)).toBeVisible();
+  expect(api.reportLoads).toBe(2);
 });
 
 test("a numeric reading is corrected as a number, not as typed text", async ({ page }) => {

@@ -101,7 +101,8 @@ import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRe
 import { ConnectivityRecovery } from "./auth/connectivityRecovery";
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
-import { ManagerHome } from "./manager/ManagerHome";
+import { ManagerHome, managerNavLinks, type ManagerDashboardRoute } from "./manager/ManagerHome";
+import { AppShell } from "./layout/AppShell";
 import { ManagerOperations } from "./manager/ManagerOperations";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
 import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
@@ -2137,7 +2138,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           ) : route.name === "riser-form" ? (
             activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <><AcceptedCorrectionsPanel key={serverDryWetRiser.clientUuid} clientUuid={serverDryWetRiser.clientUuid} /><ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /></> : <section className="workspace"><h2>Dry/Wet Riser inspection unavailable</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
-            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading completed inspection detail.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <><AcceptedCorrectionsPanel key={serverFireAlarm.clientUuid} clientUuid={serverFireAlarm.clientUuid} /><FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/></> : <section className="workspace"><h2>Fire Alarm inspection unavailable</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading completed inspection detail.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "wet-chemical-form" ? (
             wetChemicalAuthorityState === "server" && serverWetChemical ? <><AcceptedCorrectionsPanel key={serverWetChemical.clientUuid} clientUuid={serverWetChemical.clientUuid} /><ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /></> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
@@ -2153,7 +2154,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking inspection completion for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "fm200-form" ? (
-            fm200AuthorityState === "server" && serverFm200 ? <ServerFm200View inspection={serverFm200} onBack={()=>navigate({name:"system",jobId:serverFm200.jobId,systemKey:"fm200_fire_suppression"})}/> : fm200AuthorityState === "local" && activeFm200Form && !jobIsCompleted(activeFm200Form.jobId) ? (
+            fm200AuthorityState === "server" && serverFm200 ? <><AcceptedCorrectionsPanel key={serverFm200.clientUuid} clientUuid={serverFm200.clientUuid} /><ServerFm200View inspection={serverFm200} onBack={()=>navigate({name:"system",jobId:serverFm200.jobId,systemKey:"fm200_fire_suppression"})}/></> : fm200AuthorityState === "local" && activeFm200Form && !jobIsCompleted(activeFm200Form.jobId) ? (
               <Fm200InspectionForm
                 record={activeFm200Form}
                 onBack={() => navigate({ name: "system", jobId: activeFm200Form.jobId, systemKey: activeFm200Form.systemKey })}
@@ -2287,9 +2288,14 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           )}
         </>
       ) : managerExperience ? (
-        !route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
+        <AppShell<ManagerDashboardRoute["name"] | "manager-home">
+          navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
+          activeRouteName={route.name}
+          onNavigate={(name) => navigate({ name })}
+        >
+        {!route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
         : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} />
-        : route.name === "manager-technicians" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
+        : route.name === "manager-technicians" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
         : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
           ? <ManagerTechnicianDetail
             key={`${authAuthorityGuard.current.currentGeneration}:${route.technicianId}`}
@@ -2301,18 +2307,19 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             onAuthorityFailure={handleManagerRequestFailure}
           />
           : <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-technicians" })}>Back to Technicians</button><p className="empty-state">Technician not found.</p></>)
-        : route.name === "manager-upcoming-services" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerUpcomingServices key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-customers" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCustomerConfiguration customers={managerCustomers} loading={managerLoading} message={managerMessage} onRefresh={refreshManagerVisits} onManage={(customer) => navigate({ name: "manager-customer", customerId: customer.customer.id })} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-add-customer" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerAddCustomer onCreated={async () => { await refreshManagerVisits(); navigate({ name: "manager-customers" }); }} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
-        : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
+        : route.name === "manager-upcoming-services" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerUpcomingServices key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-customers" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCustomerConfiguration customers={managerCustomers} loading={managerLoading} message={managerMessage} onRefresh={refreshManagerVisits} onManage={(customer) => navigate({ name: "manager-customer", customerId: customer.customer.id })} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-add-customer" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerAddCustomer onCreated={async () => { await refreshManagerVisits(); navigate({ name: "manager-customers" }); }} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
+        : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-correction" ? (
           <ManagerCorrectionEditor
             key={`${authAuthorityGuard.current.currentGeneration}:${route.clientUuid}`}
             clientUuid={route.clientUuid}
+            canReview={supervisorExperience}
             onBack={(jobId) => navigate(jobId ? { name: "manager-service-visit", jobId } : { name: "manager-operations" })}
             onAuthorityFailure={handleManagerRequestFailure}
           />
@@ -2345,7 +2352,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             }}
           />
         ) : (
-          <>{route.name === "manager-operations" && <button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button>}<ManagerOperations
+          <>{route.name === "manager-operations" && <button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button>}<ManagerOperations
             supervisor={supervisorExperience}
             visits={managerVisits}
             loading={managerLoading}
@@ -2367,7 +2374,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               }
             }}
           /></>
-        )
+        )}
+        </AppShell>
       ) : null}
     </main>
   );
