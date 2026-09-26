@@ -2,15 +2,29 @@
 
 ## Production Prerequisites
 
-- Client-owned production domain.
-- Static public IPv4, not CGNAT.
-- DNS A record points to the static public IPv4.
-- Router forwards TCP 80 and 443 to the Windows PC.
-- Router forwarding targets a stable LAN IP through DHCP reservation or static IP.
+Common to both hosting routes:
+
+- Client-owned production domain, registered/managed on Cloudflare.
 - Windows PC remains powered on, connected, and awake during service hours.
 - Docker Desktop is installed and licensed appropriately.
 - PostgreSQL is not exposed publicly.
 - API authentication is complete before public deployment.
+
+Named Cloudflare Tunnel route (recommended default — see
+`docs/client-install-and-public-access.md`):
+
+- A tunnel created in the Cloudflare Zero Trust dashboard with a public hostname route to the proxy.
+- `CLOUDFLARE_TUNNEL_TOKEN` set in `.env`; `PUBLIC_HOSTNAME` set with an explicit `http://` scheme.
+- Stack started with `docker compose --profile tunnel up -d`.
+- No static IP, no router changes, and works behind CGNAT.
+
+Direct-hosting route (alternate, only when the client already has a static IP):
+
+- Static public IPv4, not CGNAT.
+- DNS A record points to the static public IPv4.
+- Router forwards TCP 80 and 443 to the Windows PC.
+- Router forwarding targets a stable LAN IP through DHCP reservation or static IP.
+- `PUBLIC_HOSTNAME` set as a bare hostname (no scheme) so Caddy obtains its own certificate.
 
 ## Slice A ownership upgrade precondition (2026-09-18)
 
@@ -52,9 +66,10 @@ Temporary phone/PWA testing must use a stable HTTPS origin distinct from final p
 
 `http://localhost` is only acceptable on the host PC. `http://LAN-IP` is not a valid production PWA phone test.
 
-This is an interim testing path only. It is not the production HTTPS path — that requires the
-client's own domain, static public IPv4, and router port-forwarding per the Final Hosting Model
-above, and is a separate, later deployment item.
+This is an interim testing path only, distinct from both production HTTPS paths (the named
+Cloudflare Tunnel or the direct-hosting route) documented in the Production Cloudflare Tunnel
+section below and `docs/client-install-and-public-access.md`. This anonymous quick tunnel has no
+persistent identity, no fixed hostname, and is not meant to run unattended.
 
 ### Prerequisite
 
@@ -108,6 +123,37 @@ works and queues Pending Sync records.
 - **The URL is not a secret, but it is not a fixture either.** It is regenerated on every run and
   expires when the tunnel stops. Never commit a specific `trycloudflare.com` URL anywhere in the
   repo or in documentation — it will be stale and misleading the next time anyone reads it.
+
+## Production Cloudflare Tunnel
+
+This is the persistent, named production tunnel — different from the anonymous, session-scoped
+quick tunnel above. It is the recommended default hosting route for this project (see
+`docs/client-install-and-public-access.md` for the full client-facing walkthrough).
+
+### Day-2 operations
+
+```powershell
+docker compose --profile tunnel up -d --build     # start, including cloudflared
+docker compose --profile tunnel ps                # confirm cloudflared is running
+docker compose logs cloudflared --tail=50          # check tunnel connection status
+docker compose --profile tunnel stop               # stop, including cloudflared
+```
+
+Always include `--profile tunnel` on commands that should include the `cloudflared` connector —
+Compose excludes a profiled service from `up`, `ps`, `stop`, and `down` unless the profile is
+explicitly named, even if it is currently running.
+
+### What to check
+
+- `docker compose logs cloudflared` shows a healthy/connected registration to Cloudflare's edge,
+  not a repeating connection-refused or authentication error.
+- An empty `CLOUDFLARE_TUNNEL_TOKEN` makes `cloudflared` exit immediately — this is a loud, visible
+  failure in the logs, not a silent one, by design (see the comment above the `cloudflared` service
+  in `docker-compose.yml`).
+- `cloudflared` only ever reaches the `proxy` service over the `public` Docker network; it has no
+  route to `api` or `postgres` on the `internal` network, and no host ports are published for it.
+- After a PC reboot, confirm both Docker and the `cloudflared` container come back up on their own
+  and the public hostname is reachable again without manual intervention.
 
 ## Stale-Cache Update Strategy
 

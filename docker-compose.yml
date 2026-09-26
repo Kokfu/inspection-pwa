@@ -65,6 +65,40 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Optional Cloudflare Tunnel connector for the tunnel hosting model. Not started by a
+  # plain `docker compose up` — only with `--profile tunnel` (see
+  # docs/client-install-and-public-access.md). Coexists with the default static-IP /
+  # router-forwarding model without changing it: this service is additive, and the
+  # direct-hosting model keeps working whether or not the tunnel profile is ever used.
+  #
+  # Only needs outbound internet access to reach Cloudflare's edge, so it sits on the
+  # `public` network only, and reaches `proxy` there directly over the Docker network —
+  # no host ports are published for it and it never touches the `internal` network
+  # (api/postgres stay unreachable from it, same as from the outside world).
+  # CLOUDFLARE_TUNNEL_TOKEN intentionally has an empty fallback rather than a required
+  # (":?") one: Compose interpolates every service's environment during `config`/`up`
+  # even for services excluded by profile, so a required check here would break the
+  # default direct-hosting invocation for anyone who hasn't set this var. If it's left
+  # empty while the tunnel profile is actually used, cloudflared fails fast on its own
+  # and says so in `docker compose logs cloudflared` — visible, not silent.
+  cloudflared:
+    # Pinned (not :latest) to match this file's convention for postgres, and so an
+    # upstream cloudflared release can't change behavior on the client PC without a
+    # reviewed version bump here. Check for updates at
+    # https://github.com/cloudflare/cloudflared/releases.
+    image: cloudflare/cloudflared:2026.9.3
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      proxy:
+        condition: service_started
+    networks:
+      - public
+    profiles:
+      - tunnel
+    restart: unless-stopped
+
 networks:
   public:
   internal:

@@ -8,14 +8,30 @@ The production system is hosted on the client’s Windows desktop PC, not on a c
 
 ## Final Hosting Model
 
+**Primary model — Cloudflare Tunnel (default; use this unless a client already has a static IP and asks for direct hosting):**
+
 External users access:
+
+Client-owned domain (registered/DNS on Cloudflare)
+→ Cloudflare edge (public DNS + TLS termination)
+→ Cloudflare Tunnel (outbound-only connection from the client PC, no inbound ports)
+→ `cloudflared` connector running on the Windows PC (as a Windows service)
+→ Caddy running in Docker (plain HTTP is acceptable on this internal hop; the tunnel is already encrypted)
+→ React/Vite PWA static assets
+→ `/api` reverse proxy to Node API
+→ PostgreSQL on private Docker network
+
+This model requires no static public IP, no CGNAT check, and no router/firewall changes — it was chosen as the
+default because the client is not technical and cannot be relied on to manage ISP/router configuration.
+
+**Alternate model — direct hosting (only when the client already has a static IP and explicitly prefers it):**
 
 Client-owned domain
 → DNS A record
 → client static public IPv4
 → client router/firewall
 → TCP 80 and TCP 443 forwarded to the client PC
-→ Caddy running in Docker
+→ Caddy running in Docker (obtains its own Let's Encrypt certificate)
 → React/Vite PWA static assets
 → `/api` reverse proxy to Node API
 → PostgreSQL on private Docker network
@@ -23,15 +39,24 @@ Client-owned domain
 ## Non-Negotiable Deployment Rules
 
 1. The client owns the production domain and renewal responsibility.
-2. The client must have a publicly routable static IPv4 address.
-3. The internet connection must not be behind CGNAT.
-4. The router/firewall must forward TCP 80 and TCP 443 to the Windows PC.
-5. The Windows PC must have a stable LAN IP.
-6. DHCP reservation on the router is preferred.
-7. PostgreSQL must never be exposed to the host or internet.
-8. Only the reverse proxy should expose public ports.
-9. API public deployment is prohibited until authentication and API security are complete.
-10. No real secrets, domains, public IPs, tokens, certificates, passwords, or client-specific values may be committed to Git.
+2. The client's Cloudflare account is the source of truth for DNS and (under the primary model) Tunnel
+   configuration; do not create shadow DNS or shadow tunnels outside that account.
+3. `cloudflared` must run as an auto-starting Windows service so the tunnel survives PC reboots, the same way
+   Docker Desktop must auto-start.
+4. If using the alternate direct-hosting model instead: the client must have a publicly routable static IPv4
+   address, the connection must not be behind CGNAT, and the router/firewall must forward TCP 80 and TCP 443 to
+   the Windows PC.
+5. The Windows PC must have a stable LAN IP; a DHCP reservation on the router is preferred (needed under both
+   models — the alternate model needs it for port forwarding, the primary model needs it so `cloudflared` and
+   Caddy always find each other at a known address).
+6. PostgreSQL must never be exposed to the host or internet.
+7. Only the reverse proxy (Caddy, via the tunnel or via forwarded ports) should be reachable from outside the
+   Docker network.
+8. API public deployment is prohibited until authentication and API security are complete.
+9. No real secrets, domains, public IPs, tokens, certificates, passwords, tunnel credentials, or client-specific
+   values may be committed to Git.
+10. Cloudflare Tunnel's free tier carries no uptime SLA. Document this to the client as an accepted trade-off in
+    exchange for not requiring ISP/router work on their end.
 
 ## Runtime Folder Layout
 
@@ -141,29 +166,30 @@ Caddy is the preferred reverse proxy.
 
 Caddy responsibilities:
 
-* receive HTTP/HTTPS traffic;
+* receive HTTP/HTTPS (or plain HTTP behind the tunnel — see below) traffic;
 * redirect HTTP to HTTPS where appropriate;
-* obtain and renew TLS certificates;
 * serve built React/Vite PWA static files;
 * reverse-proxy `/api` to the internal API container.
 
-Normal automatic HTTPS requires the domain to resolve to the client public IP and usually requires inbound TCP 80 and TCP 443.
+**Under the primary Cloudflare Tunnel model:** Cloudflare terminates public TLS at its edge using the domain's
+Cloudflare-managed certificate. The hop from `cloudflared` to Caddy is already inside the encrypted tunnel, so
+Caddy does not need to obtain its own public Let's Encrypt certificate for the public hostname. Caddy may still
+serve a locally-trusted certificate for LAN-only access if that's needed for local testing.
 
-If TCP 80 cannot be opened, DNS challenge or another certificate strategy must be explicitly approved.
+**Under the alternate direct-hosting model:** Caddy is responsible for obtaining and renewing the TLS
+certificate itself. Normal automatic HTTPS requires the domain to resolve to the client's public IP and usually
+requires inbound TCP 80 and TCP 443. If TCP 80 cannot be opened, a DNS-01 challenge or another certificate
+strategy must be explicitly approved.
 
-## Temporary HTTPS Testing
+## HTTPS Testing
 
-Temporary HTTPS testing must be separated from final production access.
+Do not claim real phone PWA installation is fully proven through plain `http://LAN-IP`. For phone/PWA testing,
+the origin must be stable and HTTPS — the Cloudflare Tunnel hostname satisfies this directly once the tunnel is
+running, since it is the same origin used in production, not a separate temporary one.
 
-Allowed temporary test approaches:
-
-* stable HTTPS tunnel;
-* temporary test subdomain;
-* local trusted certificate installed on phone for controlled testing.
-
-Do not claim real phone PWA installation is fully proven through plain `http://LAN-IP`.
-
-For phone/PWA testing, the origin must be stable and HTTPS.
+If a temporary/throwaway origin is ever needed ahead of the real tunnel being ready (e.g. a quick local trusted
+certificate installed on a phone for controlled testing), keep it clearly separated from the final production
+hostname and do not treat it as equivalent proof of a working public deployment.
 
 ## Frontend Deployment Rules
 
@@ -208,18 +234,24 @@ Before any public deployment:
 6. Firewall rules must expose only required ports.
 7. Backup process must be tested.
 8. Restore process must be tested.
-9. Domain and certificate renewal must be verified.
+9. Domain and certificate renewal must be verified (under the primary model, this means the Cloudflare-managed
+   certificate; under the alternate model, Caddy's own Let's Encrypt renewal).
 10. Client ownership and operational responsibilities must be documented.
+11. Under the primary model: `cloudflared` must be confirmed running as an auto-starting Windows service, and
+    the tunnel's reconnect behavior after a PC reboot or brief internet loss must be verified.
 
 ## Validation Checklist
 
 For deployment-related changes, verify:
 
 * `docker compose config` passes.
-* Only the proxy publishes host ports.
+* Only the proxy publishes host ports (under the alternate direct-hosting model) — under the primary Tunnel
+  model, no host ports need to be published at all, since `cloudflared` reaches Caddy over the Docker network
+  or localhost.
 * PostgreSQL does not publish host port 5432.
 * Caddy serves the frontend.
-* `/api/health` works through Caddy.
+* `/api/health` works through Caddy, reachable via the public tunnel hostname.
+* `cloudflared` is installed as a Windows service and reconnects automatically after reboot (primary model).
 * Runtime bind mounts point outside Git.
 * Data survives container recreation.
 * Backups are created outside the database container.

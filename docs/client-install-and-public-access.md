@@ -10,12 +10,46 @@ The client may buy the domain at Cloudflare Registrar, if the desired name and e
 
 ## Choose how the internet reaches the PC
 
+Named Cloudflare Tunnel is the **default recommended route** for this project: the client is not expected to
+have IT/networking staff, and this route needs no ISP contact, no static IP, and no router changes. Direct
+hosting remains available and fully supported for a client who already has a static IP and prefers it.
+
 | Route | What is required | This repository's status |
 | --- | --- | --- |
-| Static public IPv4 and router forwarding | ISP-confirmed static, publicly routable IPv4 (no CGNAT); stable PC LAN address; router forwards TCP 80 and 443 to the PC; DNS `A` record for `app.example.com`; `.env` `PUBLIC_HOSTNAME=app.example.com` | **Documented production design.** Caddy obtains/renews HTTPS certificates. Only the proxy publishes ports; PostgreSQL stays private. |
-| Named Cloudflare Tunnel | Domain on Cloudflare; installed, persistent `cloudflared` connector on the PC; outbound connectivity to Cloudflare (including port 7844); published route for the app hostname; secure origin/Host configuration; service startup and recovery | Technically possible without a static IP or inbound router ports, including behind CGNAT. **Not implemented as a production service in this repo.** The existing `Start-DevTunnel.ps1` is a temporary test tunnel with a changing URL. This route needs a deliberate production design, configuration, and acceptance test before use. |
+| Named Cloudflare Tunnel (recommended default) | Domain on Cloudflare; a tunnel created in the Cloudflare Zero Trust dashboard with a public hostname route to the proxy; the tunnel token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`; `PUBLIC_HOSTNAME` set with an explicit `http://` scheme (e.g. `http://app.example.com`) so Caddy serves plain HTTP instead of attempting its own certificate; stack started with `docker compose --profile tunnel up -d` | **Implemented.** The `cloudflared` service in `docker-compose.yml` (Compose `tunnel` profile) connects outbound only, over the `public` Docker network, directly to the `proxy` service — no host ports are published for it and it cannot reach `api`/`postgres` on the `internal` network. Works without a static IP or inbound router ports, including behind CGNAT. Cloudflare's free tier carries no uptime SLA; document that trade-off to the client. |
+| Static public IPv4 and router forwarding (alternate) | ISP-confirmed static, publicly routable IPv4 (no CGNAT); stable PC LAN address; router forwards TCP 80 and 443 to the PC; DNS `A` record for `app.example.com`; `.env` `PUBLIC_HOSTNAME=app.example.com` (bare hostname, no scheme) | **Documented production design**, unchanged by the tunnel work above. Caddy obtains/renews HTTPS certificates itself. Only the proxy publishes ports; PostgreSQL stays private. Use this only when a client already has a static IP and explicitly prefers it. |
 
-Buying only the domain does not make the PC reachable. Cloudflare DNS/proxy alone also does not remove the static-IP/router requirements of the current production design. Do not forward PostgreSQL port 5432 or expose the API container directly. If using Cloudflare's proxy with the static-IP route, verify its `Full (strict)` HTTPS mode against Caddy's valid origin certificate; do not use `Flexible` mode.
+Both routes are supported by the same `docker-compose.yml`: the tunnel route is additive and only activates
+with `--profile tunnel`, so a plain `docker compose up -d` is the direct-hosting route exactly as before. Buying
+only the domain does not make the PC reachable under the direct-hosting route. Do not forward PostgreSQL port
+5432 or expose the API container directly under either route. If using Cloudflare's proxy with the static-IP
+route, verify its `Full (strict)` HTTPS mode against Caddy's valid origin certificate; do not use `Flexible`
+mode.
+
+### Setting up the named Cloudflare Tunnel route
+
+1. In the client's Cloudflare account, go to **Zero Trust → Networks → Tunnels** and create a tunnel (name it
+   after the client). Copy its token.
+2. On the same tunnel, add a **public hostname**: the app's hostname (e.g. `app.example.com`) routed to
+   `http://proxy:80` — this is the internal Docker service name and port, not a client-machine address.
+3. In `.env` on the client PC, set `CLOUDFLARE_TUNNEL_TOKEN` to the copied token, and set `PUBLIC_HOSTNAME` to
+   the same hostname with an explicit `http://` scheme, e.g. `PUBLIC_HOSTNAME=http://app.example.com`. The
+   scheme is what tells Caddy to serve plain HTTP instead of attempting its own Let's Encrypt certificate —
+   Cloudflare's edge terminates HTTPS for the public-facing connection instead. **Forgetting the `http://`
+   scheme here is the one mistake that doesn't fail loudly**: Caddy falls back to its normal automatic-HTTPS
+   behavior and redirects port 80 to `https://`, which the tunnel forwards straight back to Cloudflare's edge —
+   the browser gets bounced in an endless redirect loop instead of a clear error. If the site won't load and
+   `cloudflared`'s logs look healthy, check this setting first.
+4. Start the stack with the tunnel connector included: `docker compose --profile tunnel up -d --build`.
+5. Confirm `docker compose logs cloudflared --tail=50` shows a healthy/connected registration, and that
+   `docker compose --profile tunnel ps` lists `cloudflared` as running. An empty or missing
+   `CLOUDFLARE_TUNNEL_TOKEN` makes `cloudflared` exit immediately with an error in its logs — check there first
+   if the public hostname doesn't resolve to the app.
+6. Test `https://app.example.com/` and `https://app.example.com/api/health` from a device outside the client's
+   Wi-Fi, same as the direct-hosting acceptance check below.
+7. Reboot the PC once and confirm Docker and the `cloudflared` container both come back up on their own and the
+   site is reachable again without manual steps — this is the operational equivalent of the router-forwarding
+   check on the direct-hosting route.
 
 ## Client PC preparation
 
@@ -23,7 +57,7 @@ Buying only the domain does not make the PC reachable. Cloudflare DNS/proxy alon
 2. Set a stable LAN address using a router DHCP reservation. Keep the PC powered, awake, connected, and adequately cooled; plan Windows Update/reboot, Docker startup after login, power recovery, a UPS where appropriate, and an operator responsible for checking service after restart.
 3. Reserve a persistent disk path `C:\InspectionSystem\runtime\` and create the uploads, logs/api, logs/proxy, backups/postgres, backups/uploads, restore-staging, operational, and releases folders. Arrange encrypted off-device backups and a restore drill. PostgreSQL's live data uses a Docker named volume; **never use `docker compose down -v`** on the production stack.
 4. Obtain a reviewed, conflict-free release of the source. A GitHub repository download/clone gives source files; it is not a Docker image. This repository's Compose file builds the application images on the client PC. First build/update requires internet access to image registries and npm. Host Python, Node, npm, PostgreSQL, and Caddy are unnecessary.
-5. In PowerShell from the project folder, run `Copy-Item .env.example .env`. Set a unique strong `POSTGRES_PASSWORD` and the same password in `DATABASE_URL` (URL-encode password characters that require it in a URL). Set `PUBLIC_HOSTNAME` to the exact client hostname before public use. Keep `.env` private, outside Git history. Have the operator review the storage paths and all values. Do not start production with the example password or `localhost` hostname.
+5. In PowerShell from the project folder, run `Copy-Item .env.example .env`. Set a unique strong `POSTGRES_PASSWORD` and the same password in `DATABASE_URL` (URL-encode password characters that require it in a URL). Set `PUBLIC_HOSTNAME` to the exact client hostname before public use — bare (`app.example.com`) for the direct-hosting route, or with an explicit `http://` scheme (`http://app.example.com`) plus `CLOUDFLARE_TUNNEL_TOKEN` for the named Cloudflare Tunnel route. Keep `.env` private, outside Git history. Have the operator review the storage paths and all values. Do not start production with the example password or `localhost` hostname.
 
 ## First start after preparation
 
@@ -37,6 +71,11 @@ docker compose logs api --tail=50
 .\scripts\Health-Check.ps1
 ```
 
+Add `--profile tunnel` to the `config`/`up`/`ps` commands above when using the named Cloudflare Tunnel route
+(e.g. `docker compose --profile tunnel up -d --build`), so the `cloudflared` connector starts alongside the
+rest of the stack. Omit it entirely for the direct-hosting route — behavior is unchanged from before this
+route existed.
+
 `docker compose up -d --build` installs the API and web npm dependencies inside image builds using their lockfiles, obtains PostgreSQL and Caddy images, and starts the services. It does **not** install Docker Desktop/WSL, register a domain, configure a router, create an admin user, arrange backups, or prove internet reachability. API startup runs migrations; inspect the logs for errors. The localhost health check only proves local proxy/API reachability.
 
 An operator must create the first admin account with the existing `apps/api/src/cli/createAdmin.ts` command, supplying `ADMIN_USERNAME` and a strong `ADMIN_PASSWORD` of at least 12 characters via temporary environment variables. Do not put credentials in Git, `.env.example`, a shared command transcript, or a screenshot. Log in through the public hostname and create individual accounts as required.
@@ -45,6 +84,6 @@ Before inviting external users, test `https://app.example.com/` and `https://app
 
 ## Current release blockers
 
-The existing startup script only runs Compose and does not perform prerequisite setup or validate secrets. The named production tunnel path is not implemented. Domain purchase, ISP/router setup, client PC checks, production HTTPS, and phone acceptance have not been performed by this documentation change.
+The existing startup script only runs Compose and does not perform prerequisite setup or validate secrets. The named production tunnel path is now implemented (`cloudflared` service, Compose `tunnel` profile) but not yet acceptance-tested against a real client Cloudflare account and PC. Domain purchase, Cloudflare Tunnel creation, client PC checks, production HTTPS, and phone acceptance have not been performed by this documentation change.
 
 See `docs/architecture/06-deployment-runbook.md` for operations and `docs/architecture/05-backup-and-recovery.md` for backup/restore details.
