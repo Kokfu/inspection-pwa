@@ -20,7 +20,7 @@ test("PFE login, Save Draft, Submit, Edit Failed and sync use the authenticated 
   await expect.poll(async () => (await state()).records[0]?.syncStatus).toBe("Pending");
   expect((await state()).outbox).toHaveLength(1);
   await page.getByRole("button", { name: "Back to Systems", exact: true }).click();
-  await page.getByRole("button", { name: "Back to My Jobs", exact: true }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("button", { name: "Sync Now", exact: true }).click();
   await expect.poll(async () => (await state()).records[0]?.syncStatus).toBe("Failed");
   await page.locator(".job-card").click();
@@ -31,7 +31,7 @@ test("PFE login, Save Draft, Submit, Edit Failed and sync use the authenticated 
   await page.getByRole("button", { name: "Submit Inspection", exact: true }).click();
   await expect.poll(async () => (await state()).records[0]?.syncStatus).toBe("Pending");
   await page.getByRole("button", { name: "Back to Systems", exact: true }).click();
-  await page.getByRole("button", { name: "Back to My Jobs", exact: true }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("button", { name: "Sync Now", exact: true }).click();
   await expect.poll(async () => (await state()).records[0]?.syncStatus).toBe("Synced");
   const synced = await state();

@@ -2007,7 +2007,11 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       ) : null}
 
       {technicianExperience ? (
-        <>
+        <AppShell<"jobs">
+          navLinks={[["Home", "jobs"]]}
+          activeRouteName={route.name}
+          onNavigate={(name) => navigate({ name })}
+        >
           {route.name === "development" && currentUser?.role === "admin" ? (
             <section className="development-tools" aria-labelledby="development-tools-title">
               <header className="development-header">
@@ -2286,7 +2290,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               onOpenPortableFireExtinguisher={handleOpenPortableFireExtinguisher}
             />
           )}
-        </>
+        </AppShell>
       ) : managerExperience ? (
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}

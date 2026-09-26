@@ -304,7 +304,7 @@ export function TechnicianHome({
       />
     ) : selectedJob ? (
       <section aria-labelledby="applicable-systems-title">
-        <button type="button" className="secondary-command back-command" onClick={onBackToJobs}>Back to My Jobs</button>
+        <button type="button" className="secondary-command back-command mobile-only-back" onClick={onBackToJobs}>Back to My Jobs</button>
         <div className="job-context job-context-card">
           <div className="job-context-title">
             <div>
