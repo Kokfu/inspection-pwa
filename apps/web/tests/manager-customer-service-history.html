@@ -17,13 +17,14 @@ import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomer
  * ManagerHome's visitCard semantics (status badge, formatted created time,
  * inspection progress, reference) but lead with `visit.site` instead of a
  * redundant "Customer" line. Closed rows show "View Final Report" +
- * "Download PDF"; open rows show only "View Progress". "Load more" appends
+ * "Download PDF" and Admin's Archive action; open rows show only "View Progress". "Load more" appends
  * (never replaces) and disappears once `nextCursor` is `null`. A 403-shaped
  * response trips `onAuthorityFailure`, never a domain error message. An
  * INVALID_DATE_RANGE 400 surfaces inline via the existing domain-error path.
  * A "{visits.length} of {totalCount} visits" chip renders next to the heading
  * except on the empty state, and updates on Load More and on any filter
- * change. Strictly read-only — no mutation call anywhere.
+ * change. Filtering and opening reports do not mutate visits; Archive is a
+ * separate Admin action.
  */
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const customerId = id(900);
@@ -143,7 +144,9 @@ document.querySelector("#run").onclick = async () => {
     ok("open row shows In Progress badge", openRow.querySelector(".status-badge").textContent === "In Progress");
     ok("open row shows only View Progress", [...openRow.querySelectorAll("button")].map((b) => b.textContent.trim()).join("|") === "View Progress");
     ok("closed row shows Service Completed badge", closedRow.querySelector(".status-badge").textContent === "Service Completed");
-    ok("closed row shows View Final Report + Download PDF", [...closedRow.querySelectorAll("button")].map((b) => b.textContent.trim()).join("|") === "View Final Report|Download PDF");
+    const closedActions = [...closedRow.querySelectorAll("button")].map((b) => b.textContent.trim());
+    ok("closed row shows View Final Report + Download PDF", ["View Final Report", "Download PDF"].every((label) => closedActions.includes(label)));
+    ok("closed Admin row offers Archive", closedActions.includes("Archive"));
     ok("no redundant Customer label on rows", !historySection().querySelector(".job-card-label")?.textContent.includes("Customer"));
 
     openRow.querySelector("button").click();

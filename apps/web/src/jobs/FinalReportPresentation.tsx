@@ -1,4 +1,5 @@
 import type { FinalReportPreview } from "./finalReportApi";
+import { formatMalaysiaDateTime } from "../uiPresentation";
 
 /** --failed / --refer / --good modifier for the derived "Summary of Testing" condition cell. */
 const conditionModifier = (condition: FinalReportPreview["systems"][number]["condition"]) =>
@@ -11,7 +12,7 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
     { label: "Site", value: report.site },
     { label: "Service Date", value: report.serviceDate },
     { label: "Job Reference", value: report.jobReference },
-    { label: "Completed Date", value: report.completedAt },
+    { label: "Completed Date", value: formatMalaysiaDateTime(report.completedAt) },
     { label: "Completed By", value: report.completedBy },
   ];
   return <>

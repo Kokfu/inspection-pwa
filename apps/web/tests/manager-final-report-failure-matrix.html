@@ -23,9 +23,10 @@
       }
       throw new Error("Timed out waiting for " + label + "; visible text: " + mount.textContent);
     };
-    const clickDownload = () => {
+    const clickDownload = async () => {
       const button = [...mount.querySelectorAll("button")].find(candidate => candidate.textContent.trim() === "Download PDF");
       if (!button) throw new Error("Download PDF button was not rendered");
+      await waitFor(() => !button.disabled, "successful corrections check before PDF download");
       button.click();
     };
     async function mountedCase(name, fetchHandler, assertion) {
@@ -33,7 +34,11 @@
       const authorizationFailures = [];
       const unavailableFailures = [];
       mount.replaceChildren();
-      globalThis.fetch = fetchHandler;
+      globalThis.fetch = (input, init) => {
+        const url = new URL(typeof input === "string" ? input : input.url, window.location.origin);
+        if (url.pathname === "/api/manager/service-visits/job-1/corrections") return Promise.resolve(json({ corrections: [] }));
+        return fetchHandler(input, init);
+      };
       const root = ReactDom.createRoot(mount);
       try {
         root.render(React.createElement(ManagerFinalReportView, {
@@ -81,7 +86,7 @@
         return async () => ++calls === 1 ? json({ report }) : json({ message: "Final report PDF is incomplete." }, 409);
       })(), async callbacks => {
         await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 409");
-        clickDownload();
+        await clickDownload();
         await waitFor(() => mount.textContent.includes("Final report PDF is incomplete."), "PDF 409 message");
         if (!mount.textContent.includes(report.customer) || callbacks.authorizationFailures.length || callbacks.unavailableFailures.length) throw new Error("PDF 409 did not preserve report locally");
       }));
@@ -90,7 +95,7 @@
         return async () => ++calls === 1 ? json({ report }) : Promise.reject(new TypeError("offline"));
       })(), async callbacks => {
         await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF network failure");
-        clickDownload();
+        await clickDownload();
         await waitFor(() => callbacks.unavailableFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF network fail-closed state");
         if (callbacks.authorizationFailures.length) throw new Error("PDF network failure was classified as authorization");
       }));
@@ -99,7 +104,7 @@
         return async () => ++calls === 1 ? json({ report }) : new Response("server failure", { status: 503 });
       })(), async callbacks => {
         await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 503");
-        clickDownload();
+        await clickDownload();
         await waitFor(() => callbacks.unavailableFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 503 fail-closed state");
         if (callbacks.authorizationFailures.length) throw new Error("PDF 503 was classified as authorization");
       }));
@@ -108,7 +113,7 @@
         return async () => ++calls === 1 ? json({ report }) : json({ message: "Manager session expired." }, 401);
       })(), async callbacks => {
         await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 401");
-        clickDownload();
+        await clickDownload();
         await waitFor(() => callbacks.authorizationFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 401 authorization fail-closed state");
         if (callbacks.unavailableFailures.length) throw new Error("PDF 401 was classified as unavailable");
       }));
@@ -117,7 +122,7 @@
         return async () => ++calls === 1 ? json({ report }) : json({ message: "Manager session expired." }, 403);
       })(), async callbacks => {
         await waitFor(() => mount.textContent.includes(report.customer), "loaded report before PDF 403");
-        clickDownload();
+        await clickDownload();
         await waitFor(() => callbacks.authorizationFailures.length === 1 && !mount.textContent.includes(report.customer), "PDF 403 authorization fail-closed state");
         if (callbacks.unavailableFailures.length) throw new Error("PDF 403 was classified as unavailable");
       }));

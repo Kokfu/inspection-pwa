@@ -24,6 +24,7 @@ import {
 } from "./jobProgress";
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
+import { KpiTiles } from "../manager/KpiTiles";
 import type {
   ServerMasterSystemInspectionSummary
 } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -266,10 +267,11 @@ export function TechnicianHome({
 
   return <section className="technician-home" aria-labelledby="technician-home-title">
     {!selectedJob ? <div className="home-toolbar">
-      <div>
+      <div className="workspace-heading"><div>
+        <p className="eyebrow">Technician workspace</p>
         <h2 id="technician-home-title">My Service Jobs</h2>
         <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
-      </div>
+      </div></div>
       <div className="home-utility-actions">
         <button type="button" className="new-service-primary" onClick={onNewServiceVisit} disabled={!canUseServer || loading}>+ New Service Visit</button>
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
@@ -407,6 +409,7 @@ export function TechnicianHome({
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
         <h3 className="visually-hidden" id="available-jobs-title">Available service jobs</h3>
+        <KpiTiles label="My service visits summary" items={[{ label: "In Progress", value: currentJobs.length }, { label: "Completed", value: serviceHistory.length }]} />
         <div className="job-tabs" role="tablist" aria-label="Service visits">
           {(["progress", "completed"] as const).map((value) => <button
             key={value} type="button" role="tab" id={`jobs-tab-${value}`}

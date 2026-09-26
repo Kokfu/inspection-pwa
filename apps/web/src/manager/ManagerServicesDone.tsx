@@ -4,6 +4,8 @@ import { loadManagerCustomers, loadManagerTechnicians, ManagerApiError, type Man
 import { readManagerSession, writeManagerSession } from "./managerReturnRoute";
 
 type Props = {
+  supervisor?: boolean;
+  message?: string;
   onAuthorityFailure: (error: unknown) => void;
   onViewServiceVisit: (jobId: string) => void;
   onViewReport: (jobId: string) => void;
@@ -28,7 +30,7 @@ function isRememberedSelection(value: unknown): value is RememberedSelection {
  * service-history component in its "services-done" variant. The chosen customer and applied
  * filters are remembered for the browser session so Back from a report returns to the same list.
  */
-export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, onViewReport, onDownloadReport }: Props) {
+export function ManagerServicesDone({ supervisor = false, message = "", onAuthorityFailure, onViewServiceVisit, onViewReport, onDownloadReport }: Props) {
   const mounted = useRef(false);
   const [customers, setCustomers] = useState<ManagerCustomerSummary[]>([]);
   const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
@@ -78,6 +80,7 @@ export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, on
   if (selectedCustomer) {
     return <section className="manager-home" aria-labelledby="services-done-title">
       <h2 id="services-done-title">Current Services Done</h2>
+      {message ? <p className="form-message" role="alert">{message}</p> : null}
       <div className="workspace-heading manager-selected-customer">
         <div><p className="eyebrow">Customer</p><h3>{selectedCustomer.customer.displayName}</h3><p className="job-reference">{selectedCustomer.customer.code}</p></div>
         <button type="button" className="secondary-command" onClick={() => choose(null)}>Change customer</button>
@@ -85,6 +88,7 @@ export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, on
       <ManagerCustomerServiceHistory
         key={selectedCustomer.customer.id}
         variant="services-done"
+        canManageVisits={!supervisor}
         customer={selectedCustomer}
         technicians={technicians}
         initialFilters={selection?.filters ?? undefined}
@@ -99,6 +103,7 @@ export function ManagerServicesDone({ onAuthorityFailure, onViewServiceVisit, on
 
   return <section className="manager-home" aria-labelledby="services-done-title">
     <h2 id="services-done-title">Current Services Done</h2>
+    {message ? <p className="form-message" role="alert">{message}</p> : null}
     <p>Find a customer to see their service visits.</p>
     <form className="manager-search-form" role="search" aria-label="Find customer" onSubmit={(event) => { event.preventDefault(); search(); }}>
       <label htmlFor="services-done-customer-search">Customer name or code</label>

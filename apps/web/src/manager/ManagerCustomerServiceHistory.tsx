@@ -39,10 +39,10 @@ function toQuery(customerId: string, filters: ServiceHistoryFilterValues, includ
 }
 
 /**
- * Read-only, filtered, keyset-paginated service history for one customer. Always scoped to
+ * Filtered, keyset-paginated service history for one customer. Always scoped to
  * `customer` (the `customerId` filter); every other filter is server-validated (an invalid date
- * range surfaces the server's own domain-error message inline). Strictly read-only — no mutation
- * call anywhere in this component.
+ * range surfaces the server's own domain-error message inline). Archive/restore controls are
+ * available to admins only; the server guard remains authoritative.
  *
  * - `variant="configuration"` (default, Customer Configuration screen): Site / Status / System /
  *   From / To, applied as soon as they change; one flat list.
@@ -52,7 +52,7 @@ function toQuery(customerId: string, filters: ServiceHistoryFilterValues, includ
  */
 export function ManagerCustomerServiceHistory({
   customer, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onAuthorityFailure,
-  variant = "configuration", technicians = [], initialFilters, onFiltersApplied
+  variant = "configuration", technicians = [], initialFilters, onFiltersApplied, canManageVisits = true
 }: {
   customer: ManagerCustomerSummary;
   onViewServiceVisit: (jobId: string) => void;
@@ -63,6 +63,7 @@ export function ManagerCustomerServiceHistory({
   technicians?: ManagerTechnician[];
   initialFilters?: ServiceHistoryFilterValues;
   onFiltersApplied?: (filters: ServiceHistoryFilterValues) => void;
+  canManageVisits?: boolean;
 }) {
   const explicitApply = variant === "services-done";
   const [draft, setDraft] = useState<ServiceHistoryFilterValues>(initialFilters ?? emptyServiceHistoryFilters);
@@ -190,9 +191,9 @@ export function ManagerCustomerServiceHistory({
         <div className="inline-actions manager-report-actions">
           <button type="button" className="secondary-command" onClick={() => onViewFinalReport(visit.id)}>View Final Report</button>
           <button type="button" onClick={() => void onDownloadFinalReport(visit.id)}>Download PDF</button>
-          {visit.archivedAt
+          {canManageVisits && (visit.archivedAt
             ? <button type="button" className="secondary-command" disabled={restoringId === visit.id} onClick={() => void restore(visit)}>{restoringId === visit.id ? "Restoring…" : "Restore"}</button>
-            : <button type="button" className="secondary-command" disabled={archivingId === visit.id} onClick={() => void archive(visit)}>{archivingId === visit.id ? "Archiving…" : "Archive"}</button>}
+            : <button type="button" className="secondary-command" disabled={archivingId === visit.id} onClick={() => void archive(visit)}>{archivingId === visit.id ? "Archiving…" : "Archive"}</button>)}
         </div>
       ) : (
         <div className="inline-actions">

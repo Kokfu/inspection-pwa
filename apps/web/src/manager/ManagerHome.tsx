@@ -49,7 +49,7 @@ export function ManagerHome({ navigate, supervisor = false }: { navigate: (route
     return () => controller.abort();
   }, [from, to]);
   return <section aria-labelledby="manager-dashboard-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-dashboard-title">Home</h2></div></div>
+    <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Supervisor workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
     <KpiTiles label="Dashboard summary" items={[{ label: "Total Clients", value: clients ?? "—" }, { label: "Total Inspections This Month", value: inspections ?? "—" }]} />
     {error ? <p className="form-message" role="alert">Dashboard data could not be loaded. Open Home again to retry.</p> : null}
     {trend ? <InspectionTrend from={from} to={to} days={trend} /> : null}

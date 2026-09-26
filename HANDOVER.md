@@ -3,6 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-26 — **Manager Playwright harness assumptions corrected (uncommitted).**
+
+The customer service-history harness now checks the required closed-row report actions while confirming Admin retains Archive. The Final Report failure matrix supplies a successful empty corrections check before exercising PDF error responses. Both changes are test-only. All 42 selected Manager, Supervisor, and Technician Playwright tests passed, as did the full web unit suite and both app typechecks and builds.
+
+**Last updated:** 2026-09-26 — **Technician tiles and Supervisor browser audit (uncommitted).**
+
+Technician Home now reuses `KpiTiles` for the existing In Progress and Completed counts. The phone layout was checked at 375px and 520px. A Supervisor walkthrough on an isolated current-build stack covered Home, Operations, Services Done, visit detail, Final Report, and an audited correction to an accepted V7 record. It found Services Done exposing Archive/Restore actions that return 403 and hiding a corrected-report PDF refusal; both are fixed. Supervisor workspace wording and web completion-time display are clearer. The server role matrix and correction integration tests passed against disposable PostgreSQL; production data was untouched.
+
 **Last updated:** 2026-09-26 — **Manager Home dashboard implemented (uncommitted).**
 
 Home now shows active non-demo customer count, this month's operational service-visit count, and a daily SVG trend for Admin and Supervisor. The existing navigation remains. Operations shares the KPI tiles, common remarks uses the shared heading and card styles, and Technician headings were checked without changes. See `apps/api/src/routes/managerDashboard.ts` and `apps/web/src/manager/ManagerHome.tsx`. Dashboard counts are server-backed and show an unavailable state on request failure.

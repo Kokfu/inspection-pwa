@@ -1174,6 +1174,7 @@ export function App() {
     if (!route.name.startsWith("manager-")) { navigate({ name: "manager-home" }); return; }
     // A supervisor deep-linking to an admin-only Manager screen lands on Manager Home (T4).
     if (supervisorExperience && !supervisorAllowsRoute(route.name)) { navigate({ name: "manager-home" }); return; }
+    if (route.name === "manager-services-done") setManagerMessage("");
     if (route.name === "manager-operations" || route.name === "manager-customers") void refreshManagerVisits();
     if (route.name === "manager-service-visit") {
       const request = beginManagerRequest();
@@ -2305,7 +2306,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-add-customer" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerAddCustomer onCreated={async () => { await refreshManagerVisits(); navigate({ name: "manager-customers" }); }} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
         : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
+        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-correction" ? (
@@ -2345,6 +2346,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           />
         ) : (
           <>{route.name === "manager-operations" && <button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button>}<ManagerOperations
+            supervisor={supervisorExperience}
             visits={managerVisits}
             loading={managerLoading}
             message={managerMessage}

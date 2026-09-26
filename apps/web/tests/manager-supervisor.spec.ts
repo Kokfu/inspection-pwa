@@ -11,6 +11,7 @@ const visit = {
   id: "c0000000-0000-4000-8000-000000000830", reference: "SV-SUPERVISOR-830",
   customer: "Supervisor Review Customer", site: "Supervisor Review Site", serviceDate: "2026-09-18",
   status: "closed", systems: ["Hydrant System"], inspectionProgress: { accepted: 1, required: 1 },
+  createdAt: "2026-09-18T08:00:00.000Z", technician: { id: 21, username: "technician-one", displayName: "technician-one" }, archivedAt: null,
   completion: { completedAt: "2026-09-18T10:00:00.000Z", completedBy: { id: 21, username: "technician-one" } }
 };
 const report = {
@@ -38,10 +39,11 @@ async function installSupervisorApi(page: Page) {
     if (path === "/api/manager/service-visits") {
       if (url.searchParams.has("from") && url.searchParams.has("to")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       return url.searchParams.has("customerId")
-        ? json({ serviceVisits: [], nextCursor: null, totalCount: 0 })
+        ? json({ serviceVisits: [url.searchParams.has("includeArchived") ? { ...visit, archivedAt: "2026-09-19T00:00:00.000Z" } : visit], nextCursor: null, totalCount: 1 })
         : json({ serviceVisits: [visit] });
     }
     if (path === `/api/manager/service-visits/${visit.id}`) return json({ serviceVisit: visit });
+    if (path === `/api/manager/service-visits/${visit.id}/final-report.pdf`) return json({ error: "FINAL_REPORT_HAS_CORRECTIONS", message: "PDF unavailable until corrections are included." }, 409);
     if (path === `/api/manager/service-visits/${visit.id}/final-report`) return json({ report });
     // T5b: the visit detail lists the accepted records a supervisor may review.
     if (path === `/api/manager/service-visits/${visit.id}/accepted-records`) return json({ records: [] });
@@ -58,6 +60,7 @@ const homeCards = (page: Page) => page.locator(".manager-dashboard-card").allInn
 
 async function enterAsSupervisor(page: Page, hash = "#/manager") {
   await page.goto(`/tests/manager-service-editor.html${hash}`);
+  await expect(page.getByRole("button", { name: /^Manager Monitor/ })).toContainText("Supervisors use this option for review access");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
 }
 
@@ -65,15 +68,21 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done"]);
+  await expect(page.getByText("Supervisor workspace")).toBeVisible();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
   await expect(page.getByText("No inspections scheduled in this period.")).toBeVisible();
 
   await page.getByRole("button", { name: "Services", exact: true }).click();
+  await expect(page.getByText("Supervisor workspace")).toBeVisible();
   await page.getByRole("button", { name: /SV-SUPERVISOR-830/ }).click();
+  await expect(page.getByText(/Completed .* by technician-one\./)).toBeVisible();
+  await expect(page.getByText(/2026-09-18T10:00:00/)).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`#/manager-service-visit/${visit.id}$`));
   await page.getByRole("button", { name: /View report|Final Report/ }).first().click();
   await expect(page.getByText("Canvas Hose")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Service visit details" })).toContainText(/18 Sep.*2026.*18:00/);
+  await expect(page.getByText("2026-09-18T10:00:00.000Z")).toHaveCount(0);
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
 });
 
@@ -86,6 +95,12 @@ test("supervisor Services Done searches the customer list without configuration"
   await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Supervisor Review Customer/ }).click();
   await expect(page.getByRole("heading", { name: "Supervisor Review Customer", exact: true })).toBeVisible();
   await expect(page.getByLabel("Technician").locator("option")).toHaveText(["All technicians", "technician-one"]);
+  await expect(page.getByRole("button", { name: "View Final Report" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Download PDF" }).click();
+  await expect(page.getByRole("alert")).toContainText("PDF unavailable until corrections are included.");
+  await page.getByRole("checkbox", { name: "Show archived visits" }).check();
+  await expect(page.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
   expect(requests.filter((entry) => /\/api\/manager\/customers\/./.test(entry))).toEqual([]);
 });
 

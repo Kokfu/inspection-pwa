@@ -6,10 +6,28 @@ test("technician tabs, report, keyboard, session memory and 375px layout", async
   await page.getByRole("button",{name:/Technician/}).click();
   await expect(page.getByRole("tab",{name:"In Progress (2)"})).toBeVisible();
   await expect(page.getByRole("tab",{name:"Completed (1)"})).toBeVisible();
+  const summary = page.locator('.operations-summary[aria-label="My service visits summary"]');
+  await expect(summary.locator("div")).toHaveCount(2);
+  await expect(summary.locator("div").nth(0)).toContainText("In Progress2");
+  await expect(summary.locator("div").nth(1)).toContainText("Completed1");
+  await expect(page.getByText("Technician workspace")).toBeVisible();
   await expect(page.locator(".job-card").first()).toContainText("A-NEW");
   await expect(page.locator(".job-card").first()).toContainText("0 of 1 systems");
   await expect(page.getByRole("button",{name:"+ New Service Visit",exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  for (const width of [375, 520]) {
+    await page.setViewportSize({ width, height: 812 });
+    expect(await page.evaluate(() => {
+      const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+      const toolbar = rect(".home-toolbar"), tiles = rect(".operations-summary"), tabs = rect(".job-tabs");
+      const tileRows = [...document.querySelectorAll(".operations-summary > div")].map((element) => element.getBoundingClientRect());
+      const actions = [...document.querySelectorAll(".home-utility-actions button")].map((element) => element.getBoundingClientRect());
+      return toolbar.bottom <= tiles.top && tiles.bottom <= tabs.top
+        && tileRows[0]!.bottom <= tileRows[1]!.top
+        && actions.every((action) => action.height >= 44)
+        && document.documentElement.scrollWidth <= window.innerWidth;
+    })).toBe(true);
+  }
   await page.getByRole("tab",{name:"In Progress (2)"}).focus(); await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("tab",{name:"Completed (1)"})).toBeFocused();
   await expect(page.getByRole("tab",{name:"Completed (1)"})).toHaveAttribute("aria-selected","true");

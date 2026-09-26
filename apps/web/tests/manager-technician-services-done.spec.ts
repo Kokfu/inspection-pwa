@@ -192,6 +192,7 @@ test("Technicians row opens technician detail with In Progress / Completed count
 
 test("Services Done is customer-first with search, site grouping, technician filter, remembered filters and 375px layout", async ({ page }) => {
   const listQueries = await mockManagerApi(page);
+  const customerListQueries = () => listQueries.filter((query) => new URLSearchParams(query).has("customerId"));
   await openManager(page);
   await page.getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
@@ -199,7 +200,7 @@ test("Services Done is customer-first with search, site grouping, technician fil
   await expect(search).toBeVisible();
   // Nothing is listed until a customer is chosen.
   await expect(page.locator(".job-card")).toHaveCount(0);
-  expect(listQueries).toEqual([]);
+  expect(customerListQueries()).toEqual([]);
 
   await page.setViewportSize({ width: 375, height: 812 });
   await expectNoHorizontalScroll(page);
@@ -224,7 +225,7 @@ test("Services Done is customer-first with search, site grouping, technician fil
   await expect(matches).toContainText("Beacon Mall");
   await search.fill("ACM");
   await search.press("Enter");
-  expect(listQueries).toEqual([]);
+  expect(customerListQueries()).toEqual([]);
   await matches.getByRole("button", { name: /Acme Towers/ }).click();
 
   // Step 2: this customer only, grouped by site (newest first), technician shown, Unknown for NULL creator.

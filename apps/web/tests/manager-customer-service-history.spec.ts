@@ -8,14 +8,14 @@ import { expect, test } from "@playwright/test";
  * and `loadMore` carries the same active filters as page 1. Rows reuse
  * ManagerHome's visitCard semantics but lead with `visit.site` instead of a
  * redundant "Customer" line. Closed rows show "View Final Report" +
- * "Download PDF"; open rows show only "View Progress". "Load more" appends
+ * "Download PDF" and Admin's Archive action; open rows show only "View Progress". "Load more" appends
  * (never replaces) and disappears once `nextCursor` is `null`. A 403-shaped
  * response trips `onAuthorityFailure`, never a domain error message. An
  * INVALID_DATE_RANGE 400 surfaces inline via the existing domain-error path.
  * A "{visits.length} of {totalCount} visits" chip renders next to the heading
  * except on the empty state, and updates on Load More and on any filter change.
  */
-test("Manager customer service history: filtered, paginated, read-only", async ({ page }) => {
+test("Manager customer service history: filtered, paginated, with Admin controls", async ({ page }) => {
   await page.goto("/tests/manager-customer-service-history.html");
   await page.getByRole("button", { name: "Run manager customer service history checks", exact: true }).click();
   await expect
@@ -41,6 +41,7 @@ test("Manager customer service history: filtered, paginated, read-only", async (
     "visits chip shows X of Y visits after initial load",
     "open row shows only View Progress",
     "closed row shows View Final Report + Download PDF",
+    "closed Admin row offers Archive",
     "no redundant Customer label on rows",
     "View Progress calls onViewServiceVisit with the job id",
     "View Final Report calls onViewFinalReport with the job id",
