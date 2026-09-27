@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 /**
- * T4: a supervisor uses the Manager experience for review only — Home shows Services and Current
+ * T4: a supervisor uses the Supervisor sign-in for review only — Home shows Services and Current
  * Services Done; visit detail and the Final Report work; admin-only screens are never rendered (a deep
  * link lands on Home without calling their APIs); a reload restores the supervisor like an admin (T3).
  */
@@ -26,14 +26,16 @@ const customerSummary = {
   supportedSystems: [{ key: "hydrant", displayName: "Hydrant System", sortOrder: 1 }]
 };
 
-async function installSupervisorApi(page: Page) {
+async function installSupervisorApi(page: Page, startLoggedOut = false) {
   const requests: string[] = [];
+  let signedIn = !startLoggedOut;
   await page.route("**/api/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     requests.push(`${route.request().method()} ${path}`);
     const json = (payload: unknown, status = 200) => route.fulfill({ status, json: payload, headers: { "cache-control": "no-store" } });
-    if (path === "/api/auth/me") return json({ user: supervisor });
+    if (path === "/api/auth/me") return signedIn ? json({ user: supervisor }) : json({ error: "UNAUTHENTICATED" }, 401);
+    if (path === "/api/auth/login") { signedIn = true; return json({ user: supervisor }); }
     if (path === "/api/manager/dashboard/clients") return json({ totalClients: 4 });
     if (path === "/api/manager/dashboard/inspections-per-day") return json({ days: [] });
     if (path === "/api/manager/dashboard/inspection-status") return json({ passed: 0, notOk: 0, na: 0 });
@@ -63,9 +65,27 @@ const sidebar = (page: Page) => page.getByLabel("Primary navigation");
 
 async function enterAsSupervisor(page: Page, hash = "#/manager") {
   await page.goto(`/tests/manager-service-editor.html${hash}`);
-  await expect(page.getByRole("button", { name: /^Manager Monitor/ })).toContainText("Supervisors use this option for review access");
-  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await expect(page.getByRole("button", { name: /^Supervisor Review/ })).toBeVisible();
+  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
 }
+
+test("dedicated Supervisor login opens the review workspace", async ({ page }) => {
+  await installSupervisorApi(page, true);
+  await page.goto("/tests/manager-service-editor.html#/manager");
+  for (const width of [360, 768, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect(page.getByRole("button", { name: /^Supervisor Review/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
+  await expect(page.getByText("Supervisor access")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to review service visits" })).toBeVisible();
+  await page.getByLabel("Username").fill("review-lead");
+  await page.getByLabel("Password").fill("example-password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/#\/manager$/);
+  await expect(page.getByText("Supervisor workspace")).toBeVisible();
+});
 
 test("supervisor Home shows only the review cards; Services, visit detail and Final Report work", async ({ page }) => {
   await installSupervisorApi(page);
@@ -128,7 +148,15 @@ test("supervisor cannot use the Technician experience", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("does not have Technician access");
 });
 
-test("a reload restores the supervisor into Manager (T3)", async ({ page }) => {
+test("supervisor cannot use the Manager experience", async ({ page }) => {
+  await installSupervisorApi(page);
+  await page.goto("/tests/manager-service-editor.html#/manager");
+  await expect(page.locator(".app-account-name")).toHaveText("review-lead");
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await expect(page.getByRole("alert")).toContainText("does not have Manager access");
+});
+
+test("a reload restores the Supervisor experience (T3)", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await expect(page.getByText("4", { exact: true })).toBeVisible();

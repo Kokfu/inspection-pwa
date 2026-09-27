@@ -1,4 +1,4 @@
-export type ProductRole = "technician" | "manager";
+export type ProductRole = "technician" | "manager" | "supervisor";
 
 export function RoleSelection({
   message,
@@ -18,7 +18,11 @@ export function RoleSelection({
       </button>
       <button type="button" className="role-card" onClick={() => onSelect("manager")}>
         <strong>Manager</strong>
-        <span>Monitor service visits and review completed reports. Managers can also manage customer service assignments; Supervisors use this option for review access.</span>
+        <span>Monitor service visits, review completed reports, and manage customer service assignments.</span>
+      </button>
+      <button type="button" className="role-card" onClick={() => onSelect("supervisor")}>
+        <strong>Supervisor</strong>
+        <span>Review service visits and completed reports.</span>
       </button>
     </div>
     {message ? <p className="form-message" role="alert">{message}</p> : null}

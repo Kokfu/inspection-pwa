@@ -1,14 +1,16 @@
 import type { AuthUser } from "../auth/authApi";
 import type { ProductRole } from "./RoleSelection";
 
-/** Roles that may use the Manager experience: admin (everything) and supervisor (review only, T4). */
+/** Roles that may use the operations workspace: admin and supervisor (review only, T4). */
 export function isManagerRole(role: AuthUser["role"]) {
   return role === "admin" || role === "supervisor";
 }
 
 /** Presentation role selection never grants authority; it must match /auth/me. */
 export function productRoleMatches(role: ProductRole, user: AuthUser) {
-  return role === "technician" ? user.role === "inspector" : isManagerRole(user.role);
+  if (role === "technician") return user.role === "inspector";
+  if (role === "manager") return user.role === "admin";
+  return user.role === "supervisor";
 }
 
 /**

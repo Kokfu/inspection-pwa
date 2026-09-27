@@ -3,6 +3,10 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-27 — **Dedicated Supervisor sign-in added (feature 1 of 4; unstaged).**
+
+The role chooser now separates Technician, Manager (admin), and Supervisor. Supervisor credentials open the existing review-only operations workspace, including its route restrictions, and restore that choice after a same-user reload. Role-mismatch checks reject a Supervisor choosing Manager and an admin choosing Supervisor. See `apps/web/src/manager/roleAccess.ts`, `apps/web/src/App.tsx`, and `apps/web/tests/manager-supervisor.spec.ts`. Assignment scoping, technician hiding, and service archiving remain for the next checkpoints.
+
 **Last updated:** 2026-09-26 — **Wide desktop content centered with the header (uncommitted).**
 
 At widths of 1200px and above, the shared AppShell reserves a matching gutter opposite the sidebar so Technician and Manager page content centers in the browser viewport. The sidebar stays in the left gutter. Technician navigation browser checks confirm New Service Visit and Upcoming Services center at 1280px and 1920px, with no overflow at 360px or 768px; the Manager navigation browser check, web typecheck, and build pass. See `apps/web/src/styles/app.css` and `apps/web/tests/technician-sidebar-navigation.spec.ts`.

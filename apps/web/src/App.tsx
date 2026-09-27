@@ -813,12 +813,12 @@ export function App() {
       if (!isCurrentReconciliation()) return undefined;
       installVerifiedAuthority(decision.user, authorityReplacement);
       setAuthState({ status: "verified", user: decision.user, lastVerifiedAt });
-      // Reload of a verified admin who had chosen Manager in this tab: skip the role chooser, once, at
+      // Reload of a verified operations user who had chosen their role in this tab: skip the role chooser, once, at
       // this page load's first completed verification (an offline start that reconnects still restores).
       // The key survives only for the same verified user (owner stamp claimed above).
       if (!managerChoiceRestoreAttempted.current) {
         managerChoiceRestoreAttempted.current = true;
-        if (isManagerRole(decision.user.role) && readManagerExperience()) setSelectedExperience((current) => current ?? "manager");
+        if (isManagerRole(decision.user.role) && readManagerExperience()) setSelectedExperience((current) => current ?? (decision.user.role === "supervisor" ? "supervisor" : "manager"));
       }
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return undefined;
@@ -1057,12 +1057,12 @@ export function App() {
     && currentUser?.role === "inspector";
   // Manager operational data is server-backed. A cached identity alone never
   // unlocks it, even after a previously verified login.
-  const managerExperience = selectedExperience === "manager"
+  const managerExperience = (selectedExperience === "manager" || selectedExperience === "supervisor")
     && authState.status === "verified"
-    && currentUser !== undefined && isManagerRole(currentUser.role);
+    && currentUser !== undefined && productRoleMatches(selectedExperience, currentUser);
   // A supervisor gets the review-only part of the Manager experience (T4).
-  const supervisorExperience = managerExperience && currentUser?.role === "supervisor";
-  // Remember the Manager choice for this tab only while the verified Manager experience is active.
+  const supervisorExperience = managerExperience && selectedExperience === "supervisor";
+  // Remember the operations choice for this tab only while the verified experience is active.
   useEffect(() => { if (managerExperience) rememberManagerExperience(true); }, [managerExperience]);
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
     ? readManagerReturn(route.jobId)
@@ -1073,13 +1073,11 @@ export function App() {
     if (currentUser && !productRoleMatches(role, currentUser)) {
       setSelectedExperience(undefined);
       rememberManagerExperience(false);
-      setRoleMessage(role === "manager"
-        ? "This signed-in account does not have Manager access. Choose Technician to continue."
-        : "This signed-in account does not have Technician access. Choose Manager to continue.");
+      setRoleMessage(`This signed-in account does not have ${role === "manager" ? "Manager" : role === "supervisor" ? "Supervisor" : "Technician"} access. Choose the role for this account to continue.`);
       return;
     }
     setSelectedExperience(role);
-    if (role === "manager" && authState.status === "verified") navigate({ name: "manager-home" });
+    if ((role === "manager" || role === "supervisor") && authState.status === "verified") navigate({ name: "manager-home" });
     if (role === "technician" && currentUser?.role === "inspector") navigate({ name: "jobs" });
   }
 
@@ -1402,15 +1400,13 @@ export function App() {
       setAuthState({ status: "verified", user, lastVerifiedAt });
       if (!selectedExperience || !productRoleMatches(selectedExperience, user)) {
         setSelectedExperience(undefined);
-        setRoleMessage(selectedExperience === "manager"
-          ? "This account is signed in, but it does not have Manager access. Choose Technician to continue."
-          : selectedExperience === "technician"
-            ? "This account is signed in, but it does not have Technician access. Choose Manager to continue."
-            : "Choose the appropriate role to continue.");
+        setRoleMessage(selectedExperience
+          ? `This account is signed in, but it does not have ${selectedExperience === "manager" ? "Manager" : selectedExperience === "supervisor" ? "Supervisor" : "Technician"} access. Choose the role for this account to continue.`
+          : "Choose the appropriate role to continue.");
         navigate({ name: "jobs" });
         return;
       }
-      if (selectedExperience === "manager") {
+      if (selectedExperience === "manager" || selectedExperience === "supervisor") {
         navigate({ name: "manager-home" });
         return;
       }
@@ -1986,7 +1982,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           <span className="brand-mark" aria-hidden="true">MFE</span>
           <div>
             <p className="eyebrow">MFE Services Sdn. Bhd.</p>
-            <h1 id="app-title">{managerExperience || selectedExperience === "manager" ? "Field Service Management" : "Field Service Inspections"}</h1>
+            <h1 id="app-title">{managerExperience || selectedExperience === "manager" || selectedExperience === "supervisor" ? "Field Service Management" : "Field Service Inspections"}</h1>
             <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Support build {APP_BUILD_ID}</span>
           </div>
         </div>
@@ -2016,7 +2012,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
 
       {!selectedExperience || (authenticated && !technicianExperience && !managerExperience) ? (
         <section className="login-view workspace" aria-label="Choose sign-in role">
-          <RoleSelection message={roleMessage || (selectedExperience === "manager" && authState.status === "offline-unverified" ? "Reconnect to verify Manager access. Manager operations are not available offline." : "")} onSelect={selectExperience} />
+          <RoleSelection message={roleMessage || ((selectedExperience === "manager" || selectedExperience === "supervisor") && authState.status === "offline-unverified" ? `Reconnect to verify ${selectedExperience === "supervisor" ? "Supervisor" : "Manager"} access. Operations are not available offline.` : "")} onSelect={selectExperience} />
         </section>
       ) : authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable" ? (
         <section className="login-view workspace">
@@ -2025,7 +2021,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       ) : shouldRenderLogin(authState) ? (
         <section className="login-view workspace" aria-label="Server sign-in">
           <AuthStatus state={authState} onLogout={handleLogout} onRevalidate={async () => { await revalidateAuthentication(); }} />
-          <LoginForm roleLabel={selectedExperience === "manager" ? "Manager" : "Technician"} onLogin={handleLogin} />
+          <LoginForm roleLabel={selectedExperience === "manager" ? "Manager" : selectedExperience === "supervisor" ? "Supervisor" : "Technician"} onLogin={handleLogin} />
         </section>
       ) : null}
 

@@ -4,11 +4,13 @@ import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "../src
 
 const user = (role: "admin" | "inspector" | "supervisor") => ({ id: 1, username: role, role });
 
-test("role chooser truth table: Manager is admin or supervisor, Technician is inspector only (T4)", () => {
+test("role chooser matches each account to its own experience", () => {
   assert.deepEqual(
-    (["admin", "supervisor", "inspector"] as const).map((role) => [role, productRoleMatches("manager", user(role)), productRoleMatches("technician", user(role))]),
-    [["admin", true, false], ["supervisor", true, false], ["inspector", false, true]]
+    (["admin", "supervisor", "inspector"] as const).map((role) => [role, productRoleMatches("manager", user(role)), productRoleMatches("supervisor", user(role)), productRoleMatches("technician", user(role))]),
+    [["admin", true, false, false], ["supervisor", false, true, false], ["inspector", false, false, true]]
   );
+  assert.equal(isManagerRole("admin"), true);
+  assert.equal(isManagerRole("supervisor"), true);
   assert.equal(isManagerRole("inspector"), false);
 });
 
