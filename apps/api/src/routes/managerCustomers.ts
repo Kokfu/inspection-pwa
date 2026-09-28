@@ -224,20 +224,35 @@ function exactBody(value: unknown, keys: readonly string[]) {
   return value;
 }
 
+// T9: trim + collapse internal whitespace ("Acme   Corp" -> "Acme Corp") so a stored name/contact
+// field never carries incidental multi-space typos. Applies only to what a caller actually writes
+// through these validators (creation, plus the one existing contact-details edit route) -- an
+// untouched existing row is never rewritten by this change.
+function collapseWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 function requiredText(value: unknown, field: string) {
-  if (typeof value !== "string" || value.trim().length === 0 || value.trim().length > 160) {
+  if (typeof value !== "string") {
     throw new ManagerCustomerError("INVALID_REQUEST", `${field} must be between 1 and 160 characters.`);
   }
-  return value.trim();
+  const collapsed = collapseWhitespace(value);
+  if (collapsed.length === 0 || collapsed.length > 160) {
+    throw new ManagerCustomerError("INVALID_REQUEST", `${field} must be between 1 and 160 characters.`);
+  }
+  return collapsed;
 }
 
 function optionalText(value: unknown, field: string, maxLength: number) {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "string" || value.trim().length > maxLength) {
+  if (typeof value !== "string") {
     throw new ManagerCustomerError("INVALID_REQUEST", `${field} must be at most ${maxLength} characters.`);
   }
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
+  const collapsed = collapseWhitespace(value);
+  if (collapsed.length > maxLength) {
+    throw new ManagerCustomerError("INVALID_REQUEST", `${field} must be at most ${maxLength} characters.`);
+  }
+  return collapsed.length === 0 ? null : collapsed;
 }
 
 function optionalServiceFrequency(value: unknown) {

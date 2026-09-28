@@ -194,6 +194,57 @@ test("technician customer creation is authenticated, server-backed, and does not
   } finally { await close(server); }
 });
 
+test("T9: requiredText collapses internal whitespace and validates length against the collapsed value, not the raw one", async () => {
+  const hose = masterServiceReportV5.systems.find((system) => system.key === "hose_reel")!;
+  const client = {
+    async query(sql: string) {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
+      if (sql.includes("INSERT INTO customer_creation_requests")) return { rows: [{ requestId: "72000000-0000-4000-8000-00000000000a" }] };
+      if (sql.includes("UPDATE customer_creation_requests")) return { rows: [], rowCount: 1 };
+      if (sql.includes("FROM master_service_report_systems")) return { rows: [{ key: hose.key, displayName: hose.displayName, sortOrder: hose.sortOrder, definitionStatus: hose.definitionStatus, definition: hose }] };
+      if (sql.includes("INSERT INTO customers")) return { rows: [{ id: "72000000-0000-4000-8000-00000000000b" }] };
+      if (sql.includes("lower(btrim(display_name))")) return { rows: [] };
+      if (sql.startsWith("INSERT INTO customer_sites") || sql.startsWith("INSERT INTO customer_configuration_revisions") || sql.startsWith("INSERT INTO customer_enabled_systems") || sql.startsWith("INSERT INTO audit_events")) return { rows: [] };
+      if (sql.includes("FROM customers")) return { rows: [{ id: "72000000-0000-4000-8000-00000000000b", code: "CUST-TEST9", displayName: "collapsed" }] };
+      if (sql.includes("FROM customer_sites")) return { rows: [{ id: "72000000-0000-4000-8000-00000000000c", code: "PRIMARY", displayName: "Primary" }] };
+      if (sql.includes("FROM customer_configuration_revisions")) return { rows: [{ id: "72000000-0000-4000-8000-00000000000d", revision: 1, templateId: masterServiceReportV5.id }] };
+      if (sql.includes("FROM customer_enabled_systems")) return { rows: [{ id: "72000000-0000-4000-8000-00000000000e", key: hose.key, displayName: hose.displayName, sortOrder: 1, systemConfiguration: {}, evidencePolicyId: null }] };
+      if (sql.includes("FROM customer_system_zones") || sql.includes("FROM customer_system_locations")) return { rows: [] };
+      throw new Error(`Unexpected query ${sql}`);
+    },
+    release() {}
+  };
+  const database = { query: client.query, async connect() { return client; } };
+  const app = express(); app.use(express.json());
+  app.use((request, _response, next) => { request.currentUser = { id: 7, username: "inspector", role: "inspector" }; next(); });
+  app.use(createManagerCustomersRouter(database as never));
+  app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    response.status(error instanceof ManagerCustomerError ? error.status : 500).json({ error: error instanceof ManagerCustomerError ? error.code : "INTERNAL_SERVER_ERROR" });
+  });
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const address = server.address() as { port: number };
+  const post = (requestId: string, displayName: string) => fetch(`http://127.0.0.1:${address.port}/customers`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requestId, displayName, siteDisplayName: "Primary", systemKeys: ["hose_reel"] })
+  });
+  try {
+    // Raw length 590 (way over the 160 limit) but collapses to 149 -- must be ACCEPTED, proving
+    // the length check runs against the collapsed value that actually gets stored, not the raw input.
+    const overRawUnderCollapsed = Array.from({ length: 50 }, () => "ab").join(" ".repeat(10));
+    assert.equal(overRawUnderCollapsed.length, 590);
+    const accepted = await post("72000000-0000-4000-8000-00000000000a", overRawUnderCollapsed);
+    assert.equal(accepted.status, 201, await accepted.clone().text());
+
+    // Still over the limit even after collapsing (normal single spaces, no doubles to collapse) --
+    // must still be REJECTED before any database work (proves collapsing never lets an
+    // over-length name slip through).
+    const overEvenCollapsed = Array.from({ length: 90 }, () => "ab").join(" ");
+    assert.ok(overEvenCollapsed.length > 160);
+    const rejected = await post("72000000-0000-4000-8000-00000000000f", overEvenCollapsed);
+    assert.equal(rejected.status, 400);
+    assert.equal((await rejected.json()).error, "INVALID_REQUEST");
+  } finally { await close(server); }
+});
+
 test("label-overrides GET adds a read-only formLayout while every pre-existing field stays byte-identical", async () => {
   const customerId = "71000000-0000-4000-8000-000000000001";
   const sprinkler = masterServiceReportV7.systems.find((system) => system.key === "automatic_sprinkler")!;

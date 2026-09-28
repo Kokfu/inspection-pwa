@@ -3,12 +3,32 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Whitespace collapse cherry-picked from `claude/autopilot`'s T9 (managerCustomers.ts).**
+Customer/site display names and contact phone/person now collapse internal whitespace on write
+(single file, no schema change). Only affects new writes, never rewrites an existing row.
+**Also surfaced by this cherry-pick, not fixed here:** `apps/api/src/routes/
+managerServiceVisits.test.ts` has 7 real, reproducible failures, invisible to the standard gate
+script because that file was never added to its test list — worth a dedicated follow-up task.
+
 **Last updated:** 2026-09-28 — **Due soon / Overdue compliance glance cherry-picked from `claude/autopilot`'s T7 onto Manager Home.**
 Manager Home now shows "Overdue" and "Due soon" (fixed 7-day window) counts and customer lists,
 computed server-side from the same `next_service_due_date` column Next Upcoming Service edits;
 admin-only, hidden from a supervisor. Kept alongside this branch's existing KPI tiles and trend/
 status charts rather than replacing them. Only a genuine 401/403 from the new fetch is treated as
 fail-closed; anything else means "nothing to show" on what is a supplementary widget.
+
+**Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T9 text normalisation landed
+(committed on the branch, not merged).**
+Customer/site display names and contact phone/person now collapse internal whitespace on write
+(single file, `managerCustomers.ts`, no schema change). Codes are always server-generated so moot;
+username case-sensitivity is left alone as an auth decision. Remarks normalisation (zero
+handling today, across ~10 evidence-sync modules) is scoped out and fully documented as a
+ready-to-implement follow-up in `docs/autopilot/designs/T9.md` §1.3, not silently dropped.
+**Separately found during T9's review, not part of it:** `apps/api/src/routes/
+managerServiceVisits.test.ts` has 7 real, reproducible failures, invisible to the standard gate
+script (never added to its test list) and predating this session's work by weeks (traced to T6,
+2026-09-23). See `docs/autopilot/BACKLOG.md` T9's follow-up note for detail — worth a dedicated
+task before any release-level checkpoint.
 
 **Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T7 in-app compliance reminders landed
 (committed on the branch, not merged).**

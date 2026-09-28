@@ -85,11 +85,12 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       const malformed = await request(`/customers/${makSitiId}/configuration`, "GET", "admin");
       assert.deepEqual((await malformed.json() as { configuration: { enabledSystems: Array<{ key: string }> } }).configuration.enabledSystems.map((system) => system.key), ["hose_reel", "fire_alarm_detector", "portable_fire_extinguisher"], "technician endpoint still omits CO2 with a malformed saved location");
 
-      const create = await request("/manager/customers", "POST", "admin", { displayName: "  Integration Customer  ", siteDisplayName: "Primary Service Site", siteAddress: " 42 Initial Road ", systemKeys: ["fire_alarm_detector"], contactPhone: " 03-1234567 ", contactPerson: " Ali Bin Ahmad ", fax: " 03-7654321 ", contractNumber: " CN-42 ", serviceFrequency: "QUARTERLY" });
+      // Doubled internal whitespace exercises collapseWhitespace alongside the existing trim.
+      const create = await request("/manager/customers", "POST", "admin", { displayName: "  Integration   Customer  ", siteDisplayName: "Primary Service Site", siteAddress: " 42 Initial Road ", systemKeys: ["fire_alarm_detector"], contactPhone: " 03-1234567 ", contactPerson: " Ali  Bin   Ahmad ", fax: " 03-7654321 ", contractNumber: " CN-42 ", serviceFrequency: "QUARTERLY" });
       assert.equal(create.status, 201); const created = await create.json() as { customer: { customer: { id: string; displayName: string; contactPhone?: string | null; contactPerson?: string | null; fax?: string | null; contractNumber?: string | null; serviceFrequency?: string | null }; sites: Array<{ id: string; address?: string | null }> } }; const createdId = created.customer.customer.id;
-      assert.equal(created.customer.customer.displayName, "Integration Customer");
+      assert.equal(created.customer.customer.displayName, "Integration Customer", "manager create trims and collapses internal whitespace in displayName");
       assert.equal(created.customer.customer.contactPhone, "03-1234567", "manager create trims and returns contact phone");
-      assert.equal(created.customer.customer.contactPerson, "Ali Bin Ahmad", "manager create trims and returns contact person");
+      assert.equal(created.customer.customer.contactPerson, "Ali Bin Ahmad", "manager create trims and collapses internal whitespace in contactPerson");
       assert.equal(created.customer.customer.fax, "03-7654321");
       assert.equal(created.customer.customer.contractNumber, "CN-42");
       assert.equal(created.customer.customer.serviceFrequency, "QUARTERLY");
@@ -100,11 +101,11 @@ test("manager customer transaction integration", { skip: !databaseUrl }, async (
       assert.equal((await request(contactPath, "PUT", undefined, { contactPhone: null, contactPerson: null })).status, 401);
       assert.equal((await request(contactPath, "PUT", "inspector", { contactPhone: null, contactPerson: null })).status, 403);
       assert.equal((await request('/manager/customers/71000000-0000-4000-8000-000000000099/contact-details', "PUT", "admin", { contactPhone: null, contactPerson: null })).status, 404);
-      const savedContact = await request(contactPath, "PUT", "admin", { contactPhone: "04-9998888", contactPerson: "Siti Nur", fax: "04-1112222", contractNumber: "CN-99", serviceFrequency: "ANNUALLY" });
+      const savedContact = await request(contactPath, "PUT", "admin", { contactPhone: "04-9998888", contactPerson: "  Siti   Nur  ", fax: "04-1112222", contractNumber: "CN-99", serviceFrequency: "ANNUALLY" });
       assert.equal(savedContact.status, 200);
       const savedContactBody = await savedContact.json() as { customer: { customer: { contactPhone?: string | null; contactPerson?: string | null } } };
       assert.equal(savedContactBody.customer.customer.contactPhone, "04-9998888");
-      assert.equal(savedContactBody.customer.customer.contactPerson, "Siti Nur");
+      assert.equal(savedContactBody.customer.customer.contactPerson, "Siti Nur", "an edit of an already-stored row still collapses whitespace on the value being written");
       assert.equal((savedContactBody.customer.customer as any).fax, "04-1112222");
       assert.deepEqual((await database.query("SELECT contact_phone AS \"contactPhone\", contact_person AS \"contactPerson\" FROM customers WHERE id=$1", [createdId])).rows[0], { contactPhone: "04-9998888", contactPerson: "Siti Nur" });
       const clearedContact = await request(contactPath, "PUT", "admin", { contactPhone: null, contactPerson: null });
