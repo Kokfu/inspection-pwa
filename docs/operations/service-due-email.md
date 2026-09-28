@@ -4,7 +4,7 @@ The `reminder-worker` Compose service sends individual service reminders at 09:0
 
 ## Configuration
 
-1. Generate a random 32-byte encryption key, encode it as standard base64, and put it in the client's untracked `.env` as `SERVICE_DUE_EMAIL_ENCRYPTION_KEY`. Pass the same value to the API and worker. Keep it with encrypted recovery material outside Git. The sender cannot be configured without it. Inspections continue to work if it is absent.
+1. On a fresh installation, `docker compose up -d --build` makes the API create a random 32-byte encryption key at `INSPECTION_OPERATIONAL_PATH/service-due-email.key` (normally `C:\InspectionSystem\runtime\operational\service-due-email.key`). The API and worker share that persistent file. There is no key to copy into `.env`. Preserve the file in a secure, encrypted off-device backup alongside the database recovery set; it is a secret and must stay outside Git. If a database already contains sender settings but the key file is missing, the API does **not** create a replacement key: restore the original key or, after deliberate recovery, configure a new key and re-enter the Gmail app password. The optional `SERVICE_DUE_EMAIL_ENCRYPTION_KEY` `.env` value remains supported for existing installations and takes precedence over the file.
 2. Start Docker Desktop automatically with Windows sign-in and configure the Compose stack to start after Docker is ready. Disable sleep/hibernation during service hours; check the worker after Windows Update or power recovery. A UPS is recommended.
 3. In Manager Settings → Email reminders, enter the client Gmail address and Gmail app password. The password is write-only in the UI and encrypted in PostgreSQL. The SMTP host and port are fixed at `smtp.gmail.com:587`, with STARTTLS and certificate verification.
 4. Add notification email addresses for active technicians and supervisors. For each customer due date, choose staff and any named extra email addresses in Next Upcoming Service → Reminder recipients. Review copied selections when a due date changes.
@@ -14,7 +14,7 @@ The client network must permit outbound TCP 587 to Gmail. Test egress on the act
 
 ## Recovery and key custody
 
-Restore the matching database and the same encryption key. A database restored without its original key cannot decrypt the app password; the manager must enter a new app password after installing a new key. Do not rotate the key by simply replacing `.env`; an explicit re-encryption procedure is required. The key and app password must never go into Git or a support ticket.
+Restore the matching database and the same `service-due-email.key` file (or the original `.env` override). A database restored without its original key cannot decrypt the app password; the manager must enter a new app password after deliberately installing a new key. Do not rotate the key by simply replacing the file or `.env`; an explicit re-encryption procedure is required. The key and app password must never go into Git or a support ticket. The existing database and uploads backup scripts do not include this key file; add it to the encrypted off-device recovery set separately.
 
 The worker reserves one row per customer, due date, recipient address, and reminder kind before SMTP. A process death or timeout after possible handoff is marked `unknown`; it is never resent automatically. Existing sent/failed/unknown/missed rows are retained when due dates change. No cancellation email is sent automatically.
 

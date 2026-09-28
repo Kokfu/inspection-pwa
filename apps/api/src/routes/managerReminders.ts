@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Pool, PoolClient } from "pg";
 import { pool } from "../db/pool.js";
+import { serviceDueEmailEncryptionKey } from "../config/env.js";
 import { requireRoleAudited } from "../middleware/requireRole.js";
 import { decryptPassword, encryptPassword, localClock, datePlusDays, validDate, validEmail } from "../reminderCore.js";
 import { matchesRecurrence, type ServiceRecurrence } from "../serviceRecurrence.js";
@@ -44,7 +45,14 @@ export function createManagerRemindersRouter(database: Pick<Pool, "query" | "con
       const current = (await client.query<{ sender_email: string }>("SELECT sender_email FROM service_due_email_settings WHERE id=1 FOR UPDATE")).rows[0];
       if (!input.appPassword && (!current || current.sender_email !== sender)) throw new ReminderError("PASSWORD_REQUIRED", "A new sender requires an app password.");
       if (input.appPassword) {
-        const encrypted = encryptPassword(input.appPassword);
+        let encrypted: ReturnType<typeof encryptPassword>;
+        try { encrypted = encryptPassword(input.appPassword); }
+        catch (error) {
+          if (error instanceof Error && error.message === "SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE") {
+            throw new ReminderError("EMAIL_ENCRYPTION_UNAVAILABLE", "Email settings cannot be saved until the server administrator configures the email encryption key.", 409);
+          }
+          throw error;
+        }
         await client.query(`INSERT INTO service_due_email_settings(id,sender_email,password_ciphertext,password_iv,password_tag,updated_by_user_id)
           VALUES(1,$1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET sender_email=$1,password_ciphertext=$2,password_iv=$3,password_tag=$4,updated_by_user_id=$5,updated_at=now()`,
         [sender, encrypted.ciphertext, encrypted.iv, encrypted.tag, request.currentUser!.id]);
@@ -177,7 +185,9 @@ export function createManagerRemindersRouter(database: Pick<Pool, "query" | "con
       )).rows[0];
       const configured = !!savedSettings;
       let encryptionUnavailable = false;
-      if (savedSettings) {
+      try { serviceDueEmailEncryptionKey(); }
+      catch { encryptionUnavailable = true; }
+      if (savedSettings && !encryptionUnavailable) {
         try { decryptPassword(savedSettings.password_ciphertext, savedSettings.password_iv, savedSettings.password_tag); }
         catch { encryptionUnavailable = true; }
       }

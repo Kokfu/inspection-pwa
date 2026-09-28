@@ -36,6 +36,7 @@ services:
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-inspection_session}
       SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-12}
       SERVICE_DUE_EMAIL_ENCRYPTION_KEY: ${SERVICE_DUE_EMAIL_ENCRYPTION_KEY:-}
+      SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE: /srv/operational/service-due-email.key
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,11 +58,14 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       DATABASE_URL: ${DATABASE_URL:-postgres://inspection_app:replace-with-a-real-secret-outside-git@postgres:5432/inspection}
       SERVICE_DUE_EMAIL_ENCRYPTION_KEY: ${SERVICE_DUE_EMAIL_ENCRYPTION_KEY:-}
+      SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE: /srv/operational/service-due-email.key
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_started
+    volumes:
+      - ${INSPECTION_OPERATIONAL_PATH:-C:/InspectionSystem/runtime/operational}:/srv/operational:ro
     networks:
       - internal
       - reminder-outbound

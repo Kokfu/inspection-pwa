@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import express from "express";
 import pg from "pg";
@@ -10,6 +13,7 @@ import { runReminderCycle } from "./reminderWorker.js";
 import { SmtpFailure } from "./reminderSmtp.js";
 import { createManagerRemindersRouter } from "./routes/managerReminders.js";
 import { createManagerCustomersRouter } from "./routes/managerCustomers.js";
+import { provisionServiceDueEmailEncryptionKey } from "./config/env.js";
 import type { UserRole } from "./auth/authTypes.js";
 
 const url = process.env.SEED_INTEGRATION_DATABASE_URL;
@@ -18,7 +22,10 @@ test("043 replay, admin settings, concurrent deduplication, restart, failure and
   const parsed = new URL(url!);
   assert.equal(parsed.hostname, "127.0.0.1"); assert.equal(parsed.port, "55432"); assert.equal(parsed.pathname, "/phase6_seed_integration");
   const priorKey = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
-  process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  const priorFile = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+  const keyDirectory = mkdtempSync(join(tmpdir(), "reminder-integration-key-"));
+  delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+  delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
   const database = new pg.Pool({ connectionString: url });
   try {
     await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
@@ -51,6 +58,14 @@ test("043 replay, admin settings, concurrent deduplication, restart, failure and
       role = "admin";
       const before = await (await request("/manager/reminders/settings")).json() as { settings: { passwordConfigured: boolean } };
       assert.equal(before.settings.passwordConfigured, false);
+      const blocked = await request("/manager/reminders/settings", "PUT", { senderEmail: "sender@gmail.com", appPassword: "fake-app-password" });
+      assert.equal(blocked.status, 409);
+      assert.deepEqual(await blocked.json(), { error: "EMAIL_ENCRYPTION_UNAVAILABLE" });
+      assert.equal((await database.query<{ count: number }>("SELECT count(*)::int AS count FROM service_due_email_settings")).rows[0]!.count, 0);
+      assert.equal((await (await request("/manager/reminders/status")).json() as { encryptionUnavailable: boolean }).encryptionUnavailable, true);
+      process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE = join(keyDirectory, "service-due-email.key");
+      assert.equal(provisionServiceDueEmailEncryptionKey(false), true);
+      assert.equal((await (await request("/manager/reminders/status")).json() as { encryptionUnavailable: boolean }).encryptionUnavailable, false);
       assert.equal((await request("/manager/reminders/settings", "PUT", { senderEmail: "sender@gmail.com", appPassword: "x", smtpHost: "evil.test" })).status, 400);
       assert.equal((await request(`/manager/reminders/plans/${customerId}`, "PUT", { dueDate: "2026-09-29", staffUserIds: [admin], extras: [] })).status, 400, "admin is not a selectable recipient");
       const saved = await request("/manager/reminders/settings", "PUT", { senderEmail: "sender@gmail.com", appPassword: "fake-app-password" });
@@ -59,10 +74,9 @@ test("043 replay, admin settings, concurrent deduplication, restart, failure and
       assert.equal(settingsText.includes("fake-app-password"), false);
       assert.equal(settingsText.includes("ciphertext"), false);
       assert.equal((await request("/manager/reminders/settings", "PUT", { senderEmail: "other@gmail.com", appPassword: "" })).status, 400);
-      const activeKey = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY!;
-      delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+      delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
       assert.equal((await (await request("/manager/reminders/status")).json() as { encryptionUnavailable: boolean }).encryptionUnavailable, true);
-      process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = activeKey;
+      process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE = join(keyDirectory, "service-due-email.key");
       const fake = async ({ recipient }: { recipient: string }) => { sent.push(recipient); };
       const sent: string[] = [];
       const atNine = new Date("2026-09-28T01:00:00Z");
@@ -108,5 +122,8 @@ test("043 replay, admin settings, concurrent deduplication, restart, failure and
     await database.end();
     if (priorKey === undefined) delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
     else process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = priorKey;
+    if (priorFile === undefined) delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+    else process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE = priorFile;
+    rmSync(keyDirectory, { recursive: true, force: true });
   }
 });

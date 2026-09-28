@@ -3,7 +3,7 @@ import { closePdfEngine } from "./reports/pdf/htmlToPdf.js";
 import { registerGracefulShutdown } from "./serverShutdown.js";
 import { pool } from "./db/pool.js";
 import { reconcileAttachmentStorage } from "./attachments/attachmentStorage.js";
-import { loadConfig } from "./config/env.js";
+import { loadConfig, provisionServiceDueEmailEncryptionKey } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import { currentUser } from "./middleware/currentUser.js";
 import { authRouter } from "./routes/auth.js";
@@ -81,6 +81,10 @@ app.use(
 );
 
 await runMigrations();
+const storedReminderPassword = (await pool.query("SELECT 1 FROM service_due_email_settings WHERE id=1")).rows.length > 0;
+if (!provisionServiceDueEmailEncryptionKey(storedReminderPassword)) {
+  console.warn("Service due email is unavailable: encryption key missing or invalid");
+}
 const attachmentStorage = await reconcileAttachmentStorage();
 if (
   attachmentStorage.missingFiles.length > 0

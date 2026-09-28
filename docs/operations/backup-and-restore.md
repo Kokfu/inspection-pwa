@@ -17,8 +17,11 @@ Two independent artifacts, each with its own timestamped manifest:
   `System.IO.Compression.ZipFile` directly (not `Compress-Archive`, which silently drops
   Hidden-attribute files and undercounts to match — see the script's own comments).
 
-A complete recovery point needs both, taken close together, plus their manifests. Neither script
-touches the other's files.
+A complete recovery point needs both, taken close together, plus their manifests. Email reminders
+also require the matching `C:\InspectionSystem\runtime\operational\service-due-email.key` (or the
+legacy `.env` encryption-key override) if a sender has been configured. The backup scripts do not
+include this secret. Keep it in a separate encrypted off-device recovery set; never copy it into
+the unencrypted database dump or uploads zip. Neither script touches the other's files.
 
 ## Taking a backup
 

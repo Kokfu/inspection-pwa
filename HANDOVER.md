@@ -7,6 +7,14 @@
 
 Admin can permanently remove a deactivated technician from operational staff lists after typing the exact username. Unused accounts are deleted; linked accounts are hidden through forward migration 044, preserving historical identity. Technicians can delete their own unstarted, open service visits while online; the UI protects local drafts and the server rejects accepted work or pending evidence under a job lock. The existing Manager Operations delete remains available for unfinished visits. The Email reminders staff-address section has submitted name/username/email search and All/Active/Inactive filtering. Focused API, disposable PostgreSQL, and browser tests pass.
 
+**Last updated:** 2026-09-28 — **Service-due email key now provisions automatically on first deployment (unstaged).**
+
+After migration, a fresh API install generates a random key in the persistent `INSPECTION_OPERATIONAL_PATH/service-due-email.key`; the worker reads the same host file. Existing `.env` keys still work. If sender settings exist but the key is missing or corrupt, startup does not replace it and reminder delivery remains blocked until recovery. The client no longer needs to generate or paste a key during setup. The key file must still be included in encrypted off-device recovery backups; existing database/uploads scripts do not include it. See `docs/operations/service-due-email.md`.
+
+**Last updated:** 2026-09-28 — **Email settings save failure now reports missing server encryption key in place (unstaged).**
+
+The live API log identified `SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE` during a Manager's sender save. The reminder settings route now returns an actionable 409 without saving a partial setting, and reminder status flags the missing key before any sender is configured. The Manager remains on Email reminders when this known configuration error occurs. Focused disposable PostgreSQL and browser regressions pass. The current running stack predates automatic key provisioning; deploying the updated API and worker will create the persistent key if sender settings are still empty.
+
 **Last updated:** 2026-09-28 — **Customer-list demo exclusion and manager search added (uncommitted).**
 
 Technician `GET /customers` now excludes demo customers from the New Service Visit list. Manager Customer Configuration filters its active list by submitted customer name or code; archived customers remain separate. Focused browser tests and the customer-creation integration test pass. See `apps/api/src/routes/inspectionReference.ts` and `apps/web/src/manager/ManagerCustomerConfiguration.tsx`.

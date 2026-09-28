@@ -72,7 +72,7 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
     </section>}
     {status && <section aria-label="Reminder delivery status"><h3>Delivery status</h3>
       <p>Next run: {status.nextRunDate} at {status.nextRunTime} {status.timezone}. {status.configured ? "Configured" : "Not configured"}.</p>
-      {status.encryptionUnavailable && <p role="alert">Email is blocked: the encryption key is missing or no longer matches the saved password. Restore the key or enter a new app password.</p>}
+      {status.encryptionUnavailable && <p role="alert">Email is blocked: the server encryption key is missing or the saved password cannot be read. Ask the server administrator to configure or restore the key. If the key is valid, enter the app password again.</p>}
       <ul>{["reserved", "sent", "failed", "unknown", "skipped"].map((kind) => <li key={kind}>{kind === "skipped" ? "Missed" : kind === "unknown" ? "Delivery uncertain" : kind === "reserved" ? "Sending or awaiting verification" : kind}: {status.counts.find((row) => row.status === kind)?.count ?? 0}</li>)}</ul>
       {status.gaps.length > 0 && <><h4>Recipient gaps</h4><ul>{status.gaps.map((gap) => <li key={gap.customerId}>{gap.customerName} · {gap.dueDate}: add recipients in Next Upcoming Service</li>)}</ul></>}
       <h4>Recent deliveries</h4>{status.deliveries.length ? <ul>{status.deliveries.map((delivery, index) => <li key={`${delivery.customerId}:${delivery.dueDate}:${delivery.recipientEmail}:${index}`}>

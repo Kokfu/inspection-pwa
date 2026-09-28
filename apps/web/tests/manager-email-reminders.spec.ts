@@ -67,6 +67,22 @@ test("Manager settings starts empty, saves write-only password, and shows delive
   await expect(page.locator("#failure")).toBeEmpty();
 });
 
+test("missing server encryption key keeps Manager on email settings with an actionable error", async ({ page }) => {
+  await page.route("**/api/manager/reminders/settings", (route) => route.request().method() === "PUT"
+    ? route.fulfill({ status: 409, json: { error: "EMAIL_ENCRYPTION_UNAVAILABLE", message: "Email settings cannot be saved until the server administrator configures the email encryption key." } })
+    : route.fulfill({ json: { settings: { senderEmail: "", passwordConfigured: false, passwordMask: "", smtpHost: "smtp.gmail.com", smtpPort: 587, security: "STARTTLS", sendTime: "09:00", timezone: "Asia/Kuala_Lumpur" } } }));
+  await page.route("**/api/manager/reminders/staff", (route) => route.fulfill({ json: { staff: [] } }));
+  await page.route("**/api/manager/reminders/status", (route) => route.fulfill({ json: { configured: false, encryptionUnavailable: true, nextRunDate: "2026-09-29", nextRunTime: "09:00", timezone: "Asia/Kuala_Lumpur", counts: [], deliveries: [], gaps: [] } }));
+  await page.goto("/tests/manager-email-reminders.html");
+  await expect(page.getByText("Email is blocked:", { exact: false })).toBeVisible();
+  await page.getByLabel("Sender Gmail address").fill("sender@gmail.com");
+  await page.getByLabel("Gmail app password").fill("fake-test-password");
+  await page.getByRole("button", { name: "Save email settings" }).click();
+  await expect(page.getByText("Email settings cannot be saved until the server administrator configures the email encryption key.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Email reminders" })).toBeVisible();
+  await expect(page.locator("#failure")).toBeEmpty();
+});
+
 test("recipient picker previews saved people and shows copied-date review warning", async ({ page }) => {
   const customerId = "c0000000-0000-4000-8000-000000000001";
   const dueDate = "2026-09-29";

@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto";
+import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { dirname } from "node:path";
+
 export type ApiConfig = {
   port: number;
   databaseUrl: string;
@@ -13,11 +17,35 @@ export type ApiConfig = {
 
 /** Optional for inspection operation; mandatory before encrypted reminder settings can be saved or sent. */
 export function serviceDueEmailEncryptionKey(): Buffer {
-  const encoded = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+  let encoded = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+  if (!encoded && process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE) {
+    try {
+      const path = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+      const stat = lstatSync(path);
+      if (!stat.isFile() || stat.size < 1 || stat.size > 128) throw new Error("INVALID_KEY_FILE");
+      encoded = readFileSync(path, "utf8");
+    } catch { throw new Error("SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE"); }
+  }
   if (!encoded || !/^[A-Za-z0-9+/]{43}=$/.test(encoded)) throw new Error("SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE");
   const key = Buffer.from(encoded, "base64");
   if (key.length !== 32 || key.toString("base64") !== encoded) throw new Error("SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE");
   return key;
+}
+
+/** Called by the API after migrations. Never replace the key for an existing sender. */
+export function provisionServiceDueEmailEncryptionKey(hasStoredPassword: boolean): boolean {
+  try { serviceDueEmailEncryptionKey(); return true; }
+  catch { /* A fresh installation may need its first key. */ }
+  const path = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+  if (!path || process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY || hasStoredPassword) return false;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const handle = openSync(path, "wx", 0o600);
+    try { writeSync(handle, randomBytes(32).toString("base64")); fsyncSync(handle); }
+    finally { closeSync(handle); }
+    serviceDueEmailEncryptionKey();
+    return true;
+  } catch { return false; }
 }
 
 export function loadConfig(): ApiConfig {

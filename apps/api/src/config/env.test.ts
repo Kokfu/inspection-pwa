@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { loadConfig } from "./env.js";
+import { loadConfig, provisionServiceDueEmailEncryptionKey, serviceDueEmailEncryptionKey } from "./env.js";
 
 const hardDefault = "postgres://inspection_app:replace-with-a-real-secret-outside-git@postgres:5432/inspection";
 
@@ -42,4 +45,32 @@ test("report renderer defaults to html, accepts legacy, and rejects unknown conf
     process.env.REPORT_RENDERER="legacy"; assert.equal(loadConfig().reportRenderer,"legacy");
     process.env.REPORT_RENDERER="typo"; assert.throws(loadConfig,/REPORT_RENDERER/);
   } finally { if (previous===undefined) delete process.env.REPORT_RENDERER; else process.env.REPORT_RENDERER=previous; }
+});
+
+test("first-run email key is generated once outside the repository and never replaced for existing settings", () => {
+  const directory = mkdtempSync(join(tmpdir(), "reminder-key-test-"));
+  const priorKey = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+  const priorFile = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+  const file = join(directory, "service-due-email.key");
+  try {
+    delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+    process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE = file;
+    assert.equal(provisionServiceDueEmailEncryptionKey(true), false, "existing settings cannot silently get a new key");
+    assert.throws(serviceDueEmailEncryptionKey);
+    assert.equal(provisionServiceDueEmailEncryptionKey(false), true);
+    const first = readFileSync(file, "utf8");
+    assert.match(first, /^[A-Za-z0-9+/]{43}=$/);
+    assert.equal(serviceDueEmailEncryptionKey().length, 32);
+    assert.equal(provisionServiceDueEmailEncryptionKey(false), true);
+    assert.equal(readFileSync(file, "utf8"), first, "restarts retain the original key");
+    writeFileSync(file, "invalid");
+    assert.equal(provisionServiceDueEmailEncryptionKey(false), false, "corrupt key is not replaced");
+    assert.equal(readFileSync(file, "utf8"), "invalid");
+  } finally {
+    if (priorKey === undefined) delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+    else process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = priorKey;
+    if (priorFile === undefined) delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE;
+    else process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY_FILE = priorFile;
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
