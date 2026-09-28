@@ -581,6 +581,48 @@ buttons removed that existed before. Customer service history (any in-progress v
 Archive now appears next to "View Progress", and that the confirm dialog's extra sentence about the
 technician still being able to sync reads clearly before you use it for real.
 
+## claude/autopilot T14 — Technician can delete their own in-progress (open) job (cherry-picked)
+Status: DONE upstream (2026-09-27), cherry-picked onto phase-8e-client-demo-polish 2026-09-28.
+Numbering collides with this branch's own unrelated T14 above (deactivated-technician/manager-
+archive fix) — coincidence, not the same task. Complementary, not overlapping: this is the
+*technician's own* self-service soft delete of a job they're still working on; the admin-side
+Manager Operations archive/restore (already extended to open visits by this branch's own T14
+above) is what recovers it.
+Status: DONE (2026-09-27). feat(jobs): technician soft-deletes their own open job.
+Cherry-pick correction: upstream's own migration 034 (a byte-for-byte port of the main tree's 036,
+since autopilot's branch forked before 036 existed there) was dropped entirely on import — this
+branch already has `inspection_jobs.archived_at` via its own migration 036, unconditionally
+replayed on every startup, so the duplicate schema file and its existence-gated registration block
+were both removed rather than ported. The admin-side archived-visits view this entry's original
+OWNER CHECK asked for already exists on this branch (Manager Operations archive/restore, extended
+to open visits by this branch's own T14 above) — recovery of a self-deleted job is fully covered,
+unlike on the upstream branch where it was a real, documented gap.
+Files: `apps/api/src/routes/inspectionJobs.ts` (new
+`PUT /inspection-jobs/:jobId/archive` — `requireTechnicianOwnership` then
+`WHERE status='open' AND archived_at IS NULL`, 409 `JOB_NOT_OPEN` otherwise, audited both ways;
+`listTechnicianInspectionJobs` now filters `archived_at IS NULL`),
+`apps/api/src/routes/technicianOwnership.integration.test.ts` (new case: foreign 404, own-open
+succeeds and drops off the list, double-archive 409, genuinely-closed-job archive 409, admin can
+archive any open job, audit rows both ways), `apps/web/src/jobs/jobApi.ts`
+(`archiveInspectionJob`), `apps/web/src/App.tsx` (new `handleArchiveJob`, kept separate from the
+existing `handleDeleteJob`/`deleteUnstartedServiceVisit` hard-delete path since they have different
+eligibility), `apps/web/src/jobs/TechnicianHome.tsx` (new "Delete this job" button in the job
+detail view, shown once local work has started -- i.e. exactly when the existing "Delete unfinished
+visit" hard-delete button is disabled -- `window.confirm` gate), `apps/web/tests/technician-home-ownership.html`
++ `.spec.ts` (new case).
+Original upstream review (0 P0 / 0 P1 / 0 new defects) re-derived the immutability argument from
+migrations 009/010's actual trigger bodies. On this branch, `apps/web` typecheck and production
+build both clean after import.
+Revert proofs (from the upstream review, still apply against this branch's own migration 036):
+disabling the `status='open'` guard on the archive route →
+`technicianOwnership.integration.test.ts:200` fails (200 !== 409, the closed-job case); disabling
+the `archived_at IS NULL` list filter → `technicianOwnership.integration.test.ts:193` fails
+("archived job must not still be listed").
+OWNER CHECK: as a technician, start entering data on a service visit, then use "Delete this job" in
+the job detail view; it disappears from the technician's list. Confirm Manager Operations →
+Services → the same visit shows an Archive/Restore control and can be restored from there (this
+branch's own admin-side tooling, unlike upstream where this was a documented gap).
+
 ## UI-1 — Desktop page centering beside the sidebar
 Status: DONE (2026-09-28; owner confirmed). First fix `c830061` (release `sha256-5f89cd7979b8faaa`); Manager follow-up below.
 With the persistent sidebar, pages were centered in the space beside it, so on desktop they sat right

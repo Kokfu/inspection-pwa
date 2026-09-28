@@ -88,6 +88,7 @@ type TechnicianHomeProps = {
   onSync: () => Promise<void>;
   onCloseJob: (job: InspectionJob) => Promise<void>;
   onDeleteJob: (job: InspectionJob) => Promise<void>;
+  onArchiveJob: (job: InspectionJob) => Promise<void>;
   onViewFinalReport: (job: InspectionJob) => void;
   onNewServiceVisit: () => void;
   onSelectJob: (job: InspectionJob) => void;
@@ -123,7 +124,7 @@ export function TechnicianHome({
   selectedSystemKey,
   onRefresh,
   onSync,
-  onCloseJob, onDeleteJob, onViewFinalReport, onNewServiceVisit,
+  onCloseJob, onDeleteJob, onArchiveJob, onViewFinalReport, onNewServiceVisit,
   onSelectJob,
   onSelectSystem,
   onBackToJobs,
@@ -255,6 +256,10 @@ export function TechnicianHome({
     && serverMasterSystemProgressState === "loaded" && !selectedHasDeviceWork
     && systems.length > 0 && systems.every((system) => progressFor(selectedJob.id, system.systemKey) === "Not Started")
     && selectedJob.completion?.acceptedUnitCount === 0;
+  // Soft-delete: any open job, even one with local work already started -- unlike
+  // canDeleteSelectedJob above, which only permits the untouched-job hard delete. Recoverable by
+  // an admin (Manager Operations archive/restore); never a hard delete.
+  const canArchiveSelectedJob = !!selectedJob && selectedJob.status === "open" && canUseServer && !loading;
   const operationalMessage = message && !isRoutineJobCountMessage(message, jobs.length)
     ? technicianOperationalMessage(message)
     : undefined;
@@ -352,6 +357,9 @@ export function TechnicianHome({
               if (window.confirm(`Permanently delete service visit ${selectedJob.reference}? This cannot be undone.`)) void onDeleteJob(selectedJob);
             }}>Delete unfinished visit</button>
             {!canDeleteSelectedJob ? <span className="support-metadata">Deletion is available online only before inspection work starts. Existing work must be preserved.</span> : null}
+            {selectedHasDeviceWork ? <button type="button" className="secondary-command" disabled={!canArchiveSelectedJob} onClick={() => {
+              if (window.confirm(`Delete this in-progress service visit? A manager can restore it if this was a mistake.`)) void onArchiveJob(selectedJob);
+            }}>Delete this job</button> : null}
           </div> : null}
         </div>
         {selectedJob.status === "open" && selectedJob.completion?.eligible ? (

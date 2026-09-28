@@ -3,6 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Technician self-delete of an in-progress job cherry-picked from `claude/autopilot`'s T14.**
+New `PUT /inspection-jobs/:jobId/archive` (soft delete via `inspection_jobs.archived_at`, never a
+hard delete) plus a "Delete this job" button in the technician job detail view, shown once local
+work has started (i.e. exactly when the existing "Delete unfinished visit" hard-delete button is
+disabled). Dropped upstream's own migration (a duplicate port of this branch's own 036, which
+already covers `archived_at`) and its stale claim of no admin restore path — this branch's
+existing Manager Operations archive/restore already covers recovery.
+
 **Last updated:** 2026-09-28 — **Search boxes cherry-picked from `claude/autopilot`'s T13 onto Technician List and Upcoming Service.**
 Client-side, case-insensitive filter over username (technicians) or name/code (upcoming services),
 `useMemo` over the already-loaded list, no API change. Dropped the Customer Configuration hunk of
@@ -339,6 +347,17 @@ Append-only `report_approvals` table with a single derived-state helper every ro
 PDF routes refuse `409 REPORT_NOT_APPROVED` until approved; a correction after approval reverts to
 awaiting approval; technicians see a read-only chip; `ManagerOperations.tsx`'s richer supervisor/filter/
 delete-visit view kept, with the approval chip woven in.
+
+**Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T14 technician job soft-delete
+landed (committed on the branch, not merged).**
+A technician can now delete their own still-open (not yet submitted) job; soft delete via
+`inspection_jobs.archived_at`, never a hard delete. This branch forked before that column
+existed on the main tree, so it needed its own migration (034, a byte-for-byte port of the main
+tree's proven 036) rather than reusing one, and there is not yet an admin-facing screen on this
+branch to view/restore an archived job (the row is fully recoverable, just not exposed in any UI
+here yet) — see `docs/autopilot/BACKLOG.md` T14 for the full detail and gate/review/revert-proof
+counts. Also: T15 (auto-recurring due dates) is next and is DESIGN FIRST, not started; T16
+(email reminder) stays BLOCKED on the owner creating an email-provider account.
 
 **Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T13 search boxes landed; T6 committed
 retroactively (committed on the branch, not merged).**

@@ -56,6 +56,7 @@ export async function listTechnicianInspectionJobs(
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
     WHERE inspection_jobs.master_template_version_id IS NOT NULL
       AND inspection_jobs.technician_visible = true
+      AND inspection_jobs.archived_at IS NULL
       AND ($1::bigint IS NULL OR inspection_jobs.created_by_user_id = $1)
     ORDER BY inspection_jobs.created_at DESC, inspection_jobs.id
   `, [ownerUserId ?? null]);
@@ -420,6 +421,50 @@ inspectionJobsRouter.delete("/inspection-jobs/:jobId", requireRole("inspector"),
   } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
   finally { client?.release(); }
 });
+
+// A technician soft-deletes their OWN in-progress (not yet submitted) job. Reuses
+// inspection_jobs.archived_at (migration 036) -- never a hard delete, unlike the DELETE route
+// above, which only ever applies to a job nothing has been entered into yet. This soft-delete
+// applies to a job with in-progress work, and is fully recoverable through the existing
+// admin-only PUT /manager/service-visits/:jobId/restore route (managerServiceVisits.ts), which
+// already works "regardless of job status". An admin calling this route is scoped by the same
+// status='open' WHERE clause, so it is not a substitute for a manager's own tooling -- it exists
+// purely to let a technician undo their own mistake before anything is submitted.
+inspectionJobsRouter.put("/inspection-jobs/:jobId/archive", requireRole("admin", "inspector"),
+  requireTechnicianOwnership("job", (request) => request.params.jobId, "technician_service_job_archived"),
+  async (request, response, next) => {
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
+        response.status(400).json({ error: "INVALID_JOB_ID" });
+        return;
+      }
+      const actor = request.currentUser!;
+      const result = await pool.query<{ id: string }>(
+        `UPDATE inspection_jobs SET archived_at = now()
+         WHERE id = $1 AND status = 'open' AND archived_at IS NULL
+         RETURNING id`,
+        [jobId]
+      );
+      if (!result.rows[0]) {
+        await auditLog({
+          actorUserId: actor.id, action: "technician_service_job_archived",
+          entityType: "inspectionJob", entityId: jobId, result: "failure", reason: "JOB_NOT_OPEN"
+        });
+        response.status(409).json({
+          error: "JOB_NOT_OPEN",
+          message: "Only an in-progress job that has not yet been submitted can be deleted this way"
+        });
+        return;
+      }
+      await auditLog({
+        actorUserId: actor.id, action: "technician_service_job_archived",
+        entityType: "inspectionJob", entityId: jobId, result: "success"
+      });
+      response.json({ outcome: "archived" });
+    } catch (error) { next(error); }
+  }
+);
 
 inspectionJobsRouter.get("/inspection-jobs/:jobId", requireRole("admin", "inspector"),
   requireTechnicianOwnership("job", (request) => request.params.jobId),

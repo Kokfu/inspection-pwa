@@ -104,3 +104,21 @@ test("logout waits for a suspended local save before another identity can replac
   expect(saved.responses.comments).toBe("A saved during sign-out");
   expect(await page.evaluate(async()=>(await (window as any).readLegacyDrafts()).length)).toBe(3);
 });
+
+test("T14: a technician can delete their own in-progress job; it disappears from the list", async ({ page }) => {
+  await page.goto("/tests/technician-home-ownership.html");
+  await page.getByRole("button", { name: /Technician/ }).click();
+  await expect(page.getByRole("tab", { name: "In Progress (2)" })).toBeVisible();
+  const card = page.locator(".job-card-list li").filter({ hasText: "A-NEW" });
+  await expect(card.getByRole("button", { name: "Delete A-NEW" })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await card.getByRole("button", { name: "Delete A-NEW" }).click();
+  await expect(page.getByRole("tab", { name: "In Progress (1)" })).toBeVisible();
+  await expect(page.locator(".job-card-list li").filter({ hasText: "A-NEW" })).toHaveCount(0);
+  await expect
+    .poll(async () => page.evaluate(() => (window as unknown as { archivedJobIds?: string[] }).archivedJobIds))
+    .toContain("41000000-0000-4000-8000-000000000001");
+  // A closed job never offers Delete -- that stays the manager's domain.
+  await page.getByRole("tab", { name: "Completed (1)" }).click();
+  await expect(page.locator(".job-card-list li").filter({ hasText: "A-DONE" }).getByRole("button", { name: /^Delete/ })).toHaveCount(0);
+});

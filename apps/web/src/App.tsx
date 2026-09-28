@@ -158,7 +158,7 @@ import {
   type ServerSummaryRefreshToken
 } from "./jobs/serverSummaryRefreshGuard";
 import type { InspectionJob, JobSystemSnapshot } from "./jobs/jobTypes";
-import { closeInspectionJob, deleteUnstartedServiceVisit } from "./jobs/jobApi";
+import { archiveInspectionJob, closeInspectionJob, deleteUnstartedServiceVisit } from "./jobs/jobApi";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
@@ -1387,6 +1387,31 @@ export function App() {
     } finally { setJobLoading(false); }
   }
 
+  // A technician deletes their OWN still-open (not yet submitted) job, even after starting to
+  // enter data -- unlike handleDeleteJob above, which only applies to a job nothing has been
+  // entered into yet. Soft delete server-side (inspection_jobs.archived_at); reversible by an
+  // admin via the existing Manager Operations archive/restore, never a hard delete. The job
+  // disappears from this technician's own list once the server confirms it.
+  async function handleArchiveJob(job: InspectionJob) {
+    if (!canUseServer || !currentUser) {
+      setJobMessage("Reconnect and verify your session before deleting this job");
+      return;
+    }
+    setJobLoading(true);
+    setJobMessage("Deleting this in-progress job");
+    try {
+      await archiveInspectionJob(job.id);
+      setJobs((current) => current.filter((candidate) => candidate.id !== job.id));
+      setJobMessage("Job deleted");
+      navigate({ name: "jobs" });
+      await refreshServerWorkspace(currentUser, authOperationGeneration.current);
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "This job could not be deleted");
+    } finally {
+      setJobLoading(false);
+    }
+  }
+
   async function handleLogin(username: string, password: string) {
     const operation = beginExplicitAuthOperation();
     try {
@@ -2315,6 +2340,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               onSync={handleSync}
               onCloseJob={handleCloseJob}
               onDeleteJob={handleDeleteJob}
+              onArchiveJob={handleArchiveJob}
               onViewFinalReport={(job) => navigate({ name: "final-report", jobId: job.id })}
               onNewServiceVisit={() => navigate({ name: "new-service-visit" })}
               onSelectJob={(job) => navigate({ name: "job", jobId: job.id })}

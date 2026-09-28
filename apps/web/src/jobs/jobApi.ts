@@ -102,3 +102,25 @@ export async function closeInspectionJob(jobId: string): Promise<{
   }
   return { outcome: data.outcome, completion: data.completion };
 }
+
+/**
+ * T14 (2026-09-27): a technician deletes their OWN in-progress (not yet submitted) job. This is
+ * a soft delete (`inspection_jobs.archived_at`, server-side) -- reversible by an admin, never a
+ * hard delete. Only ever offered/attempted for a job whose `status` is still `"open"`; the
+ * server enforces that and returns 409 `JOB_NOT_OPEN` for anything else (already archived or
+ * already closed/submitted).
+ */
+export async function archiveInspectionJob(jobId: string): Promise<void> {
+  const response = await fetch(`/api/inspection-jobs/${encodeURIComponent(jobId)}/archive`, {
+    method: "PUT",
+    credentials: "same-origin",
+    cache: "no-store"
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Reconnect and verify your session before deleting this job");
+  }
+  if (response.ok) return;
+  let data: unknown;
+  try { data = await response.json(); } catch { data = undefined; }
+  throw new Error(responseMessage(data, "This job could not be deleted"));
+}

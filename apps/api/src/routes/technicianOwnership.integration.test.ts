@@ -215,6 +215,32 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
         assert((await database.query("SELECT 1 FROM audit_events WHERE action=$1 AND result='failure' AND reason='JOB_NOT_FOUND'",[action])).rowCount! > 0,action);
       }
     });
+    await t.test("T14 technician archive: own open job succeeds and drops off the list; foreign is 404; an already-archived or genuinely closed job is 409; admin can archive any open job", async () => {
+      const put = (path: string, actor = 0) => fetch(origin + path, { method: "PUT", headers: { "x-actor": String(actor) } });
+      const c = await visit(0);
+      const foreign = await put(`/inspection-jobs/${c}/archive`, 1);
+      assert.equal(foreign.status, 404, await foreign.clone().text());
+      assert.deepEqual(await foreign.json(), { error: "JOB_NOT_FOUND" });
+      const own = await put(`/inspection-jobs/${c}/archive`, 0);
+      assert.equal(own.status, 200, await own.clone().text());
+      assert.deepEqual(await own.json(), { outcome: "archived" });
+      assert.equal((await database.query("SELECT archived_at FROM inspection_jobs WHERE id=$1", [c])).rows[0].archived_at !== null, true);
+      const jobsAfter = (await (await request("/inspection-jobs", 0)).json()).jobs;
+      assert(!jobsAfter.some((job: { id: string }) => job.id === c), "archived job must not still be listed for its own technician");
+      const again = await put(`/inspection-jobs/${c}/archive`, 0);
+      assert.equal(again.status, 409, await again.clone().text());
+      assert.deepEqual(await again.json(), { error: "JOB_NOT_OPEN", message: "Only an in-progress job that has not yet been submitted can be deleted this way" });
+      const d = await visit(0);
+      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$1 WHERE id=$2", [users[0].id, d]);
+      const closed = await put(`/inspection-jobs/${d}/archive`, 0);
+      assert.equal(closed.status, 409, await closed.clone().text());
+      assert.deepEqual(await closed.json(), { error: "JOB_NOT_OPEN", message: "Only an in-progress job that has not yet been submitted can be deleted this way" });
+      const e = await visit(0);
+      const adminArchive = await put(`/inspection-jobs/${e}/archive`, 2);
+      assert.equal(adminArchive.status, 200, await adminArchive.clone().text());
+      assert((await database.query("SELECT 1 FROM audit_events WHERE action='technician_service_job_archived' AND result='success'")).rowCount! >= 2);
+      assert((await database.query("SELECT 1 FROM audit_events WHERE action='technician_service_job_archived' AND result='failure' AND reason='JOB_NOT_OPEN'")).rowCount! >= 2);
+    });
   } finally {
     await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve()));
     await database.end(); await pool.end();
