@@ -1281,6 +1281,9 @@ a.secondary-command { display: inline-flex; box-sizing: border-box; width: fit-c
 /* Manager screens: same page width and heading scale as the technician side. */
 .app-shell > :is(section[aria-labelledby="manager-dashboard-title"], section[aria-labelledby="technicians-title"], section[aria-labelledby="upcoming-title"]),
 .app-shell-content > :is(section[aria-labelledby="manager-dashboard-title"], section[aria-labelledby="technicians-title"], section[aria-labelledby="upcoming-title"]) { display: grid; width: min(var(--page-width), 100%); align-content: start; gap: var(--space-4); }
+/* Width only: without it these pages shrink to their content or fill the whole column beside the
+ * sidebar, so on wide desktops they no longer line up with the header. */
+.app-shell-content > :is(section[aria-labelledby="manager-customers-title"], section[aria-labelledby="manager-company-profile-title"], section[aria-labelledby="email-reminder-title"], section[aria-labelledby="manager-add-customer-title"], section[aria-labelledby="manager-service-catalog-title"]) { width: min(var(--page-width), 100%); }
 .app-shell > .secondary-command,
 .app-shell-content > .secondary-command { justify-self: start; margin-inline-start: max(0px, calc((100% - var(--page-width)) / 2)); }
 

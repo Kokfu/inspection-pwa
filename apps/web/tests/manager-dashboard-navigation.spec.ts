@@ -58,3 +58,49 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   await expect(page.getByRole("img", { name: "Inspection status: 1 passed, 3 not OK, 1 N/A" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test("wide desktop: Customer Configuration, Add Customer, Service Catalog, Company Profile and Email reminders line up with the header", async ({ page }) => {
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    let json: unknown = {};
+    if (path === "/api/auth/me") json = { user: { id: 804, username: "mobiletest", role: "admin" } };
+    else if (path.endsWith("/company-profile")) json = { companyProfile: { confirmed: false, legalName: "Company", registrationNo: "1", address: "Address", tel: "1", fax: "2", email: "office@example.test", complaintHotline: "3", logoFile: "logo.png", verifiedBy: { name: "Name", title: "Title" }, reportNumberFormat: "MFE/SR/{YYYY}/{SEQ4}" } };
+    else if (path.endsWith("/reminders/settings")) json = { settings: { senderEmail: "", passwordConfigured: false, passwordMask: "", smtpHost: "smtp.gmail.com", smtpPort: 587, security: "STARTTLS", sendTime: "09:00", timezone: "Asia/Kuala_Lumpur" } };
+    else if (path.endsWith("/reminders/staff")) json = { staff: [] };
+    else if (path.endsWith("/reminders/status")) json = { configured: false, encryptionUnavailable: false, nextRunDate: "2026-09-29", nextRunTime: "09:00", timezone: "Asia/Kuala_Lumpur", counts: [], deliveries: [], gaps: [] };
+    else if (path.endsWith("/technicians")) json = { technicians: [] };
+    else if (path.endsWith("/upcoming-service")) json = { customers: [], unscheduledCustomers: [] };
+    else if (path.endsWith("/customers") || path.endsWith("/customers/archived")) json = { customers: [] };
+    else if (path.endsWith("/service-catalog")) json = { systems: [] };
+    else if (path.endsWith("/dashboard/clients")) json = { totalClients: 0 };
+    else if (path.endsWith("/dashboard/inspections-per-day")) json = { days: [] };
+    else if (path.endsWith("/dashboard/inspection-status")) json = { passed: 0, notOk: 0, na: 0 };
+    else if (path.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 0 };
+    else if (path.endsWith("/inspection-jobs")) json = { jobs: [] };
+    await route.fulfill({ json });
+  });
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto("/tests/manager-dashboard-navigation.html#/manager");
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  const sidebar = page.getByLabel("Primary navigation");
+  for (const [label, heading, selector] of [
+    ["Services", "Customer Configuration", 'section[aria-labelledby="manager-customers-title"]'],
+    ["Add Customer", "Add Customer", 'section[aria-labelledby="manager-add-customer-title"]'],
+    ["Service Catalog", "Service Catalog", 'section[aria-labelledby="manager-service-catalog-title"]'],
+    ["Company Profile", "Company Profile", 'section[aria-labelledby="manager-company-profile-title"]'],
+    ["Email reminders", "Email reminders", 'section[aria-labelledby="email-reminder-title"]']
+  ] as const) {
+    await sidebar.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.getByRole("heading", { name: heading, exact: true, level: 2 })).toBeVisible();
+    for (const width of [1280, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => page.locator(selector).evaluate((element) => {
+        const page = element.getBoundingClientRect();
+        const header = document.querySelector("header")!.getBoundingClientRect();
+        const centered = Math.abs(page.left + page.width / 2 - window.innerWidth / 2) <= 2;
+        // Once the column is wider than the page width, the page must match the header edges.
+        return centered && (window.innerWidth < 1800 || (Math.abs(page.left - header.left) <= 2 && Math.abs(page.right - header.right) <= 2));
+      }), `${label} at ${width}px`).toBe(true);
+    }
+  }
+});

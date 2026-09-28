@@ -386,7 +386,7 @@ Archive now appears next to "View Progress", and that the confirm dialog's extra
 technician still being able to sync reads clearly before you use it for real.
 
 ## UI-1 — Desktop page centering beside the sidebar
-Status: DONE (2026-09-28; fix landed in `c830061`, deployed release `sha256-5f89cd7979b8faaa`).
+Status: DONE (2026-09-28; owner confirmed). First fix `c830061` (release `sha256-5f89cd7979b8faaa`); Manager follow-up below.
 With the persistent sidebar, pages were centered in the space beside it, so on desktop they sat right
 of the browser midpoint. `apps/web/src/styles/app.css` now mirrors the sidebar width as
 `margin-inline-end` on `.app-shell-content` at `min-width: 1200px`, so pages line up with the header.
@@ -396,10 +396,16 @@ Verified 2026-09-28: `technician-sidebar-navigation.spec.ts` (New Service Visit 
 centered within 2 px at 1280 and 1920; no horizontal overflow at 768 and 360) and
 `manager-dashboard-navigation.spec.ts`, 4/4 passed with 1 worker. With 4 workers on a cold dev server,
 3 timed out at start-up (not layout failures).
-Gap: no centering assertion for Manager pages (they use the same `.app-shell-content` rule).
+Follow-up 2026-09-28: five Manager pages had no page width, so at wide desktop widths they either
+filled the whole column beside the sidebar (Company Profile, Email reminders, Customer Configuration
+with data), running past the header on both sides, or shrank to their content (Add Customer, Service
+Catalog). A width-only rule in `app.css` gives these five pages `min(var(--page-width), 100%)`.
+`manager-dashboard-navigation.spec.ts` "wide desktop…" asserts all five are centered at 1280 and match
+the header edges at 1920 (revert proof: without the rule it fails on "Services at 1920px"). Related
+specs 22/22 passed; web typecheck passed. Owner confirmed the layout 2026-09-28.
 Deploy note: the PWA uses prompt updates, so an open browser keeps the old build until **Update now**
 is chosen on a safe screen, or until every tab and app window is closed.
-OWNER CHECK: after updating, the sign-in screen shows the new "Support build"; at a window width of
+OWNER CHECK (passed 2026-09-28): after updating, the sign-in screen shows the new "Support build"; at a window width of
 1200 px or more, Technician and Manager pages line up with the header.
 
 ## Not for autopilot (other owners)
