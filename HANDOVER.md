@@ -3,6 +3,26 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-29 — **Generated report pagination and Roller Shutter parts tally fixed in code.**
+The PDF renderer now uses a compact Roller Shutter inspection header, 36 mm photo previews,
+a slightly shorter inspection strip, and less space before the end marker so photo-backed system details do not leave a strip
+alone on a nearly empty page. Failed Roller Shutter Auto Alarm/Manual Mode checks remain in
+the finding remarks but no longer produce a false parts tally. A representative FM200 plus
+Roller Shutter two-photo PDF regression renders in five pages with both strips alongside
+their system content. Report model and full template suites, API typecheck/build, and
+`git diff --check` passed. The previously downloaded seven-page PDF is unchanged; generate
+a new report after deploying these changes for owner visual sign-off. No runtime or
+production data was modified for this verification.
+
+**Last updated:** 2026-09-29 — **Generated report reviewed; Roller Shutter result choices confirmed.**
+The owner confirmed that the conflicting paper `/` mark is deferred. Keep Good, Not Good,
+Complete Repair, and N/A as the four digital choices. The generated report
+`Service-Report_SV-20260928-48_2026-09-28.pdf` shows one FM200 cover entry and the Roller
+Shutter detail page, but its inspection strips spill onto nearly empty pages 5 and 7.
+The Roller Shutter's `AUTO ALARM MODE X 1` parts tally also treats a failed test mode as a
+replacement part. Visual report acceptance remains open pending those report fixes and a
+fresh PDF review.
+
 **Last updated:** 2026-09-28 — **Fire Rated Roller Shutter V7 form implemented; duplicate FM200 cover entry removed (uncommitted).**
 
 The roller shutter form follows `docs/paper-forms/fire-rated-roller-shutter.md`: Date Tested, Zone, Inspected By, numbered Location/Auto Alarm Mode/Manual Mode rows, and Comments. It saves drafts in IndexedDB, queues evidence before the parent inspection, and has accepted-detail and Final Report readers. The report cover now lists the confirmed `fm200_fire_suppression` once; the approved HTML fixture and snapshot reflect that. Focused API/web tests, browser form flow, both typechecks, both builds, historical/V6 regressions, all 12 report-template tests, and disposable-PostgreSQL clean and photo-backed acceptance/idempotency passed. The paper page and cover disagree on the `/` mark, so the V7 four-state interpretation remains provisional. Next: owner review and manual commit; then visual review of a generated roller shutter PDF and a physical-phone offline/reconnect acceptance pass before release. The current PDF renderer already has the landscape cover, summary, and system-page structure, so compare its actual output with the client sample before changing layout.
@@ -2133,7 +2153,8 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    cover, Summary of Testing, system tables, and accepted photos. Compare a generated report
    containing Roller Shutter against the client's saved sample before a further polish pass.
 6. **FM200 (STEP 2.1) + Fire Rated Roller Shutter (STEP 2.4)** — runtime forms are implemented.
-   Roller Shutter's conflicting `/` legend still needs client confirmation before release.
+   The owner deferred the conflicting paper `/` legend on 2026-09-29 and confirmed the four
+   digital choices. Fresh-PDF visual sign-off and phone acceptance remain.
 
 Detail on `28d7b55` — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema
 2 → 3, per-drum `drumType` label + technician-declared `drumCount`.** Owner confirmed the
@@ -2405,8 +2426,8 @@ same deliberate self-reference Smoke Ventilation introduced, so it also gets a s
 variant rather than the legacy+V7 pair every STEP 1 system has.
 
 **Status update (2026-09-28):** Fire Rated Roller Shutter and FM200 now have runtime V7 forms.
-The roller shutter paper's conflicting `/` legend needs client confirmation; generated-PDF visual
-review and physical-phone offline acceptance are the next release checks. All STEP 1/2 services
+The owner deferred the roller shutter paper's conflicting `/` legend and confirmed the four
+digital choices. Fresh-PDF visual sign-off and physical-phone offline acceptance are the next release checks. All STEP 1/2 services
 inherit 4-state + C3. C2 (remarks pick-list) remains deferred to last.
 
 ---
@@ -2969,13 +2990,13 @@ then the repo is self-describing.
 | FM200 | ⚠️ source-format confirmation pending | ✅ implemented | Confirm against the client's source document before final sign-off |
 | Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, committed `ade85f6`) | — |
 | Fire Intercom | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 12-case DB proven) | Sol pass |
-| Fire Rated Roller Shutter | ⚠️ provisional V7 reading of the Hokuden page | ✅ implemented, browser and disposable-PostgreSQL tested | Confirm conflicting `/` legend; visual PDF and physical-phone acceptance remain |
+| Fire Rated Roller Shutter | ✅ four digital choices confirmed; paper `/` deferred | ✅ implemented, browser and disposable-PostgreSQL tested | Fresh-PDF visual sign-off and physical-phone acceptance remain |
 
 Current V7 code includes **12 / 12 listed services**, including the independent FM200
 implementation and the new Fire Rated Roller Shutter form. Portable Fire Extinguisher remains
-registration-only by design (C4). The roller shutter result-mark interpretation is provisional
-because the Hokuden page footer and cover legend disagree; client confirmation and release-level
-phone/PDF acceptance remain outstanding. The older STEP 2.1 FM200 source-document input note
+registration-only by design (C4). The owner confirmed the four digital Roller Shutter choices
+on 2026-09-29 and deferred interpretation of the historical paper `/` mark. PDF pagination
+visual sign-off on a regenerated PDF and release-level phone acceptance remain outstanding. The older STEP 2.1 FM200 source-document input note
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log

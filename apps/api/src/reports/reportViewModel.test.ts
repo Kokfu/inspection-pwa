@@ -219,6 +219,7 @@ test("Roller Shutter V7 prints the sample header, location, two result columns, 
   const register = blockOf(model, "register", "roller_shutter_schedule_rows");
   assert.deepEqual(register.columns.map((column) => column.label), ["Location", "Auto Alarm Mode", "Manual Mode", "Remarks"]);
   assert.equal(register.rows[0]?.cells[0]?.kind, "text");
+  assert.deepEqual(model.systemPages[0]?.partsTally, [], "failed operating modes are findings, not replacement parts");
   assert.equal(model.systemPages[0]?.comments, "Quotation requested");
   assert.equal(model.cover.systemsServiced.filter((system) => system.systemKey === "fm200_fire_suppression").length, 1);
   assert.equal(model.cover.systemsServiced.some((system) => system.systemKey === "fm200"), false);

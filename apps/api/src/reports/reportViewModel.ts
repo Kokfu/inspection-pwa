@@ -271,7 +271,10 @@ function registerBlock(context: BuildContext, head: BlockHead, blockKey: string,
       const result = reportResult(value);
       const remark = key === undefined ? null : nonEmpty(fieldRemarks[key]);
       noteFinding(context, [head.sectionTitle, rowLabel], column.label, result, remark);
-      if (result?.value === "not_good") context.parts.set(column.label.toUpperCase(), (context.parts.get(column.label.toUpperCase()) ?? 0) + 1);
+      // Roller Shutter mode checks are tests, not replaceable components.
+      if (context.systemKey !== "fire_rated_roller_shutter" && result?.value === "not_good") {
+        context.parts.set(column.label.toUpperCase(), (context.parts.get(column.label.toUpperCase()) ?? 0) + 1);
+      }
       return { kind: "result", result, remark };
     });
     return { no, cells };

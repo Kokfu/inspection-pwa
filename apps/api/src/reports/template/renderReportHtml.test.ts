@@ -5,13 +5,13 @@ import puppeteer from "puppeteer-core";
 import { loadConfig } from "../../config/env.js";
 import { renderReportHtml, escapeHtml, checklist } from "./renderReportHtml.js";
 import { sampleViewModel } from "./sampleFixture.js";
-import { buildReportViewModel, reportResult, summaryMainFinding } from "../reportViewModel.js";
+import { buildReportViewModel, reportResult, summaryMainFinding, type ReportBlock, type SystemPage } from "../reportViewModel.js";
 import { renderReportViewModelPdf, renderFinalServiceReportPdf } from "../finalServiceReport.js";
 import { closePdfEngine, resolveNamedDestinationPages } from "../pdf/htmlToPdf.js";
 import { extractPdfText } from "../pdf/extractPdfText.testSupport.js";
 import { PDFDocument } from "pdf-lib";
 after(closePdfEngine);
-const normalized = (html: string) => html.replace(/src:url\(data:[^)]+\)/g, "src:url(BUNDLED_FONT)").replace(/\r\n/g, "\n");
+const normalized = (html: string) => html.replace(/src:url\(data:[^)]+\)/g, "src:url(BUNDLED_FONT)").replace(/\r\n/g, "\n").trimEnd();
 test("approved Hokuden four-system HTML snapshot", () => {
  assert.equal(normalized(renderReportHtml(sampleViewModel())),normalized(readFileSync(new URL('./sample.snapshot.html',import.meta.url),'utf8')));
 });
@@ -76,6 +76,43 @@ test("real two-pass sample: exactly 9 pages, exact summary destinations, every f
  const map=await resolveNamedDestinationPages(pdf);assert.equal(map.size,4);
  for(const row of vm.summary){const start=map.get(`sys-${row.no}`)!;assert.ok(pages[start-1].includes(row.label.toUpperCase()),`start ${row.label}`);const text=pages[1];assert.ok(text.includes(`${start}QUARTERLY`),`summary page ${start}`)}
  for(const glyph of ['✓','✗','◯'])assert.ok(pages.join('').includes(glyph));
+});
+test("photo-backed FM200 and Roller Shutter pages do not orphan their inspection strips", async () => {
+ const vm=sampleViewModel();
+ const pixel=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=","base64");
+ const check=(key:string,title:string,labels:string[]):Extract<ReportBlock,{kind:"checklist"}>=>({kind:"checklist",key,sectionKey:key,sectionTitle:title,title,
+   rows:labels.map((label,index)=>({no:index+1,key:`${key}_${index}`,label,unit:null,reading:null,result:reportResult(index===0?"not_good":"good"),remark:index===0?"Needs attention":null}))});
+ const photos=(prefix:string)=>[1,2].map(no=>({no,caption:`${prefix} finding ${no}`,field:`${prefix}_${no}`,width:1,height:1,content:pixel}));
+ const common={structure:"v7" as const,condition:"FAILED" as const,conditionDetail:"Needs attention",remarks:[{no:1,text:"Needs attention",result:reportResult("not_good")}],partsTally:[],comments:null,
+   inspection:{date:"2026-09-28",inspectedBy:["New Technician"]},review:{status:"pending" as const,submittedBy:"Technician1",reviewedBy:null,reviewedAt:null}};
+ const fm:SystemPage={...common,no:1,systemKey:"fm200_fire_suppression",title:"FM200 System",location:"General / General",photos:photos("FM200"),blocks:[
+   check("panel","Control Panel Location",["Control Panel Location"]),
+   {kind:"register",key:"detectors",sectionKey:"detectors",sectionTitle:"Zone and Detector Rows",title:"Zone and Detector Rows",columns:[
+     {key:"zone",label:"Alarm Zone",kind:"text",subColumns:null},{key:"location",label:"Location",kind:"text",subColumns:null},
+     {key:"heat",label:"Heat Detector",kind:"nti",subColumns:["N","T","I"]},{key:"smoke",label:"Smoke Detector",kind:"nti",subColumns:["N","T","I"]},
+     {key:"remarks",label:"Remarks",kind:"remarks",subColumns:null}],rows:[{no:1,cells:[{kind:"text",text:"General"},{kind:"text",text:"General"},
+       {kind:"nti",state:{normal:true,test:false,isolation:false}},{kind:"nti",state:{normal:true,test:false,isolation:false}},{kind:"remarks",text:null}]}]},
+   check("charger","Charger & Batteries",["Main Supply","Battery","Charger"]),
+   check("outlook","Physical Outlook Checking",["CO2 Cylinder","Electric Actuator","Manual Release Key","Alarm Bell","Twin Flashing Light","24V DC Tripping Device","Manual Pull Station","High Pressure Hose","Discharge Nozzles","Pilot Cylinder"]),
+   check("function","Main Function Key",["Main Alarm Reset","Lamp Test","Evacuate","A/C Supply","D/C Supply","Signal Alarm to MFAP"])
+ ]};
+ const roller:SystemPage={...common,no:2,systemKey:"fire_rated_roller_shutter",title:"Fire Rated Roller Shutter",location:null,photos:photos("Roller"),blocks:[
+   {kind:"checklist",key:"inspection_header_fields",sectionKey:"inspection",sectionTitle:"Inspection Details",title:"Inspection Details",rows:
+     ["Date Tested","Zone","Inspected By"].map((label,index)=>({no:index+1,key:`header_${index}`,label,unit:null,reading:["2026-09-28","Zone 1","Inspector A"][index],result:null,remark:null}))},
+   {kind:"register",key:"roller_shutter_schedule_rows",sectionKey:"schedule",sectionTitle:"Roller Shutter Schedule",title:"Roller Shutter Schedule",columns:[
+     {key:"location",label:"Location",kind:"text",subColumns:null},{key:"auto_alarm_mode",label:"Auto Alarm Mode",kind:"result",subColumns:null},
+     {key:"manual_mode",label:"Manual Mode",kind:"result",subColumns:null},{key:"remarks",label:"Remarks",kind:"remarks",subColumns:null}],rows:[
+       {no:1,cells:[{kind:"text",text:"1st Floor Admin Office"},{kind:"result",result:reportResult("good"),remark:null},{kind:"result",result:reportResult("good"),remark:null},{kind:"remarks",text:null}]},
+       {no:2,cells:[{kind:"text",text:"Finger Print"},{kind:"result",result:reportResult("not_good"),remark:"test"},{kind:"result",result:reportResult("complete_repair"),remark:"test1"},{kind:"remarks",text:null}]}
+     ]}
+ ]};
+ vm.systemPages=[fm,roller];
+ vm.summary=[fm,roller].map(page=>({no:page.no,systemKey:page.systemKey,label:page.title,location:page.location,frequency:null,condition:page.condition,conditionDetail:page.conditionDetail}));
+ const pages=await extractPdfText(await renderReportViewModelPdf(vm));
+ assert.equal(pages.length,5,"two photo-backed systems should fit in three detail pages");
+ assert.ok(pages[3]?.includes("FM200 SYSTEM") && pages[3]?.includes("PHOTO EVIDENCE") && pages[3]?.includes("INSPECTION DATE"),"FM200 strip stays with photos");
+ assert.ok(pages[4]?.includes("FIRE RATED ROLLER SHUTTER") && pages[4]?.includes("PHOTO EVIDENCE") && pages[4]?.includes("INSPECTION DATE"),"Roller strip stays with photos");
+ for(const value of ["2026-09-28","Zone 1","Inspector A"])assert.ok(pages[4]?.includes(value),`Roller header prints ${value}`);
 });
 test("legacy switch still produces the original portrait PDFKit report",async()=>{
  const old=process.env.REPORT_RENDERER;process.env.REPORT_RENDERER='legacy';try {const pdf=await renderFinalServiceReportPdf({customer:'Legacy',site:'Site',serviceDate:'2026-09-18',jobReference:'Legacy',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[]});const page=(await PDFDocument.load(pdf)).getPage(0);assert.ok(page.getHeight()>page.getWidth());assert.match(pdf.toString('latin1'),/PDFKit/);}finally{if(old===undefined)delete process.env.REPORT_RENDERER;else process.env.REPORT_RENDERER=old;}

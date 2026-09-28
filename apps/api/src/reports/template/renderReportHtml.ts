@@ -52,6 +52,9 @@ export function quantity(block: Extract<ReportBlock, {kind: "quantity"}>): strin
 export function comments(block: Extract<ReportBlock, {kind: "comments"}>): string {
   return `<div class="blk">${blockHead(block)}<div class="remark-box" style="margin:0;min-height:20pt;white-space:pre-wrap">${e(block.text)}</div></div>`;
 }
+function rollerInspectionHeader(block: Extract<ReportBlock, {kind: "checklist"}>): string {
+  return `<div class="blk">${blockHead(block)}<table class="blk-checklist"><thead><tr>${block.rows.map(row => `<th>${e(row.label)}</th>`).join("")}</tr></thead><tbody><tr>${block.rows.map(row => `<td>${e(row.reading)}</td>`).join("")}</tr></tbody></table></div>`;
+}
 const partial = (block: ReportBlock): string => {
   switch (block.kind) {
     case "checklist": return checklist(block);
@@ -86,7 +89,9 @@ function blocks(page: SystemPage): string {
   for (let i = 0; i < list.length; i++) {
     const first = list[i], next = list[i+1], third = list[i+2];
     // The approved Fire Alarm frame stacks charger/timer beside the function keys.
-    if (/charger.*batter/i.test(first.title) && next && /timer/i.test(next.title) && third && /main function/i.test(third.title)) {
+    if (page.systemKey === "fire_rated_roller_shutter" && first.kind === "checklist" && first.key === "inspection_header_fields") {
+      parts.push(rollerInspectionHeader(first));
+    } else if (/charger.*batter/i.test(first.title) && next && /timer/i.test(next.title) && third && /main function/i.test(third.title)) {
       parts.push(`<div class="two-col"><div>${partial(first)}${partial(next)}</div>${partial(third)}</div>`); i += 2;
     } else if (next && short(first) && short(next)) { parts.push(`<div class="two-col">${partial(first)}${partial(next)}</div>`); i++; }
     else parts.push(partial(first));
@@ -113,7 +118,7 @@ function system(page: SystemPage, last: boolean): string {
   }).join("")}</div>` : "";
   const strip = `<table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>${e(page.inspection.date)}</b></td><td class="lbl">INSPECTED BY</td>${page.inspection.inspectedBy.map(name => `<td><b>${e(name)}</b></td>`).join("")}<td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td>${page.inspection.inspectedBy.map(() => '<td class="sig"></td>').join("")}<td class="sig"></td></tr></table>`;
   const review = page.review ? `<div style="margin:8pt 0;font-size:8pt"><b>Submitted by Technician:</b> ${e(page.review.submittedBy ?? "Identity unavailable")} · <b>${page.review.status === "reviewed" ? "Reviewed by Supervisor:" : "Pending Review"}</b>${page.review.status === "reviewed" ? ` ${e(page.review.reviewedBy ?? "Identity unavailable")}${page.review.reviewedAt ? ` · ${e(page.review.reviewedAt)}` : ""}` : ""}</div>` : "";
-  return `<section class="page system-page"><div class="system-title-first">${firstTitle}</div><table class="system-flow"><thead><tr><td style="padding:0;border:0">${continuationTitle}</td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0">${advisory}${blocks(page)}${parts ? `<div class="two-col">${remark}${parts}</div>` : remark}${commentBox}${photos}${review}${strip}${last ? '<div style="margin-top:22pt;text-align:center;font-size:7.8pt;color:#555;letter-spacing:.2em">— END OF REPORT —</div>' : ""}</td></tr></tbody></table></section>`;
+  return `<section class="page system-page"><div class="system-title-first">${firstTitle}</div><table class="system-flow"><thead><tr><td style="padding:0;border:0">${continuationTitle}</td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0">${advisory}${blocks(page)}${parts ? `<div class="two-col">${remark}${parts}</div>` : remark}${commentBox}${photos}${review}${strip}${last ? '<div style="margin-top:6pt;text-align:center;font-size:7.8pt;color:#555;letter-spacing:.2em">— END OF REPORT —</div>' : ""}</td></tr></tbody></table></section>`;
 }
 /** Cached CSS/cover markup plus a live local-disk logo lookup; does not mutate vm, consult the clock, or access the network. */
 export function renderReportHtml(vm: ReportViewModel, pageMap?: Map<string, number>): string {

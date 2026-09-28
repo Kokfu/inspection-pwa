@@ -94,14 +94,14 @@
 
   .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; margin: 0 0 8pt; }
   .photo { border: 0.6pt solid var(--rule); break-inside: avoid; }
-  .photo .img { height: 46mm; background: repeating-linear-gradient(135deg, #e9ecf0 0 8px, #f5f6f8 8px 16px); display: flex; align-items: center; justify-content: center; color: #8a93a0; font-size: 8pt; letter-spacing: .1em; }
+  .photo .img { height: 36mm; background: repeating-linear-gradient(135deg, #e9ecf0 0 8px, #f5f6f8 8px 16px); display: flex; align-items: center; justify-content: center; color: #8a93a0; font-size: 8pt; letter-spacing: .1em; }
   .photo .cap { border-top: 0.6pt solid var(--rule); padding: 3pt 5pt; font-size: 7.4pt; }
   .photo .cap b { display: block; font-size: 7.6pt; }
 
   .strip { margin-top: 6pt; break-inside: avoid; }
-  .strip td { height: 20pt; }
+  .strip td { height: 18pt; }
   .strip td.lbl { width: 110pt; }
-  .strip .sig { height: 26pt; }
+  .strip .sig { height: 23pt; }
 
   /* ---------- cover ---------- */
   .letterhead { display: grid; grid-template-columns: 70pt 1fr 150pt; align-items: center; gap: 12pt; border-bottom: 2pt solid var(--band); padding-bottom: 7pt; }
