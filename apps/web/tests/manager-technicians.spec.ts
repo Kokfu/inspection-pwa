@@ -30,6 +30,33 @@ test("create/list/deactivate with cancel confirmation preventing the write", asy
   await expect(row.getByRole("button", { name: "Deactivate" })).toHaveCount(0);
 });
 
+test("permanent removal requires an inactive account and exact username confirmation", async ({ page }) => {
+  let technician: { id: number; username: string; displayName: null; role: string; isActive: boolean; createdAt: string; supervisorIds: number[] } | null = { id: 12, username: "unused-tech", displayName: null, role: "inspector", isActive: false, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] };
+  let deletions = 0;
+  await page.route("**/api/manager/technicians**", async (route) => {
+    if (route.request().method() === "DELETE") {
+      deletions++;
+      expect(route.request().postDataJSON()).toEqual({ username: "unused-tech" });
+      await route.fulfill({ json: { removedId: 12, disposition: "hidden" } });
+      technician = null;
+    } else await route.fulfill({ json: { technicians: technician ? [technician] : [] } });
+  });
+  await page.goto("/tests/manager-technicians.html");
+  await page.getByLabel("Show deactivated technicians (1)").check();
+  const button = page.getByRole("button", { name: "Permanently remove" });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await button.click();
+  expect(deletions).toBe(0);
+  page.once("dialog", (dialog) => dialog.accept("wrong"));
+  await button.click();
+  expect(deletions).toBe(0);
+  page.once("dialog", (dialog) => dialog.accept("unused-tech"));
+  await button.click();
+  await expect(page.getByText("No technicians.")).toBeVisible();
+  await expect(page.getByText("Technician removed from staff lists; historical records remain.")).toBeVisible();
+  expect(deletions).toBe(1);
+});
+
 test("clearing a person name accepts the server's null and refreshes the row", async ({ page }) => {
   const technician = { id: 12, username: "new-technician", displayName: "Alice Tan" as string | null, role: "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] };
   const writes: Array<string | null> = [];

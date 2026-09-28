@@ -1,6 +1,7 @@
 import { requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { visitHasCorrections } from "./managerCorrections.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
+import type { PoolClient } from "pg";
 import { auditLog } from "../audit/auditLog.js";
 import { pool } from "../db/pool.js";
 import {
@@ -357,6 +358,51 @@ inspectionJobsRouter.post(
     }
   }
 );
+
+inspectionJobsRouter.delete("/inspection-jobs/:jobId", requireRole("inspector"), async (request, response, next) => {
+  const jobId = request.params.jobId;
+  if (typeof jobId !== "string" || !uuidPattern.test(jobId)) { response.status(400).json({ error: "INVALID_JOB_ID" }); return; }
+  let client: PoolClient | undefined;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const job = (await client.query<{ status: string }>(
+      `SELECT status FROM inspection_jobs WHERE id=$1 AND created_by_user_id=$2
+        AND technician_visible=true AND master_template_version_id IS NOT NULL AND COALESCE(is_sample,false)=false FOR UPDATE`,
+      [jobId, request.currentUser!.id]
+    )).rows[0];
+    if (!job) {
+      const prior = (await client.query<{ exists: boolean }>(`SELECT EXISTS (
+        SELECT 1 FROM audit_events WHERE actor_user_id=$2 AND action='technician_service_visit_deleted'
+          AND entity_type='inspection_job' AND entity_id=$1 AND result='success'
+      ) AS exists`, [jobId, request.currentUser!.id])).rows[0]?.exists;
+      await client.query("ROLLBACK");
+      if (prior) { response.json({ jobId, result: "already_deleted" }); return; }
+      response.status(404).json({ error: "JOB_NOT_FOUND" }); return;
+    }
+    if (job.status !== "open") { await client.query("ROLLBACK"); response.status(409).json({ error: "SERVICE_VISIT_NOT_OPEN" }); return; }
+    const accepted = (await client.query<{ exists: boolean }>(`SELECT EXISTS (
+      SELECT 1 FROM master_system_form_instances instance
+        JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id WHERE inspection.job_id=$1
+      UNION ALL SELECT 1 FROM inspections WHERE job_id=$1
+      UNION ALL SELECT 1 FROM staged_inspection_evidence WHERE job_id=$1 AND status='accepted'
+    ) AS exists`, [jobId])).rows[0]?.exists;
+    if (accepted !== false) { await client.query("ROLLBACK"); response.status(409).json({ error: "SERVICE_VISIT_HAS_ACCEPTED_RECORDS" }); return; }
+    const pendingEvidence = (await client.query<{ exists: boolean }>(`SELECT EXISTS (
+      SELECT 1 FROM inspection_evidence_reservations WHERE job_id=$1
+      UNION ALL SELECT 1 FROM staged_inspection_evidence WHERE job_id=$1
+    ) AS exists`, [jobId])).rows[0]?.exists;
+    if (pendingEvidence !== false) { await client.query("ROLLBACK"); response.status(409).json({ error: "SERVICE_VISIT_HAS_PENDING_EVIDENCE" }); return; }
+    await client.query("DELETE FROM master_system_inspections WHERE job_id=$1", [jobId]);
+    await client.query("DELETE FROM inspection_jobs WHERE id=$1", [jobId]);
+    await client.query(`INSERT INTO audit_events(actor_user_id,action,entity_type,entity_id,result)
+      VALUES($1,'technician_service_visit_deleted','inspection_job',$2,'success')`, [request.currentUser!.id, jobId]);
+    await client.query("COMMIT");
+    response.setHeader("Cache-Control", "private, no-store");
+    response.json({ jobId, result: "deleted" });
+  } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+  finally { client?.release(); }
+});
 
 inspectionJobsRouter.get("/inspection-jobs/:jobId", requireRole("admin", "inspector"),
   requireTechnicianOwnership("job", (request) => request.params.jobId),

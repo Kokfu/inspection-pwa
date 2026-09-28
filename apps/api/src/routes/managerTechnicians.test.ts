@@ -28,6 +28,9 @@ test("all technician routes reject missing/inspector authority and invalid input
     }
     for (const id of ["uuid", "0", "-1", "1.5", "999999999999999999999"]) assert.equal((await request(`/manager/technicians/${id}/deactivate`, "POST")).status, 400);
     assert.equal((await request("/manager/technicians/2/deactivate", "POST", { isActive: true })).status, 400);
+    for (const role of ["", "inspector"]) assert.equal((await request("/manager/technicians/2", "DELETE", { username: "tech" }, role)).status, role ? 403 : 401);
+    for (const id of ["uuid", "0", "-1", "1.5", "999999999999999999999"]) assert.equal((await request(`/manager/technicians/${id}`, "DELETE", { username: "tech" })).status, 400);
+    for (const body of [null, {}, { username: 2 }, { username: "tech", extra: true }]) assert.equal((await request("/manager/technicians/2", "DELETE", body)).status, 400);
     assert.equal(touched, false);
   });
 });

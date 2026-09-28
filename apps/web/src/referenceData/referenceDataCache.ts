@@ -133,6 +133,17 @@ export async function cacheCanonicalInspectionJob(userId: number, job: Inspectio
   });
 }
 
+/** Remove a server-confirmed deleted visit from this user's offline job list. */
+export async function removeCachedInspectionJob(userId: number, jobId: string) {
+  const key = inspectionJobsKey(userId);
+  const fetchedAt = new Date().toISOString();
+  await localDatabase.transaction("rw", localDatabase.referenceData, async () => {
+    const existing = await localDatabase.referenceData.get(key);
+    const jobs = Array.isArray(existing?.payload) ? existing.payload as InspectionJob[] : [];
+    await localDatabase.referenceData.put(entry(key, jobs.filter((job) => job.id !== jobId), fetchedAt, fetchedAt));
+  });
+}
+
 export async function getCachedInspectionCatalog() {
   const payload = ((await localDatabase.referenceData.get(catalogKey))
     ?? (await localDatabase.referenceData.get(legacyCatalogKey)))?.payload;

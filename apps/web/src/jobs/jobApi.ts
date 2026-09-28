@@ -60,6 +60,21 @@ export async function createServiceVisit(input: {
   return data.job;
 }
 
+export async function deleteUnstartedServiceVisit(jobId: string): Promise<void> {
+  const response = await fetch(`/api/inspection-jobs/${encodeURIComponent(jobId)}`, {
+    method: "DELETE", credentials: "same-origin", cache: "no-store"
+  });
+  if (response.status === 401 || response.status === 403) throw new Error("Reconnect and verify your session before deleting this service visit.");
+  let data: unknown;
+  try { data = await response.json(); } catch { throw new Error("Service visit deletion could not be confirmed."); }
+  if (!response.ok) throw new Error(responseMessage(data, "Service visit could not be deleted."));
+  if (!data || typeof data !== "object" || Array.isArray(data)
+    || (data as { jobId?: unknown }).jobId !== jobId
+    || !["deleted", "already_deleted"].includes(String((data as { result?: unknown }).result))) {
+    throw new Error("Service visit deletion could not be confirmed.");
+  }
+}
+
 export async function closeInspectionJob(jobId: string): Promise<{
   outcome: "completed" | "already-completed" | "incomplete";
   completion: JobCompletion;

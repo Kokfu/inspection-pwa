@@ -65,7 +65,7 @@ export function createManagerRemindersRouter(database: Pick<Pool, "query" | "con
       if (input.email !== null && !validEmail(input.email)) throw new ReminderError("INVALID_EMAIL", "Email address is invalid.");
       const email = input.email === null ? null : (input.email as string).trim().toLowerCase();
       client = await database.connect(); await client.query("BEGIN");
-      const updated = await client.query("UPDATE users SET reminder_email=$2,updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') RETURNING id", [id, email]);
+      const updated = await client.query("UPDATE users SET reminder_email=$2,updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL RETURNING id", [id, email]);
       if (!updated.rows[0]) throw new ReminderError("STAFF_NOT_FOUND", "Staff member was not found.", 404);
       await audit(client, request.currentUser!.id, "service_due_staff_email_updated", id);
       await client.query("COMMIT");
@@ -75,7 +75,7 @@ export function createManagerRemindersRouter(database: Pick<Pool, "query" | "con
   });
   router.get("/manager/reminders/staff", admin, async (_request, response, next) => {
     try {
-      const staff = await database.query(`SELECT id::int AS id,username,display_name AS "displayName",role,is_active AS "isActive",reminder_email AS email FROM users WHERE role IN ('inspector','supervisor') ORDER BY username`);
+      const staff = await database.query(`SELECT id::int AS id,username,display_name AS "displayName",role,is_active AS "isActive",reminder_email AS email FROM users WHERE role IN ('inspector','supervisor') AND hidden_at IS NULL ORDER BY username`);
       response.setHeader("Cache-Control", "private, no-store"); response.json({ staff: staff.rows });
     } catch (error) { next(error); }
   });

@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/styles/app.css"></head><body><div id="app"></div><script type="module">
+import React from "react";
+import {createRoot} from "react-dom/client";
+import {TechnicianHome} from "/src/jobs/TechnicianHome.tsx";
+const jobId="30000000-0000-4000-8000-000000000101";
+const system={enabledSystemId:"30000000-0000-4000-8000-000000000102",systemKey:"hose_reel",displayName:"Hose Reel",sortOrder:1,definitionStatus:"confirmed",zones:[],locations:[]};
+const job={id:jobId,reference:"VISIT-REMOVE",title:"Unstarted visit",status:"open",createdAt:"2026-09-28T00:00:00.000Z",configurationSnapshot:{schemaVersion:1,customer:{id:"30000000-0000-4000-8000-000000000103",code:"C",displayName:"Customer"},configuration:{revisionId:"30000000-0000-4000-8000-000000000104",revisionNumber:1},template:{id:"30000000-0000-4000-8000-000000000105",code:"MFE-FSSR",name:"Master",version:7},enabledSystems:[system]},completion:{jobId,jobStatus:"open",eligible:false,checkedAt:"2026-09-28T00:00:00.000Z",requiredUnitCount:1,acceptedUnitCount:0,completedAt:null,completedBy:null,systems:[]}};
+const noop=()=>{},asyncNoop=async()=>{};
+const root=createRoot(document.querySelector("#app"));
+window.deleted=[];
+window.renderVisit=(options={})=>root.render(React.createElement(TechnicianHome,{jobs:[options.closed?{...job,status:"closed"}:job],authState:{status:options.offline?"offline-unverified":"verified",user:{id:1,username:"tech",role:"inspector"}},inspections:[],masterSystemInspections:options.localDraft?[{jobId,jobSystemKey:`${jobId}:hose_reel`,systemKey:"hose_reel",syncStatus:"Draft"}]:[],masterSystemInspectionGroups:[],masterSystemFormInstances:[],inspectionAttachments:[],serverMasterSystemInspections:[],serverMasterSystemProgressState:options.progressFailed?"failed":"loaded",loading:false,message:"",selectedJobId:jobId,onRefresh:asyncNoop,onSync:asyncNoop,onCloseJob:asyncNoop,onDeleteJob:async item=>window.deleted.push(item.id),onViewFinalReport:noop,onNewServiceVisit:noop,onSelectJob:noop,onSelectSystem:noop,onBackToJobs:noop,onBackToSystems:noop,onOpenHoseReel:noop,onOpenCo2:noop,onOpenFm200:noop,onOpenAutomaticSprinkler:noop,onOpenDryWetRiser:noop,onOpenFireAlarm:noop,onOpenHydrant:noop,onOpenPortableFireExtinguisher:noop,onOpenSmokeVentilation:noop,onOpenFireIntercom:noop}));
+window.renderVisit();
+</script></body></html>

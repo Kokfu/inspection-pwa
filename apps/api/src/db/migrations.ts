@@ -134,6 +134,9 @@ const technicianSupervisorAssignmentsMigrationUrl = new URL(
 const serviceDueRemindersMigrationUrl = new URL(
   "../../migrations/043_service_due_reminders.sql", import.meta.url
 );
+const hiddenTechnicianAccountsMigrationUrl = new URL(
+  "../../migrations/044_hidden_technician_accounts.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -586,6 +589,12 @@ export async function runMigrations(
   );
   if (!serviceDueReminders.rows[0]?.exists) {
     await database.query(await readFile(serviceDueRemindersMigrationUrl, "utf8"));
+  }
+  const hiddenTechnicianAccounts = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='hidden_at') AS exists`
+  );
+  if (!hiddenTechnicianAccounts.rows[0]?.exists) {
+    await database.query(await readFile(hiddenTechnicianAccountsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

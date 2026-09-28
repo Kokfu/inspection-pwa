@@ -36,6 +36,9 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
     method: body === undefined ? "GET" : "POST", headers: { "x-actor": String(actor), ...(body instanceof FormData ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body)
   });
+  const removeVisit = (jobId: string, actor = 0) => fetch(origin + `/inspection-jobs/${jobId}`, {
+    method: "DELETE", headers: { "x-actor": String(actor) }
+  });
   const visit = async (actor: number) => {
     const result = await request("/inspection-jobs/service-visits", actor, { requestId: id(), customerId: "00000000-0000-4000-8000-000000000750", siteId: "00000000-0000-4000-8000-000000000755", systemKeys: ["portable_fire_extinguisher"] });
     assert.equal(result.status, 201, await result.clone().text()); return (await result.json()).job.id as string;
@@ -69,10 +72,43 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
       assert.equal((await request(`/inspection-jobs/${a}`,2)).status,200);
       assert.equal((await request(`/inspection-jobs/${legacy}`,2)).status,200);
     });
+    await t.test("technician deletes only their own unfinished visit and exact retry succeeds", async () => {
+      const removable = await visit(0);
+      assert.equal((await removeVisit(removable, 1)).status, 404);
+      assert.equal((await removeVisit(missing)).status, 404);
+      assert.equal((await removeVisit(removable, 2)).status, 403);
+      assert.equal((await removeVisit("invalid")).status, 400);
+      const deleted = await removeVisit(removable);
+      assert.equal(deleted.status, 200, await deleted.clone().text());
+      assert.deepEqual(await deleted.json(), { jobId: removable, result: "deleted" });
+      assert.equal((await database.query("SELECT 1 FROM inspection_jobs WHERE id=$1", [removable])).rowCount, 0);
+      assert.deepEqual(await (await removeVisit(removable)).json(), { jobId: removable, result: "already_deleted" });
+      assert.equal((await removeVisit(removable, 1)).status, 404);
+      assert.equal((await database.query("SELECT 1 FROM audit_events WHERE actor_user_id=$1 AND action='technician_service_visit_deleted' AND entity_id=$2 AND result='success'", [users[0].id, removable])).rowCount, 1);
+      const closed = await visit(0);
+      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, report_number='OWNERSHIP-DELETE-CLOSED' WHERE id=$1", [closed, users[0].id]);
+      const refused = await removeVisit(closed);
+      assert.equal(refused.status, 409);
+      assert.deepEqual(await refused.json(), { error: "SERVICE_VISIT_NOT_OPEN" });
+      assert.equal((await database.query("SELECT 1 FROM inspection_jobs WHERE id=$1", [closed])).rowCount, 1);
+      const pending = await visit(0);
+      await database.query(`INSERT INTO inspection_evidence_reservations(inspection_client_uuid,job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256,reserved_by_user_id)
+        SELECT $1,id,'fire_alarm_detector',master_template_version_id,7,$2,$3 FROM inspection_jobs WHERE id=$4`, [id(), "a".repeat(64), users[0].id, pending]);
+      const pendingRefusal = await removeVisit(pending);
+      assert.equal(pendingRefusal.status, 409);
+      assert.deepEqual(await pendingRefusal.json(), { error: "SERVICE_VISIT_HAS_PENDING_EVIDENCE" });
+      assert.equal((await database.query("SELECT 1 FROM inspection_jobs WHERE id=$1", [pending])).rowCount, 1);
+    });
     const group = id(), form = id();
     await database.query("INSERT INTO master_system_inspections(id,job_id,system_key) VALUES($1,$2,'portable_fire_extinguisher')", [group,a]);
     await database.query(`INSERT INTO master_system_form_instances(id,inspection_group_id,client_uuid,instance_key,display_sequence,master_template_version_id,customer_configuration_revision_id,snapshot_schema_version,inspection_snapshot,response_schema_version,response_payload,request_fingerprint,status,performed_at,synced_by_user_id)
       SELECT $1,$2,$1,'primary',1,master_template_version_id,customer_configuration_revision_id,1,'{}',1,'{}',$3,'submitted',now(),$4 FROM inspection_jobs WHERE id=$5`, [form,group,"a".repeat(64),users[0].id,a]);
+    await t.test("accepted work blocks deletion without changing history", async () => {
+      const refused = await removeVisit(a);
+      assert.equal(refused.status, 409);
+      assert.deepEqual(await refused.json(), { error: "SERVICE_VISIT_HAS_ACCEPTED_RECORDS" });
+      assert.equal((await database.query("SELECT 1 FROM master_system_form_instances WHERE id=$1", [form])).rowCount, 1);
+    });
     for (const route of ["hose-reel-inspections","co2-inspections","wet-chemical-inspections","fire-alarm-inspections","dry-wet-riser-inspections","master-system-inspections"]) {
       await t.test(`GET ${route}/:clientUuid`, () => deny((key) => `/${route}/${key}`,form));
     }

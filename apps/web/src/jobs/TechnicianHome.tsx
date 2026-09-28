@@ -87,6 +87,7 @@ type TechnicianHomeProps = {
   onRefresh: () => Promise<void>;
   onSync: () => Promise<void>;
   onCloseJob: (job: InspectionJob) => Promise<void>;
+  onDeleteJob: (job: InspectionJob) => Promise<void>;
   onViewFinalReport: (job: InspectionJob) => void;
   onNewServiceVisit: () => void;
   onSelectJob: (job: InspectionJob) => void;
@@ -122,7 +123,7 @@ export function TechnicianHome({
   selectedSystemKey,
   onRefresh,
   onSync,
-  onCloseJob, onViewFinalReport, onNewServiceVisit,
+  onCloseJob, onDeleteJob, onViewFinalReport, onNewServiceVisit,
   onSelectJob,
   onSelectSystem,
   onBackToJobs,
@@ -246,6 +247,14 @@ export function TechnicianHome({
     return { complete, total: applicable.length };
   };
   const selectedJobProgress = selectedJob ? jobProgress(selectedJob) : undefined;
+  const selectedHasDeviceWork = selectedJob ? inspections.some((record) => record.jobId === selectedJob.id)
+    || masterSystemInspections.some((record) => record.jobId === selectedJob.id)
+    || masterSystemInspectionGroups.some((record) => record.jobId === selectedJob.id)
+    || masterSystemFormInstances.some((record) => record.jobId === selectedJob.id) : false;
+  const canDeleteSelectedJob = !!selectedJob && selectedJob.status === "open" && canUseServer && !loading
+    && serverMasterSystemProgressState === "loaded" && !selectedHasDeviceWork
+    && systems.length > 0 && systems.every((system) => progressFor(selectedJob.id, system.systemKey) === "Not Started")
+    && selectedJob.completion?.acceptedUnitCount === 0;
   const operationalMessage = message && !isRoutineJobCountMessage(message, jobs.length)
     ? technicianOperationalMessage(message)
     : undefined;
@@ -338,6 +347,12 @@ export function TechnicianHome({
               <div className="inline-actions"><button type="button" onClick={() => onViewFinalReport(selectedJob)}>View Final Report</button></div>
             </div>
           ) : null}
+          {selectedJob.status === "open" ? <div className="inline-actions">
+            <button type="button" className="secondary-command" disabled={!canDeleteSelectedJob} onClick={() => {
+              if (window.confirm(`Permanently delete service visit ${selectedJob.reference}? This cannot be undone.`)) void onDeleteJob(selectedJob);
+            }}>Delete unfinished visit</button>
+            {!canDeleteSelectedJob ? <span className="support-metadata">Deletion is available online only before inspection work starts. Existing work must be preserved.</span> : null}
+          </div> : null}
         </div>
         {selectedJob.status === "open" && selectedJob.completion?.eligible ? (
           <section className="job-completion job-completion--ready" aria-labelledby="job-completion-title">

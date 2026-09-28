@@ -188,6 +188,11 @@ export async function deactivateManagerTechnician(id: number): Promise<ManagerTe
   if (!isTechnician(result) || result.id !== id || result.isActive) unavailable();
   return result;
 }
+export async function deleteManagerTechnician(id: number, username: string): Promise<"deleted" | "hidden"> {
+  const result = await managerRequest<Record<string, unknown>>(`/api/manager/technicians/${id}`, "DELETE", null, { username });
+  if (result.removedId !== id || (result.disposition !== "deleted" && result.disposition !== "hidden")) unavailable();
+  return result.disposition;
+}
 export async function saveCustomerNextServiceDueDate(id: string, nextServiceDueDate: string | null): Promise<ManagerCustomer> {
   const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/next-service-due-date`, "PUT", "customer", { nextServiceDueDate });
   if (!isManagerCustomer(result) || result.customer.id !== id || result.customer.nextServiceDueDate !== nextServiceDueDate) unavailable();

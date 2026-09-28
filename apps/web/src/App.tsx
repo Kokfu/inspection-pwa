@@ -158,7 +158,7 @@ import {
   type ServerSummaryRefreshToken
 } from "./jobs/serverSummaryRefreshGuard";
 import type { InspectionJob, JobSystemSnapshot } from "./jobs/jobTypes";
-import { closeInspectionJob } from "./jobs/jobApi";
+import { closeInspectionJob, deleteUnstartedServiceVisit } from "./jobs/jobApi";
 import { TestRecordForm } from "./records/TestRecordForm";
 import { TestRecordList } from "./records/TestRecordList";
 import {
@@ -181,6 +181,7 @@ import {
   getCachedInspectionCatalog,
   getReferenceCacheSummary,
   cacheCanonicalInspectionJob,
+  removeCachedInspectionJob,
   refreshCachedInspectionJobs,
   refreshInspectionReferenceData
 } from "./referenceData/referenceDataCache";
@@ -1372,6 +1373,20 @@ export function App() {
     }
   }
 
+  async function handleDeleteJob(job: InspectionJob) {
+    if (!canUseServer || !currentUser) { setJobMessage("Reconnect and verify your session before deleting this service visit."); return; }
+    setJobLoading(true);
+    try {
+      await deleteUnstartedServiceVisit(job.id);
+      await removeCachedInspectionJob(currentUser.id, job.id);
+      setJobs((current) => current.filter((candidate) => candidate.id !== job.id));
+      navigate({ name: "jobs" });
+      await refreshServerWorkspace(currentUser, authOperationGeneration.current);
+    } catch (error) {
+      setJobMessage(error instanceof Error ? error.message : "Service visit could not be deleted.");
+    } finally { setJobLoading(false); }
+  }
+
   async function handleLogin(username: string, password: string) {
     const operation = beginExplicitAuthOperation();
     try {
@@ -2299,6 +2314,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               }}
               onSync={handleSync}
               onCloseJob={handleCloseJob}
+              onDeleteJob={handleDeleteJob}
               onViewFinalReport={(job) => navigate({ name: "final-report", jobId: job.id })}
               onNewServiceVisit={() => navigate({ name: "new-service-visit" })}
               onSelectJob={(job) => navigate({ name: "job", jobId: job.id })}

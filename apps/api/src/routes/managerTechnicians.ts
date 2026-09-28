@@ -54,7 +54,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
         `SELECT ${technicianColumns}, ${assignedSupervisorColumns} FROM users
          WHERE ${supervisor
     ? "role='inspector' AND EXISTS (SELECT 1 FROM technician_supervisor_assignments assignment WHERE assignment.technician_id=users.id AND assignment.supervisor_id=$1 AND assignment.archived_at IS NULL)"
-    : "role IN ('inspector','supervisor')"}
+    : "role IN ('inspector','supervisor')"} AND hidden_at IS NULL
          ORDER BY username, id`,
         supervisor ? [request.currentUser!.id] : []
       );
@@ -77,7 +77,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       const supervisorId = numericUserId((body as Record<string, unknown>).supervisorId, "INVALID_SUPERVISOR_ID");
       client = await database.connect();
       await client.query("BEGIN");
-      const users = await client.query<{ id: string; role: UserRole }>("SELECT id, role FROM users WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE", [[technicianId, supervisorId]]);
+      const users = await client.query<{ id: string; role: UserRole }>("SELECT id, role FROM users WHERE id = ANY($1::bigint[]) AND hidden_at IS NULL ORDER BY id FOR UPDATE", [[technicianId, supervisorId]]);
       const roles = new Map(users.rows.map((row) => [Number(row.id), row.role]));
       if (!roles.has(technicianId)) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
       if (!roles.has(supervisorId)) throw new ManagerTechnicianError("SUPERVISOR_NOT_FOUND", "Supervisor was not found.", 404);
@@ -170,7 +170,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       const name = displayName((body as Record<string, unknown>).displayName);
       client = await database.connect();
       await client.query("BEGIN");
-      const result = await client.query(`UPDATE users SET display_name=$2, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') RETURNING ${technicianColumns}`, [id, name]);
+      const result = await client.query(`UPDATE users SET display_name=$2, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL RETURNING ${technicianColumns}`, [id, name]);
       const technician = result.rows[0];
       if (!technician) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
       await audit(client, request.currentUser!.id, "manager_technician_display_name_updated", "user", String(technician.id), `displayName=${name ?? "(cleared)"}`);
@@ -191,12 +191,49 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       }
       client = await database.connect();
       await client.query("BEGIN");
-      const result = await client.query(`UPDATE users SET is_active=false, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') RETURNING ${technicianColumns}`, [id]);
+      const result = await client.query(`UPDATE users SET is_active=false, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL RETURNING ${technicianColumns}`, [id]);
       const technician = result.rows[0];
       if (!technician) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
       await audit(client, request.currentUser!.id, "manager_technician_deactivated", "user", String(technician.id), `role=${technician.role}`);
       await client.query("COMMIT");
       response.json({ technician });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+  router.delete("/manager/technicians/:technicianId", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const id = numericUserId(request.params.technicianId, "INVALID_TECHNICIAN_ID");
+      const body: unknown = request.body;
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1
+        || typeof (body as Record<string, unknown>).username !== "string") {
+        throw new ManagerTechnicianError("INVALID_REQUEST", "Confirm the technician username before deletion.");
+      }
+      const username = (body as { username: string }).username;
+      client = await database.connect();
+      await client.query("BEGIN");
+      const target = (await client.query<{ username: string; role: UserRole; is_active: boolean }>(
+        "SELECT username, role, is_active FROM users WHERE id=$1 AND role='inspector' AND hidden_at IS NULL FOR UPDATE", [id]
+      )).rows[0];
+      if (!target) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
+      if (target.is_active) throw new ManagerTechnicianError("TECHNICIAN_ACTIVE", "Deactivate this staff member before deleting the account.", 409);
+      if (username !== target.username) throw new ManagerTechnicianError("USERNAME_MISMATCH", "Username confirmation does not match.", 409);
+      await client.query("SAVEPOINT technician_delete");
+      let disposition: "deleted" | "hidden" = "deleted";
+      try { await client.query("DELETE FROM users WHERE id=$1", [id]); }
+      catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "23503") {
+          await client.query("ROLLBACK TO SAVEPOINT technician_delete");
+          await client.query("UPDATE users SET hidden_at=now(), updated_at=now() WHERE id=$1", [id]);
+          disposition = "hidden";
+        } else {
+          throw error;
+        }
+      }
+      await audit(client, request.currentUser!.id, "manager_technician_removed", "user", String(id), `role=${target.role};disposition=${disposition}`);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ removedId: id, disposition });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
     finally { client?.release(); }
   });

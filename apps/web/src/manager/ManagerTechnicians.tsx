@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createManagerTechnician, deactivateManagerTechnician, loadManagerTechnicians, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
+import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
 
 export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthorityFailure: (error: unknown) => void; onOpen?: (technician: ManagerTechnician) => void }) {
   const [technicians, setTechnicians] = useState<AssignedManagerTechnician[]>([]);
@@ -71,6 +71,13 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "supervisor" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}
+      {!technician.isActive && technician.role === "inspector" && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
+        const confirmation = window.prompt(`Permanently remove ${technician.username} from staff lists? This cannot be undone. Used accounts keep their historical records; unused accounts are deleted. Type the username to confirm.`);
+        if (confirmation === technician.username) void mutate(async () => {
+          const disposition = await deleteManagerTechnician(technician.id, confirmation);
+          setMessage(disposition === "deleted" ? "Unused technician account deleted." : "Technician removed from staff lists; historical records remain.");
+        });
+      }}>Permanently remove</button>}
     </li>)}</ul>
     {!busy && !visibleTechnicians.length && <p className="empty-state">{technicians.length ? "No active technicians." : "No technicians."}</p>}
   </section>;

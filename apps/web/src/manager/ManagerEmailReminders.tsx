@@ -10,6 +10,13 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [staffQuery, setStaffQuery] = useState("");
+  const [submittedStaffQuery, setSubmittedStaffQuery] = useState("");
+  const [staffStatus, setStaffStatus] = useState<"all" | "active" | "inactive">("all");
+  const needle = submittedStaffQuery.toLocaleLowerCase();
+  const visibleStaff = staff.filter((person) =>
+    (staffStatus === "all" || person.isActive === (staffStatus === "active"))
+    && (!needle || [person.displayName, person.username, person.email].some((value) => value?.toLocaleLowerCase().includes(needle))));
   async function refresh(signal?: AbortSignal) {
     const [loaded, people, health] = await Promise.all([loadReminderSettings(signal), loadReminderStaff(signal), loadReminderStatus(signal)]);
     if (signal?.aborted) return;
@@ -49,7 +56,15 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
       <button type="submit" disabled={busy || !sender.trim()}>Save email settings</button>
     </form>}
     {settings && <section aria-label="Staff notification addresses"><h3>Staff notification addresses</h3>
-      <ul className="manager-technician-list">{staff.map((person) => <li key={person.id}><strong>{person.displayName ?? person.username}</strong> · {person.role === "supervisor" ? "Supervisor" : "Technician"} · {person.isActive ? "Active" : "Inactive"}
+      <form className="manager-search-form" role="search" aria-label="Find staff notification address" onSubmit={(event) => { event.preventDefault(); setSubmittedStaffQuery(staffQuery.trim()); }}>
+        <label htmlFor="reminder-staff-search">Name, username, or email</label>
+        <div className="manager-search-row"><input id="reminder-staff-search" type="search" autoComplete="off" maxLength={254} value={staffQuery} onChange={(event) => setStaffQuery(event.target.value)} />
+          <button type="submit">Search</button><button type="button" className="secondary-command" onClick={() => { setStaffQuery(""); setSubmittedStaffQuery(""); }}>Clear</button></div>
+        <label htmlFor="reminder-staff-status">Status</label>
+        <select id="reminder-staff-status" value={staffStatus} onChange={(event) => setStaffStatus(event.target.value as typeof staffStatus)}><option value="all">All staff</option><option value="active">Active only</option><option value="inactive">Inactive only</option></select>
+      </form>
+      {visibleStaff.length === 0 && <p className="empty-state" role="status">{staff.length ? "No staff match this filter." : "No staff notification addresses."}</p>}
+      <ul className="manager-technician-list">{visibleStaff.map((person) => <li key={person.id}><strong>{person.displayName ?? person.username}</strong> · {person.role === "supervisor" ? "Supervisor" : "Technician"} · {person.isActive ? "Active" : "Inactive"}
         <form onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("email"); if (typeof value === "string") void saveEmail(person, value); }}>
           <label>Reminder email<input type="email" name="email" maxLength={254} defaultValue={person.email ?? ""} key={`${person.id}:${person.email}`} /></label>
           <button type="submit" className="secondary-command" disabled={busy}>Save address</button>

@@ -1,5 +1,38 @@
 import { expect, test } from "@playwright/test";
 
+test("staff addresses filter on submit by name, username, email and status", async ({ page }) => {
+  await page.route("**/api/manager/reminders/settings", (route) => route.fulfill({ json: { settings: { senderEmail: "", passwordConfigured: false, passwordMask: "", smtpHost: "smtp.gmail.com", smtpPort: 587, security: "STARTTLS", sendTime: "09:00", timezone: "Asia/Kuala_Lumpur" } } }));
+  await page.route("**/api/manager/reminders/staff", (route) => route.fulfill({ json: { staff: [
+    { id: 12, username: "alpha-tech", displayName: "Alice Tan", role: "inspector", isActive: true, email: "alice@example.test" },
+    { id: 13, username: "bravo-tech", displayName: "Bob Lim", role: "inspector", isActive: false, email: "bob@example.test" }
+  ] } }));
+  await page.route("**/api/manager/reminders/status", (route) => route.fulfill({ json: { configured: false, encryptionUnavailable: false, nextRunDate: "2026-09-29", nextRunTime: "09:00", timezone: "Asia/Kuala_Lumpur", counts: [], deliveries: [], gaps: [] } }));
+  await page.goto("/tests/manager-email-reminders.html");
+  const addresses = page.getByRole("region", { name: "Staff notification addresses" });
+  const rows = addresses.locator("ul.manager-technician-list > li");
+  const search = addresses.getByRole("searchbox", { name: "Name, username, or email" });
+  await expect(rows).toHaveCount(2);
+  await search.fill("ALICE");
+  await expect(rows).toHaveCount(2);
+  await addresses.getByRole("button", { name: "Search" }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("Alice Tan");
+  await search.fill("BRAVO-TECH");
+  await addresses.getByRole("button", { name: "Search" }).click();
+  await expect(rows.first()).toContainText("Bob Lim");
+  await search.fill("alice@EXAMPLE.TEST");
+  await addresses.getByRole("button", { name: "Search" }).click();
+  await expect(rows.first()).toContainText("Alice Tan");
+  await addresses.getByRole("combobox", { name: "Status" }).selectOption("inactive");
+  await expect(addresses.getByText("No staff match this filter.")).toBeVisible();
+  await addresses.getByRole("button", { name: "Clear" }).click();
+  await expect(search).toHaveValue("");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("Bob Lim");
+  await addresses.getByRole("combobox", { name: "Status" }).selectOption("all");
+  await expect(rows).toHaveCount(2);
+});
+
 test("Manager settings starts empty, saves write-only password, and shows delivery alerts on phone and desktop", async ({ page }, testInfo) => {
   let sender = "";
   let configured = false;

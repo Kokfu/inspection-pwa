@@ -3,6 +3,10 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Deactivated technician removal, unfinished visit deletion, and reminder staff search added (uncommitted).**
+
+Admin can permanently remove a deactivated technician from operational staff lists after typing the exact username. Unused accounts are deleted; linked accounts are hidden through forward migration 044, preserving historical identity. Technicians can delete their own unstarted, open service visits while online; the UI protects local drafts and the server rejects accepted work or pending evidence under a job lock. The existing Manager Operations delete remains available for unfinished visits. The Email reminders staff-address section has submitted name/username/email search and All/Active/Inactive filtering. Focused API, disposable PostgreSQL, and browser tests pass.
+
 **Last updated:** 2026-09-28 — **Automatic service-due email and optional recurrence implemented (unstaged, owner acceptance pending).**
 
 Forward migration 043 adds encrypted Gmail sender settings, staff notification email, per-customer/due-date recipient plans, and a deduplicated delivery ledger. The dedicated no-port worker sends at 09:00 Asia/Kuala_Lumpur, checks on startup and every 15 minutes, records failed/uncertain/missed outcomes, and never retries SMTP automatically. Manager Settings exposes configuration and delivery status; Next Upcoming Service manages recipients and optional weekly/monthly routines. Successful visit close advances a routine once in the close transaction; manual customers keep their dates. The historical inspection and IndexedDB paths remain untouched. See `docs/operations/service-due-email.md`. Focused unit, browser, and disposable PostgreSQL tests and the standing historical/V6/V7 gates passed; production Gmail egress and a live approved-recipient send remain for owner acceptance.
@@ -18,8 +22,8 @@ Technician Add Customer, Manager Add Customer, and Customer Configuration cards 
 **Last updated:** 2026-09-28 — **Reviewed features 2–4 of the Supervisor/technician-assignment plan (no code change).**
 
 Feature 2 (technician-to-supervisor assignment scoping, uncommitted): re-verified clean — `apps/api`/`apps/web` typecheck, `managerTechnicians.test.ts` + `managerServiceVisits.test.ts` (18/18), and `technicianSupervisorAssignments.integration.test.ts` + `supervisorRole.integration.test.ts` + `managerTechnicians.integration.test.ts` (3/3) against a disposable Postgres container all pass; `git diff --check` clean. Ready for the owner to review and commit.
-Feature 3 (delete a deactivated technician from the list) is **not implemented as specified**: `ManagerTechnicians.tsx` only got a client-side "Show deactivated technicians" checkbox (unpersisted, hides them from the default view) — there is no delete/hide button, no `hidden_at` column, no server route. Still open.
-Feature 4 (delete a stale in-progress service) is **partially implemented**: `DELETE /manager/service-visits/:jobId` exists and is wired into `ManagerOperations.tsx`'s "Delete" button, admin/manager-only, blocked whenever the visit has any accepted record. There is no technician-facing self-delete of their own in-progress service — that half of the ask is still open.
+Feature 3 (remove a deactivated technician from operational lists) is implemented in the 2026-09-28 update above: linked accounts are hidden for historical integrity, while unused accounts are deleted.
+Feature 4 (delete an unfinished service) is implemented: Manager Operations retains its guarded admin delete; the technician can delete their own unstarted visit from the selected visit page. Both server routes reject accepted records and pending evidence.
 Note: the working tree currently mixes this plan's changes with an unrelated Company Profile edit (next entry below) and unrelated `docs/autopilot/BACKLOG.md` edits (T7/T8/T13, a different tracked workstream) — these will likely need to be committed separately.
 
 **Last updated:** 2026-09-28 — **Manager-editable Company Profile (report letterhead) added (uncommitted).**
