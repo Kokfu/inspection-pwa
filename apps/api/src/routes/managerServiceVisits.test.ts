@@ -267,8 +267,16 @@ test("buildOperationalListQuery parameterizes every filter and never string-inte
   // Neither form binds a parameter for it — it is a static condition, never
   // caller-controlled input.
   assert.match(zero.sql, /archived_at IS NULL/);
+  assert.match(zero.sql, /AS "hasAcceptedRecords"/, "list supplies the exact accepted-record guard for Delete controls");
   const includingArchived = buildOperationalListQuery({ includeArchived: true });
   assert.doesNotMatch(includingArchived.sql, /archived_at IS NULL/);
+
+  const scoped = buildOperationalListQuery({ technicianId: 17, supervisorId: 29, limit: 1 });
+  assert.deepEqual(scoped.values, [17, 29, 2]);
+  assert.match(scoped.sql, /inspection_jobs\.created_by_user_id = \$1::bigint/);
+  assert.match(scoped.sql, /assignment\.supervisor_id = \$2::bigint/);
+  assert.match(scoped.sql, /assignment\.archived_at IS NULL/);
+  assert.ok(!scoped.sql.includes("29"), "supervisor authority must be bound, never interpolated");
 });
 
 type CannedRow = {
@@ -635,5 +643,49 @@ test("PUT /manager/service-visits/:jobId/archive sets archived_at (audit-logged,
 
     const bogus = await put(`/manager/service-visits/not-a-uuid/archive`);
     assert.equal(bogus.status, 400);
+  } finally { await close(server); }
+});
+
+test("DELETE /manager/service-visits/:jobId protects accepted records, deletes clean open visits, retries, and requires admin", async () => {
+  const jobId = "73000000-0000-4000-8000-000000000099";
+  let exists = true;
+  let accepted = true;
+  const writes: string[] = [];
+  const client = {
+    async query(sql: string, values?: unknown[]) {
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+      if (sql.includes("INSERT INTO audit_events")) { if (sql.includes("manager_service_visit_deleted")) { assert.equal(values?.[1], jobId); writes.push(String(values?.[2])); } return { rows: [] }; }
+      assert.equal(values?.[0], jobId, "queries stay scoped to the requested visit");
+      if (sql.includes("SELECT status FROM inspection_jobs")) return { rows: exists ? [{ status: "open" }] : [] };
+      if (sql.includes("master_system_form_instances instance")) return { rows: [{ exists: accepted }] };
+      if (sql.includes("inspection_evidence_reservations")) return { rows: [{ exists: false }] };
+      if (sql.startsWith("DELETE FROM master_system_inspections")) { writes.push(sql); return { rows: [] }; }
+      if (sql.startsWith("DELETE FROM inspection_jobs")) { writes.push(sql); exists = false; return { rows: [] }; }
+      throw new Error(`Unexpected query ${sql}`);
+    },
+    release() {}
+  };
+  const database = { query: client.query, async connect() { return client; } };
+  const app = express();
+  app.use((request, _response, next) => { const role = request.headers["x-role"]; if (role === "admin" || role === "inspector") request.currentUser = { id: 1, username: String(role), role }; next(); });
+  app.use(createManagerServiceVisitsRouter({ database: database as never }));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const { port } = server.address() as { port: number };
+  const remove = (role?: string) => fetch(`http://127.0.0.1:${port}/manager/service-visits/${jobId}`, { method: "DELETE", headers: role ? { "x-role": role } : undefined });
+  try {
+    assert.equal((await remove()).status, 401);
+    assert.equal((await remove("inspector")).status, 403);
+    const rejected = await remove("admin");
+    assert.equal(rejected.status, 409);
+    assert.equal((await rejected.json() as { error: string }).error, "SERVICE_VISIT_HAS_ACCEPTED_RECORDS");
+    assert.equal(exists, true);
+    accepted = false;
+    assert.equal((await remove("admin")).status, 200);
+    assert.equal(exists, false);
+    const retry = await remove("admin");
+    assert.equal(retry.status, 200);
+    assert.equal((await retry.json() as { result: string }).result, "already_deleted");
+    assert.equal(writes.filter((entry) => entry.startsWith("DELETE FROM inspection_jobs")).length, 1);
+    assert.deepEqual(writes.filter((entry) => ["rejected", "deleted", "already_deleted"].includes(entry)), ["rejected", "deleted", "already_deleted"]);
   } finally { await close(server); }
 });

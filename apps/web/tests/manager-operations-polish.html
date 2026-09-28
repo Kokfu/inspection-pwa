@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { TechnicianAddCustomer } from "/src/jobs/TechnicianAddCustomer.tsx";
+import { ManagerAddCustomer } from "/src/manager/ManagerAddCustomer.tsx";
+import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
+import { ManagerCompanyProfile } from "/src/manager/ManagerCompanyProfile.tsx";
+import { ManagerOperations } from "/src/manager/ManagerOperations.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customer = { customer: { id: id(1), code: "C1", displayName: "Alpha Customer" }, sites: [{ id: id(2), code: "S1", displayName: "Main Site" }], configuration: { id: id(3), revision: 1, enabledSystems: [] }, supportedSystems: [{ key: "hose_reel", displayName: "Hose Reel", assignable: true, sortOrder: 1 }] };
+const profile = { legalName: "Example Company", registrationNo: "123", address: "Main Street", tel: "123", fax: "", email: "test@example.com", complaintHotline: "123", verifiedBy: { name: "Person", title: "Manager" }, reportNumberFormat: "SR/{YYYY}/{SEQ4}", confirmed: false, logoFile: "logo.png" };
+const visit = (n, status, customerName, technicianId, accepted) => ({ id: id(n), reference: `SV-${n}`, customer: customerName, site: "Main Site", createdAt: "2026-09-01T00:00:00.000Z", serviceDate: "2026-09-01", serviceTime: "10:00", status, technician: { id: technicianId, displayName: `Tech ${technicianId}` }, systems: ["Hose Reel"], inspectionProgress: { accepted, required: 1 }, hasAcceptedRecords: accepted > 0, completion: { completedAt: null, completedBy: null }, archivedAt: null });
+const visits = [visit(10, "open", "Alpha Customer", 1, 0), visit(11, "open", "Beta Customer", 2, 1), visit(12, "closed", "Alpha Customer", 2, 1)];
+window.deletedVisits = [];
+const json = (data) => new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
+const realFetch = window.fetch;
+window.fetch = (input, init) => { const url = String(input); if (url.includes("/api/manager/service-catalog")) return Promise.resolve(json({ systems: customer.supportedSystems })); if (url.includes("/api/manager/company-profile")) return Promise.resolve(json({ companyProfile: profile })); if (url.includes("/api/manager/service-visits")) return Promise.resolve(json({ serviceVisits: [], nextCursor: null, totalCount: 0 })); return realFetch(input, init); };
+const root = createRoot(document.querySelector("#root"));
+const noop = () => {};
+function render() {
+  const screen = new URLSearchParams(location.search).get("screen");
+  const content = screen === "technician" ? React.createElement(TechnicianAddCustomer, { actorUserId: 1, canUseServer: false, onStartVisit: noop, onBackHome: noop })
+    : screen === "manager" ? React.createElement(ManagerAddCustomer, { onCreated: noop, onAuthorityFailure: noop })
+    : screen === "configuration" ? React.createElement(ManagerCustomerConfigurationDetail, { customer, onSaved: noop, onBack: noop, onOpenService: noop, onViewServiceVisit: noop, onViewFinalReport: noop, onDownloadFinalReport: async () => {}, onAuthorityFailure: noop })
+    : screen === "profile" ? React.createElement(ManagerCompanyProfile, { onAuthorityFailure: noop })
+    : React.createElement(ManagerOperations, { visits, loading: false, message: "", onRefresh: async () => {}, onSelect: noop, onBack: noop, onViewReport: noop, onDownloadReport: async () => {}, onDelete: async (visit) => { window.deletedVisits.push(visit.id); } });
+  root.render(React.createElement("main", { className: "manager-home", style: { boxSizing: "border-box", margin: "0 auto", padding: "24px" } }, content));
+}
+render();
+</script></body></html>

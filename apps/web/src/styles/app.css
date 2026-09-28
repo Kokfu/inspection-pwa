@@ -84,6 +84,7 @@
   /* Touch targets and layout */
   --tap: 44px;
   --page-width: 1120px;
+  --customer-form-width: 720px;
   --sidebar-width: 240px;
 
   color: var(--ink);
@@ -962,6 +963,7 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: var(-
 .new-service-visit { display: grid; width: min(920px, 100%); gap: 8px; }
 .new-service-visit > .back-command { justify-self: start; }
 .setup-card { display: grid; gap: 20px; padding: clamp(20px, 4vw, 34px); border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.setup-card.customer-form-card { box-sizing: border-box; width: 100%; max-width: var(--customer-form-width); margin-inline: auto; padding: clamp(var(--space-5), 4vw, var(--space-8)); }
 .setup-card .workspace-heading { margin-bottom: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .setup-card .workspace-heading p:last-child { margin: 5px 0 0; color: var(--muted); }
 .setup-fields { display: grid; gap: 15px; }
@@ -1355,6 +1357,8 @@ section[aria-labelledby="upcoming-title"] > section > h3, .manager-inline-form h
 .manager-inline-form { padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); }
 .manager-technician-list, .manager-schedule-list { margin: 0; }
 .manager-technician-list li, .manager-schedule-list li { box-sizing: border-box; gap: var(--space-3); padding: 12px 14px; border-color: var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card); }
+.manager-show-archived { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.manager-show-archived input { flex: 0 0 20px; width: 20px; height: 20px; }
 .manager-technician-open { min-height: var(--tap); border-radius: var(--radius-sm); }
 .manager-technician-open:hover { border-color: var(--brand); background: var(--brand-tint); }
 

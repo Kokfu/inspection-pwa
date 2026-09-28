@@ -69,7 +69,7 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
   return <section aria-labelledby="manager-add-customer-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-add-customer-title">Add Customer</h2><p>Create a new customer and assign its initial services.</p></div></div>
     {error || catalogMessage ? <p className="form-message" role="alert">{error || catalogMessage}</p> : null}
-    <form className="report-summary" onSubmit={submit}>
+    <form className="report-summary setup-card customer-form-card" onSubmit={submit}>
       <label>Customer display name<input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
       <label>Initial Site<input required maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
       <label>Telephone No<input maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label>

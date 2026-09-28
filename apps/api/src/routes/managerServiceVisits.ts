@@ -20,6 +20,7 @@ type OperationalJobRow = {
   technician?: ManagerServiceVisitTechnician | null;
   configurationSnapshot: unknown;
   archivedAt: string | null;
+  hasAcceptedRecords?: boolean;
   totalCount: number;
 };
 
@@ -51,7 +52,15 @@ export type ManagerServiceVisit = {
   inspectionProgress: { accepted: number; required: number };
   completion: NonNullable<Awaited<ReturnType<typeof loadJobCompletion>>>;
   archivedAt: string | null;
+  hasAcceptedRecords: boolean;
 };
+
+const acceptedVisitExistsSql = `EXISTS (
+  SELECT 1 FROM master_system_form_instances instance
+  JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
+  WHERE inspection.job_id=inspection_jobs.id
+  UNION ALL SELECT 1 FROM inspections WHERE job_id=inspection_jobs.id
+)`;
 
 const operationalWhere = `
   inspection_jobs.master_template_version_id IS NOT NULL
@@ -70,6 +79,7 @@ function operationalJobQuery(byId = false) {
       to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       inspection_jobs.configuration_snapshot AS "configurationSnapshot",
       inspection_jobs.archived_at AS "archivedAt",
+      ${acceptedVisitExistsSql} AS "hasAcceptedRecords",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
       ) END AS site,
@@ -127,7 +137,8 @@ async function presentOperationalJob(
       required: completion.requiredUnitCount
     },
     completion,
-    archivedAt: job.archivedAt
+    archivedAt: job.archivedAt,
+    hasAcceptedRecords: job.hasAcceptedRecords === true || completion.acceptedUnitCount > 0
   };
 }
 
@@ -189,6 +200,8 @@ export type ManagerServiceVisitFilters = {
   customerId?: string;
   siteId?: string;
   technicianId?: number;
+  /** Server-injected authority, never parsed from client query parameters. */
+  supervisorId?: number;
   status?: "open" | "closed";
   systemKey?: string;
   from?: string;
@@ -358,6 +371,15 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
     values.push(filters.technicianId);
     filterConditions.push(`inspection_jobs.created_by_user_id = $${values.length}::bigint`);
   }
+  if (filters.supervisorId !== undefined) {
+    values.push(filters.supervisorId);
+    filterConditions.push(`EXISTS (
+      SELECT 1 FROM technician_supervisor_assignments assignment
+      WHERE assignment.technician_id = inspection_jobs.created_by_user_id
+        AND assignment.supervisor_id = $${values.length}::bigint
+        AND assignment.archived_at IS NULL
+    )`);
+  }
   if (!filters.includeArchived) {
     filterConditions.push(`inspection_jobs.archived_at IS NULL`);
   }
@@ -405,6 +427,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
         to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
         inspection_jobs.configuration_snapshot AS "configurationSnapshot",
         inspection_jobs.archived_at AS "archivedAt",
+        ${acceptedVisitExistsSql} AS "hasAcceptedRecords",
         CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id', site.id, 'displayName', site.display_name
         ) END AS site,
@@ -439,6 +462,16 @@ async function audit(client: PoolClient, actorUserId: number, action: string, en
   await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result) VALUES ($1,$2,$3,$4,'success')`, [actorUserId, action, entityType, entityId]);
 }
 
+async function supervisorCanReadVisit(database: Pick<typeof pool, "query">, jobId: string, supervisorId: number) {
+  const result = await database.query(
+    `SELECT 1 FROM inspection_jobs job
+     JOIN technician_supervisor_assignments assignment ON assignment.technician_id=job.created_by_user_id
+     WHERE job.id=$1 AND assignment.supervisor_id=$2 AND assignment.archived_at IS NULL`,
+    [jobId, supervisorId]
+  );
+  return !!result.rows[0];
+}
+
 function managerReportHandler(
   database: Pick<typeof pool, "query">,
   handler: (request: Request, response: Response, next: NextFunction) => Promise<void>
@@ -448,6 +481,10 @@ function managerReportHandler(
       const jobId = request.params.jobId;
       if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
         response.status(400).json({ error: "INVALID_JOB_ID" });
+        return;
+      }
+      if (request.currentUser!.role === "supervisor" && !await supervisorCanReadVisit(database, jobId, request.currentUser!.id)) {
+        response.status(404).json({ error: "SERVICE_VISIT_NOT_FOUND" });
         return;
       }
       if (!await loadManagerServiceVisit(jobId, database)) {
@@ -483,7 +520,8 @@ export function createManagerServiceVisitsRouter({
       throw error;
     }
     response.setHeader("Cache-Control", "private, no-store");
-    const { serviceVisits, nextCursor, totalCount } = await listManagerServiceVisits(database, filters);
+    const { serviceVisits, nextCursor, totalCount } = await listManagerServiceVisits(database,
+      request.currentUser!.role === "supervisor" ? { ...filters, supervisorId: request.currentUser!.id } : filters);
     response.json({ serviceVisits, nextCursor, totalCount });
   } catch (error) {
     next(error);
@@ -549,11 +587,70 @@ export function createManagerServiceVisitsRouter({
     finally { client?.release(); }
   });
 
+  router.delete("/manager/service-visits/:jobId", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) { response.status(400).json({ error: "INVALID_JOB_ID" }); return; }
+      client = await database.connect();
+      await client.query("BEGIN");
+      // Acceptance locks this same job row before inserting a form instance.
+      const job = await client.query<{ status: string }>(
+        `SELECT status FROM inspection_jobs WHERE id=$1 AND ${operationalWhere} FOR UPDATE`, [jobId]
+      );
+      let result = "deleted";
+      let error: string | undefined;
+      if (!job.rows[0]) result = "already_deleted";
+      else if (job.rows[0].status !== "open") { result = "rejected"; error = "SERVICE_VISIT_NOT_OPEN"; }
+      else {
+        const accepted = await client.query<{ exists: boolean }>(
+          `SELECT EXISTS (
+            SELECT 1 FROM master_system_form_instances instance
+            JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
+            WHERE inspection.job_id=$1
+            UNION ALL SELECT 1 FROM inspections WHERE job_id=$1
+            UNION ALL SELECT 1 FROM staged_inspection_evidence WHERE job_id=$1 AND status='accepted'
+          ) AS exists`, [jobId]
+        );
+        if (accepted.rows[0]?.exists !== false) { result = "rejected"; error = "SERVICE_VISIT_HAS_ACCEPTED_RECORDS"; }
+        else {
+          const pendingEvidence = await client.query<{ exists: boolean }>(
+            `SELECT EXISTS (SELECT 1 FROM inspection_evidence_reservations WHERE job_id=$1
+              UNION ALL SELECT 1 FROM staged_inspection_evidence WHERE job_id=$1) AS exists`, [jobId]
+          );
+          if (pendingEvidence.rows[0]?.exists !== false) { result = "rejected"; error = "SERVICE_VISIT_HAS_PENDING_EVIDENCE"; }
+          else {
+            await client.query("DELETE FROM master_system_inspections WHERE job_id=$1", [jobId]);
+            await client.query("DELETE FROM inspection_jobs WHERE id=$1", [jobId]);
+          }
+        }
+      }
+      await client.query(
+        `INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result, reason)
+         VALUES ($1,'manager_service_visit_deleted','inspection_job',$2,$3,$4)`,
+        [request.currentUser!.id, jobId, result, error ?? null]
+      );
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      if (error) response.status(409).json({ error, message: error === "SERVICE_VISIT_NOT_OPEN"
+        ? "Only in-progress service visits can be deleted."
+        : error === "SERVICE_VISIT_HAS_ACCEPTED_RECORDS"
+          ? "This service visit has accepted records and cannot be deleted."
+          : "This service visit has pending evidence and cannot be deleted." });
+      else response.json({ jobId, result });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+
   router.get("/manager/service-visits/:jobId", requireRole("admin", "supervisor"), async (request, response, next) => {
   try {
     const jobId = request.params.jobId;
     if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
       response.status(400).json({ error: "INVALID_JOB_ID" });
+      return;
+    }
+    if (request.currentUser!.role === "supervisor" && !await supervisorCanReadVisit(database, jobId, request.currentUser!.id)) {
+      response.status(404).json({ error: "SERVICE_VISIT_NOT_FOUND" });
       return;
     }
     const serviceVisit = await loadManagerServiceVisit(jobId, database);
