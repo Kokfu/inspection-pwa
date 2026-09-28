@@ -13,6 +13,7 @@ import { inspectionJobsRouter } from "./inspectionJobs.js";
 import { inspectionReferenceRouter } from "./inspectionReference.js";
 import { inspectionsRouter } from "./inspections.js";
 import { createManagerCustomersRouter, ManagerCustomerError } from "./managerCustomers.js";
+import { createManagerComplianceRemindersRouter } from "./managerComplianceReminders.js";
 import { createManagerCorrectionsRouter } from "./managerCorrections.js";
 import { createReportApprovalsRouter } from "./reportApprovals.js";
 import { createManagerServiceVisitsRouter } from "./managerServiceVisits.js";
@@ -88,7 +89,7 @@ test("supervisor role: migration 031, account lifecycle, customer summary and a 
     const passwordHash = await hashPassword("manager-test-password");
     await pool.query("INSERT INTO users(username,password_hash,role) VALUES('mobiletest',$1,'admin')", [passwordHash]);
     const app = express(); app.use(express.json()); app.use(currentUser); app.use(authRouter);
-    const managerRouters = [createManagerServiceVisitsRouter({ database: pool }), createManagerCustomersRouter(pool), createManagerTechniciansRouter(pool), createManagerCorrectionsRouter(pool), createReportApprovalsRouter(pool)];
+    const managerRouters = [createManagerServiceVisitsRouter({ database: pool }), createManagerCustomersRouter(pool), createManagerTechniciansRouter(pool), createManagerCorrectionsRouter(pool), createReportApprovalsRouter(pool), createManagerComplianceRemindersRouter(pool)];
     const otherRouters = [syncRouter, testRecordsRouter, inspectionsRouter, inspectionReferenceRouter, inspectionJobsRouter, masterSystemInspectionsRouter, inspectionAttachmentsRouter, stagedEvidenceRouter];
     for (const router of [...managerRouters, ...otherRouters]) app.use(router);
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

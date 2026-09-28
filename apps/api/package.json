@@ -44,7 +44,8 @@
     "validate-sync-http": "node dist/cli/validateSyncHttp.js",
     "test:report-pdf-engine": "tsx --test src/reports/pdf/htmlToPdf.test.ts",
     "test:report-template": "tsx --test src/reports/template/renderReportHtml.test.ts",
-    "test:server-shutdown": "tsx --test src/serverShutdown.test.ts"
+    "test:server-shutdown": "tsx --test src/serverShutdown.test.ts",
+    "test:compliance-reminders-integration": "tsx --test src/routes/managerComplianceReminders.integration.test.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",

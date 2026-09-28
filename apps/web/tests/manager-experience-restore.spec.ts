@@ -20,6 +20,7 @@ async function installFakeApi(page: Page) {
     if (path === "/api/manager/customers") return json({ customers: [] });
     if (path === "/api/manager/technicians") return json({ technicians: [] });
     if (path.startsWith("/api/manager/service-visits")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
+    if (path === "/api/manager/customers/compliance-reminders") return json({ overdue: [], dueSoon: [], dueSoonWindowDays: 7 });
     return json({});
   });
   return state;
@@ -85,8 +86,10 @@ test("a fail-closed exit to the chooser is not undone by a reload", async ({ pag
   const api = await installFakeApi(page);
   await enterManagerServicesDone(page);
   api.forbidManager = true;
+  // Home's own compliance-reminders glance is admin-only, so revoked Manager authority is now
+  // caught the moment Home itself loads -- one step earlier than clicking into a data screen like
+  // Services, which no longer gets the chance to be the thing that discovers it.
   await sidebar(page).getByRole("button", { name: "Home", exact: true }).click();
-  await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
   await expect(chooser(page)).toBeVisible();
   await expect.poll(() => rememberedChoice(page)).toBeNull();
   api.forbidManager = false;

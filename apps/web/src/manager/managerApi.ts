@@ -1282,3 +1282,27 @@ export async function submitReportApproval(
   const data = await managerRequest<unknown>(`/api/manager/service-visits/${encodeURIComponent(jobId)}/report-approval`, "POST", null, input);
   return asReportApprovalResponse(data);
 }
+
+/* ------------------------------------------------------------------------------------------------
+ * In-app compliance reminders. Manager Home's "Due soon" / "Overdue" glance, computed server-
+ * side from the same `next_service_due_date` column Next Upcoming Service already edits. No email,
+ * no push, no background scheduler: read-on-request only.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type ComplianceCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string };
+export type ComplianceReminders = { overdue: ComplianceCustomer[]; dueSoon: ComplianceCustomer[]; dueSoonWindowDays: number };
+
+function isComplianceCustomer(value: unknown): value is ComplianceCustomer {
+  return isPlainObject(value) && typeof value.id === "string" && typeof value.code === "string"
+    && typeof value.displayName === "string" && isDate(value.nextServiceDueDate);
+}
+
+export async function loadComplianceReminders(signal?: AbortSignal): Promise<ComplianceReminders> {
+  const data = await managerRequest<Record<string, unknown>>("/api/manager/customers/compliance-reminders", "GET", null, undefined, signal);
+  if (!Array.isArray(data.overdue) || !data.overdue.every(isComplianceCustomer)
+    || !Array.isArray(data.dueSoon) || !data.dueSoon.every(isComplianceCustomer)
+    || typeof data.dueSoonWindowDays !== "number") unavailable();
+  const ids = [...(data.overdue as ComplianceCustomer[]), ...(data.dueSoon as ComplianceCustomer[])].map((row) => row.id);
+  if (new Set(ids).size !== ids.length) unavailable();
+  return { overdue: data.overdue as ComplianceCustomer[], dueSoon: data.dueSoon as ComplianceCustomer[], dueSoonWindowDays: data.dueSoonWindowDays };
+}

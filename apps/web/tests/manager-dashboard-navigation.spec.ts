@@ -16,11 +16,13 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     else if (url.pathname.endsWith("/dashboard/inspection-status")) json = { passed: 1, notOk: 3, na: 1 };
     else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 7 };
     else if (url.pathname.endsWith("/inspection-jobs")) json = { jobs: [] };
+    else if (url.pathname.endsWith("/compliance-reminders")) json = { overdue: [], dueSoon: [], dueSoonWindowDays: 7 };
     await route.fulfill({ json });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager");
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
+  await expect.poll(() => requests.some((r) => r === "/api/manager/customers/compliance-reminders")).toBe(true);
   await expect(page.getByText("12", { exact: true })).toBeVisible();
   await expect(page.getByText("7", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();

@@ -3,7 +3,24 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-28 — **Deactivated technician removal, unfinished visit deletion, and reminder staff search added (uncommitted).**
+**Last updated:** 2026-09-28 — **Due soon / Overdue compliance glance cherry-picked from `claude/autopilot`'s T7 onto Manager Home.**
+Manager Home now shows "Overdue" and "Due soon" (fixed 7-day window) counts and customer lists,
+computed server-side from the same `next_service_due_date` column Next Upcoming Service edits;
+admin-only, hidden from a supervisor. Kept alongside this branch's existing KPI tiles and trend/
+status charts rather than replacing them. Only a genuine 401/403 from the new fetch is treated as
+fail-closed; anything else means "nothing to show" on what is a supplementary widget.
+
+**Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T7 in-app compliance reminders landed
+(committed on the branch, not merged).**
+Manager Home now shows "Overdue" and "Due soon" (fixed 7-day window) counts and customer lists,
+computed server-side from the same `next_service_due_date` column Next Upcoming Service edits;
+admin-only, hidden from a supervisor. Caught and fixed a real regression before it ever reached
+commit: the new Home-level fetch's failure handling was as aggressive as every other Manager
+screen's (any failure kicked the whole Manager experience back to the role chooser), which broke
+25 unrelated pre-existing Playwright tests that transiently render Home without knowing about the
+new endpoint. Fixed by only treating a genuine 401/403 as fail-closed; anything else just means
+"nothing to show" on what is a supplementary widget, not a full data screen. See
+`docs/autopilot/BACKLOG.md` T7 for full detail, gate/review/revert-proof counts.
 
 Admin can permanently remove a deactivated technician from operational staff lists after typing the exact username. Unused accounts are deleted; linked accounts are hidden through forward migration 044, preserving historical identity. Technicians can delete their own unstarted, open service visits while online; the UI protects local drafts and the server rejects accepted work or pending evidence under a job lock. The existing Manager Operations delete remains available for unfinished visits. The Email reminders staff-address section has submitted name/username/email search and All/Active/Inactive filtering. Focused API, disposable PostgreSQL, and browser tests pass.
 

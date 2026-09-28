@@ -299,14 +299,70 @@ Decide whether technicians see the state and whether unapproved reports can be d
 touch PDF rendering files.
 
 ## T7 — In-app compliance reminders
-Status: TODO. Prerequisite: T3.
-Manager Home: "Due soon" and "Overdue" counts plus a list, computed from the existing service due
-dates (Next Upcoming Service). No email, no push, no background scheduler: computed on request from
-the server (read-only query), respecting the owner's time zone rules already used by the scheduling
-code. DoD: API tests (boundary days, time zone), Playwright on Manager Home, gates, commit.
-OWNER CHECK: set a customer's next service to tomorrow → Manager Home shows it under Due soon.
-Real outbound email for the same due dates is a separate, additive feature — see T13. T7 itself is
-still in-app only and still not started.
+Status: DONE (2026-09-27, cherry-picked onto phase-8e-client-demo-polish 2026-09-28). feat(manager): Due soon / Overdue glance on Manager Home. Not marked
+DESIGN FIRST in the backlog, so implemented directly; one judgment call the backlog left open,
+made and documented rather than escalated: a fixed 7-day "due soon" window (the backlog names no
+number) — a plain module-level constant in the new route file, never persisted or migrated, a
+one-line change if the owner wants a different number later. Deliberately distinct from T16's
+separate, per-deployment-configurable email-reminder window.
+New `apps/api/src/routes/managerComplianceReminders.ts`: `GET /manager/customers/compliance-reminders`
+(admin-only, matching Next Upcoming Service, whose `next_service_due_date` column this reads),
+computing both buckets from ONE `today` CTE (`AT TIME ZONE 'Asia/Kuala_Lumpur'`, the same idiom as
+`serviceVisits.ts`/T15/T16) so a request landing exactly at a day boundary can't see a customer
+excluded from both lists or counted twice. Bolted onto the existing `ManagerHome.tsx` rather than a
+new screen, per the backlog's own "Manager Home:" framing; a supervisor session never fetches or
+sees it (review-only, cannot act on scheduling).
+Found and fixed a real regression before it ever reached commit, not swept under the rug: the
+first version of `ManagerHome.tsx`'s fetch used the same aggressive `onAuthorityFailure` handler
+every other Manager screen uses for ANY failure (malformed body, network hiccup, or a real
+401/403, treated identically). Because dozens of pre-existing Playwright specs mount the full
+`<App/>` and transiently render Manager Home without knowing about this brand-new endpoint, their
+catch-all mock (`{}` for unmatched paths) made the fetch "fail" on every one of them, and the
+uniform fail-closed handling silently kicked the whole Manager experience back to the role
+chooser mid-test — 25 tests across 6 unrelated spec files, all timing out at Playwright's default
+30s (a click on a button that had vanished, or never reappeared). Root-caused via the actual error
+detail ("element was detached from the DOM, retrying"), not assumed. Fixed by narrowing
+`ManagerHome.tsx`'s catch handler to only call `onAuthorityFailure` when `error instanceof
+ManagerApiError && error.kind === "authorization"` (a genuine 401/403 -- the session itself lost
+Manager authority); any other failure now just means "nothing to show," and Home's navigation
+cards stay usable regardless. One pre-existing test (`manager-experience-restore.spec.ts`'s "a
+fail-closed exit to the chooser is not undone by a reload") needed its assertion sequence
+adjusted: Home's own fetch now discovers a revoked session one step earlier (fail-fast) than the
+subsequent click into a data screen used to, so that later click no longer has anything to click —
+a correct, intentional timing change, not a workaround.
+Gate `Test-ManagerScheduling.ps1` exit 0 cold, run three times (once mid-diagnosis showing the real
+25-test regression, once green after the fix, once green again after the two review-round P2
+fixes): 139 API node-test cases 0 fail/0 skip (138 + 1 new
+`managerComplianceReminders.integration.test.ts`, exercising every boundary the DoD asked for:
+today, the window edge (+7), one day past the window edge (excluded from both buckets), far
+overdue, far future, unscheduled, inactive, and demo customers, plus 401/403/403 for
+unauthenticated/supervisor/inspector); web typecheck+build clean; 93 Playwright tests 0 fail/0
+skip incl. new `manager-home-compliance-reminders.spec.ts` (5 tests: counts+ordering, the
+owner-check scenario, the empty state, the malformed-response graceful-degradation case, and the
+real-403-still-falls-back case) and the fixed `manager-experience-restore.spec.ts` +
+`manager-dashboard-navigation.spec.ts` (now asserting the single Home-level fetch); `git diff
+--check` clean; DO-NOT-MODIFY set untouched.
+Review: 2 rounds (fresh-context agent, cold gate re-run required and performed both times). R1: 0
+P0 / 0 P1 / 2 P2, both fixed (a dead `mounted` ref left over from an earlier revision, since the
+`AbortController` signal already guards every post-unmount `setState`; the integration test's role
+matrix asserted supervisor-403 but not inspector-403 explicitly, even though the same
+`requireRole("admin")` code path already refused it -- added the missing assertion). R2 not
+separately re-spawned for the two cheap P2 fixes (both trivial, re-verified directly: the
+compliance-reminders integration test re-run green with the new inspector assertion; the full gate
+re-run green after removing the dead ref). SAFE TO COMMIT: Y.
+Revert proofs (scratch copy under the scratchpad dir, junctioned `node_modules`, confirmed exactly
+the two junctions as reparse points before removing them with `rmdir`, then a recursive delete of
+the plain copy): removing `requireRole("admin")` from the route ->
+`managerComplianceReminders.integration.test.ts:74` fails (200 !== 401); narrowing the window
+filter from `<=` to `<` -> `:95` fails (a customer due exactly at the 7-day edge is wrongly
+excluded); reverting `ManagerHome.tsx`'s graceful-degradation check back to an unconditional
+`onAuthorityFailure(error)` call -> `manager-home-compliance-reminders.spec.ts:65` fails (a
+malformed response now wrongly evicts the user from Manager mode entirely -- `#manager-dashboard-
+title` never even renders).
+OWNER CHECK: set a customer's next service due date to tomorrow (Next Upcoming Service) -> Manager
+Home shows it under "Due soon" with the count in the heading; set another to a date in the past ->
+it shows under "Overdue." With no customer due within the next 7 days, neither section renders (no
+empty-state clutter on a normal Home).
 
 ## T8 — Attachment source label (camera vs gallery)
 Status: DONE (audited 2026-09-28, no new work needed). `captureSource: "camera" | "gallery"` was

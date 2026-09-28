@@ -2345,7 +2345,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           onNavigate={(name) => navigate({ name })}
         >
         {!route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
-        : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} />
+        : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} onAuthorityFailure={handleManagerRequestFailure} />
         : route.name === "manager-technicians" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
         : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
           ? <ManagerTechnicianDetail

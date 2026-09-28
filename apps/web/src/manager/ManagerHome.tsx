@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, type DashboardInspectionStatus } from "./managerApi";
+import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
 import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
@@ -48,7 +48,13 @@ function percentOf(count: number, total: number) {
   return total > 0 ? `${(count / total * 100).toFixed(1)}%` : undefined;
 }
 
-export function ManagerHome({ navigate, supervisor = false }: { navigate: (route: ManagerDashboardRoute) => void; supervisor?: boolean }) {
+export function ManagerHome({
+  navigate, supervisor = false, onAuthorityFailure = () => undefined
+}: {
+  navigate: (route: ManagerDashboardRoute) => void;
+  supervisor?: boolean;
+  onAuthorityFailure?: (error: unknown) => void;
+}) {
   const links = managerNavLinks(supervisor);
   const today = useMemo(malaysiaToday, []);
   const from = `${today.slice(0, 7)}-01`;
@@ -75,6 +81,31 @@ export function ManagerHome({ navigate, supervisor = false }: { navigate: (route
       .catch(() => { if (!controller.signal.aborted) setError(true); });
     return () => controller.abort();
   }, [from, to]);
+
+  // Compliance reminders (Overdue / Due soon), admin-only (matching Next Upcoming Service, whose
+  // due-date column this reads). A supervisor never fetches or sees this -- review-only, cannot act on it.
+  const [reminders, setReminders] = useState<ComplianceReminders>();
+  useEffect(() => {
+    if (supervisor) return;
+    const controller = new AbortController();
+    void loadComplianceReminders(controller.signal)
+      .then((data) => { if (!controller.signal.aborted) setReminders(data); })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        // Only a real authorization failure (the session itself lost Manager authority) warrants
+        // the same fail-closed treatment every other Manager screen uses. This is a supplementary
+        // glance bolted onto Home, not a screen whose entire purpose is this data -- any other
+        // failure (malformed body, a transient network hiccup) just means nothing to show; Home's
+        // navigation cards must stay usable regardless.
+        if (error instanceof ManagerApiError && error.kind === "authorization") onAuthorityFailure(error);
+      });
+    return () => controller.abort();
+  }, [supervisor]);
+
+  const reminderList = (customers: ComplianceReminders["overdue"]) => <ul className="manager-schedule-list">
+    {customers.map((customer) => <li key={customer.id}><strong>{customer.displayName}</strong> — {customer.nextServiceDueDate}</li>)}
+  </ul>;
+
   return <section aria-labelledby="manager-dashboard-title">
     <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Supervisor workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
     <KpiTiles label="Dashboard summary" items={[
@@ -89,6 +120,8 @@ export function ManagerHome({ navigate, supervisor = false }: { navigate: (route
       {trend ? <InspectionTrend from={from} to={to} days={trend} /> : null}
       {status ? <StatusDonut counts={status} /> : null}
     </div> : null}
+    {!supervisor && reminders && reminders.overdue.length > 0 ? <section aria-label="Overdue"><h3>Overdue ({reminders.overdue.length})</h3>{reminderList(reminders.overdue)}</section> : null}
+    {!supervisor && reminders && reminders.dueSoon.length > 0 ? <section aria-label="Due soon"><h3>Due soon ({reminders.dueSoon.length})</h3>{reminderList(reminders.dueSoon)}</section> : null}
     <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{label}</button>)}</div>
   </section>;
 }
