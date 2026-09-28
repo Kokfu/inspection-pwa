@@ -2366,6 +2366,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         </AppShell>
       ) : managerExperience ? (
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
+          mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
           activeRouteName={route.name}
           onNavigate={(name) => navigate({ name })}

@@ -25,21 +25,21 @@ export async function cachedCommonRemarks(): Promise<CommonRemark[]> {
   const stored = await localDatabase.referenceData.get(key);
   return stored ? parse(stored.payload) : [];
 }
-async function save(remarks: CommonRemark[]) {
-  const at = new Date().toISOString();
-  await localDatabase.referenceData.put({ key, payload: remarks, version: at, fetchedAt: at, expiresAt: at });
-  window.dispatchEvent(new Event(changed));
-}
 export async function refreshCommonRemarks(): Promise<CommonRemark[]> {
   const response = await fetch("/api/service-common-remarks", { credentials: "same-origin", cache: "no-store" });
   if (!response.ok) throw new Error("Common remarks could not be refreshed");
   const body: unknown = await response.json();
   if (!body || typeof body !== "object" || !Object.hasOwn(body, "remarks")) throw new Error("Common remarks response is malformed");
   const remote = parse((body as { remarks: unknown }).remarks);
-  const pending = (await localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray())
-    .filter((item) => item.status !== "Completed").map((item) => item.payload).filter(valid);
-  const remarks = [...remote, ...pending.filter((item) => !remote.some((other) => other.id === item.id))];
-  await save(remarks);
+  const remarks = await localDatabase.transaction("rw", localDatabase.referenceData, localDatabase.syncOutbox, async () => {
+    const pending = (await localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray())
+      .filter((item) => item.status !== "Completed").map((item) => item.payload).filter(valid);
+    const merged = [...remote, ...pending.filter((item) => !remote.some((other) => other.id === item.id))];
+    const at = new Date().toISOString();
+    await localDatabase.referenceData.put({ key, payload: merged, version: at, fetchedAt: at, expiresAt: at });
+    return merged;
+  });
+  window.dispatchEvent(new Event(changed));
   return remarks;
 }
 export function onCommonRemarksChanged(listener: () => void) { window.addEventListener(changed, listener); return () => window.removeEventListener(changed, listener); }
@@ -58,12 +58,40 @@ export async function addCommonRemark(systemKey: RemarkSystem, wording: string, 
   return remark;
 }
 export async function updateCommonRemark(id: string, input: Pick<CommonRemark,"wording"|"detailLabel"|"detailOptions">) {
+  const updatedLocally = await localDatabase.transaction("rw", localDatabase.referenceData, localDatabase.syncOutbox, async () => {
+    const pending = (await localDatabase.syncOutbox.where("entityId").equals(id).toArray())
+      .find((item) => item.entityType === "commonRemark" && item.action === "create" && item.status !== "Completed");
+    if (!pending) return false;
+    const existing = await cachedCommonRemarks();
+    const index = existing.findIndex((item) => item.id === id);
+    if (index < 0) throw new Error("Local common remark could not be found");
+    const remark = { ...existing[index], ...input };
+    if (!valid(remark)) throw new Error("Enter a valid common remark");
+    if (existing.some((item) => item.id !== id && item.systemKey === remark.systemKey && item.wording.toLocaleLowerCase() === remark.wording.toLocaleLowerCase())) throw new Error("This common remark already exists for this service");
+    const at = new Date().toISOString();
+    existing[index] = remark;
+    await localDatabase.referenceData.put({ key, payload: existing, version: at, fetchedAt: at, expiresAt: at });
+    await localDatabase.syncOutbox.update(pending.operationId, { payload: remark });
+    return true;
+  });
+  if (updatedLocally) { window.dispatchEvent(new Event(changed)); return; }
   const response = await fetch(`/api/service-common-remarks/${id}`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
   const body = await response.json() as { remark?: unknown; message?: string };
   if (!response.ok || !valid(body.remark)) throw new Error(body.message ?? "Common remark could not be updated");
   await refreshCommonRemarks();
 }
 export async function removeCommonRemark(id: string) {
+  const removedLocally = await localDatabase.transaction("rw", localDatabase.referenceData, localDatabase.syncOutbox, async () => {
+    const pending = (await localDatabase.syncOutbox.where("entityId").equals(id).toArray())
+      .find((item) => item.entityType === "commonRemark" && item.action === "create" && item.status !== "Completed");
+    if (!pending) return false;
+    const existing = await cachedCommonRemarks();
+    const at = new Date().toISOString();
+    await localDatabase.referenceData.put({ key, payload: existing.filter((item) => item.id !== id), version: at, fetchedAt: at, expiresAt: at });
+    await localDatabase.syncOutbox.delete(pending.operationId);
+    return true;
+  });
+  if (removedLocally) { window.dispatchEvent(new Event(changed)); return; }
   const response = await fetch(`/api/service-common-remarks/${id}`, { method: "DELETE", credentials: "same-origin" });
   const body = await response.json() as { message?: string };
   if (!response.ok) throw new Error(body.message ?? "Common remark could not be removed");

@@ -3,6 +3,9 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Offline common remark Edit/Remove and manager phone navigation fixed.**
+Pending common remark edits now update the cached record and queued create together; removal cancels that create and clears the cache. Manager pages use the existing collapsible mobile menu. Focused browser coverage is in `apps/web/tests/manager-common-remarks-mobile.spec.ts`. Service Catalog layout remains at planning stage pending owner approval.
+
 **Last updated:** 2026-09-28 — **Technician self-delete of an in-progress job cherry-picked from `claude/autopilot`'s T14.**
 New `PUT /inspection-jobs/:jobId/archive` (soft delete via `inspection_jobs.archived_at`, never a
 hard delete) plus a "Delete this job" button in the technician job detail view, shown once local

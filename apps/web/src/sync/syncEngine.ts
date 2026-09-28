@@ -229,10 +229,17 @@ async function syncPendingCommonRemarks() {
   const items = (await localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray()).filter(shouldSync);
   let confirmed = 0;
   for (const item of items) {
-    const remark = item.payload as CommonRemark;
-    if (!remark || remark.id !== item.entityId) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local common remark is malformed" }); continue; }
-    await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: new Date().toISOString() });
+    const current = await localDatabase.transaction("rw", localDatabase.syncOutbox, async () => {
+      const pending = await localDatabase.syncOutbox.get(item.operationId);
+      if (!pending || !shouldSync(pending)) return undefined;
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: pending.attempts + 1, lastAttemptAt: new Date().toISOString() });
+      return pending;
+    });
+    if (!current) continue;
+    const remark = current.payload as CommonRemark;
+    if (!remark || remark.id !== current.entityId) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local common remark is malformed" }); continue; }
     try {
+      if (!await localDatabase.syncOutbox.get(item.operationId)) continue;
       const response = await fetch("/api/service-common-remarks", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...expectedActorHeaders() }, body: JSON.stringify({ id: remark.id, systemKey: remark.systemKey, wording: remark.wording, detailLabel: remark.detailLabel, detailOptions: remark.detailOptions }) });
       const body = await response.json() as { remark?: { id?: unknown }; message?: string };
       if (!response.ok || body.remark?.id !== remark.id) throw new Error(body.message ?? "Common remark was not confirmed by the server");
