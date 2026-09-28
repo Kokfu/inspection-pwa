@@ -3,7 +3,7 @@ import test from "node:test";
 import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
 
-const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
+const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fire_rated_roller_shutter") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
 const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
   const definition = system(key); const value = () => ({ result, remarks });
   const section = (sectionKey: string, blockKey: string) => definition.sections.find((candidate) => candidate.key === sectionKey)!.blocks.find((candidate) => candidate.key === blockKey)!;
@@ -308,4 +308,22 @@ test("V7 Fire Intercom derives only current-Poor Station Schedule row findings w
   // The frozen column's own allowedValues decide validity - the V1-V6 token is refused.
   const invalid = structuredClone(response); invalid.rows[1]!.conditionResult = "poor";
   assert.equal(adapter.derivePoorFieldPaths(invalid), undefined, "each frozen row column validates against its own allowedValues");
+});
+
+test("V7 roller shutter tracks Auto Alarm and Manual findings independently", () => {
+  const definition = system("fire_rated_roller_shutter");
+  const adapter = resolveV7EvidenceContract({ systemKey: "fire_rated_roller_shutter", templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
+  assert.ok(adapter);
+  const rowUuid = "00000000-0000-4000-8000-000000000b01";
+  const prefix = `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${rowUuid}`;
+  const response = { schemaVersion: 1, dateTested: "", zone: "", inspectedBy: "", rows: [{ rowUuid, autoAlarmModeResult: "not_good", manualModeResult: "complete_repair", fieldRemarks: { autoAlarmModeResult: "Motor failed", manualModeResult: "Manual release repaired" } }], comments: "" };
+  assert.deepEqual(adapter.derivePoorFieldPaths(response), [`${prefix}.auto_alarm_mode`, `${prefix}.manual_mode`]);
+  assert.equal(adapter.ownPoorRemark(response, `${prefix}.auto_alarm_mode`), "Motor failed");
+  assert.equal(adapter.ownPoorRemark(response, `${prefix}.manual_mode`), "Manual release repaired");
+  assert.equal(adapter.isCanonicalFieldPath(`${prefix}.location`), false);
+  assert.equal(adapter.acceptedEvidenceCaption(`${prefix}.manual_mode`), "Roller Shutter Schedule - Manual Mode");
+  const stale = structuredClone(response); stale.rows[0]!.autoAlarmModeResult = "good";
+  assert.deepEqual(adapter.derivePoorFieldPaths(stale), [`${prefix}.manual_mode`]);
+  const missingRemark = structuredClone(response); missingRemark.rows[0]!.fieldRemarks.manualModeResult = "";
+  assert.equal(adapter.derivePoorFieldPaths(missingRemark), undefined);
 });

@@ -17,7 +17,7 @@ const clone = <T>(value: T): T => structuredClone(value);
  * from `systemContractVersion`.  Filtering by that production mapping would let
  * an accidental edit (e.g. flipping a legacy system's version to 7) silently
  * drop that system out of the invariant below instead of failing it. */
-const v7OnlySystemKeys = new Set<string>(["smoke_ventilation", "fire_intercom", "fm200_fire_suppression"]);
+const v7OnlySystemKeys = new Set<string>(["smoke_ventilation", "fire_intercom", "fm200_fire_suppression", "fire_rated_roller_shutter"]);
 
 test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", () => {
   for (const key of implementedSystemKeys.filter((candidate) => !v7OnlySystemKeys.has(candidate))) {
@@ -28,6 +28,7 @@ test("MFE-FSSR V5 carries every implemented runtime contract forward exactly", (
   }
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "smoke_ventilation"), false, "smoke_ventilation must not exist before V7");
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fire_intercom"), false, "fire_intercom must not exist before V7");
+  assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fire_rated_roller_shutter"), false, "fire_rated_roller_shutter must not exist before V7");
   assert.equal(masterServiceReportV5.systems.some((candidate) => candidate.key === "fm200_fire_suppression"), false, "fm200_fire_suppression must not exist before V7");
   assert.equal(masterServiceReportV1.systems.some((candidate) => candidate.key === "fm200_fire_suppression"), false, "fm200_fire_suppression must not exist in V1 either (V7-only, unlike CO2's own V1 entry)");
   const byKey = (key: string) => masterServiceReportV5.systems.find((candidate) => candidate.key === key)!;

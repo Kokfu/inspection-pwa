@@ -345,6 +345,36 @@ const fireIntercom: SystemDefinition = {
   ]
 };
 
+/** Hokuden Revision B only. Existing V7 system contracts remain unchanged. */
+const fireRatedRollerShutter: SystemDefinition = {
+  key: "fire_rated_roller_shutter",
+  displayName: "Fire Rated Roller Shutter",
+  sortOrder: 13,
+  definitionStatus: "confirmed",
+  configuration: { supportsZones: false, supportsLocations: true, supportsPresetRows: true },
+  confirmationNotes: [
+    "Source: docs/paper-forms/fire-rated-roller-shutter.md. Hokuden's fixed 45-row schedule is site-specific; configured locations supply rows and technicians may add write-in rows.",
+    "The page footer defines / as Good and X as Poor, while the Hokuden cover defines / as N/A. Auto Alarm Mode and Manual Mode are independent four-state V7 results pending client confirmation of the conflicting marks."
+  ],
+  sections: [
+    {
+      key: "inspection_header", title: "Inspection Details", sortOrder: 1,
+      blocks: [{ key: "inspection_header_fields", title: "Inspection Details", type: "checklist", sortOrder: 1,
+        items: [v7TextField("date_tested", "Date Tested", 1), v7TextField("zone", "Zone", 2), v7TextField("inspected_by", "Inspected By", 3)] }]
+    },
+    {
+      key: "roller_shutter_schedule", title: "Roller Shutter Schedule", sortOrder: 2,
+      blocks: [
+        { key: "roller_shutter_schedule_rows", title: "Roller Shutter Schedule Rows", type: "repeatable_table", sortOrder: 1,
+          supportsZones: false, supportsLocations: true,
+          columns: [v7TextField("location", "Location", 1), v7GoodPoor("auto_alarm_mode", "Auto Alarm Mode", 2),
+            v7GoodPoor("manual_mode", "Manual Mode", 3), { ...v7TextField("remarks", "Remarks", 4), control: "remarks" }] },
+        v7Comments(2)
+      ]
+    }
+  ]
+};
+
 /**
  * STEP 2.4: FM200 has no V1-V6 presence at all (the `fm200` placeholder key in
  * `masterServiceReportV1.ts` is `definitionStatus: "requires_confirmation"`
@@ -395,6 +425,7 @@ export const masterServiceReportV7 = {
     ),
     smokeVentilation,
     fireIntercom,
-    fm200FireSuppression
+    fm200FireSuppression,
+    fireRatedRollerShutter
   ]
 } as const satisfies MasterServiceReportDefinition;

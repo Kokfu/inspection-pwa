@@ -18,7 +18,8 @@ export const implementedSystemKeys = [
   "portable_fire_extinguisher",
   "smoke_ventilation",
   "fire_intercom",
-  "fm200_fire_suppression"
+  "fm200_fire_suppression",
+  "fire_rated_roller_shutter"
 ] as const;
 
 export type ImplementedSystemKey = typeof implementedSystemKeys[number];
@@ -44,7 +45,8 @@ const legacyContractTemplateVersion: Readonly<Record<ImplementedSystemKey, numbe
   // sync), cloned from CO2's data-entry structure but with no legacy pre-V7
   // contract of its own - same self-reference treatment as Smoke Ventilation /
   // Fire Intercom above, not CO2's own `co2_fire_extinguisher: 1` entry.
-  fm200_fire_suppression: 7
+  fm200_fire_suppression: 7,
+  fire_rated_roller_shutter: 7
 };
 
 const templates = new Map<number, MasterServiceReportDefinition>([

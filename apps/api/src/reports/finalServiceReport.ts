@@ -78,7 +78,7 @@ type ReportJobRow = CompletionJobRow & {
 };
 type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null;
   corrections?: StoredCorrection[]; submitted_by?: string | null; reviewed_by?: string | null; reviewed_at?: string | Date | null; reviewed_correction_count?: number | null };
-const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fm200_fire_suppression"]);
+const supported = new Set(["automatic_sprinkler", "dry_wet_riser", "hose_reel", "fire_alarm_detector", "hydrant", "co2_fire_extinguisher", "wet_chemical", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fire_rated_roller_shutter", "fm200_fire_suppression"]);
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const exactKeys = (value: RecordValue, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
@@ -363,7 +363,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
-  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom" || row.system_key === "fm200_fire_suppression") && isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom" || row.system_key === "fire_rated_roller_shutter" || row.system_key === "fm200_fire_suppression") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
     || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
@@ -434,6 +434,19 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
       || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
       || typeof snapshot.contractSha256 !== "string") return false;
     const adapter = resolveV7EvidenceContract({ systemKey: "fire_intercom", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+    return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
+  }
+  if (row.system_key === "fire_rated_roller_shutter") {
+    // Fire Rated Roller Shutter has no V1-V6 lineage at all, so like Smoke Ventilation it
+    // has no historical fallback - a schemaVersion other than 2 here can never
+    // be authentic.
+    if (snapshot.schemaVersion !== 2 || frozenTemplate.version !== 7 || snapshot.template.version !== 7 || snapshot.system.key !== "fire_rated_roller_shutter"
+      || snapshot.system.systemKey !== "fire_rated_roller_shutter" || snapshot.system.repetitionMode !== "single_with_repeatable_rows"
+      || !isRecord(snapshot.system.definition) || !isRecord(snapshot.instance)
+      || !exactKeys(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"])
+      || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+      || typeof snapshot.contractSha256 !== "string") return false;
+    const adapter = resolveV7EvidenceContract({ systemKey: "fire_rated_roller_shutter", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
     return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
   }
   if (row.system_key === "smoke_ventilation") {
@@ -692,7 +705,7 @@ async function validatedFireAlarmV6Evidence(database: Queryable, row: ReportInst
 async function validatedV7SuppressionEvidence(database: Queryable, row: ReportInstanceRow) {
   const snapshot = row.inspection_snapshot;
   if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
-    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler" && snapshot.system.key !== "smoke_ventilation" && snapshot.system.key !== "fire_intercom" && snapshot.system.key !== "fm200_fire_suppression")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
+    || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler" && snapshot.system.key !== "smoke_ventilation" && snapshot.system.key !== "fire_intercom" && snapshot.system.key !== "fire_rated_roller_shutter" && snapshot.system.key !== "fm200_fire_suppression")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
   const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
   const required = adapter?.derivePoorFieldPaths(row.response_payload);
   if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
@@ -888,7 +901,7 @@ export async function loadFinalServiceReport(
         ? (snapshotIsV7 ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedEvidence(matching, system))
         : completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
           ? (primaryRow.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedFireAlarmV6Evidence(database, primaryRow))
-          : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom" || completeSystem.systemKey === "fm200_fire_suppression") && snapshotIsV7
+          : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom" || completeSystem.systemKey === "fire_rated_roller_shutter" || completeSystem.systemKey === "fm200_fire_suppression") && snapshotIsV7
             ? await validatedV7SuppressionEvidence(database, primaryRow)
             : [];
       if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);

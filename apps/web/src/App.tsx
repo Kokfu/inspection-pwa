@@ -49,6 +49,12 @@ import type { FireIntercomInspectionRecord, FireIntercomResponses } from "./fire
 import type { ServerFireIntercomDetail } from "./fireIntercom/serverFireIntercomApi";
 import { ServerFireIntercomView } from "./fireIntercom/ServerFireIntercomView";
 import { canRenderLocalFireIntercom, resolveFireIntercomOpenTarget, resolveFireIntercomRoute, type FireIntercomAuthorityResolution } from "./fireIntercom/fireIntercomResolution";
+import { FireRatedRollerShutterInspectionForm } from "./fireRatedRollerShutter/FireRatedRollerShutterInspectionForm";
+import { returnFailedFireRatedRollerShutterToDraft, saveFireRatedRollerShutterDraft, submitLocalFireRatedRollerShutter } from "./fireRatedRollerShutter/fireRatedRollerShutterRepository";
+import type { FireRatedRollerShutterInspectionRecord, FireRatedRollerShutterResponses } from "./fireRatedRollerShutter/fireRatedRollerShutterTypes";
+import type { ServerFireRatedRollerShutterDetail } from "./fireRatedRollerShutter/serverFireRatedRollerShutterApi";
+import { ServerFireRatedRollerShutterView } from "./fireRatedRollerShutter/ServerFireRatedRollerShutterView";
+import { canRenderLocalFireRatedRollerShutter, resolveFireRatedRollerShutterOpenTarget, resolveFireRatedRollerShutterRoute, type FireRatedRollerShutterAuthorityResolution } from "./fireRatedRollerShutter/fireRatedRollerShutterResolution";
 import { PortableFireExtinguisherForm } from "./portableFireExtinguisher/PortableFireExtinguisherForm";
 import { ServerPortableFireExtinguisherView } from "./portableFireExtinguisher/ServerPortableFireExtinguisherView";
 import { resolvePortableOpenTarget, resolvePortableRoute, returnFailedPortableToDraft, savePortableDraft, submitLocalPortable, type PortableRecord, type PortableResponses, type ServerPortableDetail } from "./portableFireExtinguisher/portableFireExtinguisher";
@@ -229,6 +235,7 @@ type AppRoute =
   | { name: "hydrant-form"; clientUuid: string }
   | { name: "smoke-ventilation-form"; clientUuid: string }
   | { name: "fire-intercom-form"; clientUuid: string }
+  | { name: "fire-rated-roller-shutter-form"; clientUuid: string }
   | { name: "portable-fire-extinguisher-form"; clientUuid: string }
   | { name: "co2-form"; clientUuid: string }
   | { name: "wet-chemical-form"; clientUuid: string }
@@ -267,6 +274,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "hydrant-form" && parts[1]) return { name: "hydrant-form", clientUuid: parts[1] };
   if (parts[0] === "smoke-ventilation-form" && parts[1]) return { name: "smoke-ventilation-form", clientUuid: parts[1] };
   if (parts[0] === "fire-intercom-form" && parts[1]) return { name: "fire-intercom-form", clientUuid: parts[1] };
+  if (parts[0] === "fire-rated-roller-shutter-form" && parts[1]) return { name: "fire-rated-roller-shutter-form", clientUuid: parts[1] };
   if (parts[0] === "portable-fire-extinguisher-form" && parts[1]) return { name: "portable-fire-extinguisher-form", clientUuid: parts[1] };
   if (parts[0] === "co2-form" && parts[1]) return { name: "co2-form", clientUuid: parts[1] };
   if (parts[0] === "wet-chemical-form" && parts[1]) return { name: "wet-chemical-form", clientUuid: parts[1] };
@@ -307,6 +315,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "hydrant-form") return `#/hydrant-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "smoke-ventilation-form") return `#/smoke-ventilation-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "fire-intercom-form") return `#/fire-intercom-form/${encodeURIComponent(route.clientUuid)}`;
+  if (route.name === "fire-rated-roller-shutter-form") return `#/fire-rated-roller-shutter-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "portable-fire-extinguisher-form") return `#/portable-fire-extinguisher-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "co2-form") return `#/co2-form/${encodeURIComponent(route.clientUuid)}`;
   if (route.name === "wet-chemical-form") return `#/wet-chemical-form/${encodeURIComponent(route.clientUuid)}`;
@@ -355,7 +364,7 @@ export function App() {
   const [serverRecordsLoading, setServerRecordsLoading] = useState(false);
   const [inspections, setInspections] = useState<Awaited<ReturnType<typeof listInspectionRecords>>>([]);
   const [masterSystemInspections, setMasterSystemInspections] = useState<Array<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | PortableRecord
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | FireRatedRollerShutterInspectionRecord | PortableRecord
   >>([]);
   const [activeHoseReel, setActiveHoseReel] = useState<MasterSystemInspectionRecord>();
   const [serverHoseReel, setServerHoseReel] = useState<ServerHoseReelDetail>();
@@ -434,6 +443,27 @@ export function App() {
     });
     return () => { currentFireIntercom = false; };
   }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedFireIntercomUuid, verifiedFireIntercomAuthorityToken]);
+  const [activeFireRatedRollerShutter, setActiveFireRatedRollerShutter] = useState<FireRatedRollerShutterInspectionRecord>();
+  const [serverFireRatedRollerShutter, setServerFireRatedRollerShutter] = useState<ServerFireRatedRollerShutterDetail>();
+  const [serverAcceptedFireRatedRollerShutterUuid, setServerAcceptedFireRatedRollerShutterUuid] = useState<string>();
+  const [fireRatedRollerShutterRouteState, setFireRatedRollerShutterRouteState] = useState<"idle" | "loading" | "not-cached" | "server-unavailable">("idle");
+  const [fireRatedRollerShutterRouteMessage, setFireRatedRollerShutterRouteMessage] = useState("");
+  const [fireRatedRollerShutterAuthorityResolution, setFireRatedRollerShutterAuthorityResolution] = useState<FireRatedRollerShutterAuthorityResolution>();
+  const verifiedFireRatedRollerShutterAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  useEffect(() => {
+    if (route.name !== "fire-rated-roller-shutter-form") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setServerAcceptedFireRatedRollerShutterUuid(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("idle"); setFireRatedRollerShutterRouteMessage(""); return; }
+    if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("loading"); setFireRatedRollerShutterRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Fire Rated Roller Shutter inspection." : ""); return; }
+    if (authState.status === "online-unavailable") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("server-unavailable"); setFireRatedRollerShutterRouteMessage(authState.message); return; }
+    let currentFireRatedRollerShutter = true;
+    setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("loading"); setFireRatedRollerShutterRouteMessage("");
+    void resolveFireRatedRollerShutterRoute(route.clientUuid, serverAcceptedFireRatedRollerShutterUuid, authState.status).then((resolution) => {
+      if (!currentFireRatedRollerShutter) return;
+      if (resolution.kind === "local") { setActiveFireRatedRollerShutter(resolution.record); setServerFireRatedRollerShutter(undefined); if (authState.status === "verified") setFireRatedRollerShutterAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setFireRatedRollerShutterRouteState("idle"); }
+      else if (resolution.kind === "server") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(resolution.inspection); setFireRatedRollerShutterRouteState("idle"); }
+      else { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterRouteState(resolution.kind); setFireRatedRollerShutterRouteMessage("message" in resolution ? resolution.message : ""); }
+    });
+    return () => { currentFireRatedRollerShutter = false; };
+  }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedFireRatedRollerShutterUuid, verifiedFireRatedRollerShutterAuthorityToken]);
   useEffect(() => {
     if (route.name !== "portable-fire-extinguisher-form") { setActivePortable(undefined); setServerPortable(undefined); setServerAcceptedPortableUuid(undefined); setPortableRouteState("idle"); setPortableRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); return; }
@@ -557,7 +587,7 @@ export function App() {
     setActiveCo2Form(undefined); setActiveAutomaticSprinkler(undefined);
     setActiveDryWetRiser(undefined); setActiveFireAlarm(undefined);
     setActiveHydrant(undefined); setActivePortable(undefined);
-    setActiveSmokeVentilation(undefined); setActiveFireIntercom(undefined);
+    setActiveSmokeVentilation(undefined); setActiveFireIntercom(undefined); setActiveFireRatedRollerShutter(undefined);
     setRecords(await listTestRecords());
     setInspections(await listInspectionRecords());
     setMasterSystemInspections(await localDatabase.masterSystemInspections.toArray());
@@ -1261,6 +1291,14 @@ export function App() {
     authAuthorityGeneration,
     authState.status === "verified" ? authState.lastVerifiedAt : undefined
   );
+  const mayRenderLocalFireRatedRollerShutter = canRenderLocalFireRatedRollerShutter(
+    activeFireRatedRollerShutter,
+    authState.status,
+    route.name === "fire-rated-roller-shutter-form" ? route.clientUuid : undefined,
+    fireRatedRollerShutterAuthorityResolution,
+    authAuthorityGeneration,
+    authState.status === "verified" ? authState.lastVerifiedAt : undefined
+  );
 
   async function refreshRecords() {
     setRecords(await listTestRecords());
@@ -1720,6 +1758,30 @@ if(activeFireIntercom){setActiveFireIntercom(await submitLocalFireIntercom(activ
     const finishLocalWork = beginWorkspaceActivity();
     try {
 if(activeFireIntercom){setActiveFireIntercom(await returnFailedFireIntercomToDraft(activeFireIntercom));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleOpenFireRatedRollerShutter(job:InspectionJob,system:JobSystemSnapshot){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+try{if(job.status==="closed"&&authState.status!=="verified"){setJobMessage("This service visit is complete and read-only. Reconnect to view the completed inspection.");return;}const target=await resolveFireRatedRollerShutterOpenTarget(job,system,currentUser,authState.status==="verified"?"verified":"offline-unverified",getCachedInspectionCatalog);if(target.kind==="server"){setServerAcceptedFireRatedRollerShutterUuid(target.clientUuid);navigate({name:"fire-rated-roller-shutter-form",clientUuid:target.clientUuid});return;}if(target.kind==="not-cached"){setJobMessage("This Fire Rated Roller Shutter inspection is not cached on this device. Reconnect to confirm inspection status before creating a draft.");return;}if(target.kind==="server-unavailable"){setJobMessage(target.message);return;}if(job.status==="closed"){setJobMessage("This service visit is complete and read-only.");return;}setServerAcceptedFireRatedRollerShutterUuid(undefined);setActiveFireRatedRollerShutter(target.record);await refreshMasterSystemInspections();navigate({name:"fire-rated-roller-shutter-form",clientUuid:target.record.clientUuid});}catch(error){setJobMessage(error instanceof Error?error.message:"Fire Rated Roller Shutter inspection could not be opened");}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSaveFireRatedRollerShutter(responses:FireRatedRollerShutterResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireRatedRollerShutter){setActiveFireRatedRollerShutter(await saveFireRatedRollerShutterDraft(activeFireRatedRollerShutter,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleSubmitFireRatedRollerShutter(responses:FireRatedRollerShutterResponses){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireRatedRollerShutter){setActiveFireRatedRollerShutter(await submitLocalFireRatedRollerShutter(activeFireRatedRollerShutter,responses));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleEditFailedFireRatedRollerShutter(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+if(activeFireRatedRollerShutter){setActiveFireRatedRollerShutter(await returnFailedFireRatedRollerShutterToDraft(activeFireRatedRollerShutter));await refreshMasterSystemInspections();}
     } finally { finishLocalWork(); }
   }
   async function handleOpenPortableFireExtinguisher(job:InspectionJob,system:JobSystemSnapshot){
@@ -2239,6 +2301,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} /> : serverSmokeVentilation ? <><AcceptedCorrectionsPanel key={serverSmokeVentilation.clientUuid} clientUuid={serverSmokeVentilation.clientUuid} /><ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /></> : <section className="workspace"><h2>Smoke Ventilation inspection unavailable</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading completed Smoke Ventilation inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "fire-intercom-form" ? (
             mayRenderLocalFireIntercom && activeFireIntercom && !jobIsCompleted(activeFireIntercom.jobId) ? <FireIntercomInspectionForm record={activeFireIntercom} onBack={()=>navigate({name:"job",jobId:activeFireIntercom.jobId})} onSaveDraft={handleSaveFireIntercom} onSubmitLocal={handleSubmitFireIntercom} onEditFailed={handleEditFailedFireIntercom} /> : serverFireIntercom ? <><AcceptedCorrectionsPanel key={serverFireIntercom.clientUuid} clientUuid={serverFireIntercom.clientUuid} /><ServerFireIntercomView inspection={serverFireIntercom} onBack={()=>navigate({name:"job",jobId:serverFireIntercom.jobId})} /></> : <section className="workspace"><h2>Fire Intercom inspection unavailable</h2><p>{activeFireIntercom&&jobIsCompleted(activeFireIntercom.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Loading completed Fire Intercom inspection.":fireIntercomRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireIntercomRouteMessage||"The completed Fire Intercom inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+          ) : route.name === "fire-rated-roller-shutter-form" ? (
+            mayRenderLocalFireRatedRollerShutter && activeFireRatedRollerShutter && !jobIsCompleted(activeFireRatedRollerShutter.jobId) ? <FireRatedRollerShutterInspectionForm record={activeFireRatedRollerShutter} onBack={()=>navigate({name:"job",jobId:activeFireRatedRollerShutter.jobId})} onSaveDraft={handleSaveFireRatedRollerShutter} onSubmitLocal={handleSubmitFireRatedRollerShutter} onEditFailed={handleEditFailedFireRatedRollerShutter} /> : serverFireRatedRollerShutter ? <><AcceptedCorrectionsPanel key={serverFireRatedRollerShutter.clientUuid} clientUuid={serverFireRatedRollerShutter.clientUuid} /><ServerFireRatedRollerShutterView inspection={serverFireRatedRollerShutter} onBack={()=>navigate({name:"job",jobId:serverFireRatedRollerShutter.jobId})} /></> : <section className="workspace"><h2>Fire Rated Roller Shutter inspection unavailable</h2><p>{activeFireRatedRollerShutter&&jobIsCompleted(activeFireRatedRollerShutter.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteState==="loading"||authState.status==="verified"&&!fireRatedRollerShutterAuthorityResolution&&fireRatedRollerShutterRouteState==="idle"?"Loading completed Fire Rated Roller Shutter inspection.":fireRatedRollerShutterRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteMessage||"The completed Fire Rated Roller Shutter inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
             activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <><AcceptedCorrectionsPanel key={serverPortable.clientUuid} clientUuid={serverPortable.clientUuid} /><ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /></> : <section className="workspace"><h2>Portable Fire Extinguisher inspection unavailable</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading completed Portable Fire Extinguisher inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
@@ -2360,6 +2424,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               onOpenHydrant={handleOpenHydrant}
               onOpenSmokeVentilation={handleOpenSmokeVentilation}
               onOpenFireIntercom={handleOpenFireIntercom}
+              onOpenFireRatedRollerShutter={handleOpenFireRatedRollerShutter}
               onOpenPortableFireExtinguisher={handleOpenPortableFireExtinguisher}
             />
           )}

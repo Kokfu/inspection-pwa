@@ -3,7 +3,7 @@ import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
 import { isCompatibleSystemContract } from "../templates/systemContractCompatibility.js";
 
 type RecordValue = Record<string, unknown>;
-export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression";
+export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression" | "fire_rated_roller_shutter";
 export type V7EvidenceFieldPath = string;
 
 export type V7EvidenceContractAdapter = {
@@ -733,8 +733,56 @@ const fireIntercomAdapter = (definition: unknown): V7EvidenceContractAdapter | u
   };
 };
 
+const rollerShutterRowPath = /^roller_shutter_schedule\.roller_shutter_schedule_rows\.rows\.([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(auto_alarm_mode|manual_mode)$/i;
+const rollerShutterColumns = [["autoAlarmModeResult", "auto_alarm_mode", "Auto Alarm Mode"], ["manualModeResult", "manual_mode", "Manual Mode"]] as const;
+
+const rollerShutterAdapter = (definition: unknown): V7EvidenceContractAdapter | undefined => {
+  const values = new Map(rollerShutterColumns.map(([, wire]) => [wire, allowedValues(definition, "roller_shutter_schedule", "roller_shutter_schedule_rows", wire)]));
+  if ([...values.values()].some((entry) => !entry)) return undefined;
+  const target = (response: unknown, fieldPath: string) => {
+    const match = rollerShutterRowPath.exec(fieldPath);
+    if (!match || !isRecord(response) || !Array.isArray(response.rows)) return undefined;
+    const row = response.rows.find((entry) => isRecord(entry) && entry.rowUuid === match[1]);
+    const column = rollerShutterColumns.find(([, wire]) => wire === match[2]);
+    return isRecord(row) && column ? { row, column } : undefined;
+  };
+  return {
+    systemKey: "fire_rated_roller_shutter", templateId: masterServiceReportV7.id, templateVersion: 7,
+    isCanonicalFieldPath: (fieldPath: unknown): fieldPath is string => typeof fieldPath === "string" && rollerShutterRowPath.test(fieldPath),
+    derivePoorFieldPaths(response: unknown) {
+      if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
+      const paths: string[] = [];
+      const ids = new Set<string>();
+      for (const row of response.rows) {
+        if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || ids.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
+        ids.add(row.rowUuid);
+        for (const [key, wire] of rollerShutterColumns) {
+          const result = row[key];
+          if (typeof result !== "string" || !values.get(wire)?.has(result)) return undefined;
+          if (isV7EvidenceFinding(result)) {
+            const remark = row.fieldRemarks[key];
+            if (typeof remark !== "string" || !remark.trim()) return undefined;
+            paths.push(`roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wire}`);
+          }
+        }
+      }
+      return paths.sort();
+    },
+    ownPoorRemark(response: unknown, fieldPath: string) {
+      const found = target(response, fieldPath);
+      if (!found || !isV7EvidenceFinding(found.row[found.column[0]]) || !isRecord(found.row.fieldRemarks)) return undefined;
+      const remark = found.row.fieldRemarks[found.column[0]];
+      return typeof remark === "string" && remark.trim() ? remark.trim() : undefined;
+    },
+    acceptedEvidenceCaption(fieldPath: string) {
+      const match = rollerShutterRowPath.exec(fieldPath);
+      return match ? `Roller Shutter Schedule - ${rollerShutterColumns.find(([, wire]) => wire === match[2])?.[2] ?? ""}` : undefined;
+    }
+  };
+};
+
 export function resolveV7EvidenceContract(values: { systemKey: unknown; templateId: unknown; templateVersion: unknown; definition: unknown; contractSha256: unknown }): V7EvidenceContractAdapter | undefined {
-  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation" && values.systemKey !== "fire_intercom" && values.systemKey !== "fm200_fire_suppression")
+  if ((values.systemKey !== "co2_fire_extinguisher" && values.systemKey !== "wet_chemical" && values.systemKey !== "fire_alarm_detector" && values.systemKey !== "hydrant" && values.systemKey !== "hose_reel" && values.systemKey !== "automatic_sprinkler" && values.systemKey !== "dry_wet_riser" && values.systemKey !== "smoke_ventilation" && values.systemKey !== "fire_intercom" && values.systemKey !== "fm200_fire_suppression" && values.systemKey !== "fire_rated_roller_shutter")
     || values.templateId !== masterServiceReportV7.id || values.templateVersion !== 7
     || typeof values.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(values.contractSha256)
     || !isCompatibleSystemContract(values.systemKey, "confirmed", values.definition, { id: masterServiceReportV7.id, version: 7 })
@@ -748,6 +796,7 @@ export function resolveV7EvidenceContract(values: { systemKey: unknown; template
   if (values.systemKey === "dry_wet_riser") return dryWetRiserAdapter(values.definition);
   if (values.systemKey === "smoke_ventilation") return smokeVentilationAdapter(values.definition);
   if (values.systemKey === "fire_intercom") return fireIntercomAdapter(values.definition);
+  if (values.systemKey === "fire_rated_roller_shutter") return rollerShutterAdapter(values.definition);
   return repeatableRowAdapter(values.definition);
 }
 

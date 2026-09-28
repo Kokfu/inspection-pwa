@@ -6,6 +6,7 @@ import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { SmokeVentilationInspectionRecord } from "../smokeVentilation/smokeVentilationTypes";
 import type { FireIntercomInspectionRecord } from "../fireIntercom/fireIntercomTypes";
+import type { FireRatedRollerShutterInspectionRecord } from "../fireRatedRollerShutter/fireRatedRollerShutterTypes";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
 import type {
   MasterSystemFormInstanceRecord,
@@ -106,7 +107,7 @@ const localDatabase = new Dexie(name) as Dexie & {
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
   masterSystemInspections: EntityTable<
-    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord,
+    MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | FireRatedRollerShutterInspectionRecord,
     "clientUuid"
   >;
   masterSystemInspectionGroups: EntityTable<MasterSystemInspectionGroupRecord, "groupKey">;

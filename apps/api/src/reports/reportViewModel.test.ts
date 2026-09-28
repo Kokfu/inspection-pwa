@@ -206,6 +206,24 @@ test("label override: frozen cut_in / cut_out overrides reach the measurement re
 
 /* ---------------------------------------------------------------- Smoke Ventilation */
 
+test("Roller Shutter V7 prints the sample header, location, two result columns, and comments", () => {
+  const response = { schemaVersion: 1, dateTested: "2026-09-28", zone: "Zone 1", inspectedBy: "Inspector A", rows: [{
+    rowUuid: uuid(801), source: "technician", configuredLocationId: null, configuredRowOrdinal: null,
+    zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText: "CNC Drill",
+    autoAlarmModeResult: "not_good", manualModeResult: "good", remarks: "Motor needs replacement",
+    fieldRemarks: { autoAlarmModeResult: "Motor failed" }, sortOrder: 1
+  }], comments: "Quotation requested" };
+  const model = buildReportViewModel(reportOf([v7Section("fire_rated_roller_shutter", "Fire Rated Roller Shutter", response)]));
+  const header = blockOf(model, "checklist", "inspection_header_fields");
+  assert.deepEqual(header.rows.map((row) => row.reading), ["2026-09-28", "Zone 1", "Inspector A"]);
+  const register = blockOf(model, "register", "roller_shutter_schedule_rows");
+  assert.deepEqual(register.columns.map((column) => column.label), ["Location", "Auto Alarm Mode", "Manual Mode", "Remarks"]);
+  assert.equal(register.rows[0]?.cells[0]?.kind, "text");
+  assert.equal(model.systemPages[0]?.comments, "Quotation requested");
+  assert.equal(model.cover.systemsServiced.filter((system) => system.systemKey === "fm200_fire_suppression").length, 1);
+  assert.equal(model.cover.systemsServiced.some((system) => system.systemKey === "fm200"), false);
+});
+
 test("Smoke Ventilation V7: two comments blocks bind one field — both blocks kept, page comments printed once", () => {
   const response = { schemaVersion: 1, rows: [], comments: "Fans run on test." };
   const model = buildReportViewModel(reportOf([v7Section("smoke_ventilation", "Smoke Ventilation System", response)]));

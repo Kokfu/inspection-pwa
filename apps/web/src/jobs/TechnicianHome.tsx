@@ -7,6 +7,7 @@ import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { SmokeVentilationInspectionRecord } from "../smokeVentilation/smokeVentilationTypes";
 import type { FireIntercomInspectionRecord } from "../fireIntercom/fireIntercomTypes";
+import type { FireRatedRollerShutterInspectionRecord } from "../fireRatedRollerShutter/fireRatedRollerShutterTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import type { InspectionRecord } from "../db/localDatabase";
 import type { MasterSystemInspectionRecord } from "../hoseReel/hoseReelTypes";
@@ -74,7 +75,7 @@ type TechnicianHomeProps = {
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
-  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | PortableRecord>;
+  masterSystemInspections: Array<MasterSystemInspectionRecord | AutomaticSprinklerInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | FireRatedRollerShutterInspectionRecord | PortableRecord>;
   masterSystemInspectionGroups: MasterSystemInspectionGroupRecord[];
   masterSystemFormInstances: MasterSystemFormInstanceRecord[];
   inspectionAttachments: InspectionAttachmentRecord[];
@@ -105,6 +106,7 @@ type TechnicianHomeProps = {
   onOpenPortableFireExtinguisher: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenSmokeVentilation: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireIntercom: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenFireRatedRollerShutter: (job: InspectionJob, system: JobSystemSnapshot) => void;
 };
 
 export function TechnicianHome({
@@ -132,7 +134,7 @@ export function TechnicianHome({
   onOpenHoseReel,
   onOpenCo2,
   onOpenFm200,
-  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom
+  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom, onOpenFireRatedRollerShutter
 }: TechnicianHomeProps) {
   const tabKey = `technician-home-tab:${"user" in authState ? authState.user?.id ?? "locked" : "locked"}`;
   const [tab, setTab] = useState<"progress" | "completed">(() =>
@@ -200,7 +202,7 @@ export function TechnicianHome({
         serverMasterSystemProgressState
       );
     }
-    if (systemKey === "dry_wet_riser" || systemKey === "smoke_ventilation" || systemKey === "fire_intercom") { const record = masterSystemInspections.find((x) => x.jobSystemKey === `${jobId}:${systemKey}`); return record ? deriveMasterSystemProgress(record as MasterSystemInspectionRecord) : noLocalProgress(jobId, systemKey); }
+    if (systemKey === "dry_wet_riser" || systemKey === "smoke_ventilation" || systemKey === "fire_intercom" || systemKey === "fire_rated_roller_shutter") { const record = masterSystemInspections.find((x) => x.jobSystemKey === `${jobId}:${systemKey}`); return record ? deriveMasterSystemProgress(record as MasterSystemInspectionRecord) : noLocalProgress(jobId, systemKey); }
     if (systemKey === "fire_alarm_detector") {
       const record=masterSystemInspections.find(x=>x.jobSystemKey===`${jobId}:${systemKey}`&&x.systemKey==="fire_alarm_detector");
       const summary = serverMasterSystemProgressState === "loaded"
@@ -416,6 +418,7 @@ export function TechnicianHome({
                     : system.systemKey === "portable_fire_extinguisher" ? onOpenPortableFireExtinguisher(selectedJob, system)
                     : system.systemKey === "smoke_ventilation" ? onOpenSmokeVentilation(selectedJob, system)
                     : system.systemKey === "fire_intercom" ? onOpenFireIntercom(selectedJob, system)
+                    : system.systemKey === "fire_rated_roller_shutter" ? onOpenFireRatedRollerShutter(selectedJob, system)
                     : onSelectSystem(selectedJob, system)}
               >
                 <span className="navigation-primary"><strong>{system.displayName}</strong><small>{inspectionActionLabel(progress)}</small></span>

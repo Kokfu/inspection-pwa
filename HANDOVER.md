@@ -3,6 +3,10 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Fire Rated Roller Shutter V7 form implemented; duplicate FM200 cover entry removed (uncommitted).**
+
+The roller shutter form follows `docs/paper-forms/fire-rated-roller-shutter.md`: Date Tested, Zone, Inspected By, numbered Location/Auto Alarm Mode/Manual Mode rows, and Comments. It saves drafts in IndexedDB, queues evidence before the parent inspection, and has accepted-detail and Final Report readers. The report cover now lists the confirmed `fm200_fire_suppression` once; the approved HTML fixture and snapshot reflect that. Focused API/web tests, browser form flow, both typechecks, both builds, historical/V6 regressions, all 12 report-template tests, and disposable-PostgreSQL clean and photo-backed acceptance/idempotency passed. The paper page and cover disagree on the `/` mark, so the V7 four-state interpretation remains provisional. Next: owner review and manual commit; then visual review of a generated roller shutter PDF and a physical-phone offline/reconnect acceptance pass before release. The current PDF renderer already has the landscape cover, summary, and system-page structure, so compare its actual output with the client sample before changing layout.
+
 **Last updated:** 2026-09-28 — **Offline common remark Edit/Remove and manager phone navigation fixed.**
 Pending common remark edits now update the cached record and queued create together; removal cancels that create and clears the cache. Manager pages use the existing collapsible mobile menu. Focused browser coverage is in `apps/web/tests/manager-common-remarks-mobile.spec.ts`. Service Catalog layout remains at planning stage pending owner approval.
 
@@ -2125,11 +2129,11 @@ COMMIT: Y.** STEP 1.2 (Hose Reel V7 multi-drum) is now re-closed. Detail below.
    HANDOVER wording) is now closed. **Owner visual sign-off on `SV-20260906-41` still remains**
    before 8e-P1 is fully closed. (Run the two manager-final-report Playwright specs `--workers=1`.) Full cosmetic
    reskin still NOT started.
-5. **Final PDF layout polish — DEFERRED by owner decision.** `apps/api/src/reports/finalServiceReport.ts`
-   PDF layout gets ONE polish pass *after the last buildable system (Fire Rated Roller Shutter)*,
-   not per-system. The photo embedding is fine as-is. This is a sequencing decision, not a gap.
-6. **FM200 (STEP 2.1) + Fire Rated Roller Shutter (STEP 2.4)** — both still blocked on client
-   input (see §5).
+5. **Final PDF layout review — next visual checkpoint.** The current renderer has a landscape
+   cover, Summary of Testing, system tables, and accepted photos. Compare a generated report
+   containing Roller Shutter against the client's saved sample before a further polish pass.
+6. **FM200 (STEP 2.1) + Fire Rated Roller Shutter (STEP 2.4)** — runtime forms are implemented.
+   Roller Shutter's conflicting `/` legend still needs client confirmation before release.
 
 Detail on `28d7b55` — **Hose Reel V7 multi-drum (STEP 1.2 follow-up) — response schema
 2 → 3, per-drum `drumType` label + technician-declared `drumCount`.** Owner confirmed the
@@ -2400,10 +2404,10 @@ box, no checklist sections and no header fields. Its "legacy" contract version i
 same deliberate self-reference Smoke Ventilation introduced, so it also gets a single contract
 variant rather than the legacy+V7 pair every STEP 1 system has.
 
-**Next:** STEP 2.4 **Fire Rated Roller Shutter** still needs a client-confirmed spec, and STEP 2.1
-FM200 remains blocked on a real client answer (see §5). With Fire Intercom done, every STEP 2
-service that was *ready to build* is built. All STEP 1/2 services inherit 4-state + C3. C2
-(remarks pick-list) remains deferred to last.
+**Status update (2026-09-28):** Fire Rated Roller Shutter and FM200 now have runtime V7 forms.
+The roller shutter paper's conflicting `/` legend needs client confirmation; generated-PDF visual
+review and physical-phone offline acceptance are the next release checks. All STEP 1/2 services
+inherit 4-state + C3. C2 (remarks pick-list) remains deferred to last.
 
 ---
 
@@ -2819,9 +2823,11 @@ field, add integration coverage, re-verify, Sol pass.
       accepted photo). Browser-verified: the form shows exactly two fieldsets (Station Schedule +
       Comments), a four-state control per station row, a working write-in row, and no Date
       Tested / panel / location field.
-- [ ] 2.4 **Fire Rated Roller Shutter** — NOT in the paper master; only in real Hokuden reports
-      (No. / Location / Auto Alarm Mode / Manual Mode, 45+ rows). **Needs a client-confirmed spec
-      first.** + definition + V7 adapter. (~1 w incl. client input)
+- [x] 2.4 **Fire Rated Roller Shutter** — implemented from the real Hokuden report
+      (No. / Location / Auto Alarm Mode / Manual Mode). V7 definition, form, adapter,
+      evidence-first sync, accepted detail, and Final Report path are implemented.
+      Browser and disposable-PostgreSQL acceptance pass; the conflicting `/` legend
+      still needs client confirmation before release sign-off.
 
 ### RELEASE BLOCKER — P0-M1 migration replay  ← CLOSED 2026-09-06 (committed + deployed + verified)
 - [x] **`runMigrations` no longer re-applies migration `018`'s (or `021`–`026`'s) narrowing
@@ -2960,21 +2966,17 @@ then the repo is self-describing.
 | Automatic Sprinkler | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `7e2a7e6`) | — (V7 drops legacy PSI lifecycle, owner decision) |
 | Dry / Wet Riser | ✅ confirmed | ✅ **done** (4-state, browser-proven, committed `a1cb7bf`) | — |
 | Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
-| FM200 | ⚠️ requires_confirmation | ❌ | STEP 2.1 — **BLOCKED on a real client answer**, see roadmap |
+| FM200 | ⚠️ source-format confirmation pending | ✅ implemented | Confirm against the client's source document before final sign-off |
 | Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, committed `ade85f6`) | — |
 | Fire Intercom | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 12-case DB proven) | Sol pass |
-| Fire Rated Roller Shutter | ❌ none | ❌ | STEP 2.4 — `docs/paper-forms/fire-rated-roller-shutter.md`; 2 failed one-shot attempts, split into 3 slices |
+| Fire Rated Roller Shutter | ⚠️ provisional V7 reading of the Hokuden page | ✅ implemented, browser and disposable-PostgreSQL tested | Confirm conflicting `/` legend; visual PDF and physical-phone acceptance remain |
 
-Done: **10 / 12 on V7** — 9 with a full V7 evidence workflow (Fire Alarm, CO2, Wet Chemical,
-Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire Intercom; the last
-two are the only ones with no V1–V6 lineage), plus Portable Fire Extinguisher — registration-only
-by design (C4), no evidence workflow. Base template ready: 10 / 12. Remaining: **FM200** (stub,
-`requires_confirmation`, blocked on a real client answer) and **Fire Rated Roller Shutter** (no
-template, needs a client-confirmed spec).
-All 10 implemented services share the 4-state result model, per-field `allowedValues` and the C3
-repeatable-row model; the 9 with an evidence workflow share the V7 staged-evidence authority
-(Portable FE has no Poor-capable field by C4, so it has nothing to hang evidence on). FM200 and
-Roller Shutter have no implementation yet.
+Current V7 code includes **12 / 12 listed services**, including the independent FM200
+implementation and the new Fire Rated Roller Shutter form. Portable Fire Extinguisher remains
+registration-only by design (C4). The roller shutter result-mark interpretation is provisional
+because the Hokuden page footer and cover legend disagree; client confirmation and release-level
+phone/PDF acceptance remain outstanding. The older STEP 2.1 FM200 source-document input note
+remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
 

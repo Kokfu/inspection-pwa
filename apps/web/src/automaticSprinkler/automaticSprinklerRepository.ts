@@ -10,6 +10,7 @@ import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { HydrantInspectionRecord } from "../hydrant/hydrantTypes";
 import type { SmokeVentilationInspectionRecord } from "../smokeVentilation/smokeVentilationTypes";
 import type { FireIntercomInspectionRecord } from "../fireIntercom/fireIntercomTypes";
+import type { FireRatedRollerShutterInspectionRecord } from "../fireRatedRollerShutter/fireRatedRollerShutterTypes";
 import type { ResolvedMeasurementRow, ResultControlDefinition } from "../inspectionControls/definitionTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import {
@@ -264,7 +265,7 @@ function updated(
 }
 
 function currentLiveRecord(
-  liveRecord: AutomaticSprinklerInspectionRecord | MasterSystemInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | undefined,
+  liveRecord: AutomaticSprinklerInspectionRecord | MasterSystemInspectionRecord | DryWetRiserInspectionRecord | FireAlarmInspectionRecord | HydrantInspectionRecord | SmokeVentilationInspectionRecord | FireIntercomInspectionRecord | FireRatedRollerShutterInspectionRecord | undefined,
   caller: AutomaticSprinklerInspectionRecord
 ) {
   if (
