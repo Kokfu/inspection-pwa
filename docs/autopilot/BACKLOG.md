@@ -247,8 +247,53 @@ detail responses, whose parsers are exact-key contracts. Recommendation: (b) for
 result is what a reader acts on; remarks/readings can stay panel-only.
 
 ## T6 — Report approval
-Status: TODO (design APPROVED 2026-09-22, `docs/autopilot/designs/T6.md`, all six §8
-recommendations accepted). Prerequisite: T4 DONE.
+Status: DONE (2026-09-23). feat(reports): append-only report approval workflow (admin/supervisor).
+Migration 033 (`report_approvals`, append-only trigger, mirrors 032); derived-state helper
+(`apps/api/src/reports/reportApproval.ts`) is the single source every route reads (Manager list/detail,
+Final Report view, technician `/completion`, both PDF routes) so they cannot disagree. New router
+`POST/GET /manager/service-visits/:jobId/report-approval` (admin+supervisor, idempotent by
+requestId+fingerprint, advisory-locked, `expectedStatus` optimistic-concurrency 409); withdraw is
+admin-only (403 for a supervisor attempting it) with a required note. Both PDF routes gain `409
+REPORT_NOT_APPROVED`, composing with (checked after) T5a's `FINAL_REPORT_HAS_CORRECTIONS`. A correction
+recorded after the latest approval reverts the derived state to `awaiting_approval`. Technicians see a
+read-only chip (`ReportApprovalChip.tsx`) on their own completed visit; Manager gets an approval panel
++ Approve/Withdraw buttons on Final Report and a status chip on Operations.
+Deviation from the design's literal DDL (reviewed, accepted): `report_approvals` gained a
+`request_fingerprint CHAR(64)` column beyond T6.md §3.1's sketch, needed for the idempotent-replay-by-
+fingerprint behaviour §3.3 already specifies — the same mechanism `inspection_corrections` already uses.
+Gate `Test-ManagerScheduling.ps1` exit 0 cold (10 node suites 0 fail/0 skip incl. new
+`reportApproval.test.ts` 8/8; Playwright 78 passed incl. new `manager-report-approval.spec.ts` 3 tests);
+api/web typecheck+build green; integration (disposable DB): migration 033 apply+replay, append-only
+triggers, approve/idempotent-replay/reused-request-409, stale-`expectedStatus`-409, inspector-403,
+open-visit-409, supervisor-withdraw-403, admin-withdraw-with-note, note-length-400, a real correction
+row flipping approval back and re-refusing the PDF, and (added during review-fix) an unapproved
+uncorrected visit refused specifically as `REPORT_NOT_APPROVED`; `git diff --check` clean.
+Review: 1 round, 0 P0 / 0 P1 / 1 P2 deferred (idempotency fingerprint omits actor identity — pre-existing
+in `managerCorrections.ts` too, not a defect this diff introduces; real-world collision needs a client
+UUID collision across two users, effectively impossible). SAFE TO COMMIT: Y.
+Fix over the reviewed diff: the integration test proved the PDF-gate only through a scenario that also
+had a correction present (so the assertion tolerated either `FINAL_REPORT_HAS_CORRECTIONS` or
+`REPORT_NOT_APPROVED` and could pass even with the approval gate removed); added a standalone assertion
+on an awaiting-approval, uncorrected visit that isolates `REPORT_NOT_APPROVED`.
+Revert proofs (scratch copy under the scratchpad dir, junctioned `node_modules`, removed with `rmdir`
+after confirming zero other reparse points, then a recursive delete of the plain copy): no
+correction-after-approval branch → `reportApproval.test.ts` "approved-then-corrected" fails; no
+withdraw-admin-only check → `reportApprovals.integration.test.ts:119` fails (403 expected, got 201); no
+`REPORT_NOT_APPROVED` PDF gate → the new isolated assertion at `reportApprovals.integration.test.ts:79`
+fails (409 expected, got 200); no append-only trigger → the UPDATE/DELETE/TRUNCATE rejection assertions
+at `:171-173` fail ("Missing expected rejection").
+Not covered by a test: no dedicated Playwright harness page for `ReportApprovalChip` in isolation
+(technician read-only-ness is proven by the API integration test as inspector on `/completion`, plus
+direct reading of the component, which renders no interactive controls).
+`git status --short` confirmed clean against the protected-scope list (no PDF rendering file,
+`reports/template/`, `reports/pdf/`, `cli/render*`, `Test-ReportR2.ps1`, `tmp/`, migration 017*, or Fire
+Alarm V6 file touched).
+OWNER CHECK: Manager → Services Done → a completed visit's Final Report → Approve report (as admin or
+supervisor) → PDF download becomes available; as admin, Withdraw approval with a note → PDF disabled
+again; make a correction on an approved visit → Final Report shows "re-approval needed" and the PDF is
+withheld again; sign in as the technician who owns a completed visit → their Final Report shows a
+read-only "Awaiting approval" / "Approved" chip.
+Prerequisite: T4 DONE.
 A completed visit's report moves `awaiting approval` → `approved` (by admin or supervisor), with audit.
 Decide whether technicians see the state and whether unapproved reports can be downloaded. Do not
 touch PDF rendering files.

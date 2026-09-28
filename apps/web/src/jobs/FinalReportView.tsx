@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { downloadFinalReport, loadFinalReport, type FinalReportPreview } from "./finalReportApi";
 import { FinalReportPresentation } from "./FinalReportPresentation";
+import { ReportApprovalChip } from "./ReportApprovalChip";
 
 export function FinalReportView({ jobId, onBack }: { jobId: string; onBack: () => void }) {
   const [report, setReport] = useState<FinalReportPreview>();
@@ -24,6 +25,7 @@ export function FinalReportView({ jobId, onBack }: { jobId: string; onBack: () =
       <div><p className="eyebrow">Completed service visit</p><h2 id="final-report-title">Final Report</h2></div>
       {report ? <button type="button" onClick={() => void handleDownload()} disabled={downloading}>{downloading ? "Downloading PDF..." : "Download PDF"}</button> : null}
     </div>
+    {report ? <p><ReportApprovalChip jobId={jobId} /></p> : null}
     {message ? <p className="form-message">{message}</p> : null}
     {downloadError ? <p className="form-message" role="alert">{downloadError}</p> : null}
     {report ? <FinalReportPresentation report={report} /> : null}

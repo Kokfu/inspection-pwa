@@ -29,6 +29,38 @@ export type ManagerServiceVisit = {
    *  (migration `036_inspection_job_archive.sql`) — adjust if the API agent used
    *  a different field name. */
   archivedAt: string | null;
+  reportApproval: ReportApprovalState;
+};
+
+/* ------------------------------------------------------------------------------------------------
+ * Report approval. A completed visit's report moves from "awaiting approval" to "approved" by an
+ * explicit admin/supervisor decision, with an append-only history; a correction after approval
+ * reverts the state to "awaiting_approval" again.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type ReportApprovalStatus = "not_applicable" | "awaiting_approval" | "approved";
+export type ReportApprovalRole = "admin" | "supervisor";
+export type ReportApprovalDecision = "approved" | "withdrawn";
+
+export type ReportApprovalState = {
+  status: ReportApprovalStatus;
+  decidedBy: string | null;
+  decidedByRole: ReportApprovalRole | null;
+  decidedAt: string | null;
+  note: string | null;
+  latestCorrectionAt: string | null;
+  correctedAfterApproval: boolean;
+};
+
+export type ReportApprovalEvent = {
+  id: string;
+  decision: ReportApprovalDecision;
+  note: string | null;
+  decidedBy: string;
+  decidedByRole: ReportApprovalRole;
+  decidedAt: string;
+  sequence: number;
+  requestId: string;
 };
 
 export type ManagerCustomer = {
@@ -1204,4 +1236,49 @@ export async function resetManagerCompanyLogo(): Promise<ManagerCompanyProfile> 
   const result = await readResponse<unknown>(response, "companyProfile");
   if (!isManagerCompanyProfile(result)) unavailable();
   return result;
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Report approval API.
+ * ---------------------------------------------------------------------------------------------- */
+
+function isReportApprovalState(value: unknown): value is ReportApprovalState {
+  return isPlainObject(value)
+    && (value.status === "not_applicable" || value.status === "awaiting_approval" || value.status === "approved")
+    && (value.decidedBy === null || typeof value.decidedBy === "string")
+    && (value.decidedByRole === null || value.decidedByRole === "admin" || value.decidedByRole === "supervisor")
+    && (value.decidedAt === null || typeof value.decidedAt === "string")
+    && (value.note === null || typeof value.note === "string")
+    && (value.latestCorrectionAt === null || typeof value.latestCorrectionAt === "string")
+    && typeof value.correctedAfterApproval === "boolean";
+}
+
+function isReportApprovalEvent(value: unknown): value is ReportApprovalEvent {
+  return isPlainObject(value) && typeof value.id === "string"
+    && (value.decision === "approved" || value.decision === "withdrawn")
+    && (value.note === null || typeof value.note === "string")
+    && typeof value.decidedBy === "string"
+    && (value.decidedByRole === "admin" || value.decidedByRole === "supervisor")
+    && typeof value.decidedAt === "string" && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1
+    && typeof value.requestId === "string";
+}
+
+function asReportApprovalResponse(data: unknown): { reportApproval: ReportApprovalState; events: ReportApprovalEvent[] } {
+  if (!isPlainObject(data) || !isReportApprovalState(data.reportApproval)
+    || !Array.isArray(data.events) || !data.events.every(isReportApprovalEvent)) unavailable();
+  return { reportApproval: data.reportApproval, events: data.events as ReportApprovalEvent[] };
+}
+
+export async function loadReportApproval(jobId: string, signal?: AbortSignal) {
+  const data = await managerRequest<unknown>(`/api/manager/service-visits/${encodeURIComponent(jobId)}/report-approval`, "GET", null, undefined, signal);
+  return asReportApprovalResponse(data);
+}
+
+/** Approve or withdraw a visit's report. `expectedStatus` guards against a stale screen (409 on mismatch). */
+export async function submitReportApproval(
+  jobId: string,
+  input: { requestId: string; decision: ReportApprovalDecision; note?: string; expectedStatus: "awaiting_approval" | "approved" }
+) {
+  const data = await managerRequest<unknown>(`/api/manager/service-visits/${encodeURIComponent(jobId)}/report-approval`, "POST", null, input);
+  return asReportApprovalResponse(data);
 }

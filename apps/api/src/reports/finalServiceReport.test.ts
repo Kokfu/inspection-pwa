@@ -68,6 +68,12 @@ class Database {
     if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: forms.length, rows: forms };
     // T5: the PDF route asks whether the visit was corrected after submission.
     if (sql.includes("inspection_corrections")) return { rowCount: 1, rows: [{ hasCorrections: false }] };
+    // T6: the PDF route also asks whether the report was approved; this fixture is pre-approved.
+    if (sql.includes("report_approvals")) return { rowCount: 1, rows: [{
+      id: "00000000-0000-4000-8000-0000000000a1", decision: "approved", note: null,
+      decidedBy: "inspector-one", decidedByRole: "admin", decidedAt: "2026-08-19T07:00:00.000Z",
+      sequence: 1, requestId: "00000000-0000-4000-8000-0000000000a2", requestFingerprint: "x".repeat(64)
+    }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
 }

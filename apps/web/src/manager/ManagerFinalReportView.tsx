@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { FinalReportApiError, downloadFinalReport, loadFinalReport, type FinalReportPreview } from "../jobs/finalReportApi";
 import { FinalReportPresentation } from "../jobs/FinalReportPresentation";
-import { loadVisitCorrections, type ManagerVisitCorrection } from "./managerApi";
+import {
+  loadReportApproval, loadVisitCorrections, submitReportApproval,
+  type ManagerVisitCorrection, type ReportApprovalState
+} from "./managerApi";
 
 const managerEndpointBase = "/api/manager/service-visits";
 const resultLabels: Record<string, string> = { good: "Good", not_good: "Not Good", complete_repair: "Complete Repair", na: "N.A." };
@@ -12,9 +15,71 @@ function sameCorrectionRevision(report: FinalReportPreview, corrections: Manager
     && counts.reduce<number>((sum, count) => sum + (count ?? 0), 0) === corrections.length;
 }
 
-export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations", onBack, onAuthorizationFailure, onServerUnavailable }: {
+function formatWhen(value: string) {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : value;
+}
+
+/** T6: current approval state, who decided and when, and the controls to approve/withdraw. */
+function ReportApprovalPanel({ jobId, currentUserRole, reportApproval, checked, onChanged }: {
+  jobId: string;
+  currentUserRole?: "admin" | "supervisor";
+  reportApproval: ReportApprovalState | undefined;
+  checked: boolean;
+  onChanged: (state: ReportApprovalState) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  if (!checked) return <p className="form-message" role="status">Checking report approval…</p>;
+  if (!reportApproval || reportApproval.status === "not_applicable") return null;
+
+  const decide = async (decision: "approved" | "withdrawn") => {
+    setError("");
+    if (decision === "withdrawn" && note.trim().length < 3) { setError("A note of at least 3 characters is required to withdraw approval."); return; }
+    setBusy(true);
+    try {
+      const { reportApproval: next } = await submitReportApproval(jobId, {
+        requestId: crypto.randomUUID(), decision, expectedStatus: reportApproval.status === "approved" ? "approved" : "awaiting_approval",
+        ...(decision === "withdrawn" ? { note: note.trim() } : {})
+      });
+      onChanged(next);
+      setNote(""); setWithdrawing(false);
+    } catch (submitError: unknown) {
+      setError(submitError instanceof Error ? submitError.message : "The approval decision could not be saved. Please try again.");
+    } finally { setBusy(false); }
+  };
+
+  return <section className="operational-message" aria-labelledby="manager-report-approval-title">
+    <h3 id="manager-report-approval-title">
+      {reportApproval.status === "approved" ? "Report approved" : "Awaiting approval"}
+      {reportApproval.correctedAfterApproval && " — corrected after approval, re-approval needed"}
+    </h3>
+    {reportApproval.decidedBy && <p>
+      {reportApproval.status === "approved" ? "Approved" : "Last decided"} by {reportApproval.decidedBy} ({reportApproval.decidedByRole}){reportApproval.decidedAt ? ` on ${formatWhen(reportApproval.decidedAt)}` : ""}.
+      {reportApproval.note ? ` "${reportApproval.note}"` : ""}
+    </p>}
+    {error ? <p className="form-message" role="alert">{error}</p> : null}
+    {currentUserRole && reportApproval.status !== "approved" && <button type="button" disabled={busy} onClick={() => void decide("approved")}>
+      {busy ? "Approving…" : "Approve report"}
+    </button>}
+    {currentUserRole === "admin" && reportApproval.status === "approved" && !withdrawing && <button type="button" className="secondary-command" onClick={() => setWithdrawing(true)}>Withdraw approval</button>}
+    {currentUserRole === "admin" && reportApproval.status === "approved" && withdrawing && <div className="inline-actions">
+      <label htmlFor="report-approval-withdraw-note">Reason for withdrawing (required)</label>
+      <textarea id="report-approval-withdraw-note" value={note} onChange={(event) => setNote(event.target.value)} minLength={3} maxLength={500} />
+      <button type="button" disabled={busy} onClick={() => void decide("withdrawn")}>{busy ? "Withdrawing…" : "Confirm withdraw"}</button>
+      <button type="button" className="secondary-command" onClick={() => { setWithdrawing(false); setNote(""); setError(""); }}>Cancel</button>
+    </div>}
+  </section>;
+}
+
+export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations", currentUserRole, onBack, onAuthorizationFailure, onServerUnavailable }: {
   jobId: string;
   backLabel?: string;
+  /** Admin/supervisor only; a supervisor can never withdraw (T6 §8 Q1). */
+  currentUserRole?: "admin" | "supervisor";
   onBack: () => void;
   onAuthorizationFailure: (message: string) => void;
   onServerUnavailable: (message: string) => void;
@@ -27,6 +92,9 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
   const [corrections, setCorrections] = useState<ManagerVisitCorrection[]>([]);
   /** Until the check succeeds the report cannot claim there are none, so the PDF stays withheld. */
   const [correctionsChecked, setCorrectionsChecked] = useState(false);
+  /** T6: the report's approval state. Until this check succeeds, the PDF stays withheld too. */
+  const [reportApproval, setReportApproval] = useState<ReportApprovalState>();
+  const [reportApprovalChecked, setReportApprovalChecked] = useState(false);
 
   const handleLoadFailure = (error: unknown) => {
     const reportError = error instanceof FinalReportApiError
@@ -75,10 +143,19 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
     if (active.current) setMessage("The report changed while loading. Check again to reload it.");
   };
 
+  /** Re-run the approval check after a transient failure, without reloading the page. */
+  const checkReportApproval = (active = { current: true }) => loadReportApproval(jobId).then(
+    ({ reportApproval: state }) => { if (active.current) { setReportApproval(state); setReportApprovalChecked(true); } },
+    () => undefined
+  );
+
   useEffect(() => {
     let active = true;
+    setReportApproval(undefined); setReportApprovalChecked(false);
     const alive = { get current() { return active; } };
     void refreshReport(alive);
+    // Best effort: the report itself never depends on the approval state.
+    void checkReportApproval(alive);
     return () => { active = false; };
   // Manager callbacks are intentionally handled at failure time; changing App render state must not reload the report.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,7 +173,7 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
     <button type="button" className="secondary-command" onClick={onBack}>{backLabel}</button>
     <div className="workspace-heading">
       <div><p className="eyebrow">Completed service visit</p><h2 id="manager-final-report-title">Final Report</h2></div>
-      {report ? <button type="button" disabled={downloading || !correctionsChecked || corrections.length > 0} onClick={() => void handleDownload()}>{downloading ? "Downloading PDF…" : "Download PDF"}</button> : null}
+      {report ? <button type="button" disabled={downloading || !correctionsChecked || corrections.length > 0 || !reportApprovalChecked || reportApproval?.status !== "approved"} onClick={() => void handleDownload()}>{downloading ? "Downloading PDF…" : "Download PDF"}</button> : null}
     </div>
     {!report && !correctionsChecked && message !== "Loading final report..." && <p className="operational-message operational-message--warning" role="status">
       Report and correction history could not be shown together.
@@ -109,6 +186,11 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
         <strong>{correction.label}</strong>: {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong> · {correction.correctedBy} ({correction.correctedByRole}) · {correction.reason}
       </li>)}</ul>
     </section>}
+    {report && reportApprovalChecked && reportApproval?.status !== "approved" && corrections.length === 0 && <p className="operational-message operational-message--warning" role="status">
+      This report has not been approved yet. It is available for download once an admin or supervisor approves it below.
+    </p>}
+    <ReportApprovalPanel jobId={jobId} currentUserRole={currentUserRole} reportApproval={reportApproval} checked={reportApprovalChecked}
+      onChanged={(state) => { setReportApproval(state); setReportApprovalChecked(true); }} />
     {message ? <p className="form-message" role="alert">{message}</p> : null}
     {downloadError ? <p className="form-message" role="alert">{downloadError}</p> : null}
     {report ? <FinalReportPresentation report={report} /> : null}

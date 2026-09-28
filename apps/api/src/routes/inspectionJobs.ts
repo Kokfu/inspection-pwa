@@ -1,5 +1,6 @@
 import { requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { visitHasCorrections } from "./managerCorrections.js";
+import { deriveReportApproval, loadLatestCorrectionAt, loadReportApprovalEvents, visitReportApproval } from "../reports/reportApproval.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { PoolClient } from "pg";
 import { auditLog } from "../audit/auditLog.js";
@@ -212,6 +213,20 @@ export function createFinalReportPdfHandler({ database = pool, loadReport = load
         response.status(409).json({ error: "FINAL_REPORT_HAS_CORRECTIONS", message: "This visit was corrected after submission. The PDF will be available once the report includes the corrections; the web report lists them." });
         return;
       }
+      // T6 (owner decision): a report may not be downloaded until an admin or supervisor approves
+      // it. Checked after the report's own access check and the corrections gate, so unknown and
+      // forbidden visits still look the same, and composes with (does not replace) that gate.
+      // `loadReport` above already required the job to be closed (or it would have thrown), so the
+      // approval state is derived directly here rather than re-querying `inspection_jobs.status`.
+      const [approvalEvents, latestCorrectionAt] = await Promise.all([
+        loadReportApprovalEvents(database, jobId),
+        loadLatestCorrectionAt(database, jobId)
+      ]);
+      const approval = deriveReportApproval("closed", approvalEvents, latestCorrectionAt);
+      if (approval.status !== "approved") {
+        response.status(409).json({ error: "REPORT_NOT_APPROVED", message: "This report has not been approved yet. It is available for download once an admin or supervisor approves it." });
+        return;
+      }
       const filename = finalReportFilename(report);
       response.setHeader("Content-Type", "application/pdf");
       response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -294,7 +309,9 @@ inspectionJobsRouter.get(
         response.status(404).json({ error: "JOB_NOT_FOUND" });
         return;
       }
-      response.json({ completion });
+      // §8 Q3: technicians see the approval state read-only on their own completed visit.
+      const reportApproval = await visitReportApproval(pool, jobId);
+      response.json({ completion, ...(reportApproval ? { reportApproval } : {}) });
     } catch (error) {
       next(error);
     }

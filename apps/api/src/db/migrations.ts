@@ -137,6 +137,9 @@ const serviceDueRemindersMigrationUrl = new URL(
 const hiddenTechnicianAccountsMigrationUrl = new URL(
   "../../migrations/044_hidden_technician_accounts.sql", import.meta.url
 );
+const reportApprovalsMigrationUrl = new URL(
+  "../../migrations/045_report_approvals.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -595,6 +598,13 @@ export async function runMigrations(
   );
   if (!hiddenTechnicianAccounts.rows[0]?.exists) {
     await database.query(await readFile(hiddenTechnicianAccountsMigrationUrl, "utf8"));
+  }
+  // Migration 045 creates `report_approvals`; the table's presence is the replay marker.
+  const reportApprovals = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.report_approvals') IS NOT NULL AS exists`
+  );
+  if (!reportApprovals.rows[0]?.exists) {
+    await database.query(await readFile(reportApprovalsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

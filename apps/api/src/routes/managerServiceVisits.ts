@@ -7,6 +7,7 @@ import { requireRoleAudited } from "../middleware/requireRole.js";
 import { isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { createFinalReportHandler, createFinalReportPdfHandler } from "./inspectionJobs.js";
 import { loadFinalServiceReport, renderFinalServiceReportPdf } from "../reports/finalServiceReport.js";
+import { visitReportApproval, type ReportApprovalState } from "../reports/reportApproval.js";
 
 type OperationalJobRow = {
   id: string;
@@ -53,6 +54,8 @@ export type ManagerServiceVisit = {
   completion: NonNullable<Awaited<ReturnType<typeof loadJobCompletion>>>;
   archivedAt: string | null;
   hasAcceptedRecords: boolean;
+  /** Additive report-approval summary, present for every operational visit. */
+  reportApproval: ReportApprovalState;
 };
 
 const acceptedVisitExistsSql = `EXISTS (
@@ -121,6 +124,10 @@ async function presentOperationalJob(
   if (!completion || completion.jobStatus !== job.status) {
     throw new Error("Operational job completion is unavailable");
   }
+  // Never absent for a real operational job: `visitReportApproval` only returns `undefined` for an
+  // unknown/sample job, and this job was just read from `inspection_jobs` above.
+  const reportApproval = await visitReportApproval(database, job.id);
+  if (!reportApproval) throw new Error("Operational job report approval is unavailable");
   return {
     id: job.id,
     reference: job.reference,
@@ -138,7 +145,8 @@ async function presentOperationalJob(
     },
     completion,
     archivedAt: job.archivedAt,
-    hasAcceptedRecords: job.hasAcceptedRecords === true || completion.acceptedUnitCount > 0
+    hasAcceptedRecords: job.hasAcceptedRecords === true || completion.acceptedUnitCount > 0,
+    reportApproval
   };
 }
 

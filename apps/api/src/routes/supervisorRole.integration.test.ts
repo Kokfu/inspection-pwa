@@ -14,6 +14,7 @@ import { inspectionReferenceRouter } from "./inspectionReference.js";
 import { inspectionsRouter } from "./inspections.js";
 import { createManagerCustomersRouter, ManagerCustomerError } from "./managerCustomers.js";
 import { createManagerCorrectionsRouter } from "./managerCorrections.js";
+import { createReportApprovalsRouter } from "./reportApprovals.js";
 import { createManagerServiceVisitsRouter } from "./managerServiceVisits.js";
 import { createManagerTechniciansRouter, ManagerTechnicianError } from "./managerTechnicians.js";
 import { masterSystemInspectionsRouter } from "./masterSystemInspections.js";
@@ -40,6 +41,9 @@ const supervisorReads = new Set([
   "POST /manager/inspections/:clientUuid/review",
   "GET /manager/service-visits/:jobId/corrections",
   "GET /manager/service-visits/:jobId/accepted-records",
+  // T6: report approval is review/sign-off work, so a supervisor may read and write it.
+  "GET /manager/service-visits/:jobId/report-approval",
+  "POST /manager/service-visits/:jobId/report-approval",
   // T5c: review reads of accepted records, their evidence photos and their corrections.
   "GET /inspections/:clientUuid/corrections",
   "GET /hose-reel-inspections/:clientUuid",
@@ -84,7 +88,7 @@ test("supervisor role: migration 031, account lifecycle, customer summary and a 
     const passwordHash = await hashPassword("manager-test-password");
     await pool.query("INSERT INTO users(username,password_hash,role) VALUES('mobiletest',$1,'admin')", [passwordHash]);
     const app = express(); app.use(express.json()); app.use(currentUser); app.use(authRouter);
-    const managerRouters = [createManagerServiceVisitsRouter({ database: pool }), createManagerCustomersRouter(pool), createManagerTechniciansRouter(pool), createManagerCorrectionsRouter(pool)];
+    const managerRouters = [createManagerServiceVisitsRouter({ database: pool }), createManagerCustomersRouter(pool), createManagerTechniciansRouter(pool), createManagerCorrectionsRouter(pool), createReportApprovalsRouter(pool)];
     const otherRouters = [syncRouter, testRecordsRouter, inspectionsRouter, inspectionReferenceRouter, inspectionJobsRouter, masterSystemInspectionsRouter, inspectionAttachmentsRouter, stagedEvidenceRouter];
     for (const router of [...managerRouters, ...otherRouters]) app.use(router);
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

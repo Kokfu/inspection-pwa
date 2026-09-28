@@ -289,10 +289,21 @@ Supervisor role, append-only corrections to accepted V7 records, T6 report-appro
 with this branch's FM200 system, manager UI navigation split, and soft-archive/retirement work. See the
 `claude/autopilot` entries immediately below for that branch's own history up to the merge.
 
-**Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T6 report-approval design written — waiting for owner approval.**
-`docs/autopilot/designs/T6.md`: append-only `report_approvals` (migration 033) with derived state, a
-correction after approval reverting to awaiting approval, and the PDF released only once approved. Six
-owner questions (§8). Also open: T5d (corrections panel vs inline effective values).
+**Last updated:** 2026-09-28 — **Report approval workflow cherry-picked from `claude/autopilot`'s T6 (migration renumbered 033 → 045).**
+Append-only `report_approvals` table with a single derived-state helper every route reads;
+`POST/GET /manager/service-visits/:jobId/report-approval` (admin+supervisor, withdraw admin-only); both
+PDF routes refuse `409 REPORT_NOT_APPROVED` until approved; a correction after approval reverts to
+awaiting approval; technicians see a read-only chip; `ManagerOperations.tsx`'s richer supervisor/filter/
+delete-visit view kept, with the approval chip woven in.
+
+**Last updated:** 2026-09-23 — **Branch `claude/autopilot`: T6 report approval landed (committed on the
+branch, not merged).**
+Append-only `report_approvals` (migration 033 on that branch) with a single derived-state helper every
+route reads; `POST/GET /manager/service-visits/:jobId/report-approval` (admin+supervisor, withdraw
+admin-only); both PDF routes refuse `409 REPORT_NOT_APPROVED` until approved (composes with T5a's
+corrections gate); a correction after approval reverts to awaiting approval; technicians see a read-only
+chip. See `docs/autopilot/BACKLOG.md` T6 for gate/review/revert-proof detail. Also open: T5d (corrections
+panel vs inline effective values).
 
 **Last updated:** 2026-09-21 — **Branch `claude/autopilot`: T5c landed — supervisors read accepted records and evidence; corrections show on Accepted Detail (committed on the branch, not merged).**
 Read-only widening only (`requireReviewerOrOwnership`); technicians still see their own records and now
