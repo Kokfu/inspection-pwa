@@ -113,6 +113,40 @@ export async function createTechnicianCustomer(input: {
   return data.customer.customer;
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Submit a technician-drafted zone/location proposal for review. Mirrors `createTechnicianCustomer`:
+ *  server-side idempotent on `input.id`, `X-Expected-User-Id` guards against a stale cross-tab
+ *  identity, and the response is validated (never trusted on HTTP 200 alone) before the caller may
+ *  mark the local draft Synced. */
+export async function submitTechnicianLocationProposal(
+  customerId: string,
+  systemKey: string,
+  input: {
+    id: string;
+    jobId: string;
+    zones: Array<{ key: string; displayName: string; sortOrder: number }>;
+    locations: Array<{ key: string; displayName: string; zoneId: string; presetRowCount: number }>;
+  },
+  expectedUserId?: number
+): Promise<{ id: string; status: string }> {
+  const response = await fetch(`/api/technician/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/location-proposals`, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) },
+    body: JSON.stringify(input)
+  });
+  const data = await response.json() as { proposal?: { id?: string; status?: string }; message?: string };
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Connect to the server to submit this location proposal.");
+  }
+  if (!response.ok || !data.proposal
+    || typeof data.proposal.id !== "string" || !uuidPattern.test(data.proposal.id)
+    || typeof data.proposal.status !== "string") {
+    throw new Error(data.message ?? "Location proposal could not be submitted.");
+  }
+  return { id: data.proposal.id, status: data.proposal.status };
+}
+
 export function loadCustomerConfiguration(customerId: string) {
   return getJson<CustomerConfigurationResponse>(
     `/api/customers/${encodeURIComponent(customerId)}/configuration`

@@ -18,7 +18,7 @@ const report = {
   customer: visit.customer, site: visit.site, serviceDate: visit.serviceDate, jobReference: visit.reference,
   completedAt: visit.completion.completedAt, completedBy: "technician-one",
   systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North"] }],
-  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Zone North", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [] }]
+  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Zone North", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hydrant.canvas_hose", available: true, captureSource: "gallery" }] }]
 };
 const customerSummary = {
   customer: { id: "00000000-0000-4000-8000-000000000831", code: "CUST-SUP", displayName: "Supervisor Review Customer" },
@@ -106,6 +106,7 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await expect(page).toHaveURL(new RegExp(`#/manager-service-visit/${visit.id}$`));
   await page.getByRole("button", { name: /View report|Final Report/ }).first().click();
   await expect(page.getByText("Canvas Hose")).toBeVisible();
+  await expect(page.getByText("Uploaded from Gallery")).toBeVisible();
   await expect(page.getByRole("region", { name: "Service visit details" })).toContainText(/18 Sep.*2026.*18:00/);
   await expect(page.getByText("2026-09-18T10:00:00.000Z")).toHaveCount(0);
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);

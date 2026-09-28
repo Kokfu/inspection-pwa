@@ -49,7 +49,7 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
           : "Pending Review."}
       </p> : null}
       <dl>{section.fields.map((field, fieldIndex) => <div className={`report-field report-field--depth-${Math.min(field.depth, 3)}`} key={`${field.label}:${fieldIndex}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
-      {section.evidence.map((evidence) => <p className="evidence-confirmed" key={evidence.field}>Photo evidence is included in the downloaded PDF: {evidence.field.replace(/([a-z])([A-Z])/g, "$1 $2")}</p>)}
+      {section.evidence.map((evidence) => <p className="evidence-confirmed" key={evidence.field}>Photo evidence is included in the downloaded PDF: {evidence.field.replace(/([a-z])([A-Z])/g, "$1 $2")}. <strong>{evidence.captureSource === "camera" ? "Captured by Camera" : evidence.captureSource === "gallery" ? "Uploaded from Gallery" : "Source unavailable"}</strong></p>)}
     </section>)}
   </>;
 }

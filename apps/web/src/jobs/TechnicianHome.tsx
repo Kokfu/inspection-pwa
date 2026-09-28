@@ -107,6 +107,7 @@ type TechnicianHomeProps = {
   onOpenSmokeVentilation: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireIntercom: (job: InspectionJob, system: JobSystemSnapshot) => void;
   onOpenFireRatedRollerShutter: (job: InspectionJob, system: JobSystemSnapshot) => void;
+  onOpenLocationProposal: (job: InspectionJob) => void;
 };
 
 export function TechnicianHome({
@@ -134,7 +135,8 @@ export function TechnicianHome({
   onOpenHoseReel,
   onOpenCo2,
   onOpenFm200,
-  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom, onOpenFireRatedRollerShutter
+  onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom, onOpenFireRatedRollerShutter,
+  onOpenLocationProposal
 }: TechnicianHomeProps) {
   const tabKey = `technician-home-tab:${"user" in authState ? authState.user?.id ?? "locked" : "locked"}`;
   const [tab, setTab] = useState<"progress" | "completed">(() =>
@@ -316,7 +318,7 @@ export function TechnicianHome({
       />
     ) : selectedJob ? (
       <section aria-labelledby="applicable-systems-title">
-        <button type="button" className="secondary-command back-command mobile-only-back" onClick={onBackToJobs}>Back to My Jobs</button>
+        <button type="button" className="secondary-command back-command" onClick={onBackToJobs}>Back to My Jobs</button>
         <div className="job-context job-context-card">
           <div className="job-context-title">
             <div>
@@ -363,6 +365,9 @@ export function TechnicianHome({
               if (window.confirm(`Delete this in-progress service visit? A manager can restore it if this was a mistake.`)) void onArchiveJob(selectedJob);
             }}>Delete this job</button> : null}
           </div> : null}
+          <div className="inline-actions">
+            <button type="button" className="secondary-command" onClick={() => onOpenLocationProposal(selectedJob)}>Propose Customer Locations</button>
+          </div>
         </div>
         {selectedJob.status === "open" && selectedJob.completion?.eligible ? (
           <section className="job-completion job-completion--ready" aria-labelledby="job-completion-title">

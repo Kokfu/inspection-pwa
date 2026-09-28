@@ -184,12 +184,35 @@ export function createFinalReportHandler({ database = pool, loadReport = loadFin
         return;
       }
       const report = await loadReport(jobId, database, reportAccessFor(request));
+      type CaptureSourceRow = { systemKey: string; instanceKey: string; field: string; captureSource: string | null };
+      const sourceRows = report.sections.some((section) => section.evidence.length > 0)
+        ? (await database.query<CaptureSourceRow>(`SELECT inspection.system_key AS "systemKey", instance.instance_key AS "instanceKey",
+            evidence_row.field_path AS "field", evidence_row.capture_source AS "captureSource"
+          FROM (
+            SELECT form_instance_id, field_path, capture_source FROM inspection_attachments
+            UNION ALL
+            SELECT form_instance_id, field_path, capture_source FROM staged_inspection_evidence WHERE status='accepted'
+          ) evidence_row
+          JOIN master_system_form_instances instance ON instance.id=evidence_row.form_instance_id
+          JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
+          WHERE inspection.job_id=$1 AND instance.status='submitted'`, [jobId])).rows
+        : [];
+      const sources = new Map<string, CaptureSourceRow["captureSource"]>();
+      for (const row of sourceRows) {
+        if (row.captureSource !== null && row.captureSource !== "camera" && row.captureSource !== "gallery" && row.captureSource !== "unknown") {
+          throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted photo source is invalid.");
+        }
+        const key = JSON.stringify([row.systemKey, row.instanceKey, row.field]);
+        if (sources.has(key)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted photo source is ambiguous.");
+        sources.set(key, row.captureSource);
+      }
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ report: {
         ...report,
         sections: report.sections.map(({ evidence, ...section }) => ({
           ...section,
-          evidence: evidence.map((item) => ({ field: item.field, available: true }))
+          evidence: evidence.map((item) => ({ field: item.field, available: true,
+            captureSource: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field])) ?? null }))
         }))
       } });
     } catch (error) {

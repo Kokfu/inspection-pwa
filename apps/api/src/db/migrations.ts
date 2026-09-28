@@ -140,6 +140,12 @@ const hiddenTechnicianAccountsMigrationUrl = new URL(
 const reportApprovalsMigrationUrl = new URL(
   "../../migrations/045_report_approvals.sql", import.meta.url
 );
+const stagedEvidenceCaptureSourceMigrationUrl = new URL(
+  "../../migrations/047_staged_evidence_capture_source.sql", import.meta.url
+);
+const customerLocationProposalsMigrationUrl = new URL(
+  "../../migrations/048_customer_location_proposals.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -605,6 +611,19 @@ export async function runMigrations(
   );
   if (!reportApprovals.rows[0]?.exists) {
     await database.query(await readFile(reportApprovalsMigrationUrl, "utf8"));
+  }
+  const stagedEvidenceCaptureSource = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='staged_inspection_evidence' AND column_name='capture_source') AS exists`
+  );
+  if (!stagedEvidenceCaptureSource.rows[0]?.exists) {
+    await database.query(await readFile(stagedEvidenceCaptureSourceMigrationUrl, "utf8"));
+  }
+  // Migration 048 creates `customer_location_proposals`; the table's presence is the replay marker.
+  const customerLocationProposals = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.customer_location_proposals') IS NOT NULL AS exists`
+  );
+  if (!customerLocationProposals.rows[0]?.exists) {
+    await database.query(await readFile(customerLocationProposalsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

@@ -3,6 +3,33 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-29 — **Four requested fixes reviewed for commit.**
+The location-proposal review now requires a real visit owned by the submitting technician
+for the target customer and system, and rejects a foreign technician's UUID replay.
+Proposal audit context no longer blocks deletion of an unfinished visit. The disposable-
+Postgres proposal suite and Manager locations regression, IndexedDB browser sync test,
+focused API/web tests, and both app typechecks passed. See the change log for scope and
+the remaining technician decision-visibility limitation.
+
+**Last updated:** 2026-09-29 — **Completed-report photo source shown to Technician and Manager/Supervisor.**
+The JSON Final Report now labels accepted photos as Camera, Gallery, or Source unavailable;
+the shared read-only presentation shows the label. New V7 staged uploads persist their
+validated capture source through forward migration 047. Older V6/V7 staged rows cannot
+recover that metadata and display Source unavailable; legacy attachment rows already
+store it. The PDF renderer, embedding model, and final-service-report loader were untouched.
+Focused route/UI tests, the supervisor browser check, both typechecks/builds, and the
+FM200 V7 disposable-Postgres suite passed (2/2 with the test runner's force-exit option).
+The historical matrix (20/20), V6 evidence suite (11/11), and report view-model suite
+(14/14) also passed. The test container was removed.
+
+**Last updated:** 2026-09-29 — **CO2/FM200 detector counts and desktop job return.**
+New CO2 and FM200 location drafts seed detector rows from the frozen `presetRowCount`.
+Technicians can set the total count; extra blank rows trim from the end while configured
+and filled rows remain. Local row provenance is stripped from the existing exact-key
+server payload. The in-context “Back to My Jobs” button now displays on desktop.
+Focused row-count and repeatable-row tests, web typecheck/build passed. No phone or
+offline acceptance run was performed.
+
 **Last updated:** 2026-09-29 — **Generated report pagination and Roller Shutter parts tally fixed in code.**
 The PDF renderer now uses a compact Roller Shutter inspection header, 36 mm photo previews,
 a slightly shorter inspection strip, and less space before the end marker so photo-backed system details do not leave a strip
@@ -2430,6 +2457,13 @@ The owner deferred the roller shutter paper's conflicting `/` legend and confirm
 digital choices. Fresh-PDF visual sign-off and physical-phone offline acceptance are the next release checks. All STEP 1/2 services
 inherit 4-state + C3. C2 (remarks pick-list) remains deferred to last.
 
+**Status update (2026-09-29): Technician-proposed, Supervisor-approved customer locations — reviewed.**
+A technician can now draft the real zone/location breakdown for a customer's CO2 / Wet Chemical / FM200 system
+on-site, offline-first, and submit it for Supervisor/Admin review; Approve writes it through the exact same
+server path a Manager's own "Zones & locations" edit uses. See the change-log entry below for the full
+data-model / API / test summary. Migration 048 follows the separate 046 Roller Shutter and 047
+photo-source migrations in the shared working tree.
+
 ---
 
 ## 2. How to run / rebuild / test
@@ -3000,6 +3034,110 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-09-29 — **Technician-proposed, Supervisor-approved customer locations. Reviewed for commit at owner request.**
+  Today, zones/locations for CO2/Wet Chemical/FM200 could only be configured in advance by a Manager
+  (`ManagerLocationsEditor` / `PUT /manager/customers/:id/systems/:systemKey/locations`). This adds a
+  standalone review flow: a technician drafts the real zone/location breakdown on-site (offline-first,
+  IndexedDB-first per the Offline Contract), submits it, and a Supervisor/Admin approves or rejects it
+  before it becomes the customer's real, versioned configuration. **Deliberately decoupled from the live
+  CO2/FM200 inspection form** — the server validates a submitted `configuredLocationId` against the job's
+  already-frozen `configuration_snapshot`, so a locally-drafted id can never pass that check; `co2Repository.ts`,
+  `co2FormInstanceSync.ts`, `fm200Repository.ts` and their FM200 sync counterpart are untouched.
+  - **Data model (migration 048, additive; 046 Roller Shutter remains separate, and 047 belongs to the photo-source fix).**
+    `customer_location_proposals` (one immutable row per technician submission, PK is the technician's own
+    client-generated UUID) + `customer_location_proposal_decisions` (append-only decision log, same shape as
+    `report_approvals`), both with append-only triggers. Status is DERIVED
+    (`apps/api/src/inspections/locationProposal.ts`), never read off a mutable column. **Both decisions are
+    terminal** — no withdraw, no re-decision, unlike report approval's withdraw/re-approve cycle; a technician
+    who wants to try again submits a fresh proposal (new UUID).
+  - **API.** New `apps/api/src/routes/locationProposals.ts`: `POST /technician/customers/:customerId/systems/:systemKey/location-proposals`
+    (`requireRole("inspector")`, idempotent on the client id, one pending proposal at a time per
+    customer+system via `pg_advisory_xact_lock`); `GET /manager/location-proposals[?status=]` and
+    `GET /manager/location-proposals/:id`; `POST /manager/location-proposals/:id/decision`
+    (`requireRoleAudited(admin, supervisor)`, reject requires a 3–500 char note, approve's is optional,
+    advisory-lock + fingerprint-replay idempotency mirroring `reportApprovals.ts`). **Approve reuses the real
+    save path**: extracted `applyManagerLocationsUpdate` out of `managerCustomers.ts`'s PUT locations handler
+    (byte-for-byte the same write, re-validated against current customer state at decision time — never
+    trusting the state the proposal was drafted against); the PUT route now calls it too, and its
+    now-redundant validation-only `loadLocationsContext` call was dropped.
+  - **Web — technician.** New `technicianLocationProposalDraft.ts` (modeled on `technicianCustomerDraft.ts`,
+    the closest "technician creates something offline that becomes real via server confirmation" precedent),
+    IndexedDB `drafts` row keyed per `(jobId, systemKey)` so reopening the job resumes the draft;
+    `syncEngine.ts` wires `syncPendingLocationProposals` into the main sync loop (excluded from the generic
+    dispatch branch, same as `commonRemark`/`technicianCustomer`). Entry point ("Propose Customer Locations")
+    always visible on the job screen in `TechnicianHome.tsx`, not gated on the customer having zero locations
+    configured. New screen `TechnicianLocationProposal.tsx`, new route `location-proposal/:jobId` in `App.tsx`.
+    No Dexie schema version bump — `drafts`/`syncOutbox` are already generic tables; only `SyncOutboxItem.entityType`'s
+    TS union widened.
+  - **Web — supervisor/admin.** New `ManagerLocationProposals.tsx` (list + read-only drill-in preview +
+    Approve/Reject), new route `manager-location-proposals` added to `roleAccess.ts`'s `supervisorRoutes` and
+    to `managerNavLinks` in `ManagerHome.tsx` for both roles. `managerApi.ts` additions: `loadLocationProposals`,
+    `loadLocationProposal`, `decideLocationProposal`, all with hardened response validators (poisoned-shape
+    responses route to `onAuthorityFailure`, never a render-time crash, same discipline as the existing
+    `ManagerLocations` validators).
+  - **Tests.** `locationProposal.test.ts` (pure derivation unit tests). `locationProposals.integration.test.ts`
+    (disposable Postgres: submission idempotency, one-pending-per-customer+system, auth matrix, malformed
+    payload rejected pre-write, terminal Approve producing a real configuration revision verified against
+    `customer_system_locations`, terminal Reject with `resultingRevisionId: null`, decision idempotent replay
+    + reused-request-id conflict, append-only triggers) — **PASS**. `managerLocations.integration.test.ts`
+    re-run after the `applyManagerLocationsUpdate` extraction — **PASS, no regression** (4/4). New Playwright
+    `technician-location-proposal-sync.spec.ts` (real Dexie/IndexedDB in a real browser tab, no
+    fake-indexeddb dependency added: save/reload persistence, empty-payload validation refused locally,
+    Pending→Failed preservation on a network error, retry-to-Synced, and the exact-UUID confirmation rule — a
+    server response naming a different id must never be trusted as success) — **PASS**. `roleAccess.test.ts`
+    gained a case for the new supervisor route — **PASS (3/3)**. `apps/api` + `apps/web` `typecheck` and
+    `build` — **PASS**. `git diff --check` — clean (pre-existing CRLF warnings only, on files this task did
+    not touch).
+  - **Manual browser walkthrough (real, non-Docker dev stack: disposable Postgres on 55432 + `apps/api`
+    dev server + `apps/web` Vite dev server behind a temporary local `/api` proxy, reverted after the
+    check).** Logged in as a seeded technician, opened a job with CO2 enabled and no locations
+    configured, clicked "Propose Customer Locations", added a zone + location, submitted; the local
+    Draft → Pending → Synced transition and the real `POST .../location-proposals` round trip both
+    worked. Signed out, logged in as a seeded supervisor, opened Location Proposals, saw the pending
+    item with its zone/location counts, drilled into the read-only preview (matched exactly what the
+    technician entered), and Approved with no note. **This caught a real P1**: `submittedByUserId`
+    is a `BIGINT` column and `pg` returns it as a *string*, but the web client's `isLocationProposal`
+    validator required `Number.isSafeInteger` — every GET/POST response silently failed client-side
+    validation and was misreported as "Manager server data is currently unavailable", logging the
+    reviewer out to the role-selection screen instead of showing the list. **Fixed**: added `::int` to
+    both `submitted_by_user_id` selects in `locationProposal.ts` (`loadLocationProposal` /
+    `listLocationProposals`), matching the existing `id::int AS id` convention already used in
+    `managerTechnicians.ts`. Added regression assertions in `locationProposals.integration.test.ts`
+    (`typeof … === "number"` on all three response shapes: submission response, list, detail) so this
+    class of bug fails a test next time instead of only a browser. Re-verified end to end after the
+    fix: the supervisor's Approve wrote `customer_system_zones`/`customer_system_locations` rows
+    matching exactly what the technician had typed, queried directly against Postgres.
+  - **Review follow-up.** Submission now requires a real, owned, non-sample job for the target customer
+    with the proposed system in its frozen snapshot; an unrelated technician cannot replay its UUID.
+    Migration 048 keeps the validated job UUID as immutable audit context without a foreign key,
+    allowing deletion of an unfinished visit without mutating the append-only proposal. The disposable-
+    Postgres integration test covers these cases and passed after the changes.
+  - **Known limitations / out of scope.** No technician-facing view of a proposal's later decision (Approved/
+    Rejected) once submitted — the local draft only tracks *sync* status (Draft/Pending/Failed/Synced), not
+    the server-side review outcome; a technician who wants to check would need the Supervisor/Admin to tell
+    them, or a future "my proposals" read view. No UI surfaces the `LOCATION_PROPOSAL_ALREADY_PENDING` 409 with a
+    friendly message beyond the generic Failed-with-reason banner.
+  - **Rollback.** Fully additive; no existing route, table, or column was changed in a breaking way. To roll
+    back: revert this changeset (all new files can simply be deleted; `managerCustomers.ts`'s PUT locations
+    route and `migrations.ts`/`server.ts`/`syncEngine.ts`/`TechnicianHome.tsx`/`roleAccess.ts`/`ManagerHome.tsx`
+    changes are additive edits, safe to revert directly). Migration 048 only creates new tables — no existing
+    table was altered, so no down-migration is needed beyond `DROP TABLE customer_location_proposal_decisions,
+    customer_location_proposals CASCADE` on a database that has not yet had a real proposal approved (an
+    approved proposal's resulting `customer_configuration_revisions` row is untouched by that drop, since
+    `resulting_revision_id` only references it, never the reverse).
+  - **Files changed:** `apps/api/migrations/048_customer_location_proposals.sql` (new),
+    `apps/api/src/db/migrations.ts`, `apps/api/src/inspections/locationProposal.ts` (new),
+    `apps/api/src/inspections/locationProposal.test.ts` (new), `apps/api/src/routes/locationProposals.ts` (new),
+    `apps/api/src/routes/locationProposals.integration.test.ts` (new), `apps/api/src/routes/managerCustomers.ts`,
+    `apps/api/src/server.ts`, `apps/web/package.json`, `apps/web/src/App.tsx`, `apps/web/src/db/localDatabase.ts`,
+    `apps/web/src/jobs/TechnicianHome.tsx`, `apps/web/src/jobs/TechnicianLocationProposal.tsx` (new),
+    `apps/web/src/jobs/technicianLocationProposalDraft.ts` (new), `apps/web/src/manager/ManagerHome.tsx`,
+    `apps/web/src/manager/ManagerLocationProposals.tsx` (new), `apps/web/src/manager/managerApi.ts`,
+    `apps/web/src/manager/roleAccess.ts`, `apps/web/src/referenceData/referenceDataApi.ts`,
+    `apps/web/src/sync/syncEngine.ts`, `apps/web/tests/roleAccess.test.ts`,
+    `apps/web/tests/technician-location-proposal-sync.html` (new),
+    `apps/web/tests/technician-location-proposal-sync.spec.ts` (new).
 
 - 2026-09-07 — **Hose Reel schema-3 Sol P1 remediation — client exact-key discipline + drum-count
   data-loss guard. Committed `25e3768` + `f6aab25`; Sol re-reviewed `f6aab25`: 0 P0 / 0 P1, SAFE

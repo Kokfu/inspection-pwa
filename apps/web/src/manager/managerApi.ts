@@ -1284,6 +1284,103 @@ export async function submitReportApproval(
 }
 
 /* ------------------------------------------------------------------------------------------------
+ * Location proposal review. A technician-drafted zone/location breakdown for a customer's
+ * location-dependent system (CO2 / Wet Chemical / FM200), reviewed by an admin/supervisor. Both
+ * decisions are terminal -- no withdraw, no re-decision -- unlike report approval.
+ * ---------------------------------------------------------------------------------------------- */
+
+export type LocationProposalStatus = "pending" | "approved" | "rejected";
+export type LocationProposalDecision = "approved" | "rejected";
+export type LocationProposalDecisionRole = "admin" | "supervisor";
+
+export type LocationProposalDecisionEvent = {
+  id: string;
+  decision: LocationProposalDecision;
+  note: string | null;
+  decidedBy: string;
+  decidedByRole: LocationProposalDecisionRole;
+  decidedAt: string;
+  sequence: number;
+  requestId: string;
+  resultingRevisionId: string | null;
+};
+
+export type LocationProposalZone = { key: string; displayName: string; sortOrder: number };
+export type LocationProposalLocation = { key: string; displayName: string; zoneId: string; presetRowCount: number; rowPreset: Record<string, unknown>; sortOrder: number };
+
+export type LocationProposal = {
+  id: string;
+  customerId: string;
+  customerDisplayName: string;
+  systemKey: string;
+  jobId: string;
+  submittedByUserId: number;
+  submittedBy: string;
+  submittedByRole: "inspector";
+  submittedAt: string;
+  zoneCount: number;
+  locationCount: number;
+  payload: { zones: LocationProposalZone[]; locations: LocationProposalLocation[] };
+  status: LocationProposalStatus;
+  decision: LocationProposalDecisionEvent | null;
+};
+
+function isLocationProposalZone(value: unknown): value is LocationProposalZone {
+  return isPlainObject(value) && typeof value.key === "string" && typeof value.displayName === "string" && typeof value.sortOrder === "number";
+}
+
+function isLocationProposalLocation(value: unknown): value is LocationProposalLocation {
+  return isPlainObject(value) && typeof value.key === "string" && typeof value.displayName === "string"
+    && typeof value.zoneId === "string" && typeof value.presetRowCount === "number" && typeof value.sortOrder === "number"
+    && isPlainObject(value.rowPreset);
+}
+
+function isLocationProposalDecisionEvent(value: unknown): value is LocationProposalDecisionEvent {
+  return isPlainObject(value) && typeof value.id === "string"
+    && (value.decision === "approved" || value.decision === "rejected")
+    && (value.note === null || typeof value.note === "string")
+    && typeof value.decidedBy === "string"
+    && (value.decidedByRole === "admin" || value.decidedByRole === "supervisor")
+    && typeof value.decidedAt === "string" && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1
+    && typeof value.requestId === "string"
+    && (value.resultingRevisionId === null || typeof value.resultingRevisionId === "string");
+}
+
+function isLocationProposal(value: unknown): value is LocationProposal {
+  return isPlainObject(value) && typeof value.id === "string" && typeof value.customerId === "string"
+    && typeof value.customerDisplayName === "string" && typeof value.systemKey === "string"
+    && typeof value.jobId === "string"
+    && Number.isSafeInteger(value.submittedByUserId) && typeof value.submittedBy === "string" && value.submittedByRole === "inspector"
+    && typeof value.submittedAt === "string" && typeof value.zoneCount === "number" && typeof value.locationCount === "number"
+    && isPlainObject(value.payload) && Array.isArray(value.payload.zones) && value.payload.zones.every(isLocationProposalZone)
+    && Array.isArray(value.payload.locations) && value.payload.locations.every(isLocationProposalLocation)
+    && (value.status === "pending" || value.status === "approved" || value.status === "rejected")
+    && (value.decision === null || isLocationProposalDecisionEvent(value.decision));
+}
+
+export async function loadLocationProposals(status?: LocationProposalStatus, signal?: AbortSignal): Promise<LocationProposal[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const data = await managerRequest<unknown>(`/api/manager/location-proposals${query}`, "GET", "proposals", undefined, signal);
+  if (!Array.isArray(data) || !data.every(isLocationProposal)) unavailable();
+  return data as LocationProposal[];
+}
+
+export async function loadLocationProposal(proposalId: string, signal?: AbortSignal): Promise<LocationProposal> {
+  const data = await managerRequest<unknown>(`/api/manager/location-proposals/${encodeURIComponent(proposalId)}`, "GET", "proposal", undefined, signal);
+  if (!isLocationProposal(data)) unavailable();
+  return data;
+}
+
+/** Approve or reject a proposal. Both decisions are terminal (a second decision attempt is refused). */
+export async function decideLocationProposal(
+  proposalId: string, input: { requestId: string; decision: LocationProposalDecision; note?: string }
+): Promise<LocationProposal> {
+  const data = await managerRequest<unknown>(`/api/manager/location-proposals/${encodeURIComponent(proposalId)}/decision`, "POST", "proposal", input);
+  if (!isLocationProposal(data)) unavailable();
+  return data;
+}
+
+/* ------------------------------------------------------------------------------------------------
  * In-app compliance reminders. Manager Home's "Due soon" / "Overdue" glance, computed server-
  * side from the same `next_service_due_date` column Next Upcoming Service already edits. No email,
  * no push, no background scheduler: read-on-request only.

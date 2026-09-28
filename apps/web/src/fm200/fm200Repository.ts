@@ -8,6 +8,7 @@ import {
 } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { resolvePublishedFm200Controls, type ResolvedFm200Controls } from "./fm200Definition";
+import { configuredDetectorCount, newDetectorRow, wireDetectorResponses } from "../co2/detectorRowCount";
 import type {
   Fm200ConfiguredInstance,
   Fm200DetectorRow,
@@ -63,26 +64,15 @@ function expectedInstances(system: JobSystemSnapshot): Fm200ConfiguredInstance[]
     });
 }
 
-function blankDetectorRow(instance: Fm200ConfiguredInstance): Fm200DetectorRow {
-  return {
-    rowUuid: crypto.randomUUID(),
-    displaySequence: 1,
-    alarmZone: instance.zone?.displayName ?? "",
-    location: instance.location.displayName,
-    heatDetectorStatus: null,
-    smokeDetectorStatus: null,
-    remarks: ""
-  };
-}
-
 function checklist(definitions: ResolvedFm200Controls["chargerAndBatteries"]) {
   return Object.fromEntries(definitions.map((definition) => [definition.key, { result: null, remarks: "" }]));
 }
 
-function blankResponses(instance: Fm200ConfiguredInstance, controls: ResolvedFm200Controls): Fm200Responses {
+function blankResponses(instance: Fm200ConfiguredInstance, system: JobSystemSnapshot, controls: ResolvedFm200Controls): Fm200Responses {
   return {
     controlPanelLocation: instance.location.displayName,
-    detectorRows: [blankDetectorRow(instance)],
+    detectorRows: Array.from({ length: Math.max(1, configuredDetectorCount(system, instance)) }, (_, index) =>
+      newDetectorRow(instance, index + 1, configuredDetectorCount(system, instance) ? "configured" : "technician")),
     chargerAndBatteries: checklist(controls.chargerAndBatteries),
     physicalOutlook: checklist(controls.physicalOutlook),
     mainFunctionKeys: checklist(controls.mainFunctionKeys),
@@ -182,7 +172,7 @@ export async function initializeFm200InspectionGroup(
             configuration: job.configurationSnapshot.configuration,
             inspectionSnapshot,
             ...(frozenDisplayLabelOverrides(system) ? { displayLabelOverrides: frozenDisplayLabelOverrides(system) } : {}),
-            responses: blankResponses(instance, controls),
+            responses: blankResponses(instance, system, controls),
             startedAt: null,
             performedAt: timestamp,
             localCreatedAt: timestamp,
@@ -246,6 +236,11 @@ export function getFm200SubmitIssues(record: Fm200MasterSystemFormInstanceRecord
   if (responses.controlPanelLocation.length > controls.controlPanelLocation.maxLength) issues.push({ section: "FM200 Control Panel", message: `Control Panel Location exceeds ${controls.controlPanelLocation.maxLength} characters`, targetId: "fm200-panel-location" });
   if (responses.detectorRows.length < controls.detectorRows.minimum) issues.push({ section: "Detector Table", message: "At least one detector row is required", targetId: "fm200-detectors" });
   if (responses.detectorRows.length > controls.detectorRows.maximum) issues.push({ section: "Detector Table", message: `No more than ${controls.detectorRows.maximum} detector rows may be submitted`, targetId: "fm200-detectors" });
+  const configuredCount = configuredDetectorCount(record.inspectionSnapshot.system, record.inspectionSnapshot.instance);
+  if (responses.detectorRows.length < configuredCount || responses.detectorRows.some((row, index) =>
+    row.source !== undefined && row.source !== (index < configuredCount ? "configured" : "technician"))) {
+    issues.push({ section: "Detector Table", message: "Configured detector rows must remain before technician rows", targetId: "fm200-detectors" });
+  }
   const rowIds = new Set<string>();
   const displaySequences = new Set<number>();
   responses.detectorRows.forEach((row, index) => {
@@ -254,7 +249,7 @@ export function getFm200SubmitIssues(record: Fm200MasterSystemFormInstanceRecord
     if (!isUuid(row.rowUuid)) issues.push({ section: "Detector Table", message: `${prefix}: row identity must be a valid UUID`, targetId });
     if (rowIds.has(row.rowUuid)) issues.push({ section: "Detector Table", message: `${prefix}: duplicate row identity`, targetId });
     rowIds.add(row.rowUuid);
-    if (!Number.isInteger(row.displaySequence) || row.displaySequence < 1 || displaySequences.has(row.displaySequence)) {
+    if (!Number.isInteger(row.displaySequence) || row.displaySequence !== index + 1 || displaySequences.has(row.displaySequence)) {
       issues.push({ section: "Detector Table", message: `${prefix}: display sequence is invalid or duplicated`, targetId });
     }
     displaySequences.add(row.displaySequence);
@@ -329,7 +324,7 @@ function payload(record: Fm200MasterSystemFormInstanceRecord, evidenceManifest?:
     masterTemplate: record.masterTemplate,
     configuration: record.configuration,
     inspectionSnapshot: record.inspectionSnapshot,
-    responses: record.responses,
+    responses: wireDetectorResponses(record.responses),
     performedAt: record.performedAt,
     ...(evidenceManifest ? { evidenceManifest } : {})
   };
@@ -391,6 +386,7 @@ export function addFm200DetectorRow(responses: Fm200Responses) {
     ...responses,
     detectorRows: [...responses.detectorRows, {
       rowUuid: crypto.randomUUID(),
+      source: "technician" as const,
       displaySequence: Math.max(0, ...responses.detectorRows.map((row) => row.displaySequence)) + 1,
       alarmZone: first?.alarmZone ?? "",
       location: first?.location ?? "",

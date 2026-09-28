@@ -4,6 +4,7 @@ import { overriddenLabel } from "../inspections/labelOverrides";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { addCo2DetectorRow, getCo2SubmitIssues } from "./co2Repository";
+import { configuredDetectorCount, normalizeDetectorRows, setDetectorRowCount } from "./detectorRowCount";
 import { deriveCo2InstanceProgress } from "./co2Progress";
 import type {
   Co2ChecklistResponse,
@@ -26,7 +27,8 @@ type Props = {
 
 export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
   const systemLabel = record.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
-  const [responses, setResponses] = useState(record.responses);
+  const countDriven = record.systemKey === "co2_fire_extinguisher";
+  const [responses, setResponses] = useState(() => countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listV7SuppressionPhotos>>>([]);
@@ -57,7 +59,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   }, [issues]);
   const readOnly = record.syncStatus !== "Draft";
 
-  useEffect(() => setResponses(record.responses), [record]);
+  useEffect(() => setResponses(record.systemKey === "co2_fire_extinguisher" && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [record]);
   useEffect(() => { if (record.masterTemplate.version === 7) { void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); void collectV7SiblingEvidence(record).then(setSiblings); } else { setPhotos([]); setSiblings([]); } }, [record.clientUuid, record.groupKey, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);
 
@@ -161,6 +163,12 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
 
     <fieldset id="co2-detectors" disabled={readOnly}>
       <legend>Detector Table</legend>
+      {countDriven ? <label>
+        Number of detectors inspected
+        <input type="number" min={Math.max(1, configuredDetectorCount(record.inspectionSnapshot.system, record.inspectionSnapshot.instance))} max={controls.detectorRows.maximum} inputMode="numeric" value={responses.detectorRows.length}
+          onChange={(event) => setResponses((current) => setDetectorRowCount(current, record.inspectionSnapshot.system, record.inspectionSnapshot.instance, Number(event.target.value), controls.detectorRows.maximum))} />
+      </label> : null}
+      {countDriven && !readOnly ? <p className="form-message">Configured rows stay in place. Clear a filled technician row before reducing the count.</p> : null}
       {responses.detectorRows.slice().sort((left, right) => left.displaySequence - right.displaySequence).map((row, index) => (
         <section className={`hose-row-card ${invalidTargets.has(`co2-detector-${row.rowUuid}`) ? "field-invalid" : ""}`} id={`co2-detector-${row.rowUuid}`} key={row.rowUuid}>
           <h3>Detector Row {index + 1}</h3>
@@ -169,12 +177,12 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
           {(() => { const heatLabel = labelAt("detectorRows.heatDetector", controls.detectorRows.heatDetector.label); return <div><strong>{heatLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={row.heatDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>; })()}
           {(() => { const smokeLabel = labelAt("detectorRows.smokeDetector", controls.detectorRows.smokeDetector.label); return <div><strong>{smokeLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={row.smokeDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>; })()}
           <RemarksField systemKey={record.systemKey === "co2_fire_extinguisher" ? "co2_fire_extinguisher" : undefined} label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
-          {!readOnly ? <button type="button" className="secondary-command" onClick={() => {
+          {!countDriven && !readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));
           }}>Remove Row</button> : null}
         </section>
       ))}
-      {!readOnly ? <button type="button" className="secondary-command" disabled={responses.detectorRows.length >= controls.detectorRows.maximum} onClick={() => setResponses(addCo2DetectorRow)}>Add Detector Row</button> : null}
+      {!countDriven && !readOnly ? <button type="button" className="secondary-command" disabled={responses.detectorRows.length >= controls.detectorRows.maximum} onClick={() => setResponses(addCo2DetectorRow)}>Add Detector Row</button> : null}
     </fieldset>
 
     {checklistSection("Charger & Batteries", "chargerAndBatteries", controls.chargerAndBatteries)}

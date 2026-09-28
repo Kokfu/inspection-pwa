@@ -20,7 +20,8 @@ export function productRoleMatches(role: ProductRole, user: AuthUser) {
  * the authority, this only keeps a supervisor off screens that would fail.
  */
 const supervisorRoutes: ReadonlySet<string> = new Set([
-  "manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction"
+  "manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction",
+  "manager-location-proposals"
 ]);
 export function supervisorAllowsRoute(routeName: string) {
   return supervisorRoutes.has(routeName);

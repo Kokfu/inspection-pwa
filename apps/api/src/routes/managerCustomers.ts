@@ -597,6 +597,46 @@ async function audit(client: PoolClient, actorUserId: number, action: string, en
   await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result) VALUES ($1,$2,$3,$4,'success')`, [actorUserId, action, entityType, entityId]);
 }
 
+/**
+ * The real write behind `PUT /manager/customers/:customerId/systems/:systemKey/locations`,
+ * extracted so a second caller (`locationProposals.ts`'s Approve decision) can perform BYTE-FOR-BYTE
+ * the same write a Manager's own edit performs, re-validated against current customer state at call
+ * time -- never trusting the customer state the technician's proposal was drafted against. Must run
+ * inside an already-open transaction (`client`); throws `ManagerCustomerError` on any validation
+ * failure, exactly as the PUT route did inline before this extraction.
+ */
+export async function applyManagerLocationsUpdate(
+  client: PoolClient, customerId: string, systemKey: string, parsed: LocationConfigurationInput, actorUserId: number
+): Promise<string> {
+  const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
+  if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+  // `serviceVisits.ts` buildSnapshot invariant (~:131): every location of a
+  // location-dependent system must carry a non-null zone that belongs to the
+  // SAME system. `parseLocationConfigurationInput` already guarantees every
+  // `location.zoneId` names a submitted zone `key`; assert it here too so the
+  // contract is explicit at the write path.
+  const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
+  if (parsed.locations.some((location) => !submittedZoneKeys.has(location.zoneId))) {
+    throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
+  }
+  const current = await loadConfiguration(client, customerId);
+  const keys = current.enabled.map((system) => system.key);
+  const alreadyEnabledKeys = new Set(keys);
+  if (!keys.includes(systemKey)) {
+    // Newly enabling this location-dependent system via its own locations
+    // PUT is a new assignment; retirement blocks it exactly like any
+    // other newly-added system.
+    assertNoRetiredAssignment(await loadSupportedCatalog(client), [systemKey], alreadyEnabledKeys);
+    keys.push(systemKey);
+  }
+  const revisionId = await copySelectedConfiguration(
+    client, customerId, keys,
+    { zonesLocationsBySystemKey: new Map([[systemKey, parsed]]) }
+  );
+  await audit(client, actorUserId, "manager_customer_locations_updated", "customer_configuration_revision", revisionId);
+  return revisionId;
+}
+
 async function reserveCustomerCreationRequest(
   client: PoolClient, input: CustomerCreationInput, actorUserId: number
 ) {
@@ -1249,33 +1289,7 @@ export function createManagerCustomersRouter(
       if (!parsed) throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "The zone/location payload is invalid for this system.");
       client = await database.connect();
       await client.query("BEGIN");
-      const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
-      if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
-      await loadLocationsContext(client, customerId, systemKey);
-      // `serviceVisits.ts` buildSnapshot invariant (~:131): every location of a
-      // location-dependent system must carry a non-null zone that belongs to the
-      // SAME system. `parseLocationConfigurationInput` already guarantees every
-      // `location.zoneId` names a submitted zone `key`; assert it here too so the
-      // contract is explicit at the write path.
-      const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
-      if (parsed.locations.some((location) => !submittedZoneKeys.has(location.zoneId))) {
-        throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
-      }
-      const current = await loadConfiguration(client, customerId);
-      const keys = current.enabled.map((system) => system.key);
-      const alreadyEnabledKeys = new Set(keys);
-      if (!keys.includes(systemKey)) {
-        // Newly enabling this location-dependent system via its own locations
-        // PUT is a new assignment; retirement blocks it exactly like any
-        // other newly-added system.
-        assertNoRetiredAssignment(await loadSupportedCatalog(client), [systemKey], alreadyEnabledKeys);
-        keys.push(systemKey);
-      }
-      const revisionId = await copySelectedConfiguration(
-        client, customerId, keys,
-        { zonesLocationsBySystemKey: new Map([[systemKey, parsed]]) }
-      );
-      await audit(client, request.currentUser!.id, "manager_customer_locations_updated", "customer_configuration_revision", revisionId);
+      await applyManagerLocationsUpdate(client, customerId, systemKey, parsed, request.currentUser!.id);
       await client.query("COMMIT");
       const refreshed = await loadLocationsContext(database, customerId, systemKey);
       response.status(200).json({

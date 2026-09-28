@@ -4,7 +4,7 @@ import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
-export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" };
+export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" };
 
 /**
  * Single source of truth for the manager/supervisor top-level destinations, shared by the
@@ -12,13 +12,14 @@ export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-ope
  */
 export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDashboardRoute["name"]]> {
   return supervisor
-    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"]]
+    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Location Proposals", "manager-location-proposals"]]
     : [
         ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
         ["Operations", "manager-operations"],
         ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
         ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
+        ["Location Proposals", "manager-location-proposals"],
         ["Company Profile", "manager-company-profile"], ["Email reminders", "manager-email-reminders"]
       ];
 }

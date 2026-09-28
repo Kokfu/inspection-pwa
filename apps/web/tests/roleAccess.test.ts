@@ -19,3 +19,7 @@ test("supervisor screens are exactly the review screens", () => {
     "manager-technicians", "manager-technician", "manager-customers", "manager-customer", "manager-customer-service", "manager-upcoming-services"];
   assert.deepEqual(all.filter(supervisorAllowsRoute), ["manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction"]);
 });
+
+test("supervisor may review technician-submitted location proposals", () => {
+  assert.equal(supervisorAllowsRoute("manager-location-proposals"), true);
+});

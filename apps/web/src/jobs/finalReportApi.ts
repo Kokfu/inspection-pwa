@@ -1,7 +1,7 @@
 export type FinalReportPreview = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED"; conditionDetail: string; locations: string[] }>;
-  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true }>; review?: { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number } }>;
+  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; available: true; captureSource: "camera" | "gallery" | "unknown" | null }>; review?: { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number } }>;
 };
 
 export type FinalReportErrorKind = "authorization" | "domain" | "unavailable";
@@ -40,7 +40,10 @@ export async function loadFinalReport(jobId: string, endpointBase = "/api/inspec
   if (!response.ok) throw await reportError(response, "Final report is currently unavailable.");
   try {
     const data = await response.json() as { report?: FinalReportPreview };
-    if (!data.report) throw new Error();
+    if (!data.report || !Array.isArray(data.report.sections) || data.report.sections.some((section) =>
+      !Array.isArray(section.evidence) || section.evidence.some((item) =>
+        typeof item.field !== "string" || item.available !== true
+        || item.captureSource !== null && item.captureSource !== "camera" && item.captureSource !== "gallery" && item.captureSource !== "unknown"))) throw new Error();
     return data.report;
   } catch { throw new FinalReportApiError("Final report is currently unavailable.", "unavailable"); }
 }

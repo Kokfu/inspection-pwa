@@ -20,6 +20,8 @@ export type Co2SyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed
 export type Co2ChecklistResponse = { result: Co2Result | null; remarks: string };
 export type Co2DetectorRow = {
   rowUuid: string;
+  /** Local row provenance; omitted from the server's historical response shape. */
+  source?: "configured" | "technician";
   displaySequence: number;
   alarmZone: string;
   location: string;

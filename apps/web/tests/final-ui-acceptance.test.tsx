@@ -216,7 +216,7 @@ test("Manager Home links to service operations and completed services", () => {
 const detailedFinalReport: FinalReportPreview = {
   customer: "Report Customer", site: "Report Site", serviceDate: "2026-08-21", jobReference: "SV-REPORT-1", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
   systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["Zone North", "Gate A"] }],
-  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true, captureSource: "camera" }] }]
 };
 
 test("shared final report presentation retains Phase 7 sections, location headings, fields, and evidence", () => {
@@ -228,11 +228,22 @@ test("shared final report presentation retains Phase 7 sections, location headin
   assert.match(html, /Canvas Hose/);
   assert.match(html, /Accepted inspection record/);
   assert.match(html, /Photo evidence is included in the downloaded PDF: hose Photo/);
+  assert.match(html, /Captured by Camera/);
   assert.doesNotMatch(html, /\bPASS\b|\bFAIL\b|\bPASSED\b|\bFAILED\b/);
 
   const managerView = readFileSync(new URL("../src/manager/ManagerFinalReportView.tsx", import.meta.url), "utf8");
   assert.match(managerView, /FinalReportPresentation/);
   assert.match(managerView, /<FinalReportPresentation report={report}/);
+});
+
+test("shared report identifies gallery and unavailable photo sources, including charger evidence", () => {
+  const report: FinalReportPreview = { ...detailedFinalReport, sections: [{ ...detailedFinalReport.sections[0]!, evidence: [
+    { field: "charger_batteries.charger_battery_checks.main_supply", available: true, captureSource: "gallery" },
+    { field: "historicalPhoto", available: true, captureSource: null }
+  ] }] };
+  const html = renderToStaticMarkup(<FinalReportPresentation report={report} />);
+  assert.match(html, /Uploaded from Gallery/);
+  assert.match(html, /Source unavailable/);
 });
 
 test("final report API classifies expected Manager report errors without discarding their safe messages", async () => {
