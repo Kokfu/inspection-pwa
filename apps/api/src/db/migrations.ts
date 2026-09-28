@@ -128,6 +128,9 @@ const inspectionCorrectionsMigrationUrl = new URL(
 const inspectionReviewsMigrationUrl = new URL(
   "../../migrations/041_inspection_reviews.sql", import.meta.url
 );
+const serviceDueRemindersMigrationUrl = new URL(
+  "../../migrations/043_service_due_reminders.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -568,6 +571,12 @@ export async function runMigrations(
   );
   if (!inspectionReviews.rows[0]?.exists) {
     await database.query(await readFile(inspectionReviewsMigrationUrl, "utf8"));
+  }
+  const serviceDueReminders = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.service_due_email_settings') IS NOT NULL AS exists`
+  );
+  if (!serviceDueReminders.rows[0]?.exists) {
+    await database.query(await readFile(serviceDueRemindersMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

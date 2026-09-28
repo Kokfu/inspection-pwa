@@ -1147,6 +1147,14 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: var(-
 .manager-technician-list, .manager-schedule-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
 .manager-technician-list li, .manager-schedule-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 8px; }
 .manager-schedule-list label { margin-left: auto; }
+.manager-reminder-editor, .manager-reminder-settings { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.manager-reminder-editor form, .manager-reminder-settings form { display: grid; gap: var(--space-3); min-width: 0; }
+.manager-reminder-editor fieldset { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.manager-reminder-editor label, .manager-reminder-settings label { display: grid; gap: var(--space-2); min-width: 0; margin-left: 0; }
+.manager-reminder-editor input:not([type="checkbox"]), .manager-reminder-editor select,
+.manager-reminder-settings input { box-sizing: border-box; width: 100%; min-width: 0; }
+.manager-reminder-editor .checkbox-label { display: flex; align-items: center; }
+.manager-reminder-editor .checkbox-label input { min-width: var(--tap); min-height: var(--tap); }
 /* Manager technician detail and customer-first Services Done */
 .manager-technician-open { flex: 1 1 12rem; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; text-align: left; background: var(--brand-soft); color: var(--ink); border: 1px solid var(--border); }
 .manager-technician-open span { color: var(--muted); font-weight: 600; }

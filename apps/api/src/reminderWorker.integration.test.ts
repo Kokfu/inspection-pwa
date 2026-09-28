@@ -1,0 +1,112 @@
+import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
+import { once } from "node:events";
+import test from "node:test";
+import express from "express";
+import pg from "pg";
+import { runMigrations } from "./db/migrations.js";
+import { encryptPassword } from "./reminderCore.js";
+import { runReminderCycle } from "./reminderWorker.js";
+import { SmtpFailure } from "./reminderSmtp.js";
+import { createManagerRemindersRouter } from "./routes/managerReminders.js";
+import { createManagerCustomersRouter } from "./routes/managerCustomers.js";
+import type { UserRole } from "./auth/authTypes.js";
+
+const url = process.env.SEED_INTEGRATION_DATABASE_URL;
+test("043 replay, admin settings, concurrent deduplication, restart, failure and missed outcomes", { skip: !url }, async () => {
+  assert.equal(process.env.NODE_ENV, "test");
+  const parsed = new URL(url!);
+  assert.equal(parsed.hostname, "127.0.0.1"); assert.equal(parsed.port, "55432"); assert.equal(parsed.pathname, "/phase6_seed_integration");
+  const priorKey = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+  process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = randomBytes(32).toString("base64");
+  const database = new pg.Pool({ connectionString: url });
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    await runMigrations(database, { seed: false });
+    await runMigrations(database, { seed: false });
+    const admin = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES('reminder-admin','x','admin') RETURNING id::int AS id")).rows[0]!.id;
+    const supervisor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role,reminder_email) VALUES('reminder-supervisor','x','supervisor','supervisor@example.test') RETURNING id::int AS id")).rows[0]!.id;
+    const technician = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role,reminder_email) VALUES('reminder-technician','x','inspector','tech@example.test') RETURNING id::int AS id")).rows[0]!.id;
+    const customerId = randomUUID();
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo,is_active,next_service_due_date) VALUES($1,'REMINDER-CUSTOMER','Reminder Customer',false,true,'2026-09-29')", [customerId]);
+    const plan = (await database.query<{ id: string }>("INSERT INTO service_due_reminder_plans(customer_id,due_date,created_by_user_id,updated_by_user_id) VALUES($1,'2026-09-29',$2,$2) RETURNING id::text AS id", [customerId, admin])).rows[0]!.id;
+    await database.query("INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id) VALUES($1,$2),($1,$3)", [plan, technician, supervisor]);
+    await database.query("INSERT INTO service_due_reminder_recipients(plan_id,extra_name,extra_email) VALUES($1,'Duplicate Tech','TECH@example.test')", [plan]);
+    let role: UserRole | undefined;
+    const app = express(); app.use(express.json()); app.use((request, _response, next) => { if (role) request.currentUser = { id: role === "admin" ? admin : supervisor, username: role, role }; next(); });
+    app.use(createManagerRemindersRouter(database));
+    app.use(createManagerCustomersRouter(database));
+    app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+      if (error instanceof Error && "status" in error && typeof error.status === "number" && "code" in error) response.status(error.status).json({ error: error.code });
+      else response.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
+    });
+    const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+    try {
+      const port = (server.address() as { port: number }).port;
+      const request = (path: string, method = "GET", data?: unknown) => fetch(`http://127.0.0.1:${port}${path}`, { method, headers: { "Content-Type": "application/json" }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
+      role = undefined; assert.equal((await request("/manager/reminders/settings")).status, 401);
+      role = "supervisor"; assert.equal((await request("/manager/reminders/settings")).status, 403);
+      assert.equal((await request(`/manager/reminders/recurrence/${customerId}`)).status, 403);
+      assert.equal((await request(`/manager/reminders/staff/${technician}/email`, "PUT", { email: "new@example.test" })).status, 403);
+      role = "admin";
+      const before = await (await request("/manager/reminders/settings")).json() as { settings: { passwordConfigured: boolean } };
+      assert.equal(before.settings.passwordConfigured, false);
+      assert.equal((await request("/manager/reminders/settings", "PUT", { senderEmail: "sender@gmail.com", appPassword: "x", smtpHost: "evil.test" })).status, 400);
+      assert.equal((await request(`/manager/reminders/plans/${customerId}`, "PUT", { dueDate: "2026-09-29", staffUserIds: [admin], extras: [] })).status, 400, "admin is not a selectable recipient");
+      const saved = await request("/manager/reminders/settings", "PUT", { senderEmail: "sender@gmail.com", appPassword: "fake-app-password" });
+      assert.equal(saved.status, 200);
+      const settingsText = await (await request("/manager/reminders/settings")).text();
+      assert.equal(settingsText.includes("fake-app-password"), false);
+      assert.equal(settingsText.includes("ciphertext"), false);
+      assert.equal((await request("/manager/reminders/settings", "PUT", { senderEmail: "other@gmail.com", appPassword: "" })).status, 400);
+      const activeKey = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY!;
+      delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+      assert.equal((await (await request("/manager/reminders/status")).json() as { encryptionUnavailable: boolean }).encryptionUnavailable, true);
+      process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = activeKey;
+      const fake = async ({ recipient }: { recipient: string }) => { sent.push(recipient); };
+      const sent: string[] = [];
+      const atNine = new Date("2026-09-28T01:00:00Z");
+      await Promise.all([runReminderCycle(database, atNine, fake), runReminderCycle(database, atNine, fake)]);
+      assert.deepEqual(sent.sort(), ["supervisor@example.test", "tech@example.test"]);
+      await runReminderCycle(database, new Date("2026-09-28T08:00:00Z"), fake);
+      assert.equal(sent.length, 2, "restart catch-up does not resend");
+      const statuses = (await database.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM service_due_email_deliveries GROUP BY status")).rows;
+      assert.deepEqual(statuses, [{ status: "sent", count: 2 }]);
+      await database.query("UPDATE customers SET next_service_due_date='2026-09-30' WHERE id=$1", [customerId]);
+      await database.query("INSERT INTO service_due_reminder_plans(customer_id,due_date,created_by_user_id,updated_by_user_id) VALUES($1,'2026-09-30',$2,$2)", [customerId, admin]);
+      const nextPlan = (await database.query<{ id: string }>("SELECT id::text AS id FROM service_due_reminder_plans WHERE customer_id=$1 AND due_date='2026-09-30'", [customerId])).rows[0]!.id;
+      await database.query("INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id) VALUES($1,$2),($1,$3)", [nextPlan, technician, supervisor]);
+      await runReminderCycle(database, new Date("2026-09-29T01:00:00Z"), async ({ recipient }) => { if (recipient === "tech@example.test") throw new SmtpFailure("auth", false); throw new SmtpFailure("timeout", true); });
+      const outcomes = (await database.query<{ recipient_email: string; status: string }>("SELECT recipient_email,status FROM service_due_email_deliveries WHERE due_date='2026-09-30' ORDER BY recipient_email")).rows;
+      assert.deepEqual(outcomes, [{ recipient_email: "supervisor@example.test", status: "unknown" }, { recipient_email: "tech@example.test", status: "failed" }]);
+      await runReminderCycle(database, new Date("2026-09-30T01:00:00Z"), fake);
+      assert.equal((await database.query<{ count: number }>("SELECT count(*)::int AS count FROM service_due_email_deliveries WHERE status='skipped'")).rows[0]!.count, 0, "prior attempt is not marked missed");
+      await database.query("UPDATE customers SET next_service_due_date='2026-10-01' WHERE id=$1", [customerId]);
+      await database.query("INSERT INTO service_due_reminder_plans(customer_id,due_date,created_by_user_id,updated_by_user_id) VALUES($1,'2026-10-01',$2,$2)", [customerId, admin]);
+      const missedPlan = (await database.query<{ id: string }>("SELECT id::text AS id FROM service_due_reminder_plans WHERE customer_id=$1 AND due_date='2026-10-01'", [customerId])).rows[0]!.id;
+      await database.query("INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id) VALUES($1,$2)", [missedPlan, technician]);
+      await runReminderCycle(database, new Date("2026-09-30T16:01:00Z"), fake);
+      assert.equal((await database.query<{ status: string }>("SELECT status FROM service_due_email_deliveries WHERE due_date='2026-10-01'")).rows[0]!.status, "skipped");
+      assert.equal(sent.length, 2, "missed reminder never sends a late tomorrow message");
+      await database.query("UPDATE customers SET next_service_due_date='2026-10-02' WHERE id=$1", [customerId]);
+      const latePlan = (await database.query<{ id: string }>("INSERT INTO service_due_reminder_plans(customer_id,due_date,created_by_user_id,updated_by_user_id) VALUES($1,'2026-10-02',$2,$2) RETURNING id::text AS id", [customerId, admin])).rows[0]!.id;
+      await database.query("INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id) VALUES($1,$2)", [latePlan, technician]);
+      await runReminderCycle(database, new Date("2026-10-05T01:00:00Z"), fake);
+      assert.equal((await database.query<{ status: string }>("SELECT status FROM service_due_email_deliveries WHERE due_date='2026-10-02'")).rows[0]!.status, "skipped", "multi-day outage is recorded as missed");
+      assert.equal(sent.length, 2);
+      assert.equal((await request(`/manager/reminders/recurrence/${customerId}`, "PUT", { kind: "weekly", interval: 2, day: 2, dueDate: "2026-10-01" })).status, 400, "weekday mismatch is rejected");
+      assert.equal((await request(`/manager/reminders/recurrence/${customerId}`, "PUT", { kind: "monthly", interval: 1, day: 31, dueDate: "2026-10-31" })).status, 200);
+      assert.equal((await request(`/manager/customers/${customerId}/next-service-due-date`, "PUT", { nextServiceDueDate: "2026-11-30" })).status, 400, "manual override must match routine day");
+      assert.equal((await request(`/manager/reminders/recurrence/${customerId}`, "PUT", { kind: null, interval: null, day: null, dueDate: "2026-10-31" })).status, 200);
+      // This direct-SQL fixture has no customer configuration revision, so the existing
+      // route's post-commit presentation lookup returns 404. Its date write still proves
+      // the manual override validation is no longer active after clearing the routine.
+      await request(`/manager/customers/${customerId}/next-service-due-date`, "PUT", { nextServiceDueDate: "2026-11-30" });
+      assert.equal((await database.query<{ due: string }>("SELECT next_service_due_date::text AS due FROM customers WHERE id=$1", [customerId])).rows[0]!.due, "2026-11-30");
+    } finally { server.close(); await once(server, "close"); }
+  } finally {
+    await database.end();
+    if (priorKey === undefined) delete process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+    else process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY = priorKey;
+  }
+});

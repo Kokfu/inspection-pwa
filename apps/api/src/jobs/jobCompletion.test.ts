@@ -38,6 +38,7 @@ const snapshot = {
 function job(status: "open" | "closed" = "open"): CompletionJobRow {
   return {
     id: ids.job,
+    customer_id: null,
     status,
     configuration_snapshot: snapshot,
     completed_at: status === "closed" ? "2026-08-13T01:00:00.000Z" : null,

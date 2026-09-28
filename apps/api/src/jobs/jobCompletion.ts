@@ -2,6 +2,7 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import { pool } from "../db/pool.js";
 import { formatReportNumber } from "../reports/companyProfile.js";
 import { personName } from "../users/personName.js";
+import { nextRecurringDate, type ServiceRecurrence } from "../serviceRecurrence.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -41,6 +42,7 @@ export type JobCompletion = {
 
 export type CompletionJobRow = {
   id: string;
+  customer_id: string | null;
   status: "open" | "closed";
   configuration_snapshot: unknown;
   completed_at: string | Date | null;
@@ -333,7 +335,7 @@ export function buildJobCompletion(
 }
 
 const jobSelect = `
-  SELECT job.id, job.status, job.configuration_snapshot,
+  SELECT job.id, job.customer_id, job.status, job.configuration_snapshot,
     job.completed_at, job.completed_by_user_id, job.completed_by_display_name,
     job.service_date::text, job.report_number, job.technician_team_snapshot,
     creator.username AS created_by_username, creator.display_name AS created_by_display_name,
@@ -450,6 +452,31 @@ export async function closeInspectionJob(
          WHERE id = $1 AND status = 'open'
          RETURNING completed_at, completed_by_user_id`, [jobId, actor.id, actorName, reportNumber, JSON.stringify(technicians)])).rows[0];
     if (!completed) throw new Error("Open job could not be completed while locked");
+    if (job.customer_id) {
+      const customer = (await client.query<{
+        due_date: string | null; kind: "weekly" | "monthly" | null; interval: number | null; day: number | null;
+      }>(`SELECT next_service_due_date::text AS due_date,service_recurrence_kind AS kind,
+        service_recurrence_interval AS interval,service_recurrence_day AS day
+        FROM customers WHERE id=$1 FOR UPDATE`, [job.customer_id])).rows[0];
+      if (customer?.kind && customer.due_date) {
+        if (customer.interval === null || customer.day === null) throw new Error("Invalid stored service recurrence");
+        const rule = { kind: customer.kind, interval: customer.interval, day: customer.day } as ServiceRecurrence;
+        const nextDue = nextRecurringDate(customer.due_date, job.service_date ?? customer.due_date, rule);
+        await client.query(`UPDATE customers SET next_service_due_date=$2::date,service_recurrence_last_job_id=$3 WHERE id=$1`,
+          [job.customer_id, nextDue, jobId]);
+        const copied = (await client.query<{ id: string }>(`
+          INSERT INTO service_due_reminder_plans(customer_id,due_date,review_required,created_by_user_id,updated_by_user_id)
+          SELECT $1,$2::date,true,$3,$3 FROM service_due_reminder_plans WHERE customer_id=$1 AND due_date=$4::date
+          ON CONFLICT(customer_id,due_date) DO NOTHING RETURNING id::text AS id`,
+          [job.customer_id, nextDue, actor.id, customer.due_date])).rows[0];
+        if (copied) await client.query(`INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id,extra_name,extra_email)
+          SELECT $1,recipient.staff_user_id,recipient.extra_name,recipient.extra_email FROM service_due_reminder_recipients recipient
+          JOIN service_due_reminder_plans prior ON prior.id=recipient.plan_id WHERE prior.customer_id=$2 AND prior.due_date=$3::date`,
+          [copied.id, job.customer_id, customer.due_date]);
+        await client.query(`INSERT INTO audit_events(actor_user_id,action,entity_type,entity_id,result,reason)
+          VALUES($1,'service_recurrence_advanced','customer',$2,'success',$3)`, [actor.id, job.customer_id, nextDue]);
+      }
+    }
     await client.query(
       `INSERT INTO audit_events(actor_user_id, action, entity_type, entity_id, result, reason)
        VALUES($1, 'inspection_job_close', 'inspectionJob', $2, 'success', 'eligible')`,

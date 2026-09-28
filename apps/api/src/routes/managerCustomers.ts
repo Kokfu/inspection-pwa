@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Router } from "express";
+import { matchesRecurrence, type ServiceRecurrence } from "../serviceRecurrence.js";
 import type { Pool, PoolClient } from "pg";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
@@ -720,8 +721,28 @@ export function createManagerCustomersRouter(
       }
       client = await database.connect();
       await client.query("BEGIN");
+      const previousDue = (await client.query<{ dueDate: string | null }>(
+        `SELECT next_service_due_date::text AS "dueDate" FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]
+      )).rows[0]?.dueDate ?? null;
+      const recurrence = (await client.query<{ kind: "weekly" | "monthly" | null; interval: number | null; day: number | null }>(
+        `SELECT service_recurrence_kind AS kind,service_recurrence_interval AS interval,service_recurrence_day AS day FROM customers WHERE id=$1`, [customerId]
+      )).rows[0];
+      if (value && recurrence?.kind && !matchesRecurrence(value, { kind: recurrence.kind, interval: recurrence.interval!, day: recurrence.day! } as ServiceRecurrence)) {
+        throw new ManagerCustomerError("DATE_OUTSIDE_RECURRENCE", "The override date must match the recurrence weekday or month day.");
+      }
       const result = await client.query(`UPDATE customers SET next_service_due_date=$2 WHERE id=$1 AND is_active=true AND is_demo=false RETURNING id`, [customerId, value]);
       if (!result.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      if (value && previousDue && value !== previousDue) {
+        const copied = (await client.query<{ id: string }>(`
+          INSERT INTO service_due_reminder_plans(customer_id,due_date,review_required,created_by_user_id,updated_by_user_id)
+          SELECT $1,$2::date,true,$3,$3 FROM service_due_reminder_plans WHERE customer_id=$1 AND due_date=$4::date
+          ON CONFLICT(customer_id,due_date) DO NOTHING RETURNING id::text AS id`,
+        [customerId, value, request.currentUser!.id, previousDue])).rows[0];
+        if (copied) await client.query(`INSERT INTO service_due_reminder_recipients(plan_id,staff_user_id,extra_name,extra_email)
+          SELECT $1,recipient.staff_user_id,recipient.extra_name,recipient.extra_email FROM service_due_reminder_recipients recipient
+          JOIN service_due_reminder_plans prior ON prior.id=recipient.plan_id WHERE prior.customer_id=$2 AND prior.due_date=$3::date`,
+        [copied.id, customerId, previousDue]);
+      }
       await audit(client, request.currentUser!.id, "manager_customer_next_service_due_date_updated", "customer", customerId);
       await client.query("COMMIT");
       response.json({ customer: await loadManagerCustomer(customerId, database) });
