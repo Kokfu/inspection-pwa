@@ -143,7 +143,9 @@ export function ManagerCustomerServiceHistory({
   };
 
   const archive = async (visit: ManagerServiceVisit) => {
-    if (!window.confirm(`Archive service visit ${visit.reference}? It will no longer appear in active history, and can be restored later.`)) return;
+    const inProgressNotice = visit.status === "closed" ? "" :
+      " This visit is still in progress: the technician can keep working on it and syncing evidence — archiving only removes it from this list, it does not stop or notify them.";
+    if (!window.confirm(`Archive service visit ${visit.reference}? It will no longer appear in active history, and can be restored later.${inProgressNotice}`)) return;
     setArchivingId(visit.id); setError("");
     try { await archiveManagerServiceVisit(visit.id); await reload(); }
     catch (reason) { fail(reason); }
@@ -187,19 +189,19 @@ export function ManagerCustomerServiceHistory({
         )}
         <span className="job-reference">{visit.reference}</span>
       </div>
-      {visit.status === "closed" ? (
-        <div className="inline-actions manager-report-actions">
-          <button type="button" className="secondary-command" onClick={() => onViewFinalReport(visit.id)}>View Final Report</button>
-          <button type="button" onClick={() => void onDownloadFinalReport(visit.id)}>Download PDF</button>
-          {canManageVisits && (visit.archivedAt
-            ? <button type="button" className="secondary-command" disabled={restoringId === visit.id} onClick={() => void restore(visit)}>{restoringId === visit.id ? "Restoring…" : "Restore"}</button>
-            : <button type="button" className="secondary-command" disabled={archivingId === visit.id} onClick={() => void archive(visit)}>{archivingId === visit.id ? "Archiving…" : "Archive"}</button>)}
-        </div>
-      ) : (
-        <div className="inline-actions">
+      <div className="inline-actions manager-report-actions">
+        {visit.status === "closed" ? (
+          <>
+            <button type="button" className="secondary-command" onClick={() => onViewFinalReport(visit.id)}>View Final Report</button>
+            <button type="button" onClick={() => void onDownloadFinalReport(visit.id)}>Download PDF</button>
+          </>
+        ) : (
           <button type="button" onClick={() => onViewServiceVisit(visit.id)}>View Progress</button>
-        </div>
-      )}
+        )}
+        {canManageVisits && (visit.archivedAt
+          ? <button type="button" className="secondary-command" disabled={restoringId === visit.id} onClick={() => void restore(visit)}>{restoringId === visit.id ? "Restoring…" : "Restore"}</button>
+          : <button type="button" className="secondary-command" disabled={archivingId === visit.id} onClick={() => void archive(visit)}>{archivingId === visit.id ? "Archiving…" : "Archive"}</button>)}
+      </div>
     </li>
   );
 
