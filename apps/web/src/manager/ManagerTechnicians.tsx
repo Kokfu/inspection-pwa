@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { createManagerTechnician, deactivateManagerTechnician, loadManagerTechnicians, updateManagerTechnicianDisplayName, ManagerApiError, type ManagerTechnician } from "./managerApi";
+import { createManagerTechnician, deactivateManagerTechnician, loadManagerTechnicians, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
 
 export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthorityFailure: (error: unknown) => void; onOpen?: (technician: ManagerTechnician) => void }) {
-  const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
+  const [technicians, setTechnicians] = useState<AssignedManagerTechnician[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
   const [role, setRole] = useState<"inspector" | "supervisor">("inspector");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(true);
+  const [showDeactivated, setShowDeactivated] = useState(false);
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -27,6 +28,9 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       else { setTechnicians([]); onAuthorityFailure(error); }
     } finally { if (mounted.current) setBusy(false); }
   }
+  const supervisors = technicians.filter((row) => row.role === "supervisor");
+  const deactivatedCount = technicians.filter((row) => !row.isActive).length;
+  const visibleTechnicians = showDeactivated ? technicians : technicians.filter((row) => row.isActive);
   return <section aria-labelledby="technicians-title"><h2 id="technicians-title">Technician List</h2>
     <form className="manager-inline-form" onSubmit={(event) => {
       event.preventDefault();
@@ -43,12 +47,23 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
     </form>
     {message && <p role="alert" className="form-message">{message}</p>}
     {busy && <p role="status">Updating technicians…</p>}
-    <ul className="manager-technician-list">{technicians.map((technician) => <li key={technician.id}>
+    {deactivatedCount > 0 && <label className="manager-show-archived">
+      <input type="checkbox" checked={showDeactivated} onChange={(event) => setShowDeactivated(event.target.checked)} />
+      {` Show deactivated technicians (${deactivatedCount})`}
+    </label>}
+    <ul className="manager-technician-list">{visibleTechnicians.map((technician) => <li key={technician.id}>
       {onOpen && technician.role === "inspector"
         ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
         : <strong>{technician.username}</strong>}
       {technician.role === "supervisor" && <span className="status-badge status-badge--neutral">Supervisor</span>}
       <span className={`status-badge status-badge--${technician.isActive ? "complete" : "attention"}`}>{technician.isActive ? "Active" : "Inactive"}</span>
+      {technician.role === "inspector" && <fieldset className="manager-assignment-picker" disabled={busy}>
+        <legend>Assigned supervisors for {technician.username}</legend>
+        {supervisors.length ? supervisors.map((supervisor) => <label key={supervisor.id} className="checkbox-label">
+          <input type="checkbox" checked={technician.supervisorIds.includes(supervisor.id)} onChange={(event) => void mutate(() => setTechnicianSupervisorAssignment(technician.id, supervisor.id, event.target.checked))} />
+          {supervisor.displayName ?? supervisor.username}{supervisor.isActive ? "" : " (inactive)"}
+        </label>) : <p>No supervisors available.</p>}
+      </fieldset>}
       <form onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("displayName"); if (typeof value === "string") void mutate(() => updateManagerTechnicianDisplayName(technician.id, value.trim() || null)); }}>
         <label>Person’s name<input name="displayName" maxLength={160} defaultValue={technician.displayName ?? ""} key={`${technician.id}:${technician.displayName}`} /></label>
         <button type="submit" className="secondary-command" disabled={busy}>Save name</button>
@@ -57,6 +72,6 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
         if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "supervisor" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}
     </li>)}</ul>
-    {!busy && !technicians.length && <p className="empty-state">No technicians.</p>}
+    {!busy && !visibleTechnicians.length && <p className="empty-state">{technicians.length ? "No active technicians." : "No technicians."}</p>}
   </section>;
 }

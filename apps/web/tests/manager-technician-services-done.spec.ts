@@ -6,12 +6,12 @@ type Visit = {
 };
 
 const technicians = [
-  { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
-  { id: 12, username: "tech-bravo", displayName: null, role: "inspector", isActive: false, createdAt: "2026-09-02T00:00:00.000Z" },
-  { id: 13, username: "tech-charlie", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" },
-  { id: 14, username: "tech-delta", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-04T00:00:00.000Z" },
+  { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [] },
+  { id: 12, username: "tech-bravo", displayName: null, role: "inspector", isActive: false, createdAt: "2026-09-02T00:00:00.000Z", supervisorIds: [] },
+  { id: 13, username: "tech-charlie", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-03T00:00:00.000Z", supervisorIds: [] },
+  { id: 14, username: "tech-delta", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-04T00:00:00.000Z", supervisorIds: [] },
   // A supervisor (T4) is listed by the API but never offered as a "created by" filter.
-  { id: 15, username: "super-echo", displayName: null, role: "supervisor", isActive: true, createdAt: "2026-09-05T00:00:00.000Z" }
+  { id: 15, username: "super-echo", displayName: null, role: "supervisor", isActive: true, createdAt: "2026-09-05T00:00:00.000Z", supervisorIds: [] }
 ];
 const alpha = { id: 11, displayName: "tech-alpha" };
 const bravo = { id: 12, displayName: "tech-bravo" };
@@ -182,9 +182,12 @@ test("Technicians row opens technician detail with In Progress / Completed count
   await expect(page).toHaveURL(/#\/manager-technician\/11$/);
   await expect(page.getByRole("tab", { name: "Completed (22)" })).toHaveAttribute("aria-selected", "true");
 
-  // Inactive technician shows the inactive badge and empty states.
+  // Inactive technician shows the inactive badge and empty states. Deactivated technicians are
+  // hidden from the default list, so reveal them first.
   await page.getByRole("button", { name: "Back to Technicians", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager-technicians$/);
+  await expect(page.getByRole("button", { name: "View tech-bravo service visits" })).toHaveCount(0);
+  await page.getByLabel("Show deactivated technicians (1)").check();
   await page.getByRole("button", { name: "View tech-bravo service visits" }).click();
   await expect(page.locator(".workspace-heading .status-badge")).toHaveText("Inactive");
   await expect(page.getByRole("tab", { name: "In Progress (0)" })).toBeVisible();

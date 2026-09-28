@@ -10,6 +10,12 @@ export class ManagerTechnicianError extends Error {
 }
 
 const technicianColumns = `id::int AS id, username, display_name AS "displayName", role, is_active AS "isActive", created_at AS "createdAt"`;
+const assignedSupervisorColumns = `ARRAY(
+  SELECT assignment.supervisor_id::int
+  FROM technician_supervisor_assignments assignment
+  WHERE assignment.technician_id = users.id AND assignment.archived_at IS NULL
+  ORDER BY assignment.supervisor_id
+) AS "supervisorIds"`;
 /** Field accounts this screen manages: technicians and (T4) supervisors. Admins are never listed or changed here. */
 const managedRoles = ["inspector", "supervisor"] as const;
 type ManagedRole = typeof managedRoles[number];
@@ -22,6 +28,17 @@ function displayName(value: unknown): string | null {
   return value.trim();
 }
 
+function numericUserId(value: unknown, code: string): number {
+  if (typeof value !== "string" && (typeof value !== "number" || !Number.isInteger(value))) {
+    throw new ManagerTechnicianError(code, "User ID must be a positive numeric ID.");
+  }
+  const raw = String(value);
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) > 2147483647) {
+    throw new ManagerTechnicianError(code, "User ID must be a positive numeric ID.");
+  }
+  return Number(raw);
+}
+
 async function audit(client: PoolClient, actorUserId: number, action: string, entityType: string, entityId: string, reason: string) {
   await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result, reason) VALUES ($1,$2,$3,$4,'success',$5)`, [actorUserId, action, entityType, entityId, reason]);
 }
@@ -30,12 +47,78 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
   const router = Router();
   // Every Manager route decision goes through the audited guard (supervisor refusals are logged).
   const requireRole = (...roles: UserRole[]) => requireRoleAudited(database, ...roles);
-  router.get("/manager/technicians", requireRole("admin", "supervisor"), async (_request, response, next) => {
+  router.get("/manager/technicians", requireRole("admin", "supervisor"), async (request, response, next) => {
     try {
-      const result = await database.query(`SELECT ${technicianColumns} FROM users WHERE role IN ('inspector','supervisor') ORDER BY username, id`);
+      const supervisor = request.currentUser!.role === "supervisor";
+      const result = await database.query(
+        `SELECT ${technicianColumns}, ${assignedSupervisorColumns} FROM users
+         WHERE ${supervisor
+    ? "role='inspector' AND EXISTS (SELECT 1 FROM technician_supervisor_assignments assignment WHERE assignment.technician_id=users.id AND assignment.supervisor_id=$1 AND assignment.archived_at IS NULL)"
+    : "role IN ('inspector','supervisor')"}
+         ORDER BY username, id`,
+        supervisor ? [request.currentUser!.id] : []
+      );
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ technicians: result.rows });
     } catch (error) { next(error); }
+  });
+
+  router.post("/manager/technicians/:technicianId/assignments", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const technicianId = numericUserId(request.params.technicianId, "INVALID_TECHNICIAN_ID");
+      const body: unknown = request.body;
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, "supervisorId")) {
+        throw new ManagerTechnicianError("INVALID_REQUEST", "Request body is invalid.");
+      }
+      if (typeof (body as Record<string, unknown>).supervisorId !== "number") {
+        throw new ManagerTechnicianError("INVALID_SUPERVISOR_ID", "Supervisor ID must be a positive numeric ID.");
+      }
+      const supervisorId = numericUserId((body as Record<string, unknown>).supervisorId, "INVALID_SUPERVISOR_ID");
+      client = await database.connect();
+      await client.query("BEGIN");
+      const users = await client.query<{ id: string; role: UserRole }>("SELECT id, role FROM users WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE", [[technicianId, supervisorId]]);
+      const roles = new Map(users.rows.map((row) => [Number(row.id), row.role]));
+      if (!roles.has(technicianId)) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
+      if (!roles.has(supervisorId)) throw new ManagerTechnicianError("SUPERVISOR_NOT_FOUND", "Supervisor was not found.", 404);
+      if (roles.get(technicianId) !== "inspector" || roles.get(supervisorId) !== "supervisor") {
+        throw new ManagerTechnicianError("INVALID_ROLE", "Assignment requires a technician and a supervisor.");
+      }
+      const assigned = await client.query(
+        `INSERT INTO technician_supervisor_assignments AS assignment (technician_id, supervisor_id, created_by_user_id)
+         VALUES ($1,$2,$3)
+         ON CONFLICT (technician_id, supervisor_id) DO UPDATE SET archived_at=NULL
+         WHERE assignment.archived_at IS NOT NULL RETURNING id`,
+        [technicianId, supervisorId, request.currentUser!.id]
+      );
+      if (assigned.rows[0]) await audit(client, request.currentUser!.id, "technician_assignment_created", "user", String(technicianId), `supervisorId=${supervisorId}`);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.status(assigned.rows[0] ? 201 : 200).json({ technicianId, supervisorId, assigned: true });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
+
+  router.delete("/manager/technicians/:technicianId/assignments/:supervisorId", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const technicianId = numericUserId(request.params.technicianId, "INVALID_TECHNICIAN_ID");
+      const supervisorId = numericUserId(request.params.supervisorId, "INVALID_SUPERVISOR_ID");
+      if (request.body !== undefined && (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length)) {
+        throw new ManagerTechnicianError("INVALID_REQUEST", "Request body must be empty.");
+      }
+      client = await database.connect();
+      await client.query("BEGIN");
+      const removed = await client.query(
+        "UPDATE technician_supervisor_assignments SET archived_at=now() WHERE technician_id=$1 AND supervisor_id=$2 AND archived_at IS NULL RETURNING id",
+        [technicianId, supervisorId]
+      );
+      if (removed.rows[0]) await audit(client, request.currentUser!.id, "technician_assignment_removed", "user", String(technicianId), `supervisorId=${supervisorId}`);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ technicianId, supervisorId, assigned: false });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
   });
   router.post("/manager/technicians", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;

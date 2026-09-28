@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 test("create/list/deactivate with cancel confirmation preventing the write", async ({ page }) => {
-  let technicians: Array<{ id: number; username: string; displayName: string | null; role: string; isActive: boolean; createdAt: string }> = [];
+  let technicians: Array<{ id: number; username: string; displayName: string | null; role: string; isActive: boolean; createdAt: string; supervisorIds: number[] }> = [];
   let deactivations = 0;
   await page.route("**/api/manager/technicians**", async (route) => {
     const request = route.request();
     if (request.url().endsWith("/deactivate")) { deactivations++; technicians[0]!.isActive = false; await route.fulfill({ json: { technician: technicians[0] } }); }
-    else if (request.method() === "POST") { technicians = [{ id: 12, username: request.postDataJSON().username, displayName: request.postDataJSON().displayName ?? null, role: request.postDataJSON().role ?? "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z" }]; await route.fulfill({ status: 201, json: { technician: technicians[0] } }); }
+    else if (request.method() === "POST") { technicians = [{ id: 12, username: request.postDataJSON().username, displayName: request.postDataJSON().displayName ?? null, role: request.postDataJSON().role ?? "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] }]; await route.fulfill({ status: 201, json: { technician: technicians[0] } }); }
     else await route.fulfill({ json: { technicians } });
   });
   await page.goto("/tests/manager-technicians.html");
@@ -21,13 +21,17 @@ test("create/list/deactivate with cancel confirmation preventing the write", asy
   expect(deactivations).toBe(0);
   page.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Deactivate", exact: true }).click();
-  await expect(row.getByText("Inactive", { exact: true })).toHaveClass(/status-badge--attention/);
   expect(deactivations).toBe(1);
+  // Deactivated technicians drop off the default list, not just lose their Deactivate button.
+  await expect(row).toHaveCount(0);
+  await expect(page.getByText("Show deactivated technicians (1)")).toBeVisible();
+  await page.getByLabel("Show deactivated technicians (1)").check();
+  await expect(row.getByText("Inactive", { exact: true })).toHaveClass(/status-badge--attention/);
   await expect(row.getByRole("button", { name: "Deactivate" })).toHaveCount(0);
 });
 
 test("clearing a person name accepts the server's null and refreshes the row", async ({ page }) => {
-  const technician = { id: 12, username: "new-technician", displayName: "Alice Tan" as string | null, role: "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z" };
+  const technician = { id: 12, username: "new-technician", displayName: "Alice Tan" as string | null, role: "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] };
   const writes: Array<string | null> = [];
   await page.route("**/api/manager/technicians**", async (route) => {
     if (route.request().method() === "PUT") {
@@ -67,15 +71,15 @@ test("malformed list fails closed", async ({ page }) => {
 
 test("admin creates a supervisor from the same form; supervisors are labelled and have no visits link", async ({ page }) => {
   const posts: unknown[] = [];
-  let technicians: Array<{ id: number; username: string; displayName: string | null; role: string; isActive: boolean; createdAt: string }> = [
-    { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }
+  let technicians: Array<{ id: number; username: string; displayName: string | null; role: string; isActive: boolean; createdAt: string; supervisorIds: number[] }> = [
+    { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [] }
   ];
   await page.route("**/api/manager/technicians**", async (route) => {
     const request = route.request();
     if (request.method() === "POST") {
       const body = request.postDataJSON() as { username: string; role?: string };
       posts.push(body);
-      const created = { id: 20, username: body.username, displayName: null, role: body.role ?? "inspector", isActive: true, createdAt: "2026-09-20T00:00:00.000Z" };
+      const created = { id: 20, username: body.username, displayName: null, role: body.role ?? "inspector", isActive: true, createdAt: "2026-09-20T00:00:00.000Z", supervisorIds: [] };
       technicians = [...technicians, created];
       await route.fulfill({ status: 201, json: { technician: created } });
     } else await route.fulfill({ json: { technicians } });
@@ -95,6 +99,52 @@ test("admin creates a supervisor from the same form; supervisors are labelled an
 
 test("a technician row missing its role fails closed", async ({ page }) => {
   await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians: [{ id: 1, username: "no-role", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }] } }));
+  await page.goto("/tests/manager-technicians.html");
+  await expect(page.locator("#failure")).toContainText("unavailable");
+});
+
+test("admin can assign multiple supervisors and remove one without affecting the other", async ({ page }) => {
+  const technician = { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [] as number[] };
+  const supervisors = [
+    { id: 20, username: "review-one", displayName: "Reviewer One", role: "supervisor", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [] },
+    { id: 21, username: "review-two", displayName: null, role: "supervisor", isActive: false, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [] }
+  ];
+  const writes: string[] = [];
+  await page.route("**/api/manager/technicians**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("/assignments") && request.method() === "POST") {
+      const supervisorId = (request.postDataJSON() as { supervisorId: number }).supervisorId;
+      writes.push(`assign:${supervisorId}`);
+      technician.supervisorIds = [...new Set([...technician.supervisorIds, supervisorId])].sort();
+      await route.fulfill({ status: 201, json: { technicianId: technician.id, supervisorId, assigned: true } });
+    } else if (url.pathname.includes("/assignments/") && request.method() === "DELETE") {
+      const supervisorId = Number(url.pathname.split("/").at(-1));
+      writes.push(`remove:${supervisorId}`);
+      technician.supervisorIds = technician.supervisorIds.filter((id) => id !== supervisorId);
+      await route.fulfill({ json: { technicianId: technician.id, supervisorId, assigned: false } });
+    } else await route.fulfill({ json: { technicians: [technician, ...supervisors] } });
+  });
+  await page.goto("/tests/manager-technicians.html");
+  const picker = page.getByRole("group", { name: "Assigned supervisors for tech-alpha" });
+  const first = picker.getByRole("checkbox", { name: "Reviewer One" });
+  const second = picker.getByRole("checkbox", { name: "review-two (inactive)" });
+  await first.click();
+  await expect(first).toBeChecked();
+  await second.click();
+  await expect(second).toBeChecked();
+  await first.click();
+  await expect(first).not.toBeChecked();
+  await expect(second).toBeChecked();
+  expect(writes).toEqual(["assign:20", "assign:21", "remove:20"]);
+  await page.setViewportSize({ width: 360, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("malformed assignment list fails closed", async ({ page }) => {
+  await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians: [
+    { id: 11, username: "tech-alpha", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: ["20"] }
+  ] } }));
   await page.goto("/tests/manager-technicians.html");
   await expect(page.locator("#failure")).toContainText("unavailable");
 });

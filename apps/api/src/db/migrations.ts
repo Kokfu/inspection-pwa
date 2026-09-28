@@ -128,6 +128,9 @@ const inspectionCorrectionsMigrationUrl = new URL(
 const inspectionReviewsMigrationUrl = new URL(
   "../../migrations/041_inspection_reviews.sql", import.meta.url
 );
+const technicianSupervisorAssignmentsMigrationUrl = new URL(
+  "../../migrations/042_technician_supervisor_assignments.sql", import.meta.url
+);
 const serviceDueRemindersMigrationUrl = new URL(
   "../../migrations/043_service_due_reminders.sql", import.meta.url
 );
@@ -571,6 +574,12 @@ export async function runMigrations(
   );
   if (!inspectionReviews.rows[0]?.exists) {
     await database.query(await readFile(inspectionReviewsMigrationUrl, "utf8"));
+  }
+  const technicianSupervisorAssignments = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.technician_supervisor_assignments') IS NOT NULL AS exists`
+  );
+  if (!technicianSupervisorAssignments.rows[0]?.exists) {
+    await database.query(await readFile(technicianSupervisorAssignmentsMigrationUrl, "utf8"));
   }
   const serviceDueReminders = await database.query<{ exists: boolean }>(
     `SELECT to_regclass('public.service_due_email_settings') IS NOT NULL AS exists`

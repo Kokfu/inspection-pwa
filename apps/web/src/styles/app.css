@@ -1365,6 +1365,8 @@ section[aria-labelledby="upcoming-title"] > section > h3, .manager-inline-form h
 .manager-inline-form { padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-card); }
 .manager-technician-list, .manager-schedule-list { margin: 0; }
 .manager-technician-list li, .manager-schedule-list li { box-sizing: border-box; gap: var(--space-3); padding: 12px 14px; border-color: var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card); }
+.manager-assignment-picker { box-sizing: border-box; display: grid; gap: var(--space-2); width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.manager-assignment-picker .checkbox-label { min-height: var(--tap); }
 .manager-show-archived { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .manager-show-archived input { flex: 0 0 20px; width: 20px; height: 20px; }
 .manager-company-actions { width: 100%; justify-content: space-between; margin-block: var(--space-4); }

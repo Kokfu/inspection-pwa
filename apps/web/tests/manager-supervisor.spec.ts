@@ -52,7 +52,7 @@ async function installSupervisorApi(page: Page, startLoggedOut = false) {
     if (path === `/api/manager/service-visits/${visit.id}/accepted-records`) return json({ records: [] });
     if (path === `/api/manager/service-visits/${visit.id}/corrections`) return json({ corrections: [] });
     if (path === "/api/manager/customers") return json({ customers: [customerSummary] });
-    if (path === "/api/manager/technicians") return json({ technicians: [{ id: 21, username: "technician-one", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }] });
+    if (path === "/api/manager/technicians") return json({ technicians: [{ id: 21, username: "technician-one", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [supervisor.id] }] });
     // Every other Manager route is admin-only on the server.
     if (path.startsWith("/api/manager/")) return json({ error: "FORBIDDEN", message: "You do not have permission for this action" }, 403);
     return json({});

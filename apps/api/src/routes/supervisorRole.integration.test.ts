@@ -37,6 +37,7 @@ const supervisorReads = new Set([
   // T5a: corrections are review work, so a supervisor may read and write these.
   "GET /manager/inspections/:clientUuid/corrections",
   "POST /manager/inspections/:clientUuid/corrections",
+  "POST /manager/inspections/:clientUuid/review",
   "GET /manager/service-visits/:jobId/corrections",
   "GET /manager/service-visits/:jobId/accepted-records",
   // T5c: review reads of accepted records, their evidence photos and their corrections.
@@ -59,7 +60,7 @@ const supervisorReads = new Set([
   "GET /v7-evidence/accepted/:photoUuid/content"
 ]);
 const unknownJob = "00000000-0000-4000-8000-00000000f404";
-const params: Record<string, string> = { jobId: unknownJob, customerId: unknownJob, clientUuid: unknownJob, photoUuid: unknownJob, id: unknownJob, technicianId: "2147480000", systemKey: "hose_reel" };
+const params: Record<string, string> = { jobId: unknownJob, customerId: unknownJob, clientUuid: unknownJob, photoUuid: unknownJob, id: unknownJob, technicianId: "2147480000", supervisorId: "2147480000", systemKey: "hose_reel" };
 
 function routesOf(router: Router) {
   const stack = (router as unknown as { stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> }).stack;
@@ -151,7 +152,7 @@ test("supervisor role: migration 031, account lifecycle, customer summary and a 
       assert.equal(denials.length, deniedManager, "one authz.denied row per refused Manager route");
       assert.ok(denials.every((row) => row.actor === supervisorRow.id && row.result === "failure"));
       assert.ok(denials.some((row) => row.reason === "POST /manager/technicians"));
-      // A supervisor reviews the same visits as the admin, including jobs hidden from technicians.
+      // An admin-created visit has no assigned technician and is outside the supervisor's scope.
       const createdVisit = await request("/inspection-jobs/service-visits", "POST", { requestId: "00000000-0000-4000-8000-00000000c830", customerId: "00000000-0000-4000-8000-000000000750", siteId: "00000000-0000-4000-8000-000000000755", systemKeys: ["portable_fire_extinguisher"] }, admin);
       assert.equal(createdVisit.status, 201, await createdVisit.clone().text());
       const job = (await createdVisit.json() as { job: { id: string } }).job;
@@ -160,10 +161,7 @@ test("supervisor role: migration 031, account lifecycle, customer summary and a 
         const asAdmin = await request(path, "GET", undefined, admin);
         const asSupervisor = await request(path, "GET", undefined, supervisor);
         assert.notEqual(asAdmin.status, 403);
-        assert.equal(asSupervisor.status, asAdmin.status, `${path}: supervisor sees what the admin sees`);
-        // `checkedAt` is the per-request completion-check time; everything else must match.
-        const stable = async (response: Response) => JSON.parse(await response.text(), (key, value: unknown) => key === "checkedAt" ? undefined : value) as unknown;
-        assert.deepEqual(await stable(asSupervisor), await stable(asAdmin), `${path}: same payload`);
+        assert.equal(asSupervisor.status, 404, `${path}: unassigned visit is hidden`);
       }
       // A refused supervisor write changed nothing.
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM users")).rows[0].n, 3);
