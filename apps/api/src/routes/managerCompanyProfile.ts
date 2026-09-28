@@ -1,7 +1,11 @@
-import { Router } from "express";
+import { readFileSync } from "node:fs";
+import express, { Router } from "express";
 import type { Pool } from "pg";
 import { pool } from "../db/pool.js";
-import { CompanyProfileError, currentCompanyProfile, saveCompanyProfile, type CompanyProfile } from "../reports/companyProfile.js";
+import {
+  clearCompanyLogo, companyLogoMaxBytes, CompanyLogoError, CompanyProfileError, currentCompanyProfile,
+  resolveCompanyLogoFile, saveCompanyLogo, saveCompanyProfile, type CompanyProfile
+} from "../reports/companyProfile.js";
 import type { UserRole } from "../auth/authTypes.js";
 import { requireRoleAudited } from "../middleware/requireRole.js";
 
@@ -47,8 +51,48 @@ export function createManagerCompanyProfileRouter(database: Pick<Pool, "query"> 
     } catch (error) { next(error); }
   });
 
+  // Logo image byte size is validated by `saveCompanyLogo` itself; this raw-body cap only
+  // stops an oversized request from being buffered into memory at all. Kept comfortably
+  // above `companyLogoMaxBytes` so a legitimate max-size upload is never rejected here first.
+  const rawLogoBody = express.raw({ type: ["image/png", "image/jpeg"], limit: companyLogoMaxBytes * 2 });
+
+  router.get("/manager/company-profile/logo", requireRole("admin"), async (_request, response, next) => {
+    try {
+      const found = resolveCompanyLogoFile(currentCompanyProfile().logoFile);
+      if (!found) { response.status(404).json({ error: "LOGO_NOT_FOUND", message: "No company logo is configured." }); return; }
+      response.setHeader("Cache-Control", "private, no-store");
+      response.type(found.mime).send(readFileSync(found.path));
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/company-profile/logo", requireRole("admin"), rawLogoBody, async (request, response, next) => {
+    try {
+      if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+        throw new CompanyLogoError("LOGO_MISSING", "No logo image was received. Set Content-Type to image/png or image/jpeg.");
+      }
+      const companyProfile = await saveCompanyLogo(request.body);
+      await audit(database, request.currentUser!.id, "manager_company_logo_updated", `bytes=${request.body.length}`);
+      response.status(200).json({ companyProfile: publicProfile(companyProfile) });
+    } catch (error) { next(error); }
+  });
+
+  router.put("/manager/company-profile/logo/reset", requireRole("admin"), async (request, response, next) => {
+    try {
+      const companyProfile = clearCompanyLogo();
+      await audit(database, request.currentUser!.id, "manager_company_logo_reset", "");
+      response.status(200).json({ companyProfile: publicProfile(companyProfile) });
+    } catch (error) { next(error); }
+  });
+
   router.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
-    if (error instanceof CompanyProfileError) { response.status(error.status).json({ error: error.code, message: error.message }); return; }
+    if (error instanceof CompanyProfileError || error instanceof CompanyLogoError) { response.status(error.status).json({ error: error.code, message: error.message }); return; }
+    // A raw-body-parser payload-too-large error (`err.type === "entity.too.large"`) has no
+    // `.status`/`.code` of our own shape; surface it as a normal logo-size validation failure
+    // instead of falling through to the generic 500 handler.
+    if (typeof error === "object" && error !== null && (error as { type?: string }).type === "entity.too.large") {
+      response.status(400).json({ error: "LOGO_SIZE_INVALID", message: "Logo image is too large." });
+      return;
+    }
     next(error);
   });
 

@@ -1,5 +1,6 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { reportFontFaceCss } from "../pdf/reportFonts.js";
+import { resolveCompanyLogoFile } from "../companyProfile.js";
 import { summaryMainFinding, type ReportViewModel, type ReportBlock, type ReportResult, type SystemPage } from "../reportViewModel.js";
 
 const asset = (name: string) => readFileSync(new URL(name, import.meta.url), "utf8");
@@ -7,10 +8,11 @@ const css = asset("./report.css");
 const coverTemplate = asset("./cover.html");
 const summaryFooter = asset("./summary-footer.html");
 const fontCss = reportFontFaceCss();
-const logos = new Map<string, string>();
-for (const [file, mime] of [["mfe-logo.png", "image/png"], ["mfe-logo.svg", "image/svg+xml"]]) {
-  const url = new URL(`../assets/${file}`, import.meta.url);
-  if (existsSync(url)) logos.set(file, `data:${mime};base64,${readFileSync(url).toString("base64")}`);
+/** A live local-disk lookup (never cached), so a Manager-uploaded logo appears on the
+ *  very next report without a server restart — see `companyProfile.ts#resolveCompanyLogoFile`. */
+function logoDataUri(logoFile: string): string | undefined {
+  const found = resolveCompanyLogoFile(logoFile);
+  return found ? `data:${found.mime};base64,${readFileSync(found.path).toString("base64")}` : undefined;
 }
 
 /** The only boundary for dynamic text/attributes, including nulls and numeric values. */
@@ -61,7 +63,7 @@ const partial = (block: ReportBlock): string => {
 };
 function cover(vm: ReportViewModel): string {
   const c = vm.cover;
-  const logo = logos.get(vm.company.logoFile) ?? logos.get("mfe-logo.png") ?? logos.get("mfe-logo.svg");
+  const logo = logoDataUri(vm.company.logoFile);
   const values = { ...vm.company, ...c, registrationNo: vm.company.registrationNo ? `(${vm.company.registrationNo})` : "", companyFax: vm.company.fax,
     siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone, c.fax].filter(Boolean).join(" / "), arrivalDeparture: [c.arrival, c.departure].filter(Boolean).join(" / "),
     technicians: c.technicians.join(" · "), team: c.technicians.filter(name => name !== c.testLeader).join(", ") };
@@ -113,7 +115,7 @@ function system(page: SystemPage, last: boolean): string {
   const review = page.review ? `<div style="margin:8pt 0;font-size:8pt"><b>Submitted by Technician:</b> ${e(page.review.submittedBy ?? "Identity unavailable")} · <b>${page.review.status === "reviewed" ? "Reviewed by Supervisor:" : "Pending Review"}</b>${page.review.status === "reviewed" ? ` ${e(page.review.reviewedBy ?? "Identity unavailable")}${page.review.reviewedAt ? ` · ${e(page.review.reviewedAt)}` : ""}` : ""}</div>` : "";
   return `<section class="page system-page"><div class="system-title-first">${firstTitle}</div><table class="system-flow"><thead><tr><td style="padding:0;border:0">${continuationTitle}</td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0">${advisory}${blocks(page)}${parts ? `<div class="two-col">${remark}${parts}</div>` : remark}${commentBox}${photos}${review}${strip}${last ? '<div style="margin-top:22pt;text-align:center;font-size:7.8pt;color:#555;letter-spacing:.2em">— END OF REPORT —</div>' : ""}</td></tr></tbody></table></section>`;
 }
-/** Cached assets only; does not mutate vm, consult the clock, or access the network. */
+/** Cached CSS/cover markup plus a live local-disk logo lookup; does not mutate vm, consult the clock, or access the network. */
 export function renderReportHtml(vm: ReportViewModel, pageMap?: Map<string, number>): string {
   const style = css.replace(/\{\{(customer|reportNumber)\}\}/g, (_, key: string) => escapeCssString(key === "customer" ? vm.cover.customer : vm.cover.reportNumber ? `Report No. ${vm.cover.reportNumber}` : ""));
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${e(vm.cover.jobReference)}</title><style>${fontCss}${style}</style></head><body>${cover(vm)}${summary(vm, pageMap)}${vm.systemPages.map((page, index) => system(page, index === vm.systemPages.length - 1)).join("")}</body></html>`;

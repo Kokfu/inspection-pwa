@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 import { loadConfig } from "../config/env.js";
 
 type RecordValue = Record<string, unknown>;
@@ -76,11 +77,11 @@ const optionalText = (value: unknown, field: string, maximum: number): string =>
 };
 
 /**
- * Validates a Manager's edit of the writable fields — everything the PDF letterhead
- * shows except `logoFile` (image upload is a separate, not-yet-built feature) and
- * `source` (server-derived). Mirrors `loadCompanyProfile`'s per-field length caps so a
- * value that would round-trip cleanly through the loader is exactly what is accepted
- * here.
+ * Validates a Manager's edit of the writable text fields — everything the PDF letterhead
+ * shows except `logoFile` (that has its own write path, `saveCompanyLogo`/`clearCompanyLogo`,
+ * since it is an image upload rather than a form field) and `source` (server-derived).
+ * Mirrors `loadCompanyProfile`'s per-field length caps so a value that would round-trip
+ * cleanly through the loader is exactly what is accepted here.
  */
 export function parseCompanyProfileInput(input: unknown): Omit<CompanyProfile, "logoFile" | "source"> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -117,20 +118,99 @@ export function parseCompanyProfileInput(input: unknown): Omit<CompanyProfile, "
   };
 }
 
+/** Atomic write (temp file + rename) shared by every profile writer, so a mid-write
+ *  crash/power loss on the client PC never leaves a half-written, unparsable file behind. */
+function writeAtomic(path: string, contents: string | Buffer) {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporaryPath, contents);
+  renameSync(temporaryPath, path);
+}
+
+function writeProfileFile(profile: CompanyProfile, path: string) {
+  writeAtomic(path, `${JSON.stringify({ ...profile, source: undefined }, null, 2)}\n`);
+}
+
 /**
  * Persists a Manager's edit. `logoFile` is carried over from whatever is currently
- * effective (letterhead image upload is out of scope here) rather than reset, and the
- * write is atomic (temp file + rename) so a mid-write crash/power loss on the client
- * PC never leaves a half-written, unparsable profile behind.
+ * effective — this never touches the logo image itself; see `saveCompanyLogo`/
+ * `clearCompanyLogo` for that.
  */
 export function saveCompanyProfile(input: unknown, path: string = companyProfileRuntimePath()): CompanyProfile {
   const patch = parseCompanyProfileInput(input);
   const logoFile = currentCompanyProfile(path).logoFile;
-  const next: CompanyProfile = { ...patch, logoFile, source: "file" };
-  mkdirSync(dirname(path), { recursive: true });
-  const temporaryPath = `${path}.${randomUUID()}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...next, source: undefined }, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, path);
+  writeProfileFile({ ...patch, logoFile, source: "file" }, path);
+  return currentCompanyProfile(path);
+}
+
+export class CompanyLogoError extends Error {
+  constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
+}
+
+export const companyLogoMaxBytes = 2 * 1024 * 1024;
+export const companyLogoMaxDimension = 1200;
+const companyLogoInputPixelLimit = 20_000_000;
+/** Sentinel `logoFile` value meaning "read the runtime logo file", distinct from the
+ *  checked-in defaults' own filenames (`mfe-logo.png` / `mfe-logo.svg`). */
+export const runtimeLogoFileName = "company-logo.png";
+
+export function companyLogoRuntimePath(path: string = companyProfileRuntimePath()): string {
+  return join(dirname(path), runtimeLogoFileName);
+}
+
+const assetLogoCandidates: ReadonlyArray<{ file: string; mime: string; path: string }> = [
+  { file: "mfe-logo.png", mime: "image/png", path: fileURLToPath(new URL("./assets/mfe-logo.png", import.meta.url)) },
+  { file: "mfe-logo.svg", mime: "image/svg+xml", path: fileURLToPath(new URL("./assets/mfe-logo.svg", import.meta.url)) }
+];
+
+/**
+ * The single source of truth for "what image is the current company logo" — shared by
+ * the PDF renderer (`renderReportHtml.ts`) and the Manager preview endpoint
+ * (`GET /manager/company-profile/logo`), so the two can never disagree. Prefers the
+ * runtime upload when `logoFile` names it and it exists; otherwise falls back to
+ * whichever checked-in default asset actually exists (today: neither ships, so this
+ * returns `undefined` and the PDF shows its "MFE" text placeholder — unchanged until a
+ * Manager uploads one).
+ */
+export function resolveCompanyLogoFile(logoFile: string, path: string = companyProfileRuntimePath()): { path: string; mime: string } | undefined {
+  const runtimePath = companyLogoRuntimePath(path);
+  if (logoFile === runtimeLogoFileName && existsSync(runtimePath)) return { path: runtimePath, mime: "image/png" };
+  const asset = assetLogoCandidates.find((candidate) => candidate.file === logoFile && existsSync(candidate.path))
+    ?? assetLogoCandidates.find((candidate) => existsSync(candidate.path));
+  return asset ? { path: asset.path, mime: asset.mime } : undefined;
+}
+
+/**
+ * Validates and stores a Manager-uploaded logo: PNG/JPEG only, decompression-bomb
+ * guarded (`limitInputPixels`, mirroring `attachmentStorage.ts`'s normalization), then
+ * normalized to a single canonical PNG capped at `companyLogoMaxDimension` on its
+ * longest edge (a letterhead logo renders at 62pt square — this is generous headroom,
+ * not a thumbnail). SVG upload is not supported (kept out of scope; the checked-in
+ * default may still be an SVG file if one is ever added).
+ */
+export async function saveCompanyLogo(source: Buffer, path: string = companyProfileRuntimePath()): Promise<CompanyProfile> {
+  if (source.length === 0 || source.length > companyLogoMaxBytes) {
+    throw new CompanyLogoError("LOGO_SIZE_INVALID", `Logo image must be at most ${Math.floor(companyLogoMaxBytes / (1024 * 1024))}MB.`);
+  }
+  const image = sharp(source, { failOn: "warning", limitInputPixels: companyLogoInputPixelLimit, pages: 1 });
+  const metadata = await image.metadata().catch(() => undefined);
+  if (!metadata || (metadata.format !== "png" && metadata.format !== "jpeg") || !metadata.width || !metadata.height) {
+    throw new CompanyLogoError("LOGO_FORMAT_INVALID", "Logo must be a valid PNG or JPEG image.");
+  }
+  const normalized = await image
+    .resize({ width: companyLogoMaxDimension, height: companyLogoMaxDimension, fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  writeAtomic(companyLogoRuntimePath(path), normalized);
+  writeProfileFile({ ...currentCompanyProfile(path), logoFile: runtimeLogoFileName, source: "file" }, path);
+  return currentCompanyProfile(path);
+}
+
+/** Removes an uploaded logo and reverts to whichever checked-in default exists (today: none). */
+export function clearCompanyLogo(path: string = companyProfileRuntimePath()): CompanyProfile {
+  const logoPath = companyLogoRuntimePath(path);
+  if (existsSync(logoPath)) unlinkSync(logoPath);
+  writeProfileFile({ ...currentCompanyProfile(path), logoFile: "", source: "file" }, path);
   return currentCompanyProfile(path);
 }
 
