@@ -35,6 +35,7 @@ services:
       LOGS_PATH: /srv/logs
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-inspection_session}
       SESSION_DURATION_HOURS: ${SESSION_DURATION_HOURS:-12}
+      SERVICE_DUE_EMAIL_ENCRYPTION_KEY: ${SERVICE_DUE_EMAIL_ENCRYPTION_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,6 +46,25 @@ services:
       - ${INSPECTION_OPERATIONAL_PATH:-C:/InspectionSystem/runtime/operational}:/srv/operational
     networks:
       - internal
+    restart: unless-stopped
+
+  reminder-worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["node", "dist/reminderWorker.js"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:-postgres://inspection_app:replace-with-a-real-secret-outside-git@postgres:5432/inspection}
+      SERVICE_DUE_EMAIL_ENCRYPTION_KEY: ${SERVICE_DUE_EMAIL_ENCRYPTION_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - internal
+      - reminder-outbound
     restart: unless-stopped
 
   postgres:
@@ -101,6 +121,7 @@ services:
 
 networks:
   public:
+  reminder-outbound:
   internal:
     internal: true
 

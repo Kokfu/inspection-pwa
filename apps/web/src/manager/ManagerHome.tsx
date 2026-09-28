@@ -4,7 +4,7 @@ import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
-export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" };
+export type ManagerDashboardRoute = { name: "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" };
 
 /**
  * Single source of truth for the manager/supervisor top-level destinations, shared by the
@@ -19,7 +19,7 @@ export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDash
         ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
         ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
-        ["Company Profile", "manager-company-profile"]
+        ["Company Profile", "manager-company-profile"], ["Email reminders", "manager-email-reminders"]
       ];
 }
 

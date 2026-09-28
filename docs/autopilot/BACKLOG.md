@@ -10,7 +10,7 @@ Base commit: `28e1235` (branch `claude/autopilot`).
 - **Supervisor** = review + correct only: reviews submitted inspections, makes audited corrections,
   approves reports. Cannot manage users, customers, templates or configuration. Admin (manager) can
   do everything a supervisor can.
-- **Compliance reminders** = in-app only (no email, no push).
+- **Compliance reminders** = in-app due/overdue view (T7) and automatic service-due email at 09:00 Malaysia time on the preceding day (owner clarification 2026-09-28). Manager selects technician, supervisor, and extra email recipients per customer due date. No push.
 - **Daily access code**: manager issues a daily code for technicians, **in addition to** the existing
   create / disable technician feature (which stays as is). Scheduled later, not first.
 - Technicians are disabled, never hard-deleted (visits keep `created_by_user_id`).
@@ -260,15 +260,18 @@ dates (Next Upcoming Service). No email, no push, no background scheduler: compu
 the server (read-only query), respecting the owner's time zone rules already used by the scheduling
 code. DoD: API tests (boundary days, time zone), Playwright on Manager Home, gates, commit.
 OWNER CHECK: set a customer's next service to tomorrow → Manager Home shows it under Due soon.
+Real outbound email for the same due dates is a separate, additive feature — see T13. T7 itself is
+still in-app only and still not started.
 
 ## T8 — Attachment source label (camera vs gallery)
-Status: TODO. Prerequisite: T3.
-Audit how photos are captured today (camera `capture` vs file picker) and whether the source is
-stored and shown. If missing: record `source: "camera" | "gallery" | "unknown"` locally at capture time,
-send it with the evidence metadata (additive, optional field; old records stay `unknown`), show it in
-Accepted Detail. Never change evidence identity, hashes or the frozen manifest shape for existing
-records. DoD per v7-evidence-acceptance tests that apply. If the change needs a new migration or touches
-the frozen manifest, switch to DESIGN FIRST.
+Status: DONE (audited 2026-09-28, no new work needed). `captureSource: "camera" | "gallery"` was
+already recorded at capture time (`apps/web/src/attachments/PhotoEvidenceField.tsx`), sent with the
+evidence metadata through `apps/api/src/routes/inspectionAttachments.ts`, and shown in Accepted
+Detail (e.g. the "Gallery attachment" badge in `ServerAutomaticSprinklerView.tsx` and the equivalent
+in every other V7 system's server view) — wired through all 9 V7 systems plus Fire Alarm V6. This
+predates the autopilot backlog itself (introduced in `210d6ec feat: add offline PSI photo evidence`,
+well before base commit `28e1235`); the task's DoD was already satisfied, it just hadn't been
+checked off. No migration, evidence-identity, or manifest change was needed.
 
 ## T9 — Basic text-format normalisation audit
 Status: TODO. Prerequisite: T3.
@@ -291,11 +294,113 @@ at local midnight in the business time zone; rate limiting and audit of failed c
 rest; what happens to a technician with pending unsynced work when the code expires.
 
 ## T12 — Backup / restore runbook and restore proof
-Status: TODO. Prerequisite: none (can run any time the others are blocked).
-Consolidate `scripts/Backup-*.ps1`, `Restore-*.ps1`, `Verify-Backup.ps1` into
-`docs/operations/backup-and-restore.md` for the client host. Prove a restore ONLY into a disposable
-Postgres container (never the runtime DB, never Docker volumes). The real client-host restore test and
-the admin handover session are OWNER tasks: list them under OWNER CHECK.
+Status: DONE (2026-09-28, ported from `claude/autopilot`). New `docs/operations/backup-and-restore.md`
+consolidates `scripts/Backup-Database.ps1`, `Backup-Uploads.ps1`, `Restore-Database.ps1`,
+`Restore-Uploads.ps1`, `Verify-Backup.ps1` for the client host. No script was modified.
+This work was actually built and reviewed on the separate `claude/autopilot` branch/worktree
+(commit `1fff95a`), not in this tree: read all five scripts in full, verified every claim in the
+runbook against their actual source, and proved backup+verify+uploads-restore against disposable
+fixtures only (a throwaway seeded Postgres container, a throwaway uploads folder with a hidden
+file) — never the runtime `inspection_pwa-postgres-1` container, a Docker volume, or a real backup
+file. Reviewed there (fresh-context agent, 0 P0/0 P1/1 P2 fixed) and gated cold there
+(`Test-ManagerScheduling.ps1` exit 0, 140 API + 93 Playwright, 0 fail/0 skip).
+Before porting the file to this tree, independently re-verified it still applies here rather than
+assuming: all five scripts are byte-identical between the two branches (diff after normalizing
+CRLF/LF shows zero differences); `docs/architecture/05-backup-and-recovery.md` is identical;
+`docs/architecture/06-deployment-runbook.md` has diverged (this branch's newer Cloudflare Tunnel
+hosting content) but the specific section the runbook cites (Validation Checklist item 9 / "Second
+review round") is unchanged; the disposable-DB pattern the runbook says matches the test gate
+(`docker run ... -p 127.0.0.1:55432:5432 postgres:16-alpine`) is confirmed present in this branch's
+own `scripts/Test-ManagerScheduling.ps1:25`. `docs/operations/` didn't exist on this branch yet, so
+this was a clean add, no conflict.
+Not completed (same honest gap as on `claude/autopilot`, not resolved by porting): the actual
+`Restore-Database.ps1` disposable-container run (starting `inspection-restore-drill` and running
+`pg_restore`) was blocked by that session's own sandbox policy and never executed live — left as an
+explicit OWNER CHECK in the runbook rather than claimed as proven.
+Not done here: no fresh gate/typecheck/build re-run in this tree specifically for this port (nothing
+in the ported file touches code, so nothing here was expected to break; if that assumption turns out
+wrong, downgrade this status and investigate before trusting the doc).
+OWNER CHECK: same three items the runbook's own closing section lists — run `Restore-Database.ps1`
+yourself against a real backup file (the one half no session has executed live yet); the real
+client-host restore test on the actual physical PC; the admin handover session walking through a
+manual backup/verify.
+
+## T13 — Service-due email and recurrence (design first)
+Status: TODO — DESIGN WRITTEN, PENDING OWNER APPROVAL. Owner scope decision 2026-09-28 (see "Owner
+decisions" above): adds real outbound service-due email alongside T7's in-app view, plus a
+weekly/monthly recurrence rule on `next_service_due_date` instead of only a manual pick.
+Design: `docs/autopilot/designs/EMAIL.md` (status DRAFT — OWNER REVIEW as written; not yet approved).
+Covers: Gmail-app-password-only SMTP (owner confirmed 2026-09-28, fixed `smtp.gmail.com:587`), a new
+singleton settings table with AES-256-GCM-encrypted app password (proposed migration 043, next after
+042), an admin-only Manager Settings page, a "Send email" button per row on
+`apps/web/src/manager/ManagerUpcomingServices.tsx`, per-customer recurrence columns, and an
+idempotent send-attempt ledger. Send-on-demand only in v1 — no cron/background scheduler exists in
+this codebase and adding one is a separate deployment-shape decision (explicitly deferred in the
+design, option B). No code, migration, or `.env.example` change is authorised until the owner writes
+APPROVED in `docs/autopilot/designs/EMAIL.md`, per its own §8 questions and closing line.
+Prerequisite: none technically, but shares its "next due date" field with T7 — land after T7 or
+coordinate closely if both are in flight, so they don't fight over the same column semantics.
+
+## T14 — Deactivated technicians and in-progress visits were both stuck with no "remove from view" option
+Status: DONE (2026-09-28). Not a design-first/autopilot-loop task — a direct owner request handled
+interactively in this main tree (not the claude/autopilot worktree), so it skipped the AUTOPILOT.md
+gate/fresh-reviewer ritual; see "Verification" below for exactly what was actually run instead.
+Owner reported two things that "couldn't be deleted." Investigation found two different root causes,
+not one bug:
+- **Deactivated technicians**: never a bug — `Technicians are disabled, never hard-deleted` (line 16
+  above) is a real, standing decision. The actual gap was cosmetic: a deactivated technician kept
+  showing in the list forever with zero action buttons, no way to get it out of view. Owner chose
+  "hide by default, toggle to reveal" (mirrors the existing archived-customers pattern) over
+  reversing the hard-delete decision or building a Reactivate button.
+- **In-progress (open) service visits**: `PUT /manager/service-visits/:jobId/archive` already worked
+  for any job status server-side; the web UI simply never rendered the Archive button unless
+  `visit.status === "closed"`. Owner chose the cheap fix (extend Archive to open visits, exactly as
+  today's archive semantics) over building real job-cancellation (which would need a new job-status
+  concept and technician-side sync rejection — flagged as a bigger, undesired change).
+Files: `apps/web/src/manager/ManagerTechnicians.tsx` (new `showDeactivated` state, client-side filter
+over the already-loaded list, no API change), `apps/web/src/manager/ManagerCustomerServiceHistory.tsx`
+(Archive/Restore now render for both open and closed rows; the open-row confirm dialog adds an explicit
+note that archiving does not stop the technician from continuing to sync into the job — it only
+removes it from this list). Updated tests to match: `manager-technicians.spec.ts`,
+`manager-technician-services-done.spec.ts`, `manager-customer-service-history.html` + its
+`.spec.ts` wrapper.
+Verification (no fresh-context reviewer was spawned — this ran outside the autopilot loop): `apps/web`
+typecheck + build clean; the five touched/adjacent specs green
+(`manager-technicians.spec.ts`, `manager-technician-services-done.spec.ts`,
+`manager-customer-service-history.spec.ts`, `manager-supervisor.spec.ts`,
+`manager-customer-configuration.spec.ts` — 31/31); full `apps/web` Playwright suite: 110 passed / 13
+failed. All 13 failures are in `manager-corrections.spec.ts` and
+`manager-app-auth-transitions.spec.ts`, reproduced identically with `--workers=1` (not a parallel-run
+flake), timing out on a sidebar "Services" nav click in `AppShell.tsx` — a file untouched by this
+change and not modified anywhere in the working tree, and the failure occurs before either changed
+screen would even mount. Confirmed pre-existing/unrelated, not caused by this work; spun off
+separately (background task `task_03bd1926`, not tracked as a BACKLOG item since it's unrelated to
+any T-numbered scope here) rather than fixed inline or left silently swept under this task.
+Not done: no formal revert-proof drill (no new guard/test was added — behavior is a display-filter
+and a button-visibility change, not a new invariant to prove); nothing staged or committed, per this
+tree's git-ownership rule (owner does git manually).
+OWNER CHECK: Technician List — deactivate someone and confirm they drop off the list, then toggle
+"Show deactivated technicians" and confirm they reappear with the Inactive badge and no action
+buttons removed that existed before. Customer service history (any in-progress visit) — confirm
+Archive now appears next to "View Progress", and that the confirm dialog's extra sentence about the
+technician still being able to sync reads clearly before you use it for real.
+
+## UI-1 — Desktop page centering beside the sidebar
+Status: DONE (2026-09-28; fix landed in `c830061`, deployed release `sha256-5f89cd7979b8faaa`).
+With the persistent sidebar, pages were centered in the space beside it, so on desktop they sat right
+of the browser midpoint. `apps/web/src/styles/app.css` now mirrors the sidebar width as
+`margin-inline-end` on `.app-shell-content` at `min-width: 1200px`, so pages line up with the header.
+Phone (<768 px, sidebar hidden) is unchanged; 768–1199 px still centers beside the sidebar by design
+(mirroring it there would squeeze the content).
+Verified 2026-09-28: `technician-sidebar-navigation.spec.ts` (New Service Visit and Upcoming Services
+centered within 2 px at 1280 and 1920; no horizontal overflow at 768 and 360) and
+`manager-dashboard-navigation.spec.ts`, 4/4 passed with 1 worker. With 4 workers on a cold dev server,
+3 timed out at start-up (not layout failures).
+Gap: no centering assertion for Manager pages (they use the same `.app-shell-content` rule).
+Deploy note: the PWA uses prompt updates, so an open browser keeps the old build until **Update now**
+is chosen on a safe screen, or until every tab and app window is closed.
+OWNER CHECK: after updating, the sign-in screen shows the new "Support build"; at a window width of
+1200 px or more, Technician and Manager pages line up with the header.
 
 ## Not for autopilot (other owners)
 - PDF generation, R2 renderer, R3 PDF engine, R4 pending report fields: PDF work (GPT-6).

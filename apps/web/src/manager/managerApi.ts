@@ -22,6 +22,7 @@ export type ManagerServiceVisit = {
   technician?: { id: number; displayName: string } | null;
   systems: string[];
   inspectionProgress: { accepted: number; required: number };
+  hasAcceptedRecords: boolean;
   completion: JobCompletion;
   /** Set once an archived (closed) service visit has been archived; null otherwise.
    *  Field name assumed to match the API's `inspection_jobs.archived_at` column
@@ -61,8 +62,81 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 /** A field account on the Technician List: a technician (`inspector`) or, since T4, a supervisor. */
 export type ManagerTechnician = { id: number; username: string; displayName: string | null; role: "inspector" | "supervisor"; isActive: boolean; createdAt: string };
+export type AssignedManagerTechnician = ManagerTechnician & { supervisorIds: number[] };
 export type ScheduledCustomer = { id: string; code: string; displayName: string; nextServiceDueDate: string | null };
 export type UpcomingServices = { customers: ScheduledCustomer[]; unscheduledCustomers: ScheduledCustomer[] };
+export type ReminderSettings = { senderEmail: string; passwordConfigured: boolean; passwordMask: string; smtpHost: "smtp.gmail.com"; smtpPort: 587; security: "STARTTLS"; sendTime: "09:00"; timezone: "Asia/Kuala_Lumpur" };
+export type ReminderStaff = { id: number; username: string; displayName: string | null; role: "inspector" | "supervisor"; isActive: boolean; email: string | null };
+export type ReminderPlan = { customerId: string; dueDate: string | null; reviewRequired: boolean; recipients: Array<{ staffUserId: number | null; extraName: string | null; extraEmail: string | null }>; effective: Array<{ email: string; name: string }>; blocked: boolean; plannedSendDate: string | null; priorSentCount: number };
+export type ReminderStatus = { configured: boolean; encryptionUnavailable: boolean; nextRunDate: string; nextRunTime: string; timezone: string; counts: Array<{ status: string; count: number }>; deliveries: Array<{ customerId: string; customerName: string; dueDate: string; recipientEmail: string; status: string; errorCategory: string | null; attemptedAt: string }>; gaps: Array<{ customerId: string; customerName: string; dueDate: string }> };
+export type ServiceRecurrence = { dueDate: string | null; kind: "weekly" | "monthly" | null; interval: number | null; day: number | null };
+function isServiceRecurrence(value: unknown): value is ServiceRecurrence {
+  return isPlainObject(value) && (value.dueDate === null || isDate(value.dueDate))
+    && (value.kind === null || value.kind === "weekly" || value.kind === "monthly")
+    && (value.interval === null || Number.isSafeInteger(value.interval)) && (value.day === null || Number.isSafeInteger(value.day));
+}
+export async function loadServiceRecurrence(customerId: string, signal?: AbortSignal): Promise<ServiceRecurrence> {
+  const value = await managerRequest<unknown>(`/api/manager/reminders/recurrence/${encodeURIComponent(customerId)}`, "GET", "recurrence", undefined, signal);
+  if (!isServiceRecurrence(value)) unavailable(); return value;
+}
+export async function saveServiceRecurrence(customerId: string, recurrence: ServiceRecurrence): Promise<ServiceRecurrence> {
+  const value = await managerRequest<unknown>(`/api/manager/reminders/recurrence/${encodeURIComponent(customerId)}`, "PUT", "recurrence", recurrence);
+  if (!isServiceRecurrence(value)) unavailable(); return value;
+}
+
+function isReminderSettings(value: unknown): value is ReminderSettings {
+  return isPlainObject(value) && typeof value.senderEmail === "string" && typeof value.passwordConfigured === "boolean"
+    && typeof value.passwordMask === "string" && value.smtpHost === "smtp.gmail.com" && value.smtpPort === 587
+    && value.security === "STARTTLS" && value.sendTime === "09:00" && value.timezone === "Asia/Kuala_Lumpur";
+}
+export async function loadReminderSettings(signal?: AbortSignal): Promise<ReminderSettings> {
+  const value = await managerRequest<unknown>("/api/manager/reminders/settings", "GET", "settings", undefined, signal);
+  if (!isReminderSettings(value)) unavailable(); return value;
+}
+export async function saveReminderSettings(senderEmail: string, appPassword: string): Promise<ReminderSettings> {
+  const value = await managerRequest<unknown>("/api/manager/reminders/settings", "PUT", "settings", { senderEmail, appPassword });
+  if (!isReminderSettings(value)) unavailable(); return value;
+}
+export async function loadReminderStaff(signal?: AbortSignal): Promise<ReminderStaff[]> {
+  const value = await managerRequest<unknown>("/api/manager/reminders/staff", "GET", "staff", undefined, signal);
+  if (!Array.isArray(value) || !value.every((row) => isPlainObject(row) && Number.isSafeInteger(row.id) && typeof row.username === "string"
+    && (row.displayName === null || typeof row.displayName === "string") && (row.role === "inspector" || row.role === "supervisor")
+    && typeof row.isActive === "boolean" && (row.email === null || typeof row.email === "string"))) unavailable();
+  return value as ReminderStaff[];
+}
+export async function saveReminderStaffEmail(staffId: number, email: string | null): Promise<void> {
+  const value = await managerRequest<Record<string, unknown>>(`/api/manager/reminders/staff/${staffId}/email`, "PUT", null, { email });
+  if (value.staffId !== staffId || value.email !== email) unavailable();
+}
+export async function loadReminderPlan(customerId: string, signal?: AbortSignal): Promise<ReminderPlan> {
+  const value = await managerRequest<unknown>(`/api/manager/reminders/plans/${encodeURIComponent(customerId)}`, "GET", "plan", undefined, signal);
+  if (!isPlainObject(value) || value.customerId !== customerId || !(value.dueDate === null || isDate(value.dueDate))
+    || typeof value.reviewRequired !== "boolean" || !Array.isArray(value.recipients) || !Array.isArray(value.effective)
+    || typeof value.blocked !== "boolean" || !(value.plannedSendDate === null || isDate(value.plannedSendDate))
+    || !Number.isSafeInteger(value.priorSentCount) || Number(value.priorSentCount) < 0) unavailable();
+  if (!value.recipients.every((row) => isPlainObject(row)
+    && (row.staffUserId === null || Number.isSafeInteger(row.staffUserId) && Number(row.staffUserId) > 0)
+    && (row.extraName === null || typeof row.extraName === "string")
+    && (row.extraEmail === null || typeof row.extraEmail === "string"))
+    || !value.effective.every((row) => isPlainObject(row) && typeof row.email === "string" && typeof row.name === "string")) unavailable();
+  return value as ReminderPlan;
+}
+export async function saveReminderPlan(customerId: string, dueDate: string, staffUserIds: number[], extras: Array<{ name: string; email: string }>): Promise<void> {
+  const value = await managerRequest<Record<string, unknown>>(`/api/manager/reminders/plans/${encodeURIComponent(customerId)}`, "PUT", null, { dueDate, staffUserIds, extras });
+  if (value.saved !== true || value.dueDate !== dueDate) unavailable();
+}
+export async function loadReminderStatus(signal?: AbortSignal): Promise<ReminderStatus> {
+  const value = await managerRequest<unknown>("/api/manager/reminders/status", "GET", null, undefined, signal);
+  if (!isPlainObject(value) || typeof value.configured !== "boolean" || typeof value.encryptionUnavailable !== "boolean" || !isDate(value.nextRunDate)
+    || value.nextRunTime !== "09:00" || value.timezone !== "Asia/Kuala_Lumpur"
+    || !Array.isArray(value.counts) || !Array.isArray(value.deliveries) || !Array.isArray(value.gaps)) unavailable();
+  if (!value.counts.every((row) => isPlainObject(row) && typeof row.status === "string" && Number.isSafeInteger(row.count) && Number(row.count) >= 0)
+    || !value.deliveries.every((row) => isPlainObject(row) && typeof row.customerId === "string" && typeof row.customerName === "string"
+      && isDate(row.dueDate) && typeof row.recipientEmail === "string" && ["reserved", "sent", "failed", "unknown", "skipped"].includes(String(row.status))
+      && (row.errorCategory === null || typeof row.errorCategory === "string") && typeof row.attemptedAt === "string" && Number.isFinite(Date.parse(row.attemptedAt)))
+    || !value.gaps.every((row) => isPlainObject(row) && typeof row.customerId === "string" && typeof row.customerName === "string" && isDate(row.dueDate))) unavailable();
+  return value as ReminderStatus;
+}
 
 function unavailable(): never { throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable"); }
 function isTechnician(value: unknown): value is ManagerTechnician {
@@ -70,6 +144,12 @@ function isTechnician(value: unknown): value is ManagerTechnician {
     && typeof value.username === "string" && (value.displayName === null || (typeof value.displayName === "string" && !!value.displayName.trim()))
     && (value.role === "inspector" || value.role === "supervisor") && typeof value.isActive === "boolean"
     && typeof value.createdAt === "string" && Number.isFinite(Date.parse(value.createdAt));
+}
+function isAssignedTechnician(value: unknown): value is AssignedManagerTechnician {
+  if (!isTechnician(value)) return false;
+  const supervisorIds = (value as unknown as Record<string, unknown>).supervisorIds;
+  return Array.isArray(supervisorIds) && supervisorIds.every((id) => Number.isSafeInteger(id) && id > 0)
+    && new Set(supervisorIds).size === supervisorIds.length;
 }
 function isDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !value.startsWith("0000")
@@ -79,10 +159,18 @@ function isScheduledCustomer(value: unknown): value is ScheduledCustomer {
   return isPlainObject(value) && typeof value.id === "string" && typeof value.code === "string"
     && typeof value.displayName === "string" && (value.nextServiceDueDate === null || isDate(value.nextServiceDueDate));
 }
-export async function loadManagerTechnicians(signal?: AbortSignal): Promise<ManagerTechnician[]> {
+export async function loadManagerTechnicians(signal?: AbortSignal): Promise<AssignedManagerTechnician[]> {
   const result = await managerRequest<unknown>("/api/manager/technicians", "GET", "technicians", undefined, signal);
-  if (!Array.isArray(result) || !result.every(isTechnician) || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
+  if (!Array.isArray(result) || !result.every(isAssignedTechnician)
+    || new Set(result.map((row) => row.id)).size !== result.length) unavailable();
   return result;
+}
+export async function setTechnicianSupervisorAssignment(technicianId: number, supervisorId: number, assigned: boolean): Promise<void> {
+  const result = await managerRequest<Record<string, unknown>>(
+    `/api/manager/technicians/${technicianId}/assignments${assigned ? "" : `/${supervisorId}`}`,
+    assigned ? "POST" : "DELETE", null, assigned ? { supervisorId } : undefined
+  );
+  if (result.technicianId !== technicianId || result.supervisorId !== supervisorId || result.assigned !== assigned) unavailable();
 }
 export async function createManagerTechnician(input: { username: string; password: string; displayName?: string | null; role?: "inspector" | "supervisor" }): Promise<ManagerTechnician> {
   const result = await managerRequest<unknown>("/api/manager/technicians", "POST", "technician", input);
@@ -174,6 +262,11 @@ export async function loadManagerServiceVisit(jobId: string, signal?: AbortSigna
   try { response = await fetch(`/api/manager/service-visits/${encodeURIComponent(jobId)}`, { credentials: "same-origin", cache: "no-store", signal }); }
   catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
   return readResponse<ManagerServiceVisit>(response, "serviceVisit");
+}
+
+export async function deleteManagerServiceVisit(jobId: string): Promise<void> {
+  const result = await managerRequest<Record<string, unknown>>(`/api/manager/service-visits/${encodeURIComponent(jobId)}`, "DELETE", null);
+  if (result.jobId !== jobId || !["deleted", "already_deleted"].includes(String(result.result))) unavailable();
 }
 
 export async function archiveManagerServiceVisit(jobId: string): Promise<void> {
@@ -321,7 +414,7 @@ export type ManagerLabelOverrides = {
   formLayout?: ManagerLabelFormLayout;
 };
 
-async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT", key: string | null, body?: unknown, signal?: AbortSignal) {
+async function managerRequest<T>(path: string, method: "GET" | "POST" | "PUT" | "DELETE", key: string | null, body?: unknown, signal?: AbortSignal) {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -1070,6 +1163,40 @@ export async function saveManagerCompanyProfile(
   profile: Omit<ManagerCompanyProfile, "logoFile">
 ): Promise<ManagerCompanyProfile> {
   const result = await managerRequest<unknown>("/api/manager/company-profile", "PUT", "companyProfile", { companyProfile: profile });
+  if (!isManagerCompanyProfile(result)) unavailable();
+  return result;
+}
+
+/** The current logo image, admin-authenticated same-origin (browser cookies apply). `version`
+ *  is a caller-supplied cache-buster (bump after every upload/reset) — the response itself is
+ *  `no-store`, but the `<img>` element still needs a changed URL to actually re-fetch. */
+export function managerCompanyLogoUrl(version: number): string {
+  return `/api/manager/company-profile/logo?v=${encodeURIComponent(String(version))}`;
+}
+
+/** PUT the raw image bytes (PNG or JPEG) as the new logo; `file.type` becomes the request's Content-Type. */
+export async function uploadManagerCompanyLogo(file: Blob): Promise<ManagerCompanyProfile> {
+  if (file.type !== "image/png" && file.type !== "image/jpeg") {
+    throw new ManagerApiError("Logo must be a PNG or JPEG image.", "domain");
+  }
+  let response: Response;
+  try {
+    response = await fetch("/api/manager/company-profile/logo", {
+      method: "PUT", credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": file.type }, body: file
+    });
+  } catch { throw new ManagerApiError("Manager Company Profile cannot be verified or refreshed right now.", "unavailable"); }
+  const result = await readResponse<unknown>(response, "companyProfile");
+  if (!isManagerCompanyProfile(result)) unavailable();
+  return result;
+}
+
+/** Removes an uploaded logo and reverts to whichever checked-in default asset exists (today: none). */
+export async function resetManagerCompanyLogo(): Promise<ManagerCompanyProfile> {
+  let response: Response;
+  try { response = await fetch("/api/manager/company-profile/logo/reset", { method: "PUT", credentials: "same-origin", cache: "no-store" }); }
+  catch { throw new ManagerApiError("Manager Company Profile cannot be verified or refreshed right now.", "unavailable"); }
+  const result = await readResponse<unknown>(response, "companyProfile");
   if (!isManagerCompanyProfile(result)) unavailable();
   return result;
 }

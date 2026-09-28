@@ -11,6 +11,15 @@ export type ApiConfig = {
   companyProfilePath: string;
 };
 
+/** Optional for inspection operation; mandatory before encrypted reminder settings can be saved or sent. */
+export function serviceDueEmailEncryptionKey(): Buffer {
+  const encoded = process.env.SERVICE_DUE_EMAIL_ENCRYPTION_KEY;
+  if (!encoded || !/^[A-Za-z0-9+/]{43}=$/.test(encoded)) throw new Error("SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE");
+  const key = Buffer.from(encoded, "base64");
+  if (key.length !== 32 || key.toString("base64") !== encoded) throw new Error("SERVICE_DUE_EMAIL_ENCRYPTION_KEY_UNAVAILABLE");
+  return key;
+}
+
 export function loadConfig(): ApiConfig {
   const nodeEnv = process.env.NODE_ENV ?? "production";
   const reportRenderer = process.env.REPORT_RENDERER ?? "html";

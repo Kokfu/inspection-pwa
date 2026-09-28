@@ -114,10 +114,11 @@ import { ManagerAddCustomer } from "./manager/ManagerAddCustomer";
 import { ManagerCommonRemarks } from "./manager/ManagerCommonRemarks";
 import { ManagerServiceCatalog } from "./manager/ManagerServiceCatalog";
 import { ManagerCompanyProfile } from "./manager/ManagerCompanyProfile";
+import { ManagerEmailReminders } from "./manager/ManagerEmailReminders";
 import { ManagerCorrectionEditor } from "./manager/ManagerCorrectionEditor";
 import { ManagerServiceEditor } from "./manager/ManagerServiceEditor";
 import { allowManagerHashChange, confirmManagerLeave } from "./manager/managerLeaveGuard";
-import { ManagerApiError, loadAcceptedRecords, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerAcceptedRecord, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
+import { deleteManagerServiceVisit, ManagerApiError, loadAcceptedRecords, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerAcceptedRecord, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
@@ -210,6 +211,7 @@ type AppRoute =
   | { name: "manager-common-remarks" }
   | { name: "manager-service-catalog" }
   | { name: "manager-company-profile" }
+  | { name: "manager-email-reminders" }
   | { name: "manager-operations" }
   | { name: "manager-services-done" }
   | { name: "manager-upcoming-services" }
@@ -242,6 +244,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-common-remarks") return { name: "manager-common-remarks" };
   if (parts[0] === "manager-service-catalog") return { name: "manager-service-catalog" };
   if (parts[0] === "manager-company-profile") return { name: "manager-company-profile" };
+  if (parts[0] === "manager-email-reminders") return { name: "manager-email-reminders" };
   if (parts[0] === "manager-operations") return { name: "manager-operations" };
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
@@ -281,6 +284,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-common-remarks") return "#/manager-common-remarks";
   if (route.name === "manager-service-catalog") return "#/manager-service-catalog";
   if (route.name === "manager-company-profile") return "#/manager-company-profile";
+  if (route.name === "manager-email-reminders") return "#/manager-email-reminders";
   if (route.name === "manager-operations") return "#/manager-operations";
   if (route.name === "manager-services-done") return "#/manager-services-done";
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
@@ -2344,6 +2348,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-common-remarks" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCommonRemarks /></>
         : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-company-profile" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCompanyProfile onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-email-reminders" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerEmailReminders onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
@@ -2394,6 +2399,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             acceptedRecordsUnavailable={managerAcceptedRecordsUnavailable}
             onCorrect={route.name === "manager-service-visit" ? (record) => navigate({ name: "manager-correction", clientUuid: record.clientUuid }) : undefined}
             onRefresh={refreshManagerVisits}
+            onDelete={supervisorExperience ? undefined : async (visit) => { try { await deleteManagerServiceVisit(visit.id); if (route.name === "manager-service-visit") navigate({ name: "manager-operations" }); await refreshManagerVisits(); } catch (error) { handleManagerRequestFailure(error); } }}
             backLabel={route.name === "manager-service-visit" ? managerReturn?.label : undefined}
             onSelect={(visit) => openManagerVisit("manager-service-visit", visit.id, null)}
             onBack={backFromManagerVisit}

@@ -14,7 +14,8 @@ const ICONS: Record<string, ReactNode> = {
   "technician-upcoming-services": <path d="M3 4h18v18H3zM16 2v4M8 2v4M3 10h18" />,
   "manager-common-remarks": <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />,
   "manager-service-catalog": <path d="M9 11H5a2 2 0 0 0-2 2v7h6M9 5v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4" />,
-  "manager-company-profile": <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16M15 21h5M9 7h4M9 11h4M9 15h4" />
+  "manager-company-profile": <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16M15 21h5M9 7h4M9 11h4M9 15h4" />,
+  "manager-email-reminders": <><path d="M3 6h18v12H3z" /><path d="m3 7 9 7 9-7" /></>
 };
 
 const FALLBACK_ICON = <circle cx="12" cy="12" r="4" />;
