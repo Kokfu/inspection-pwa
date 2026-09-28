@@ -24,6 +24,23 @@ test("sort unsorted due dates, separate unscheduled and save/clear dates", async
   await expect(page.getByRole("region", { name: "Not yet scheduled", exact: true }).locator("li > strong")).toHaveText(["Earlier Customer"]);
 });
 
+test("search filters both Scheduled and Not yet scheduled by name or code; clearing restores them", async ({ page }) => {
+  const customers = [
+    { id: "a", code: "ALPHA", displayName: "Alpha Customer", nextServiceDueDate: "2026-09-15" as string | null },
+    { id: "b", code: "BETA", displayName: "Beta Customer", nextServiceDueDate: null as string | null }
+  ];
+  await page.route("**/api/manager/customers/upcoming-service", (route) => route.fulfill({ json: { customers: customers.filter((c) => c.nextServiceDueDate), unscheduledCustomers: customers.filter((c) => !c.nextServiceDueDate) } }));
+  await page.goto("/tests/manager-upcoming-services.html");
+  await expect(page.locator("li > strong")).toHaveCount(2);
+  await page.getByLabel("Filter by customer name or code").fill("alpha");
+  await expect(page.getByRole("region", { name: "Scheduled customers", exact: true }).locator("li > strong")).toHaveText(["Alpha Customer"]);
+  await expect(page.getByRole("region", { name: "Not yet scheduled", exact: true }).locator("li > strong")).toHaveCount(0);
+  await page.getByLabel("Filter by customer name or code").fill("no-such-customer");
+  await expect(page.getByText('No customer matches "no-such-customer".')).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.locator("li > strong")).toHaveCount(2);
+});
+
 test("empty schedule uses the empty state", async ({ page }) => {
   await page.route("**/api/manager/customers/upcoming-service", (route) => route.fulfill({ json: { customers: [], unscheduledCustomers: [] } }));
   await page.goto("/tests/manager-upcoming-services.html");

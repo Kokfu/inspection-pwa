@@ -491,6 +491,52 @@ APPROVED in `docs/autopilot/designs/EMAIL.md`, per its own §8 questions and clo
 Prerequisite: none technically, but shares its "next due date" field with T7 — land after T7 or
 coordinate closely if both are in flight, so they don't fight over the same column semantics.
 
+## claude/autopilot T13 — Search boxes across Manager list screens (cherry-picked, Technician List + Upcoming Service only)
+Status: DONE upstream (2026-09-27), cherry-picked onto phase-8e-client-demo-polish 2026-09-28
+(Technician List + Upcoming Service only — this branch's own Customer Configuration already had an
+independent search box, so that hunk of the upstream commit was dropped). Numbering collides with
+this branch's own unrelated T13 above (service-due email design) — coincidence, not the same task.
+Status: DONE (2026-09-27). feat(web): client-side search on Customer Configuration, Technician
+List and Upcoming Service. Scope correction from the original brief: "Add Customer's
+customer/system picker" was a misreading — that picker is a small fixed checklist of ~10 service
+systems for a NEW customer, not a searchable list of existing customers, so it needed no search
+box. The three real list screens got one each: case-insensitive substring filter over
+name+code (customers) or username (technicians), computed client-side via `useMemo` over the
+already-loaded list (no API change). Each mirrors `ManagerServicesDone.tsx`'s
+`manager-search-form`/`manager-search-row` CSS classes for visual consistency, with the label and
+input-row as SIBLINGS (not nested — a `<label>` wrapping a `<div>` is invalid HTML and trips
+React's `validateDOMNesting` dev warning).
+Files: `apps/web/src/manager/ManagerCustomerConfiguration.tsx`, `ManagerTechnicians.tsx`,
+`ManagerUpcomingServices.tsx` (all three); new `apps/web/tests/manager-customer-list-search.html`
++ `.spec.ts`; added search assertions to `manager-technicians.spec.ts` and
+`manager-upcoming-services.spec.ts`; added the new spec to `scripts/Test-ManagerScheduling.ps1`.
+Found and fixed one real regression during implementation (not swept under the rug): the new
+search `<input>` on the customer screen broke `manager-app-auth-transitions.html`'s
+`mount.querySelectorAll("input").length === 5` assumption for the Add-Customer form (4 of 24
+cases timed out — "Timed out waiting for customer form"). Root-caused via a clean A/B (revert
+patch → 9.7s pass; reapply → fail, isolated file-by-file) rather than assumed as a flake. Fixed
+by scoping that query to `mount.querySelector("form.report-summary")` — a scope correction, not a
+weakened assertion; it still requires exactly 5 inputs, just inside the form the search box sits
+outside of. Grepped every other `apps/web/tests/*.html` for the same brittle input-count/index
+pattern; no other instance touches these three screens.
+Gate `Test-ManagerScheduling.ps1` exit 0 cold twice (once pre-fix showing the real failure, once
+post-fix all green): API+web typecheck/build, all node suites, 81/81 Playwright including the 3
+new/extended specs. `git diff --check` clean. Protected/DO-NOT-MODIFY files untouched.
+Review (Sol, fresh-context agent, cold re-run of the gate itself): 1 round, 0 P0 / 0 P1 / 0 new
+defects. SAFE TO COMMIT: Y. (Sol also flagged, informationally: AGENTS.md names
+`.agents/skills/mobile-first-ui/SKILL.md` as a UI-task skill to read, but that file does not
+exist in this worktree — pre-existing gap, not introduced by this task, not chased here per the
+no-scope-widening rule.)
+Revert proofs (scratch copy under the scratchpad dir, junctioned `node_modules`, removed with
+`rmdir` after confirming zero other reparse points, then a recursive delete of the plain copy):
+disabling the customer-list filter guard → `manager-customer-list-search.spec.ts:14` fails
+(expected 1, received 3); disabling the technician filter guard →
+`manager-technicians.spec.ts:74` fails (expected 1, received 3); disabling the upcoming-service
+filter guard → `manager-upcoming-services.spec.ts:37` fails (expected 0, received 1).
+OWNER CHECK: type a partial customer name or code on Customer Configuration and on Upcoming
+Service, and a partial username on Technician List; each list narrows correctly and clears back
+to the full list when the box is emptied.
+
 ## T14 — Deactivated technicians and in-progress visits were both stuck with no "remove from view" option
 Status: DONE (2026-09-28). Not a design-first/autopilot-loop task — a direct owner request handled
 interactively in this main tree (not the claude/autopilot worktree), so it skipped the AUTOPILOT.md

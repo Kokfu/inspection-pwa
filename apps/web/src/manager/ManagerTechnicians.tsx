@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
 
 export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthorityFailure: (error: unknown) => void; onOpen?: (technician: ManagerTechnician) => void }) {
@@ -10,6 +10,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(true);
   const [showDeactivated, setShowDeactivated] = useState(false);
+  const [query, setQuery] = useState("");
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -30,7 +31,11 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   }
   const supervisors = technicians.filter((row) => row.role === "supervisor");
   const deactivatedCount = technicians.filter((row) => !row.isActive).length;
-  const visibleTechnicians = showDeactivated ? technicians : technicians.filter((row) => row.isActive);
+  const statusFiltered = showDeactivated ? technicians : technicians.filter((row) => row.isActive);
+  const trimmedQuery = query.trim().toLowerCase();
+  const visibleTechnicians = useMemo(() => trimmedQuery
+    ? statusFiltered.filter((technician) => technician.username.toLowerCase().includes(trimmedQuery))
+    : statusFiltered, [statusFiltered, trimmedQuery]);
   return <section aria-labelledby="technicians-title"><h2 id="technicians-title">Technician List</h2>
     <form className="manager-inline-form" onSubmit={(event) => {
       event.preventDefault();
@@ -51,6 +56,14 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       <input type="checkbox" checked={showDeactivated} onChange={(event) => setShowDeactivated(event.target.checked)} />
       {` Show deactivated technicians (${deactivatedCount})`}
     </label>}
+    {technicians.length ? <div className="manager-search-form" role="search" aria-label="Filter technicians">
+      <label htmlFor="manager-technician-search">Filter by username</label>
+      <div className="manager-search-row">
+        <input id="manager-technician-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
+        {query ? <button type="button" className="secondary-command" onClick={() => setQuery("")}>Clear</button> : null}
+      </div>
+    </div> : null}
+    {statusFiltered.length && !visibleTechnicians.length ? <p className="empty-state">No technician matches "{query.trim()}".</p> : null}
     <ul className="manager-technician-list">{visibleTechnicians.map((technician) => <li key={technician.id}>
       {onOpen && technician.role === "inspector"
         ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
@@ -79,6 +92,6 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
         });
       }}>Permanently remove</button>}
     </li>)}</ul>
-    {!busy && !visibleTechnicians.length && <p className="empty-state">{technicians.length ? "No active technicians." : "No technicians."}</p>}
+    {!busy && !statusFiltered.length && <p className="empty-state">{technicians.length ? "No active technicians." : "No technicians."}</p>}
   </section>;
 }

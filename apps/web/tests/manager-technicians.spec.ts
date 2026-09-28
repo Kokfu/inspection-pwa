@@ -124,6 +124,25 @@ test("admin creates a supervisor from the same form; supervisors are labelled an
   await expect(page.getByLabel("Role")).toHaveValue("inspector");
 });
 
+test("search filters the technician list by username; clearing restores it", async ({ page }) => {
+  const technicians = [
+    { id: 1, username: "alpha-tech", role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" },
+    { id: 2, username: "beta-tech", role: "inspector", isActive: true, createdAt: "2026-09-02T00:00:00.000Z" },
+    { id: 3, username: "review-lead", role: "supervisor", isActive: true, createdAt: "2026-09-03T00:00:00.000Z" }
+  ];
+  await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians } }));
+  await page.goto("/tests/manager-technicians.html");
+  await expect(page.locator("li")).toHaveCount(3);
+  await page.getByLabel("Filter by username").fill("alpha");
+  await expect(page.locator("li")).toHaveCount(1);
+  await expect(page.getByText("alpha-tech", { exact: true })).toBeVisible();
+  await page.getByLabel("Filter by username").fill("no-such-technician");
+  await expect(page.locator("li")).toHaveCount(0);
+  await expect(page.getByText('No technician matches "no-such-technician".')).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.locator("li")).toHaveCount(3);
+});
+
 test("a technician row missing its role fails closed", async ({ page }) => {
   await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians: [{ id: 1, username: "no-role", isActive: true, createdAt: "2026-09-01T00:00:00.000Z" }] } }));
   await page.goto("/tests/manager-technicians.html");

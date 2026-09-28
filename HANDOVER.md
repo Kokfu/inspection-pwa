@@ -3,6 +3,13 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-28 — **Search boxes cherry-picked from `claude/autopilot`'s T13 onto Technician List and Upcoming Service.**
+Client-side, case-insensitive filter over username (technicians) or name/code (upcoming services),
+`useMemo` over the already-loaded list, no API change. Dropped the Customer Configuration hunk of
+the upstream commit — this branch already had its own independent search box there. On Technician
+List, the new filter composes with the existing "Show deactivated" toggle (status filter first,
+then the search query on top of that).
+
 **Last updated:** 2026-09-28 — **Whitespace collapse cherry-picked from `claude/autopilot`'s T9 (managerCustomers.ts).**
 Customer/site display names and contact phone/person now collapse internal whitespace on write
 (single file, no schema change). Only affects new writes, never rewrites an existing row.
@@ -332,6 +339,21 @@ Append-only `report_approvals` table with a single derived-state helper every ro
 PDF routes refuse `409 REPORT_NOT_APPROVED` until approved; a correction after approval reverts to
 awaiting approval; technicians see a read-only chip; `ManagerOperations.tsx`'s richer supervisor/filter/
 delete-visit view kept, with the approval chip woven in.
+
+**Last updated:** 2026-09-27 — **Branch `claude/autopilot`: T13 search boxes landed; T6 committed
+retroactively (committed on the branch, not merged).**
+T6 (report approval) had been fully implemented/reviewed/gated in an earlier session but never
+committed — verified clean and committed as-is. T13 adds a client-side, case-insensitive search
+filter to Customer Configuration, Technician List and Upcoming Service (owner request
+2026-09-26; the fourth screen in the original ask, Add Customer's system picker, turned out to be
+a small fixed checklist, not a searchable list, so it got no search box). Along the way, found
+and fixed a real regression the new search `<input>` caused in
+`manager-app-auth-transitions.html`'s hardcoded 5-input assumption for the Add-Customer form (see
+`docs/autopilot/BACKLOG.md` T13 for the root-cause and fix detail, gate/review/revert-proof
+counts). Backlog also gained T14 (technician soft-deletes an own in-progress job — no new
+migration, reuses `inspection_jobs.archived_at`), T15 (auto-recurring due dates — DESIGN FIRST,
+not started), and T16 (email reminder the day before a service — BLOCKED on the owner creating an
+email-provider account; see that entry for what to prepare).
 
 **Last updated:** 2026-09-23 — **Branch `claude/autopilot`: T6 report approval landed (committed on the
 branch, not merged).**
