@@ -34,6 +34,20 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archivedCustomers, setArchivedCustomers] = useState<ManagerCustomer[]>([]);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
+  const [searchMessage, setSearchMessage] = useState("");
+
+  const search = () => {
+    const trimmed = query.trim();
+    if (!trimmed) { setSubmittedQuery(null); setSearchMessage("Enter a customer name or code to search."); return; }
+    setSearchMessage("");
+    setSubmittedQuery(trimmed);
+  };
+  const clearSearch = () => { setQuery(""); setSubmittedQuery(null); setSearchMessage(""); };
+  const needle = submittedQuery?.toLocaleLowerCase() ?? "";
+  const filteredCustomers = submittedQuery === null ? customers : customers.filter((row) =>
+    row.customer.displayName.toLocaleLowerCase().includes(needle) || row.customer.code.toLocaleLowerCase().includes(needle));
 
   const fail = (reason: unknown, fallback: string) => {
     if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -71,10 +85,19 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   return <section aria-labelledby="manager-customers-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-customers-title">Customer Configuration</h2><p>Manage customer service assignments online.</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>Refresh</button></div>
     {message || error ? <p className="form-message" role="alert">{error || message}</p> : null}
-    {customers.length ? <ul className="job-card-list">{customers.map((customer) => <li key={customer.customer.id}>
+    <form className="manager-search-form" role="search" aria-label="Find active customer" onSubmit={(event) => { event.preventDefault(); search(); }}>
+      <label htmlFor="customer-configuration-search">Customer name or code</label>
+      <div className="manager-search-row">
+        <input id="customer-configuration-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
+        <button type="submit" disabled={loading}>Search</button>
+        <button type="button" className="secondary-command" onClick={clearSearch}>Clear</button>
+      </div>
+    </form>
+    {searchMessage ? <p className="form-message" role="status">{searchMessage}</p> : null}
+    {filteredCustomers.length ? <ul className="job-card-list">{filteredCustomers.map((customer) => <li key={customer.customer.id}>
       <button type="button" className="job-card" onClick={() => onManage(customer)}><div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{customer.customer.displayName}</strong></div><span className="status-badge status-badge--complete">Current settings</span></div><div className="job-service-line"><span className="job-card-label">Sites</span><strong>{customer.sites.map((siteValue) => siteValue.displayName).join(", ") || "No active site"}</strong></div><div className="job-service-line"><span className="job-card-label">Assigned Services</span><strong>{customer.configuration.enabledSystems.map((system) => system.displayName).join(", ") || "None"}</strong></div><span className="job-reference">Version {customer.configuration.revision} · Manage configuration</span></button>
       <div className="inline-actions"><button type="button" className="secondary-command" disabled={archivingId === customer.customer.id} onClick={() => void archive(customer)}>{archivingId === customer.customer.id ? "Archiving…" : "Archive"}</button></div>
-    </li>)}</ul> : <p className="empty-state">No operational customers are configured.</p>}
+    </li>)}</ul> : <p className="empty-state" role="status">{customers.length ? `No customers match “${submittedQuery}”.` : "No operational customers are configured."}</p>}
     <section aria-labelledby="manager-archived-customers-title">
       <button type="button" className="secondary-command" aria-expanded={archivedOpen} onClick={toggleArchived}>{archivedOpen ? "Hide archived customers" : "Show archived customers"}</button>
       {archivedOpen ? <div>

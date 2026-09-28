@@ -1,0 +1,15 @@
+<!doctype html><html><body><div id="view"></div><script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ManagerCustomerConfiguration } from "/src/manager/ManagerCustomerConfiguration.tsx";
+
+const customer = (id, code, displayName) => ({
+  customer: { id, code, displayName }, sites: [],
+  configuration: { revision: 1, enabledSystems: [] }
+});
+const customers = [customer("one", "C-101", "Alpha Fire"), customer("two", "C-202", "Bravo Safety")];
+createRoot(document.getElementById("view")).render(React.createElement(ManagerCustomerConfiguration, {
+  customers, loading: false, message: "", onRefresh: async () => {}, onManage: () => {}, onAuthorityFailure: () => {}
+}));
+</script></body></html>

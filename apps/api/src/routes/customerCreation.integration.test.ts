@@ -90,9 +90,13 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
       assert.equal((await staleActor.json() as { error: string }).error, "IDENTITY_MISMATCH");
       assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name='Wrong Session Customer'")).rows[0]?.count, 0);
 
+      const demoId = uuid("72");
+      await database.query("INSERT INTO customers (id, customer_code, display_name, is_demo) VALUES ($1, 'DEMO-72', 'Demo Customer', true)", [demoId]);
       const visibleToSecond = await get("b", "/customers");
       assert.equal(visibleToSecond.status, 200);
-      assert((await visibleToSecond.json() as { customers: Array<{ id: string }> }).customers.some((customer) => customer.id === firstId), "second technician sees server-backed customer");
+      const visibleCustomers = (await visibleToSecond.json() as { customers: Array<{ id: string }> }).customers;
+      assert(visibleCustomers.some((customer) => customer.id === firstId), "second technician sees server-backed customer");
+      assert(!visibleCustomers.some((customer) => customer.id === demoId), "technician list excludes demo customers");
       const configurationToSecond = await get("b", `/customers/${firstId}/configuration`);
       assert.equal(configurationToSecond.status, 200);
 

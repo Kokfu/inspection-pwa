@@ -214,7 +214,7 @@ inspectionReferenceRouter.get(
           display_name AS "displayName",
           is_demo AS "isDemo"
         FROM customers
-        WHERE is_active = true
+        WHERE is_active = true AND is_demo = false
         ORDER BY display_name, id
       `);
       response.json({ customers: result.rows });
