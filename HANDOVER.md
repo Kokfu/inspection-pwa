@@ -3,7 +3,19 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-09-29 — **Location-format reuse review fixes (uncommitted; stop before staging).**
+**Last updated:** 2026-09-29 — **Location-format reuse baseline review and migration disposition.**
+The completed feature and review fixes are in `d8510cc`. A clean `0024707` source archive,
+run against fresh disposable PostgreSQL with the installed Chromium path, passed
+`fireAlarmV7.integration.test.ts` 4/4; the same suite passed 4/4 on the feature head. The
+earlier 3/4 note was an environment failure caused by an invalid Chromium path, not a code
+regression. Migration 046 is required for Roller Shutter V7 photo evidence: the clean baseline
+database's staged-evidence and reservation constraints both exclude
+`fire_rated_roller_shutter`, while the feature stages and accepts its evidence. It is a
+forward-only migration already committed in `058d2f9`; no migration is added by this review.
+The original no-migration check applied to the location-format patch alone and does not cover
+the Roller Shutter V7 evidence capability included in the full feature span. See the change log.
+
+**Last updated:** 2026-09-29 — **Location-format reuse review fixes (committed `d8510cc`).**
 The Supervisor inbox now validates every supported proposal format through the same browser
 shape reader used by technician drafts; Supervisor session restoration no longer requests the
 inspector-only job list. Approval locks the customer before reading and merging its live
@@ -3140,6 +3152,18 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-09-29 — **Baseline review proof and migration disposition.** Extracted `0024707`
+  with `git archive` into a disposable checkout without stash, branch changes, or runtime-data
+  access. Its Fire Alarm V7 integration suite passed 4/4 against fresh PostgreSQL on
+  `127.0.0.1:55432` with the installed Playwright Chromium; the feature head also passed 4/4.
+  The previous 3/4 was the documented missing-browser-path environment failure. The clean
+  baseline database constraints on `staged_inspection_evidence` and
+  `inspection_evidence_reservations` exclude `fire_rated_roller_shutter`. Migration 046 is
+  therefore required for the added Roller Shutter V7 evidence path and is a justified
+  forward-only exception to the original no-migration assumption for location-format patches.
+  No production database or historical migration was modified. The temporary checkout and
+  database were removed after verification.
 
 - 2026-09-29 — **Sol review fixes for location-format reuse (uncommitted; stop before staging).**
   The full-span review found four P1 defects. `managerApi.ts` and the technician outbox now
