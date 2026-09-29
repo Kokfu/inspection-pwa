@@ -23,7 +23,7 @@ export function expectedConfiguredSingleInstanceRows(system: R): ExpectedConfigu
   if (!uuid.test(String(system.enabledSystemId)) || !Array.isArray(system.locations)) return undefined;
 
   const enabledSystemId = system.enabledSystemId;
-  const locations: Array<{ id: string; presetRowCount: number; assetReference: string; sortOrder: number; displayName: string }> = [];
+  const locations: Array<{ id: string; presetRowCount: number; assetReference: string; presetRows?: Array<{ assetReference: string }>; sortOrder: number; displayName: string }> = [];
   const locationIds = new Set<string>();
   const sortOrders = new Set<number>();
   for (const location of system.locations) {
@@ -36,15 +36,20 @@ export function expectedConfiguredSingleInstanceRows(system: R): ExpectedConfigu
       ? location.rowPreset.assetReference
       : "";
     if (assetReference.length > 200) return undefined;
+    const rawRows = rec(location.rowPreset) ? location.rowPreset.rows : undefined;
+    const presetRows = Array.isArray(rawRows) && rawRows.length === location.presetRowCount
+      && rawRows.every((row) => rec(row) && Object.keys(row).length === 1
+        && typeof row.assetReference === "string" && row.assetReference.length <= 200)
+      ? rawRows as Array<{ assetReference: string }> : undefined;
     locationIds.add(location.id);
     sortOrders.add(Number(location.sortOrder));
-    locations.push({ id: location.id, presetRowCount: Number(location.presetRowCount), assetReference, sortOrder: Number(location.sortOrder), displayName: location.displayName });
+    locations.push({ id: location.id, presetRowCount: Number(location.presetRowCount), assetReference, presetRows, sortOrder: Number(location.sortOrder), displayName: location.displayName });
   }
 
   const expected: ExpectedConfiguredPresetRow[] = [];
   for (const location of locations.sort((left, right) => left.sortOrder - right.sortOrder)) {
     for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
-      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference: location.assetReference, displayName: location.displayName });
+      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference: location.presetRows?.[ordinal - 1]?.assetReference ?? location.assetReference, displayName: location.displayName });
     }
   }
   return expected.length <= 250 ? expected : undefined;

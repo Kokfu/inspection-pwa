@@ -143,6 +143,8 @@ test("Fire Alarm format: two independent zone-free pseudo-locations, one per rep
   // Round-trips through the Manager's own direct editor validator too (zone-free, capped at 250, two keys).
   const submitted = { zones: [], locations: updated.locations.map(({ sortOrder: _sortOrder, ...location }) => location) };
   assert.deepEqual(parseLocationConfigurationInput(submitted, "fire_alarm_detector"), updated);
+  assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...submitted.locations[0]!, rowPreset: {} }] }, "fire_alarm_detector"), undefined, "direct Manager edits require Fire Alarm routing");
+  assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...submitted.locations[0]!, rowPreset: { fireAlarmTable: "secondary" } }] }, "fire_alarm_detector"), undefined, "routing must match the pseudo-location key");
   assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...submitted.locations[0]!, key: "third" }] }, "fire_alarm_detector"), undefined, "unknown pseudo-location key refused");
   assert.equal(parseLocationConfigurationInput({ zones: [], locations: [submitted.locations[0]!, submitted.locations[1]!, { ...submitted.locations[0]!, key: "general-primary" }] }, "fire_alarm_detector"), undefined, "more than two locations refused");
 });
@@ -168,6 +170,20 @@ test("Hydrant / Dry-Wet-Riser format: assetReference/locationText rows accepted,
     const addPatch = { kind: "add-location" as const, locationKey: "loc-b", displayName: "Location B", zoneKey: "zone-a", newZone: null };
     assert.deepEqual(parseLocationProposalPatch(addPatch, systemKey), addPatch, systemKey);
     assert.ok(applyLocationProposalPatch(base, addPatch, systemKey), systemKey);
+  }
+});
+
+test("Smoke Ventilation / Fire Intercom format: only a zone-free General list of asset references", () => {
+  for (const systemKey of ["smoke_ventilation", "fire_intercom"]) {
+    const patch = { kind: "update-format" as const, locationKey: "general", rows: [{ assetReference: "01" }, { assetReference: "Pump Room" }] };
+    assert.deepEqual(parseLocationProposalPatch(patch, systemKey), patch);
+    assert.equal(parseLocationProposalPatch({ ...patch, locationKey: "other" }, systemKey), undefined);
+    assert.equal(parseLocationProposalPatch({ ...patch, rows: [{ assetReference: "01", locationText: "extra" }] }, systemKey), undefined);
+    assert.equal(parseLocationProposalPatch({ kind: "add-location", locationKey: "general", displayName: "General", zoneKey: null, newZone: { key: "z", displayName: "Z" } }, systemKey), undefined);
+    const merged = applyLocationProposalPatch({ zones: [], locations: [] }, patch, systemKey)!;
+    assert.deepEqual(merged.locations.map(({ key, zoneId, presetRowCount, rowPreset }) => ({ key, zoneId, presetRowCount, rowPreset })),
+      [{ key: "general", zoneId: null, presetRowCount: 2, rowPreset: { rows: patch.rows } }]);
+    assert.deepEqual(parseLocationConfigurationInput({ zones: [], locations: merged.locations.map(({ sortOrder: _sortOrder, ...location }) => location) }, systemKey), merged);
   }
 });
 

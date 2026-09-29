@@ -33,7 +33,9 @@ export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
   "fire_rated_roller_shutter",
   "hydrant",
   "dry_wet_riser",
-  "fire_alarm_detector"
+  "fire_alarm_detector",
+  "smoke_ventilation",
+  "fire_intercom"
 ]);
 
 /** Systems with no real zone/location structure -- their `locations` are a fixed set of implicit
@@ -44,7 +46,9 @@ export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
 export const zoneFreeLocationKeysBySystem: Readonly<Record<string, readonly string[]>> = {
   fire_rated_roller_shutter: ["general"],
   hose_reel: ["general"],
-  fire_alarm_detector: ["general-primary", "general-secondary"]
+  fire_alarm_detector: ["general-primary", "general-secondary"],
+  smoke_ventilation: ["general"],
+  fire_intercom: ["general"]
 };
 
 const maxZones = 100;
@@ -167,6 +171,10 @@ export function parseLocationConfigurationInput(value: unknown, systemKey?: stri
         || seenKeys.has(location.key) || !Number.isInteger(location.presetRowCount)
         || Number(location.presetRowCount) > 250) return undefined;
       seenKeys.add(location.key);
+      if (systemKey === "fire_alarm_detector") {
+        const expectedTable = location.key === "general-primary" ? "primary" : "secondary";
+        if (!object(location.rowPreset) || location.rowPreset.fireAlarmTable !== expectedTable) return undefined;
+      }
     }
   }
 
@@ -215,7 +223,9 @@ const formatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
   fire_rated_roller_shutter: ["assetReference", "locationText"],
   hose_reel: ["assetReference", "locationText", "drumType"],
   hydrant: ["assetReference", "locationText"],
-  dry_wet_riser: ["assetReference", "locationText"]
+  dry_wet_riser: ["assetReference", "locationText"],
+  smoke_ventilation: ["assetReference"],
+  fire_intercom: ["assetReference"]
 };
 
 /** Fire Alarm's two pseudo-locations (see `zoneFreeLocationKeysBySystem`) carry different row shapes:

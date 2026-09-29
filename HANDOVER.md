@@ -3,6 +3,34 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-29 — **Location-format reuse review fixes (uncommitted; stop before staging).**
+The Supervisor inbox now validates every supported proposal format through the same browser
+shape reader used by technician drafts; Supervisor session restoration no longer requests the
+inspector-only job list. Approval locks the customer before reading and merging its live
+configuration, so simultaneous approvals for different targets retain both formats. The direct
+Manager Fire Alarm locations route rejects missing or mismatched table routing. Roller Shutter,
+Smoke Ventilation and Fire Intercom now offer separate future-format correction inputs for
+configured labels, leaving frozen inspection rows untouched. Focused API/web tests, the
+disposable-PostgreSQL concurrent-approval integration test, and browser checks for Supervisor
+approval and all three format editors passed. The already-committed migration 046 belongs to
+Roller Shutter V7 evidence support; this fix adds no migration. See the new change-log entry.
+The standard V6/V7 database suites, web production build, and Manager authorization browser
+suite also passed. The latter suite's stale text-based offline denial checks were updated to
+assert the current denial and absence of a Manager dashboard or service-data request.
+The final review found and corrected a 10 px sticky action-bar overflow at the 768 px
+breakpoint; the Roller Shutter layout now fits 360, 768 and 1280 px viewports.
+
+**Last updated:** 2026-09-29 — **Phase 2.5 Smoke Ventilation / Fire Intercom location-format reuse (uncommitted; stop before staging).**
+Both zone-free single-table systems now save their Fan/Station `assetReference` labels as one
+General row format through the established technician proposal outbox. Supervisor approval
+freezes the saved rows into new visits. The per-row result fields and serialized inspection
+shapes are unchanged. A read-only runtime query found zero submitted records for either system.
+The disposable-Postgres HTTP round trip, new-visit freeze, focused row tests, both app builds,
+and a real browser Smoke Ventilation first-visit → approval → second-visit walkthrough passed.
+The known Supervisor Location Proposals navigation error recurred; approval used the local
+test API. See the Phase 2.5 change-log entry. This closes the full Phase 2 roadmap item across
+all seven systems (Phase 2.1–2.5).
+
 **Last updated:** 2026-09-29 — **Fire Alarm location-format reuse (uncommitted; stop before staging).**
 Extended the location-proposal patch model to Fire Alarm -- the most structurally complex remaining
 service, with TWO repeatable tables (primary device rows, secondary alarm device rows) in one
@@ -3112,6 +3140,66 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-09-29 — **Sol review fixes for location-format reuse (uncommitted; stop before staging).**
+  The full-span review found four P1 defects. `managerApi.ts` and the technician outbox now
+  use one browser proposal-shape validator, accepting all seven new row formats while refusing
+  unknown systems and cross-table Fire Alarm rows. Supervisor restore skips the technician-only
+  `/inspection-jobs` refresh, so full navigation can open the proposal inbox. Approval now locks
+  the customer before reloading the active revision; the disposable-PostgreSQL test blocks two
+  different approvals at that lock and verifies both formats survive. The direct Manager Fire
+  Alarm locations write rejects missing or mismatched `fireAlarmTable` routing. Roller Shutter,
+  Smoke Ventilation and Fire Intercom offer separate configured-label corrections for the next
+  format proposal; the current inspection's frozen row labels remain unchanged and browser
+  tests verify the queued payload. No schema, migration, or historical row shape changed in this
+  remediation. Migration 046 was already present in Phase 2.3 for Roller Shutter V7 evidence,
+  despite the location-patch design itself needing no migration.
+  Standard V6/V7 database integration suites and the production web build passed. The existing
+  Manager authorization browser harness expected an older offline-denial sentence and mistook
+  the word "Operations" in the current denial for exposed data; its assertions now check the
+  current denial, absence of the Manager dashboard, and absence of a service-data request.
+  Final review reproduced a 10 px overflow from the shared sticky form action bar's negative
+  side margin at 768 px and removed that margin; the viewport browser gate covers 360/768/1280 px.
+
+- 2026-09-29 — **Phase 2.5: Smoke Ventilation / Fire Intercom location-format reuse (uncommitted; stop before staging).**
+  This completes the seven-system Phase 2 location-format roadmap: Phase 2.1 Roller Shutter,
+  Phase 2.2 Hose Reel, Phase 2.3 Hydrant and Dry/Wet Riser, Phase 2.4 Fire Alarm, and this
+  Phase 2.5 pair. Both systems have a single zone-free `general` layout. A read-only aggregate
+  query of the runtime `master_system_form_instances` found **zero submitted rows for either
+  key** before the change. Existing row types and accepted authority remain unchanged.
+  - The saved row shape is `{assetReference}` only. Smoke Ventilation's `zoneSnapshot` is null;
+    its Auto/Manual fields are inspection results, not layout. Fire Intercom's V7 definition
+    records the 2026-09-04 owner decision collapsing the paper Yes/No × 1/2 grid into one
+    `conditionResult`; the printed station label is `assetReference`. No second result or
+    location/zone field was inferred from the paper.
+  - API `locationConfigurableSystemKeys`, `zoneFreeLocationKeysBySystem`, and
+    `formatRowFieldsBySystem` now accept these two General `update-format` patches and refuse
+    `add-location`, unknown keys, and extra row fields. The browser proposal draft validator
+    mirrors that shape. The web `managerApi.ts` registry remains the narrower set served by
+    the zoned Manager/add-location editors; exposing these zone-free systems there would offer
+    an add-location action the API correctly refuses. A first approval creates General; later
+    approval replaces its row list.
+    The shared server `expectedConfiguredSingleInstanceRows()` and the two web configured-row
+    generators consume a complete `rowPreset.rows[]` only; a short or malformed list falls back
+    as a whole to the legacy flat `assetReference`. Fire Intercom's submit gate already checks
+    frozen row content; Smoke Ventilation's gate now does too. Existing IndexedDB records are
+    loaded before row generation, so an in-progress row is never re-prefilled.
+  - Each Draft form has “Save as format for next visit”, using the established IndexedDB draft,
+    queue, exact-UUID sync confirmation, and Supervisor proposal review. Manager review no
+    longer invents “(no location)” for these label-only rows.
+  - Focused API parser/server-authority tests: 19/19 passed. New web per-system reuse and
+    fail-closed tests: 4/4 passed; existing Smoke Ventilation and Fire Intercom submit gates:
+    43/43 passed. The real HTTP proposal integration suite against disposable PostgreSQL
+    passed, including each system's proposal → approval → exact stored preset → new service
+    visit frozen snapshot. Both apps' typechecks and builds passed; `git diff --check` clean.
+  - Manual browser walkthrough on disposable local API/PostgreSQL: as technician, opened a
+    Smoke Ventilation visit already holding two labels, added and saved `Roof Fan 7`, then
+    submitted its format. As Supervisor, the known `Location Proposals` navigation error
+    recurred, so approval went through an authenticated call to the local test API. A newly
+    created second visit displayed all three exact labels (`01`, `Pump Room`, `Roof Fan 7`)
+    in its Fan Schedule. At 360px, no horizontal overflow. No production data was written;
+    temporary API, Vite proxy, database, and seed files were removed. Physical phone and
+    installed-PWA force-close checks remain release-level work. No P0/P1 in this scope.
 
 - 2026-09-29 — **Fire Alarm location-format reuse (uncommitted; stop before staging).**
   Extended the location-proposal patch model to Fire Alarm (`fire_alarm_detector`), reusing the

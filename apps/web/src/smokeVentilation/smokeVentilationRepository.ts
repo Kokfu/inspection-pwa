@@ -2,6 +2,7 @@ import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
+import { singleInstanceAssetReferences } from "../jobs/singleInstanceRowPreset";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import {
@@ -29,15 +30,18 @@ const responseEnvelopeKeys = ["schemaVersion", "controlPanelNo", "location", "da
 const checklistEntryKeys = ["result", "remarks"] as const;
 const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "autoResult", "manualResult", "remarks", "fieldRemarks", "sortOrder"] as const;
 
-function configuredRows(system: JobSystemSnapshot): SmokeVentilationRow[] {
+export function configuredRows(system: JobSystemSnapshot): SmokeVentilationRow[] {
   let count = 0;
-  return system.locations.flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
+  return [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder).flatMap((location) => {
+    const labels = singleInstanceAssetReferences(location.rowPreset, location.presetRowCount);
+    return Array.from({ length: location.presetRowCount }, (_, index) => ({
     rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
     zoneSnapshot: null,
     locationSnapshot: { id: location.id, displayName: location.displayName },
-    assetReference: typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "",
+    assetReference: labels[index]!,
     autoResult: null, manualResult: null, remarks: "", fieldRemarks: {}, sortOrder: ++count
-  })));
+    }));
+  });
 }
 
 function emptyChecklist(): SmokeVentilationResponses["checklist"] {
@@ -79,8 +83,14 @@ function structuralSubmitIssues(record: SmokeVentilationInspectionRecord, respon
   if (responses.controlPanelNo.length > 200) issues.push("Smoke Ventilation Control Panel No. is too long");
   if (responses.location.length > 300) issues.push("Smoke Ventilation Location is too long");
   if (responses.dateTested.length > 200) issues.push("Smoke Ventilation Date Tested is too long");
-  const expected = record.inspectionSnapshot.system.locations.flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => `${location.id}:${index + 1}`));
+  const expected = [...record.inspectionSnapshot.system.locations].sort((left, right) => left.sortOrder - right.sortOrder)
+    .flatMap((location) => singleInstanceAssetReferences(location.rowPreset, location.presetRowCount)
+      .map((assetReference, index) => ({ identity: `${location.id}:${index + 1}`, assetReference,
+        sortOrder: 0, displayName: location.displayName })));
+  expected.forEach((row, index) => { row.sortOrder = index + 1; });
+  const expectedByIdentity = new Map(expected.map((row) => [row.identity, row]));
   const seen = new Set<string>();
+  let technicianRowsStarted = false;
   if (!responses.rows.length) issues.push("At least one Fan Schedule row is required");
   responses.rows.forEach((row, index) => {
     if (!row.rowUuid || row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.remarks.length > 2000) issues.push("Fan Schedule row is invalid");
@@ -95,9 +105,16 @@ function structuralSubmitIssues(record: SmokeVentilationInspectionRecord, respon
       || Object.keys(row.fieldRemarks ?? {}).some((remarkKey) => !smokeVentilationRowColumns.some(([responseKey]) => responseKey === remarkKey))) issues.push("Fan Schedule row field remarks are invalid");
     if (row.source === "configured") {
       const identity = `${row.configuredLocationId}:${row.configuredRowOrdinal}`;
-      if (!expected.includes(identity) || seen.has(identity)) issues.push("Configured Fan Schedule row identity is invalid");
+      const authoritative = expectedByIdentity.get(identity);
+      if (technicianRowsStarted || !authoritative || seen.has(identity)) issues.push("Configured Fan Schedule row identity is invalid");
+      else if (row.sortOrder !== authoritative.sortOrder || row.assetReference !== authoritative.assetReference
+        || !row.locationSnapshot || row.locationSnapshot.id !== row.configuredLocationId
+        || row.locationSnapshot.displayName !== authoritative.displayName) issues.push("Configured Fan Schedule row does not match the frozen configuration");
       seen.add(identity);
-    } else if (row.configuredLocationId !== null || row.configuredRowOrdinal !== null) issues.push("Technician Fan Schedule row provenance is invalid");
+    } else {
+      technicianRowsStarted = true;
+      if (row.source !== "technician" || row.configuredLocationId !== null || row.configuredRowOrdinal !== null || row.locationSnapshot !== null) issues.push("Technician Fan Schedule row provenance is invalid");
+    }
   });
   if (seen.size !== expected.length) issues.push("Configured Fan Schedule rows must be retained");
   if (responses.comments.length > 4000) issues.push("Comments exceed 4000 characters");

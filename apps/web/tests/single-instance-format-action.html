@@ -1,0 +1,13 @@
+<!doctype html><html><body><div id="form"></div><script type="module">
+import React from "react";
+import "/src/styles/app.css";
+import {createRoot} from "react-dom/client";
+import {activateUserWorkspace} from "/src/db/localDatabase.ts";
+import {SingleInstanceFormatAction} from "/src/jobs/SingleInstanceFormatAction.tsx";
+import {loadTechnicianLocationProposalDraft} from "/src/jobs/technicianLocationProposalDraft.ts";
+const systemKey=new URLSearchParams(location.search).get("system") === "fire_intercom" ? "fire_intercom" : "smoke_ventilation";
+const jobId="93000000-0000-4000-8000-000000000001",customerId="93000000-0000-4000-8000-000000000002";
+await activateUserWorkspace(9300);
+createRoot(document.querySelector("#form")).render(React.createElement(SingleInstanceFormatAction,{jobId,customerId,systemKey,labels:["Old Label","Added Label"],configuredCount:1,actorUserId:9300,canUseServer:false}));
+window.inspect=()=>loadTechnicianLocationProposalDraft(jobId,systemKey,"general");
+</script></body></html>

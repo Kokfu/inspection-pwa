@@ -947,7 +947,7 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 @media (hover: hover) { .result-option:not(.result-option--selected):hover { border-color: var(--brand); background: var(--brand-tint); } }
 .result-option--selected { border-color: var(--brand); background: linear-gradient(120deg, var(--brand), var(--brand)); box-shadow: 0 4px 10px rgb(8 111 125 / 17%); }
 .result-option--selected > span { border-color: var(--on-brand); color: var(--brand); background: var(--surface); }
-.sticky-form-actions { z-index: 20; justify-content: flex-end; margin: 12px -10px -10px; padding: 12px 10px calc(12px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-radius: 13px 13px 0 0; background: rgb(255 255 255 / 95%); box-shadow: 0 -10px 24px rgb(22 51 66 / 8%); backdrop-filter: blur(12px); }
+.sticky-form-actions { z-index: 20; justify-content: flex-end; margin: 12px 0 -10px; padding: 12px 10px calc(12px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-radius: 13px 13px 0 0; background: rgb(255 255 255 / 95%); box-shadow: 0 -10px 24px rgb(22 51 66 / 8%); backdrop-filter: blur(12px); }
 .sticky-form-actions button { min-width: 150px; }
 fieldset:disabled { opacity: 1; }
 fieldset:disabled input, fieldset:disabled select, fieldset:disabled textarea { color: var(--ink); background: var(--surface-sunken); }

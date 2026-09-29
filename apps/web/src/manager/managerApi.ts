@@ -1,4 +1,5 @@
 import type { JobCompletion } from "../jobs/jobTypes";
+import { validLocationProposalPatch } from "../jobs/locationProposalShape";
 
 export class ManagerApiError extends Error {
   constructor(
@@ -936,11 +937,9 @@ export async function saveManagerLabelOverrides(
   return { labels: asLabelOverrides(data), customer: data.customer };
 }
 
-/** Systems whose per-customer zone/location configuration a Manager may edit.
- *  Mirrors the API `locationConfigurableSystemKeys` bound
- *  (apps/api/src/inspections/locationConfiguration.ts) — widenable without a
- *  migration. These services use a General location in new visits when the
- *  manager has not configured a location. */
+/** Systems supported by the Manager's zoned location editor and the technician's
+ *  add-location screen. This is deliberately narrower than the API's format-patch
+ *  registry: zone-free services save their General layout from the inspection form. */
 export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
   "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression", "hydrant", "dry_wet_riser"
 ]);
@@ -1338,22 +1337,7 @@ export type LocationProposal = {
 };
 
 function isLocationProposalPatch(value: unknown, systemKey: string): value is LocationProposalPatch {
-  if (!isPlainObject(value)) return false;
-  if (value.kind === "add-location") {
-    return systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel" && typeof value.locationKey === "string" && typeof value.displayName === "string"
-      && (value.zoneKey === null || typeof value.zoneKey === "string")
-      && (value.newZone === null || (isPlainObject(value.newZone) && typeof value.newZone.key === "string" && typeof value.newZone.displayName === "string"));
-  }
-  if (value.kind === "update-format") {
-    return typeof value.locationKey === "string" && ((systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel") || value.locationKey === "general")
-      && Array.isArray(value.rows) && value.rows.length > 0
-      && value.rows.every((row) => {
-        if (!isPlainObject(row)) return false;
-        const allowed = systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"] : systemKey === "fire_rated_roller_shutter" ? ["assetReference", "locationText"] : ["alarmZone", "location"];
-        return Object.keys(row).length === allowed.length && allowed.every((name) => typeof row[name] === "string");
-      });
-  }
-  return false;
+  return validLocationProposalPatch(value, systemKey);
 }
 
 function isLocationProposalDecisionEvent(value: unknown): value is LocationProposalDecisionEvent {

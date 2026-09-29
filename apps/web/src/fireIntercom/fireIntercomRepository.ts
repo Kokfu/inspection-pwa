@@ -2,6 +2,7 @@ import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
+import { singleInstanceAssetReferences } from "../jobs/singleInstanceRowPreset";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type {
@@ -35,23 +36,26 @@ const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdi
 function expectedConfiguredRows(system: JobSystemSnapshot) {
   const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string }> = [];
   for (const location of [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder)) {
-    const assetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
+    const labels = singleInstanceAssetReferences(location.rowPreset, location.presetRowCount);
     for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
-      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference, displayName: location.displayName });
+      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference: labels[ordinal - 1]!, displayName: location.displayName });
     }
   }
   return expected;
 }
 
-function configuredRows(system: JobSystemSnapshot): FireIntercomRow[] {
+export function configuredRows(system: JobSystemSnapshot): FireIntercomRow[] {
   let count = 0;
-  return [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder).flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
+  return [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder).flatMap((location) => {
+    const labels = singleInstanceAssetReferences(location.rowPreset, location.presetRowCount);
+    return Array.from({ length: location.presetRowCount }, (_, index) => ({
     rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
     zoneSnapshot: null,
     locationSnapshot: { id: location.id, displayName: location.displayName },
-    assetReference: typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "",
+    assetReference: labels[index]!,
     conditionResult: null, remarks: "", fieldRemarks: {}, sortOrder: ++count
-  })));
+    }));
+  });
 }
 
 export async function getOrCreateFireIntercomInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined) {

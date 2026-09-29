@@ -272,6 +272,11 @@ export function createLocationProposalsRouter(database: Database = pool) {
       }
       let resultingRevisionId: string | null = null;
       if (input.decision === "approved") {
+        // Serialize the read/merge/write for every proposal on this customer. Locking only the
+        // proposal ID allows two different targets to read the same old revision and overwrite
+        // each other's approved format while waiting in applyManagerLocationsUpdate.
+        const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [proposal.customerId]);
+        if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
         // Never trust the payload's stored patch to already describe the whole picture -- re-read the
         // customer's CURRENT configuration fresh and merge the patch into it, right here, right now.
         const configuration = await loadConfiguration(client, proposal.customerId);

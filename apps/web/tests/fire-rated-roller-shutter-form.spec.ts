@@ -38,3 +38,23 @@ test("roller shutter fields and buttons save a local draft then queue a complete
   expect(pending.outbox).toHaveLength(1);
   expect(pending.outbox[0].entityType).toBe("masterSystemInspection");
 });
+
+test("configured shutter labels can be corrected for the next visit without changing the frozen inspection", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/tests/fire-rated-roller-shutter-form.html?configured=1");
+  await expect(page.getByLabel("Asset Reference", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Location", { exact: true })).toHaveValue("Old Lobby");
+  await page.getByLabel("Shutter 1 format reference").fill("RS-02");
+  await page.getByLabel("Shutter 1 format location").fill("New Lobby");
+  await page.getByRole("button", { name: "Save as format for next visit" }).click();
+  await expect(page.getByText("Saved on this device, pending sync.")).toBeVisible();
+  const state = await page.evaluate(() => (window as any).inspect());
+  expect(state.stored.responses.rows[0]).toMatchObject({ assetReference: "RS-01", locationText: "Old Lobby" });
+  expect(state.proposal.patch.rows).toEqual([{ assetReference: "RS-02", locationText: "New Lobby" }]);
+  expect(state.proposal.status).toBe("Pending");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  for (const width of [768, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+});

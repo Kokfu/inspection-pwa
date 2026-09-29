@@ -205,8 +205,8 @@
       }, async transport => {
         await waitFor(() => mount.textContent.includes("Choose how you are signing in"), "offline Role Selection");
         click("Manager");
-        await waitFor(() => mount.textContent.includes("Manager operations are not available offline"), "offline Manager denial");
-        if (mount.textContent.includes("Operations") || mount.textContent.includes(visit.customer) || transport.calls.includes("/api/manager/service-visits")) throw new Error("Offline Manager data was exposed");
+        await waitFor(() => mount.textContent.includes("Reconnect to verify Manager access. Operations are not available offline."), "offline Manager denial");
+        if (mount.querySelector("#manager-dashboard-title") || mount.textContent.includes(visit.customer) || transport.calls.includes("/api/manager/service-visits")) throw new Error("Offline Manager data was exposed");
       }));
       cases.push(await mountedCase("F cached Technician remains available offline", async () => {
         await storeVerifiedIdentity(inspector);

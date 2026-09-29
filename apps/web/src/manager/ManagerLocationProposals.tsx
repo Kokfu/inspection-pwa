@@ -101,7 +101,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
             <li key={index}><strong>Row {index + 1}</strong>
               {"assetReference" in row ? <span>Asset: {row.assetReference || "(no reference)"}</span> : null}
               {"alarmZone" in row ? <span>Zone: {row.alarmZone || "(no zone)"}</span> : null}
-              <span>Location: {(row.locationText ?? row.location) || "(no location)"}</span>
+              {"locationText" in row || "location" in row ? <span>Location: {(row.locationText ?? row.location) || "(no location)"}</span> : null}
               {"drumType" in row ? <span>Drum type: {row.drumType === "swing" ? "Swing" : row.drumType === "fixed" ? "Fixed" : "Not selected"}</span> : null}
             </li>
           ))}

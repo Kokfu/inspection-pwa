@@ -6,6 +6,7 @@ import express from "express";
 import { runMigrations } from "../db/migrations.js";
 import { pool } from "../db/pool.js";
 import { v7IntegrationDatabaseUrl } from "../sync/v7IntegrationTestDatabase.js";
+import { createServiceVisit } from "../jobs/serviceVisits.js";
 import { createLocationProposalsRouter } from "./locationProposals.js";
 import { createManagerCustomersRouter } from "./managerCustomers.js";
 
@@ -372,11 +373,102 @@ test("location proposal patches: add-location + update-format, independent pendi
           { key: "general-secondary", count: 1, preset: { fireAlarmTable: "secondary", rows: secondaryRows } }
         ]);
 
+        // The direct Manager PUT is a separate write boundary. It must not store routing that
+        // would make the next visit's configuredRows() throw, even for an authenticated admin.
+        const directPath = `/manager/customers/${customer}/systems/fire_alarm_detector/locations`;
+        for (const rowPreset of [{}, { fireAlarmTable: "secondary" }]) {
+          const direct = await call(directPath, "admin", "PUT", { zones: [], locations: [{ key: "general-primary",
+            displayName: "General (Primary Devices)", zoneId: null, presetRowCount: 1, rowPreset }] });
+          assert.equal(direct.status, 400, await direct.clone().text());
+        }
+        assert.deepEqual(await storedFireAlarm(), [
+          { key: "general-primary", count: 1, preset: { fireAlarmTable: "primary", rows: nextPrimaryRows } },
+          { key: "general-secondary", count: 1, preset: { fireAlarmTable: "secondary", rows: secondaryRows } }
+        ]);
+
         // A secondary-shaped row ({assetReference, location}, no alarmZone) submitted against
         // general-primary is refused at submit time, not silently accepted or cross-applied.
         const crossShape = await call(fireAlarmPath, "inspector", "POST", { id: id(), jobId: fireAlarmJob, patch: { kind: "update-format", locationKey: "general-primary", rows: secondaryRows } });
         assert.equal(crossShape.status, 400, await crossShape.clone().text());
       }
+      // Both new single-table, zone-free systems use the same General format patch.
+      const nextVisitSiteId = id();
+      await pool.query("INSERT INTO customer_sites(id,customer_id,site_code,display_name) VALUES($1,$2,'PHASE25','Phase 2.5 Test Site')", [nextVisitSiteId, customer]);
+      for (const systemKey of ["smoke_ventilation", "fire_intercom"] as const) {
+        const visitId = id();
+        const snapshot = { ...co2Snapshot, enabledSystems: [{ ...co2Snapshot.enabledSystems[0],
+          enabledSystemId: id(), systemKey, displayName: systemKey }] };
+        await pool.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date,created_by_user_id) VALUES($1,$2,$3,$4,'open',false,true,$5,$6,$7,'2026-09-29',$8)",
+          [visitId, template.id, `LPP-${systemKey}-${visitId}`, `${systemKey} Format Test`, customer, revision, snapshot, inspector]);
+        const path = `/technician/customers/${customer}/systems/${systemKey}/location-proposals`;
+        const rows = [{ assetReference: "01" }, { assetReference: "Pump Room" }];
+        const refusedAdd = await call(path, "inspector", "POST", { id: id(), jobId: visitId, patch: addPatchNewZone("general", "General", "z", "Zone") });
+        assert.equal(refusedAdd.status, 400);
+        const wrongShape = await call(path, "inspector", "POST", { id: id(), jobId: visitId, patch: { kind: "update-format", locationKey: "general", rows: [{ assetReference: "01", locationText: "extra" }] } });
+        assert.equal(wrongShape.status, 400);
+        const proposed = await call(path, "inspector", "POST", { id: id(), jobId: visitId, patch: { kind: "update-format", locationKey: "general", rows } });
+        assert.equal(proposed.status, 201, await proposed.clone().text());
+        const proposalId = (await proposed.json() as { proposal: { id: string } }).proposal.id;
+        const approved = await decide(proposalId, "supervisor", { requestId: id(), decision: "approved" });
+        assert.equal(approved.status, 201, await approved.clone().text());
+        const stored = (await pool.query<{ count: number; preset: unknown }>(`
+          SELECT location.preset_row_count AS count, location.row_preset AS preset
+          FROM customer_system_locations location
+          JOIN customer_enabled_systems enabled ON enabled.id=location.enabled_system_id
+          JOIN customer_configuration_revisions revision ON revision.id=enabled.configuration_revision_id
+          WHERE revision.customer_id=$1 AND revision.status='active' AND enabled.system_key=$2 AND location.location_key='general'`, [customer, systemKey])).rows;
+        assert.deepEqual(stored, [{ count: 2, preset: { rows } }], systemKey);
+        const client = await pool.connect();
+        let nextVisitId: string;
+        try {
+          nextVisitId = (await createServiceVisit(client, { requestId: id(), customerId: customer,
+            siteId: nextVisitSiteId, systemKeys: [systemKey] }, inspector)).id;
+        } finally { client.release(); }
+        const frozen = (await pool.query<{ snapshot: { enabledSystems: Array<{ systemKey: string; locations: Array<{ presetRowCount: number; rowPreset: unknown }> }> } }>(
+          "SELECT configuration_snapshot AS snapshot FROM inspection_jobs WHERE id=$1", [nextVisitId])).rows[0]!.snapshot;
+        assert.deepEqual(frozen.enabledSystems[0]?.locations.map((location) => ({ count: location.presetRowCount, preset: location.rowPreset })),
+          [{ count: 2, preset: { rows } }], `${systemKey} next visit must freeze the approved format`);
+      }
+
+      // Two independent approvals must serialize their read/merge/write, even when both requests
+      // have reached the customer lock. Without a lock BEFORE loadConfiguration, both merge the same
+      // old revision and the second full configuration write silently drops the first format.
+      const raceRows = [
+        { key: "tnb-room", rows: [{ alarmZone: "Concurrent A", location: "TNB updated" }] },
+        { key: "dust-room", rows: [{ alarmZone: "Concurrent B", location: "Dust updated" }] }
+      ];
+      const raceIds: string[] = [];
+      for (const entry of raceRows) {
+        const response = await submit("inspector", formatPatch(entry.key, entry.rows));
+        assert.equal(response.status, 201, await response.clone().text());
+        raceIds.push((await response.json() as { proposal: { id: string } }).proposal.id);
+      }
+      const blocker = await pool.connect();
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT id FROM customers WHERE id=$1 FOR UPDATE", [customer]);
+      const decisions = raceIds.map((proposalId) => decide(proposalId, "supervisor", { requestId: id(), decision: "approved" }));
+      try {
+        let waiting = 0;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          waiting = Number((await pool.query<{ count: string }>(`SELECT count(*)::text AS count FROM pg_stat_activity
+            WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM customers WHERE id=$1%'`)).rows[0]!.count);
+          if (waiting >= 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.ok(waiting >= 2, "both approvals reached the customer lock");
+      } finally {
+        await blocker.query("COMMIT");
+        blocker.release();
+      }
+      for (const decision of await Promise.all(decisions)) assert.equal(decision.status, 201, await decision.clone().text());
+      const storedRaceRows = (await pool.query<{ key: string; preset: { rows: unknown[] } }>(`
+        SELECT location.location_key AS key, location.row_preset AS preset FROM customer_system_locations location
+        JOIN customer_enabled_systems enabled ON enabled.id=location.enabled_system_id
+        JOIN customer_configuration_revisions revision ON revision.id=enabled.configuration_revision_id
+        WHERE revision.customer_id=$1 AND revision.status='active' AND enabled.system_key='co2_fire_extinguisher'
+          AND location.location_key IN ('tnb-room','dust-room') ORDER BY location.location_key`, [customer])).rows;
+      assert.deepEqual(storedRaceRows.map((row) => ({ key: row.key, rows: row.preset.rows })),
+        [...raceRows].sort((a, b) => a.key.localeCompare(b.key)), "both concurrent format approvals remain in the current revision");
     } finally { await close(server); }
 
     // Append-only at the database level.
