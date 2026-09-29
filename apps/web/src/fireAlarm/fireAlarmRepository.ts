@@ -47,7 +47,7 @@ function dispatchForTemplate(template: { id: string; code: string; version: numb
   if (!dispatch) throw new Error("Stored Fire Alarm template identity is unsupported");
   return dispatch;
 }
-function configuredRows(system: JobSystemSnapshot) {
+export function configuredRows(system: JobSystemSnapshot) {
   const zones = new Map(system.zones.map((zone) => [zone.id, zone]));
   const primary: FireAlarmPrimaryDeviceRow[] = []; const secondary: FireAlarmSecondaryAlarmDeviceRow[] = [];
   for (const location of system.locations.slice().sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))) {
@@ -55,10 +55,15 @@ function configuredRows(system: JobSystemSnapshot) {
     if (!preset) throw new Error(`Fire Alarm location ${location.displayName} has missing or invalid row routing`);
     const zone = location.zoneId === null ? undefined : zones.get(location.zoneId);
     if (location.zoneId !== null && !zone) throw new Error(`Fire Alarm location ${location.displayName} has an unknown frozen zone`);
+    // `preset.rows[]` (a saved "format for next visit") is only trusted when it is index-aligned with
+    // the frozen `presetRowCount` -- `parseFireAlarmRowPreset` already drops a short/malformed array
+    // entirely rather than returning a partial one, so a length mismatch here means it was never set.
+    const rows = preset.rows?.length === location.presetRowCount ? preset.rows : undefined;
     for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
-      const base = { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: ordinal, zoneSnapshot: zone ? { id: zone.id, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, displayName: location.displayName }, assetReference: preset.assetReference ?? "", remarks: "" };
-      if (preset.fireAlarmTable === "primary") primary.push({ ...base, displaySequence: primary.length + 1, alarmZone: zone?.displayName ?? "", location: location.displayName, manualCallPoint: null, flowSwitch: null, heatDetector: null, smokeDetector: null });
-      else secondary.push({ ...base, displaySequence: secondary.length + 1, location: location.displayName, alarmBell: null, manualCallPoint: null });
+      const savedRow = rows?.[ordinal - 1];
+      const base = { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: ordinal, zoneSnapshot: zone ? { id: zone.id, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, displayName: location.displayName }, assetReference: savedRow?.assetReference ?? preset.assetReference ?? "", remarks: "" };
+      if (preset.fireAlarmTable === "primary") { const savedPrimaryRow = savedRow as { alarmZone: string; location: string } | undefined; primary.push({ ...base, displaySequence: primary.length + 1, alarmZone: savedPrimaryRow?.alarmZone ?? zone?.displayName ?? "", location: savedPrimaryRow?.location ?? location.displayName, manualCallPoint: null, flowSwitch: null, heatDetector: null, smokeDetector: null }); }
+      else { const savedSecondaryRow = savedRow as { location: string } | undefined; secondary.push({ ...base, displaySequence: secondary.length + 1, location: savedSecondaryRow?.location ?? location.displayName, alarmBell: null, manualCallPoint: null }); }
     }
   }
   return { primary, secondary };

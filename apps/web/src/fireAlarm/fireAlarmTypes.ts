@@ -5,7 +5,11 @@ export type DeviceState = "normal" | "test" | "isolation";
 export type DeviceStateValue = DeviceState | DeviceState[];
 export type GoodPoor = "good" | "poor" | "not_relevant" | "not_good" | "complete_repair" | "na";
 export type FireAlarmSyncStatus = "Draft" | "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
-export type FireAlarmRowPreset = { fireAlarmTable: "primary" | "secondary"; assetReference?: string };
+export type FireAlarmPrimaryRowPresetRow = { assetReference: string; alarmZone: string; location: string };
+export type FireAlarmSecondaryRowPresetRow = { assetReference: string; location: string };
+export type FireAlarmRowPreset =
+  | { fireAlarmTable: "primary"; assetReference?: string; rows?: FireAlarmPrimaryRowPresetRow[] }
+  | { fireAlarmTable: "secondary"; assetReference?: string; rows?: FireAlarmSecondaryRowPresetRow[] };
 
 export type ConfiguredFireAlarmRowProvenance = {
   source: "configured";

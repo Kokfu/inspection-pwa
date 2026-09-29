@@ -32,8 +32,20 @@ export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
   "hose_reel",
   "fire_rated_roller_shutter",
   "hydrant",
-  "dry_wet_riser"
+  "dry_wet_riser",
+  "fire_alarm_detector"
 ]);
+
+/** Systems with no real zone/location structure -- their `locations` are a fixed set of implicit
+ *  keys rather than technician/Manager-named places. Roller Shutter and Hose Reel have exactly one
+ *  ("general"); Fire Alarm has two, one per repeatable table (`fireAlarmRepository.ts`'s
+ *  `configuredRows()` routes a whole location's rows to either table via `rowPreset.fireAlarmTable`,
+ *  never both) -- so "Save as format" is one action per table, not a technician-named location. */
+export const zoneFreeLocationKeysBySystem: Readonly<Record<string, readonly string[]>> = {
+  fire_rated_roller_shutter: ["general"],
+  hose_reel: ["general"],
+  fire_alarm_detector: ["general-primary", "general-secondary"]
+};
 
 const maxZones = 100;
 const maxLocations = 500;
@@ -144,11 +156,19 @@ export function parseLocationConfigurationInput(value: unknown, systemKey?: stri
   const { zones: rawZones, locations: rawLocations } = value;
   if (!Array.isArray(rawZones) || !Array.isArray(rawLocations)) return undefined;
   if (rawZones.length > maxZones || rawLocations.length > maxLocations) return undefined;
-  const allowNoZone = systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel";
+  const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
+  const allowNoZone = zoneFreeKeys !== undefined;
   if (allowNoZone && rawZones.length !== 0) return undefined;
-  if (allowNoZone && (rawLocations.length > 1 || rawLocations.some((location) => !object(location)
-    || location.key !== "general" || !Number.isInteger(location.presetRowCount)
-    || Number(location.presetRowCount) > 250))) return undefined;
+  if (allowNoZone) {
+    if (rawLocations.length > zoneFreeKeys.length) return undefined;
+    const seenKeys = new Set<string>();
+    for (const location of rawLocations) {
+      if (!object(location) || typeof location.key !== "string" || !zoneFreeKeys.includes(location.key)
+        || seenKeys.has(location.key) || !Number.isInteger(location.presetRowCount)
+        || Number(location.presetRowCount) > 250) return undefined;
+      seenKeys.add(location.key);
+    }
+  }
 
   const zones: LocationConfigurationZoneInput[] = [];
   const zoneKeys = new Set<string>();
@@ -198,6 +218,20 @@ const formatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
   dry_wet_riser: ["assetReference", "locationText"]
 };
 
+/** Fire Alarm's two pseudo-locations (see `zoneFreeLocationKeysBySystem`) carry different row shapes:
+ *  `general-primary` rows mirror `FireAlarmPrimaryDeviceRow`'s identity columns (assetReference,
+ *  alarmZone, location); `general-secondary` rows mirror `FireAlarmSecondaryAlarmDeviceRow`'s
+ *  (assetReference, location -- no zone). The `locationKey` alone determines the shape, both at parse
+ *  time and at merge time, so this needs no cross-reference against stored state. */
+const fireAlarmFormatFieldsByLocationKey: Readonly<Record<string, readonly string[]>> = {
+  "general-primary": ["assetReference", "alarmZone", "location"],
+  "general-secondary": ["assetReference", "location"]
+};
+function formatRowFields(systemKey: string | undefined, locationKey: string): readonly string[] | undefined {
+  if (systemKey === "fire_alarm_detector") return fireAlarmFormatFieldsByLocationKey[locationKey];
+  return formatRowFieldsBySystem[systemKey ?? "co2_fire_extinguisher"];
+}
+
 export type LocationProposalAddPatch = {
   kind: "add-location";
   locationKey: string;
@@ -243,9 +277,9 @@ function parseAddPatch(value: Record<string, unknown>): LocationProposalAddPatch
   return { kind: "add-location", locationKey, displayName, zoneKey: null, newZone: { key: zoneKey, displayName: zoneDisplayName } };
 }
 
-function parseRow(value: unknown, systemKey?: string): LocationProposalRowPreset | undefined {
+function parseRow(value: unknown, systemKey: string | undefined, locationKey: string): LocationProposalRowPreset | undefined {
   if (!object(value)) return undefined;
-  const fields = formatRowFieldsBySystem[systemKey ?? "co2_fire_extinguisher"];
+  const fields = formatRowFields(systemKey, locationKey);
   if (!fields || Object.keys(value).length !== fields.length
     || Object.keys(value).some((key) => !fields.includes(key))) return undefined;
   const parsed: LocationProposalRowPreset = {};
@@ -263,16 +297,18 @@ function parseFormatPatch(value: Record<string, unknown>, systemKey?: string): L
   if (Object.keys(value).some((key) => !allowed.has(key))) return undefined;
   const locationKey = boundedText(value.locationKey, maxKeyLength);
   if (!locationKey) return undefined;
-  if ((systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel") && locationKey !== "general") return undefined;
+  const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
+  if (zoneFreeKeys !== undefined && !zoneFreeKeys.includes(locationKey)) return undefined;
+  const capped250 = zoneFreeKeys !== undefined;
   if (!Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > maxPresetRowCount) return undefined;
-  if ((systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel") && value.rows.length > 250) return undefined;
+  if (capped250 && value.rows.length > 250) return undefined;
   const rows: LocationProposalRowPreset[] = [];
   for (const raw of value.rows) {
-    const row = parseRow(raw, systemKey);
+    const row = parseRow(raw, systemKey, locationKey);
     if (!row) return undefined;
     rows.push(row);
   }
-  if ((systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel") && JSON.stringify({ rows }).length > maxShutterRowPresetSerialized) return undefined;
+  if (capped250 && JSON.stringify({ rows }).length > maxShutterRowPresetSerialized) return undefined;
   return { kind: "update-format", locationKey, rows };
 }
 
@@ -282,7 +318,7 @@ function parseFormatPatch(value: Record<string, unknown>, systemKey?: string): L
  *  `applyLocationProposalPatch` at Approve time. */
 export function parseLocationProposalPatch(value: unknown, systemKey?: string): LocationProposalPatch | undefined {
   if (!object(value)) return undefined;
-  if (value.kind === "add-location") return systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel" ? undefined : parseAddPatch(value);
+  if (value.kind === "add-location") return systemKey !== undefined && systemKey in zoneFreeLocationKeysBySystem ? undefined : parseAddPatch(value);
   if (value.kind === "update-format") return parseFormatPatch(value, systemKey);
   return undefined;
 }
@@ -301,14 +337,29 @@ export function applyLocationProposalPatch(
   current: LocationConfigurationInput, patch: LocationProposalPatch, systemKey?: string
 ): LocationConfigurationInput | undefined {
   if (patch.kind === "update-format") {
+    const fireAlarmTable = systemKey === "fire_alarm_detector"
+      ? (patch.locationKey === "general-primary" ? "primary" : patch.locationKey === "general-secondary" ? "secondary" : undefined)
+      : undefined;
+    const rowPreset: Record<string, unknown> = fireAlarmTable ? { fireAlarmTable, rows: patch.rows } : { rows: patch.rows };
     const index = current.locations.findIndex((location) => location.key === patch.locationKey);
     if (index === -1) {
-      if ((systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel") || patch.locationKey !== "general" || current.locations.length !== 0 || current.zones.length !== 0) return undefined;
-      return { zones: [], locations: [{ key: "general", displayName: "General", zoneId: null,
-        presetRowCount: patch.rows.length, rowPreset: { rows: patch.rows }, sortOrder: 1 }] };
+      const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
+      if (!zoneFreeKeys || !zoneFreeKeys.includes(patch.locationKey) || current.zones.length !== 0
+        || current.locations.length >= zoneFreeKeys.length) return undefined;
+      const displayName = fireAlarmTable ? (fireAlarmTable === "primary" ? "General (Primary Devices)" : "General (Secondary Alarm Devices)") : "General";
+      return { zones: [], locations: [...current.locations, { key: patch.locationKey, displayName, zoneId: null,
+        presetRowCount: patch.rows.length, rowPreset, sortOrder: current.locations.length + 1 }] };
+    }
+    // Fire Alarm's routing (`rowPreset.fireAlarmTable`) is fully determined by `locationKey` and must
+    // never diverge from how this location was bootstrapped -- fail closed rather than silently
+    // re-route an existing location's rows to the other repeatable table.
+    if (fireAlarmTable) {
+      const existing = current.locations[index]!.rowPreset;
+      const existingTable = object(existing) ? existing.fireAlarmTable : undefined;
+      if (existingTable !== fireAlarmTable) return undefined;
     }
     const locations = current.locations.slice();
-    locations[index] = { ...locations[index]!, presetRowCount: patch.rows.length, rowPreset: { rows: patch.rows } };
+    locations[index] = { ...locations[index]!, presetRowCount: patch.rows.length, rowPreset };
     return { zones: current.zones, locations };
   }
   if (current.locations.some((location) => location.key === patch.locationKey)) return undefined;

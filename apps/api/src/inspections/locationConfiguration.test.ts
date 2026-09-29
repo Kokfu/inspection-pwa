@@ -103,6 +103,50 @@ test("Hose Reel format creates one zone-free General location and updates it in 
   assert.equal(applyLocationProposalPatch(initial, first), undefined);
 });
 
+test("Fire Alarm format: two independent zone-free pseudo-locations, one per repeatable table", () => {
+  const primaryPatch = { kind: "update-format" as const, locationKey: "general-primary", rows: [
+    { assetReference: "FA-01", alarmZone: "Zone A", location: "Level 1 Lobby" },
+    { assetReference: "FA-02", alarmZone: "Zone B", location: "Level 2 Corridor" }
+  ] };
+  const secondaryPatch = { kind: "update-format" as const, locationKey: "general-secondary", rows: [
+    { assetReference: "FA-10", location: "Guard House Panel" }
+  ] };
+  assert.deepEqual(parseLocationProposalPatch(primaryPatch, "fire_alarm_detector"), primaryPatch);
+  assert.deepEqual(parseLocationProposalPatch(secondaryPatch, "fire_alarm_detector"), secondaryPatch);
+  // Secondary's {assetReference, location} shape is refused for general-primary and vice versa.
+  assert.equal(parseLocationProposalPatch({ ...primaryPatch, rows: secondaryPatch.rows }, "fire_alarm_detector"), undefined, "secondary shape refused for general-primary");
+  assert.equal(parseLocationProposalPatch({ ...secondaryPatch, rows: primaryPatch.rows }, "fire_alarm_detector"), undefined, "primary shape refused for general-secondary");
+  // Only the two known pseudo-locations are valid targets -- no technician-named location, no add-location.
+  assert.equal(parseLocationProposalPatch({ ...primaryPatch, locationKey: "general" }, "fire_alarm_detector"), undefined);
+  assert.equal(parseLocationProposalPatch({ kind: "add-location", locationKey: "general-primary", displayName: "X", zoneKey: null, newZone: { key: "z", displayName: "Z" } }, "fire_alarm_detector"), undefined);
+
+  const initial: LocationConfigurationInput = { zones: [], locations: [] };
+  const afterPrimary = applyLocationProposalPatch(initial, primaryPatch, "fire_alarm_detector")!;
+  assert.deepEqual(afterPrimary.locations, [{ key: "general-primary", displayName: "General (Primary Devices)", zoneId: null,
+    presetRowCount: 2, rowPreset: { fireAlarmTable: "primary", rows: primaryPatch.rows }, sortOrder: 1 }]);
+  // Approving the second table's format APPENDS a second location rather than clobbering the first --
+  // this is the behavior Roller Shutter/Hose Reel never needed (they have only one pseudo-location).
+  const afterBoth = applyLocationProposalPatch(afterPrimary, secondaryPatch, "fire_alarm_detector")!;
+  assert.equal(afterBoth.locations.length, 2);
+  assert.deepEqual(afterBoth.locations[0], afterPrimary.locations[0], "the primary location is untouched by the secondary approval");
+  assert.deepEqual(afterBoth.locations[1], { key: "general-secondary", displayName: "General (Secondary Alarm Devices)", zoneId: null,
+    presetRowCount: 1, rowPreset: { fireAlarmTable: "secondary", rows: secondaryPatch.rows }, sortOrder: 2 });
+
+  // A second update-format against an already-bootstrapped location replaces its rows in place and
+  // keeps `fireAlarmTable` -- losing that routing would make `fireAlarmRepository.ts`'s
+  // `configuredRows()` throw "missing or invalid row routing" on the very next visit.
+  const secondPrimaryPatch = { ...primaryPatch, rows: [{ assetReference: "FA-99", alarmZone: "Zone C", location: "Roof Plant Room" }] };
+  const updated = applyLocationProposalPatch(afterBoth, secondPrimaryPatch, "fire_alarm_detector")!;
+  assert.deepEqual(updated.locations[0], { ...afterBoth.locations[0], presetRowCount: 1, rowPreset: { fireAlarmTable: "primary", rows: secondPrimaryPatch.rows } });
+  assert.deepEqual(updated.locations[1], afterBoth.locations[1], "the secondary location is untouched");
+
+  // Round-trips through the Manager's own direct editor validator too (zone-free, capped at 250, two keys).
+  const submitted = { zones: [], locations: updated.locations.map(({ sortOrder: _sortOrder, ...location }) => location) };
+  assert.deepEqual(parseLocationConfigurationInput(submitted, "fire_alarm_detector"), updated);
+  assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...submitted.locations[0]!, key: "third" }] }, "fire_alarm_detector"), undefined, "unknown pseudo-location key refused");
+  assert.equal(parseLocationConfigurationInput({ zones: [], locations: [submitted.locations[0]!, submitted.locations[1]!, { ...submitted.locations[0]!, key: "general-primary" }] }, "fire_alarm_detector"), undefined, "more than two locations refused");
+});
+
 test("Hydrant / Dry-Wet-Riser format: assetReference/locationText rows accepted, zone-requiring add-location still required (not zone-free)", () => {
   for (const systemKey of ["hydrant", "dry_wet_riser"]) {
     const patch = { kind: "update-format" as const, locationKey: "loc-a", rows: [

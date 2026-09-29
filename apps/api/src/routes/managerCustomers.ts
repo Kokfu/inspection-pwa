@@ -14,6 +14,7 @@ import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/
 import {
   locationConfigurableSystemKeys,
   parseLocationConfigurationInput,
+  zoneFreeLocationKeysBySystem,
   type LocationConfigurationInput
 } from "../inspections/locationConfiguration.js";
 import {
@@ -617,11 +618,12 @@ export async function applyManagerLocationsUpdate(
   const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
   if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
   // Other location-dependent systems require a zone in this same system.
-  // Roller Shutter is zone-free; assert both contracts at the write path.
+  // Roller Shutter/Hose Reel/Fire Alarm are zone-free; assert both contracts at the write path.
   const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
-  if (systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel"
-    ? parsed.zones.length !== 0 || parsed.locations.length > 1
-      || parsed.locations.some((location) => location.zoneId !== null || location.key !== "general" || location.presetRowCount > 250)
+  const zoneFreeKeys = zoneFreeLocationKeysBySystem[systemKey];
+  if (zoneFreeKeys !== undefined
+    ? parsed.zones.length !== 0 || parsed.locations.length > zoneFreeKeys.length
+      || parsed.locations.some((location) => location.zoneId !== null || !zoneFreeKeys.includes(location.key) || location.presetRowCount > 250)
     : parsed.locations.some((location) => location.zoneId === null || !submittedZoneKeys.has(location.zoneId))) {
     throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
   }

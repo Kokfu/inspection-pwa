@@ -98,9 +98,12 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
         <h4>Updated format for "{selected.payload.locationKey}"</h4>
         <ul className="manager-locations-location-list">
           {selected.payload.rows.map((row, index) => (
-            <li key={index}><strong>Row {index + 1}</strong>{"assetReference" in row
-              ? <><span>Asset: {row.assetReference || "(no reference)"}</span><span>Location: {row.locationText || "(no location)"}</span>{"drumType" in row ? <span>Drum type: {row.drumType === "swing" ? "Swing" : row.drumType === "fixed" ? "Fixed" : "Not selected"}</span> : null}</>
-              : <><span>Zone: {row.alarmZone || "(no zone)"}</span><span>Location: {row.location || "(no location)"}</span></>}</li>
+            <li key={index}><strong>Row {index + 1}</strong>
+              {"assetReference" in row ? <span>Asset: {row.assetReference || "(no reference)"}</span> : null}
+              {"alarmZone" in row ? <span>Zone: {row.alarmZone || "(no zone)"}</span> : null}
+              <span>Location: {(row.locationText ?? row.location) || "(no location)"}</span>
+              {"drumType" in row ? <span>Drum type: {row.drumType === "swing" ? "Swing" : row.drumType === "fixed" ? "Fixed" : "Not selected"}</span> : null}
+            </li>
           ))}
         </ul>
       </>}

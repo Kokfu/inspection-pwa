@@ -3,6 +3,24 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-29 — **Fire Alarm location-format reuse (uncommitted; stop before staging).**
+Extended the location-proposal patch model to Fire Alarm -- the most structurally complex remaining
+service, with TWO repeatable tables (primary device rows, secondary alarm device rows) in one
+inspection record. Modeled as zone-free with two independent pseudo-locations, `general-primary` and
+`general-secondary` (one per table, since a real location's rows already route entirely to one table
+via `rowPreset.fireAlarmTable`), each with its own "Save as format for next visit" button and
+independently proposable/approvable. `FireAlarmPrimaryDeviceRow`/`FireAlarmSecondaryAlarmDeviceRow`'s
+frozen serialized shapes are unchanged. Also generalized three separate hardcoded "Roller
+Shutter/Hose Reel are the only zone-free systems" checks (in `locationConfiguration.ts` twice, and in
+`managerCustomers.ts`'s shared write path) into one shared `zoneFreeLocationKeysBySystem` registry
+supporting more than one implicit location per system -- a real bug this task's own integration test
+caught (`applyManagerLocationsUpdate` initially rejected the second pseudo-location's zone-free write).
+Same UI fix as Hydrant: removed the dead-code `readOnly={configured}` lock on primary/secondary
+identity inputs (server never enforced content-matching for V7 anyway). Focused unit/integration
+tests, both typechecks/builds, and a real (non-Docker, disposable-Postgres) browser walkthrough all
+passed -- see the newest change-log entry for the full design writeup, test list, and a flagged
+Roller Shutter follow-up (same lock is still live there, unconfirmed whether intentional).
+
 **Last updated:** 2026-09-29 — **Hose Reel location-format reuse (uncommitted; stop before staging).**
 Hose Reel's schema-3 form now saves the actual drum count and each drum's type, location, and
 reference as a customer-level row format for Supervisor approval. Approval creates or updates
@@ -3094,6 +3112,153 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-09-29 — **Fire Alarm location-format reuse (uncommitted; stop before staging).**
+  Extended the location-proposal patch model to Fire Alarm (`fire_alarm_detector`), reusing the
+  generalized pattern from Phase 2.1/2.2/2.3 (`update-format`, `technicianLocationProposalDraft.ts`,
+  fail-closed preset pre-fill, "Save as format for next visit").
+  - **Why Fire Alarm needed its own design, not a straight copy.** Per
+    `.agents/skills/repeatable-row-model/SKILL.md`, Fire Alarm's primary + alarm-device rows are
+    frozen/divergent-named, same constraint as Phase 2.3's systems -- so `FireAlarmPrimaryDeviceRow`
+    and `FireAlarmSecondaryAlarmDeviceRow`'s serialized shapes were never touched. But Fire Alarm is
+    structurally unlike every prior system: it has TWO repeatable tables in ONE inspection record
+    (`repetitionMode: "single_with_two_repeatable_tables"`), and `fireAlarmRepository.ts`'s
+    `configuredRows()` already routes a whole configured LOCATION's rows to exactly one table via
+    `location.rowPreset.fireAlarmTable` ("primary" | "secondary") -- never both. Fire Alarm was never
+    in `locationConfigurableSystemKeys` before this task, so in production every row has always been
+    technician-sourced (`fireAlarmTable` routing was dead code), exactly like Hydrant before its own
+    Phase.
+  - **Design decision (documented per the task brief): treat Fire Alarm as zone-free with TWO
+    independent pseudo-locations, not real zones/locations.** Considered and rejected: (a) real zoned
+    locations like Hydrant, where `add-location` would need a new field naming which table a location
+    is for, plus Approve-time cross-validation that a re-submitted format's row shape still matches the
+    location's originally-assigned table; (b) one `update-format` patch carrying two named row groups.
+    Chose instead: `add-location` stays refused (like Roller Shutter/Hose Reel), and `update-format`
+    targets one of exactly two fixed keys, `general-primary` / `general-secondary` -- the locationKey
+    itself unambiguously determines the row shape (`{assetReference,alarmZone,location}` vs
+    `{assetReference,location}`) and the `fireAlarmTable` to bootstrap, with no cross-referencing of
+    stored state needed at parse time. This is the simplest option that doesn't require inventing a new
+    patch field, and it mirrors Roller Shutter/Hose Reel's already-proven zero-real-zone pattern --
+    just doubled, since Fire Alarm has two tables where they have one. Each pseudo-location gets its
+    own "Save as format for next visit" button in `FireAlarmInspectionForm.tsx` (reads
+    `primaryDeviceRows`/`secondaryAlarmDeviceRows` respectively), not a per-real-location button like
+    Hydrant/Riser.
+  - **Generalized the zone-free-system special case wherever it was hardcoded, rather than adding a
+    third copy.** `locationConfiguration.ts` had it hardcoded twice (`parseLocationConfigurationInput`'s
+    "general" key/count check, and `applyLocationProposalPatch`'s single-location bootstrap), and
+    `managerCustomers.ts`'s `applyManagerLocationsUpdate` (the shared write path both the Manager's own
+    PUT route and location-proposal Approve call) had a THIRD, independent copy. All three now read a
+    single exported `zoneFreeLocationKeysBySystem: Record<string, readonly string[]>` (Roller
+    Shutter/Hose Reel: `["general"]`; Fire Alarm: `["general-primary","general-secondary"]`).
+    `applyLocationProposalPatch`'s bootstrap branch was also changed from "replace the whole
+    `{zones, locations}` when the ONE known key is missing" to "append when a target key from the
+    system's allowed set is missing, capped at that set's length" -- needed because Fire Alarm's SECOND
+    pseudo-location's first approval must not clobber the first one already created. Byte-identical
+    behavior for Roller Shutter/Hose Reel confirmed by the pre-existing tests passing unmodified.
+  - **Real bug caught by this task's own integration test, not by inspection.** Before generalizing
+    `managerCustomers.ts`'s copy of the zone-free check, approving Fire Alarm's first `update-format`
+    (bootstrapping `general-primary`, `zoneId: null`) failed with `400 INVALID_LOCATION_CONFIGURATION`
+    ("Every location must reference a submitted zone") -- `applyManagerLocationsUpdate` didn't know
+    `fire_alarm_detector` was zone-free at all, since that check was its own independent hardcoded
+    `fire_rated_roller_shutter || hose_reel` list, never touched when `locationConfigurableSystemKeys`
+    gained `fire_alarm_detector`. Fixed by the same `zoneFreeLocationKeysBySystem` generalization above.
+  - **`rowPreset` shape.** `{ fireAlarmTable: "primary" | "secondary", assetReference?: string, rows?:
+    Array<{assetReference,alarmZone,location}> | Array<{assetReference,location}> }` --
+    `fireAlarmTable` is REQUIRED (not a legacy fallback like Hydrant's flat `assetReference`) since
+    `configuredRows()` throws "missing or invalid row routing" without it; `applyLocationProposalPatch`
+    now always re-derives and preserves it from `locationKey` on every merge (fail-closed sanity check:
+    refuses if an existing location's stored `fireAlarmTable` ever disagreed). `parseFireAlarmRowPreset`
+    (`fireAlarmDefinition.ts`) extended, mirroring Hydrant's `rowPresets()`: a `rows[]` array is trusted
+    only when every entry matches its table's exact field set; any mismatch drops the WHOLE array
+    (never a partial/mixed layout), falling back to the flat `assetReference` default and the location's
+    own `displayName`/zone for `alarmZone`/`location`.
+  - **`configuredRows()`** (`fireAlarmRepository.ts`, exported for testability) now reads
+    `preset.rows[]` index-aligned with `presetRowCount` for BOTH tables (previously always derived
+    `assetReference`/`alarmZone`/`location` from the flat fallback and the location's own
+    zone/displayName, never a saved per-row preset).
+  - **UI fix required to make the feature functional, same root cause as Hydrant's.**
+    `FireAlarmInspectionForm.tsx` had `readOnly={row.source === "configured"}` on all 5 primary +
+    secondary identity inputs -- dead code until now (Fire Alarm was never location-configurable, so
+    `row.source` was always `"technician"` in production). Removed; the fieldset's own
+    `disabled={!editable}` already gates edits once a Draft is submitted, and neither the V7 client
+    validator (`fireAlarmV7Evidence.ts`) nor the V7 server acceptance (`fireAlarmV7Acceptance.ts`'s
+    `validResponses`) enforce a configured row's content matching a frozen/expected value (confirmed by
+    reading both) -- unlike Roller Shutter, which still enforces this AND still has the same
+    `disabled={configured}` lock live in its own form. **Flagged as a separate follow-up** (not fixed
+    here, out of this task's scope): Roller Shutter may have the same "Save as format is a permanent
+    no-op after the first save" bug Hydrant had, unconfirmed whether the strict match-check is an
+    intentional product decision.
+  - **`ManagerLocationProposals.tsx`** needed a small generalization (not "no change" like
+    Hydrant/Riser): its row renderer branched on `"assetReference" in row` to show `Asset: / Location:
+    {row.locationText}` OR `Zone: / Location: {row.location}` -- neither branch fit Fire Alarm's
+    `{assetReference, alarmZone, location}` (primary) or `{assetReference, location}` (secondary) rows,
+    since the field NAME `location` (not `locationText`) collided with the assetReference branch,
+    which would have shown "(no location)" always. Rewrote to check each field key independently
+    (`assetReference`, `alarmZone`, `location ?? locationText`, `drumType`), verified byte-identical
+    rendering for every existing system's row shape.
+  - **Tests.** `locationConfiguration.test.ts`: new "Fire Alarm format" case covering both pseudo-
+    locations' independent bootstrap/append/update-in-place, cross-table shape refusal in both
+    directions, add-location refusal, and the direct-editor round trip capped at two keys. All 16
+    existing cases in this file re-run unmodified -- **PASS**. `fireAlarmRowPresetReuse.test.ts` (new,
+    8 tests): per-table pre-fill, missing-routing throws, fail-closed on malformed/short presets (no
+    mixed layout), the flat fallback, and a secondary-shaped row saved against a primary location
+    being dropped whole. `locationProposals.integration.test.ts` extended with a Fire Alarm scenario
+    (disposable Postgres): add-location refused -> `general-primary` update-format -> approve ->
+    `general-secondary` update-format -> approve (both pseudo-locations present, neither clobbers the
+    other) -> exact stored `row_preset` verified by direct DB read for both -> a second
+    `general-primary` update-format replaces it in place, leaves `general-secondary` untouched ->
+    a secondary-shaped row against `general-primary` refused (400) at submit time. Also re-ran
+    `managerLocations.integration.test.ts`, `managerCustomers.integration.test.ts`,
+    `managerSystemConfiguration.integration.test.ts`, `managerLabelOverrides.integration.test.ts`,
+    `fireAlarmV7.integration.test.ts` (3/4 -- one unrelated pre-existing failure, see Known
+    limitations), `fireAlarmV6Acceptance.integration.test.ts` -- **PASS, no regressions**. Both apps'
+    `typecheck` and `build` -- **PASS**. `git diff --check` -- clean (CRLF warnings only).
+  - **Manual browser walkthrough (real, non-Docker dev stack: disposable Postgres, `apps/api` dev
+    server, and a temporary Vite proxy with a `/api` prefix rewrite -- all reverted afterward).** Seeded
+    fresh admin/inspector/supervisor accounts and used the ALREADY-enabled "Hokuden (Malaysia) Sdn Bhd"
+    demo customer (Fire Alarm was already assigned to it, since the system requires no pre-configured
+    location to be assignable -- confirmed unaffected by this task, `locationDependentSystemKeys` in
+    `managerCustomers.ts` was never touched). As technician: created a real service visit, opened the
+    V7 Fire Alarm form, added one primary row (`FA-01` / `Zone A` / `Level 1 Lobby`) and one secondary
+    row (`FA-10` / `Guard House Panel`), clicked "Save as format for next visit" on each -- both
+    "Submitted for Supervisor review" immediately (online). As supervisor: hit the same PRE-EXISTING
+    `#/manager-location-proposals` full-navigation quirk documented in the Hydrant entry (stray
+    `GET /inspection-jobs` 403 wedging the app shell into "Manager server data is currently
+    unavailable"), so approved both via an authenticated `fetch` through the real running server, same
+    workaround as before -- both approvals returned `201`, and a direct DB read confirmed
+    `general-primary`/`general-secondary` each stored with the exact typed content and correct
+    `fireAlarmTable`. As technician on a freshly-created THIRD visit: the Fire Alarm form opened with
+    BOTH tables pre-filled from the live DOM -- primary row `assetReference="FA-01"`,
+    `alarmZone="Zone A"`, `location="Level 1 Lobby"`; secondary row `assetReference="FA-10"`,
+    `location="Guard House Panel"` -- **the actual payoff for both tables, read directly from input
+    values, not inferred**. Confirmed editable (proving the UI fix): typed a change into the primary
+    row's Location field, clicked Save Draft, reloaded the DOM read -- the edit persisted through a
+    real IndexedDB + V7-dispatch round trip with no validation error, confirming V7 truly does not
+    enforce configured-row content matching. The disposable Postgres, temporary Vite proxy, and seed
+    scripts were removed afterward; no production data or physical phone was used.
+  - **Known limitations.** (1) Same pre-existing `#/manager-location-proposals` full-navigation quirk
+    as the Hydrant entry -- reproduced again here, still unrelated to this task's own code. (2) One
+    `fireAlarmV7.integration.test.ts` case ("accepts frozen current-Poor evidence, retries after
+    closure, and PDF-embeds accepted image") failed in this sandbox with `REPORT_CHROMIUM_PATH binary
+    is missing or not executable` -- a pre-existing environment limitation (no Chromium installed
+    here), unrelated to this task; the other 3 cases in that file passed. (3) Roller Shutter's own
+    `disabled={configured}` lock (see UI fix note above) was flagged as a separate follow-up, not
+    fixed here. (4) No physical phone or PWA force-close test was performed (release-acceptance level,
+    not required for this task's Level 2 scope).
+  - **Files changed:** `apps/api/src/inspections/locationConfiguration.ts` (registry, shared
+    zone-free-key registry, per-locationKey row field resolution, bootstrap/merge generalization),
+    `apps/api/src/inspections/locationConfiguration.test.ts` (new Fire Alarm case),
+    `apps/api/src/routes/managerCustomers.ts` (shared zone-free check in
+    `applyManagerLocationsUpdate`), `apps/api/src/routes/locationProposals.integration.test.ts` (new
+    Fire Alarm scenario), `apps/web/src/fireAlarm/fireAlarmTypes.ts` (`FireAlarmRowPreset` gains
+    `rows`), `apps/web/src/fireAlarm/fireAlarmDefinition.ts` (`parseFireAlarmRowPreset` fail-closed
+    rows reader), `apps/web/src/fireAlarm/fireAlarmRepository.ts` (`configuredRows` exported, reads
+    saved rows per table), `apps/web/src/fireAlarm/FireAlarmInspectionForm.tsx` (props, two
+    independent Save-as-format actions, the `readOnly={configured}` fix),
+    `apps/web/src/jobs/technicianLocationProposalDraft.ts` (`validPatch` field-set + locationKey
+    check), `apps/web/src/manager/ManagerLocationProposals.tsx` (generalized row renderer),
+    `apps/web/src/App.tsx` (`actorUserId`/`canUseServer` threaded to the form),
+    `apps/web/tests/fireAlarmRowPresetReuse.test.ts` (new).
 
 - 2026-09-29 — **Hydrant / Dry-Wet-Riser location-format reuse (uncommitted; stop before staging).**
   Extended the location-proposal patch model to the two remaining repeatable-row services with

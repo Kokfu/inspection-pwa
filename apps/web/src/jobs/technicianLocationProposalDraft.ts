@@ -54,19 +54,27 @@ export function newUpdateFormatDraft(
 function validPatch(value: unknown, systemKey: string): value is LocationProposalPatch {
   if (!value || typeof value !== "object") return false;
   const patch = value as Record<string, unknown>;
+  const zoneFreeLocationKeys: Readonly<Record<string, readonly string[]>> = {
+    fire_rated_roller_shutter: ["general"],
+    hose_reel: ["general"],
+    fire_alarm_detector: ["general-primary", "general-secondary"]
+  };
   if (patch.kind === "add-location") {
-    return systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel" && typeof patch.locationKey === "string" && typeof patch.displayName === "string"
+    return !(systemKey in zoneFreeLocationKeys) && typeof patch.locationKey === "string" && typeof patch.displayName === "string"
       && (patch.zoneKey === null || typeof patch.zoneKey === "string")
       && (patch.newZone === null || (typeof patch.newZone === "object" && patch.newZone !== null
         && typeof (patch.newZone as Record<string, unknown>).key === "string" && typeof (patch.newZone as Record<string, unknown>).displayName === "string"));
   }
   if (patch.kind === "update-format") {
-    return typeof patch.locationKey === "string" && ((systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel") || patch.locationKey === "general")
+    const zoneFreeKeys = zoneFreeLocationKeys[systemKey];
+    return typeof patch.locationKey === "string" && (zoneFreeKeys === undefined || zoneFreeKeys.includes(patch.locationKey))
       && Array.isArray(patch.rows) && patch.rows.length > 0
       && patch.rows.every((row) => {
         if (!row || typeof row !== "object" || Array.isArray(row)) return false;
         const fields = row as Record<string, unknown>;
-        const allowed = systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"]
+        const allowed = systemKey === "fire_alarm_detector"
+          ? (patch.locationKey === "general-primary" ? ["assetReference", "alarmZone", "location"] : ["assetReference", "location"])
+          : systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"]
           : (systemKey === "fire_rated_roller_shutter" || systemKey === "hydrant" || systemKey === "dry_wet_riser") ? ["assetReference", "locationText"]
           : ["alarmZone", "location"];
         return Object.keys(fields).length === allowed.length && allowed.every((name) => typeof fields[name] === "string");

@@ -125,19 +125,41 @@ export function parseFireAlarmSystemDefinition(value: unknown, version: 3 | 6 | 
   return canonicalDefinition(version);
 }
 
+/** Fail-closed per-row preset reader, mirroring `rowPresets` in
+ *  `fireRatedRollerShutterRepository.ts` / `hydrantRepository.ts`: a wrong length, wrong shape, or
+ *  extra/missing key on ANY row invalidates the whole `rows` array (never a partial/mixed layout) --
+ *  the caller falls back to the flat legacy `assetReference` default instead. Row shape depends on
+ *  `table`: primary rows carry `alarmZone` (mirrors `FireAlarmPrimaryDeviceRow`), secondary rows do
+ *  not (mirrors `FireAlarmSecondaryAlarmDeviceRow`). */
+function parseFireAlarmRowPresetRows(value: unknown, table: "primary" | "secondary"): unknown[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const fields = table === "primary" ? ["assetReference", "alarmZone", "location"] : ["assetReference", "location"];
+  if (!value.every((row: unknown) => {
+    if (!isRecord(row)) return false;
+    const keys = Object.keys(row);
+    return keys.length === fields.length && fields.every((field) => keys.includes(field))
+      && typeof row.assetReference === "string" && row.assetReference.length <= 250
+      && typeof row.location === "string" && row.location.length <= 300
+      && (table === "secondary" || (typeof row.alarmZone === "string" && row.alarmZone.length <= 200));
+  })) return undefined;
+  return value;
+}
+
 export function parseFireAlarmRowPreset(value: unknown): FireAlarmRowPreset | undefined {
   if (!isRecord(value)) return undefined;
   const item = value;
-  const keys = Object.keys(item);
+  const keys = Object.keys(item).filter((key) => key !== "rows");
   if (!(keys.length === 1 && keys[0] === "fireAlarmTable"
     || keys.length === 2 && keys.includes("fireAlarmTable") && keys.includes("assetReference"))
     || (item.fireAlarmTable !== "primary" && item.fireAlarmTable !== "secondary")) return undefined;
+  const table = item.fireAlarmTable;
+  const rows = "rows" in item ? parseFireAlarmRowPresetRows(item.rows, table) : undefined;
   if ("assetReference" in item) {
     const assetReference = item.assetReference;
     if (typeof assetReference !== "string" || assetReference.length > 250) return undefined;
-    return { fireAlarmTable: item.fireAlarmTable, assetReference };
+    return { fireAlarmTable: table, assetReference, ...(rows ? { rows } : {}) } as FireAlarmRowPreset;
   }
-  return { fireAlarmTable: item.fireAlarmTable };
+  return { fireAlarmTable: table, ...(rows ? { rows } : {}) } as FireAlarmRowPreset;
 }
 
 const deviceResult = (multi = false): ResolvedFireAlarmResult<DeviceState> => ({

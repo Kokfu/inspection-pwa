@@ -313,6 +313,70 @@ test("location proposal patches: add-location + update-format, independent pendi
         assert.equal(ghostDecision.status, 409, systemKey);
         assert.equal((await ghostDecision.json() as { error: string }).error, "LOCATION_PROPOSAL_TARGET_INVALID");
       }
+
+      // Fire Alarm: zone-free like Roller Shutter/Hose Reel, but with TWO independent pseudo-locations
+      // ("general-primary" / "general-secondary", one per repeatable table) instead of one --
+      // add-location stays refused, and each pseudo-location's first approved update-format
+      // bootstraps it without disturbing the other.
+      {
+        const fireAlarmJob = id();
+        const fireAlarmSnapshot = { ...co2Snapshot, enabledSystems: [{ ...co2Snapshot.enabledSystems[0],
+          enabledSystemId: id(), systemKey: "fire_alarm_detector", displayName: "fire_alarm_detector" }] };
+        await pool.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date,created_by_user_id) VALUES($1,$2,$3,'Fire Alarm Format Test','open',false,true,$4,$5,$6,'2026-09-29',$7)",
+          [fireAlarmJob, template.id, `LPP-fire-alarm-${fireAlarmJob}`, customer, revision, fireAlarmSnapshot, inspector]);
+        const fireAlarmPath = `/technician/customers/${customer}/systems/fire_alarm_detector/location-proposals`;
+
+        const addRefused = await call(fireAlarmPath, "inspector", "POST", { id: id(), jobId: fireAlarmJob, patch: addPatchNewZone("general-primary", "X", "fa-zone", "Zone") });
+        assert.equal(addRefused.status, 400, await addRefused.clone().text());
+
+        const primaryRows = [{ assetReference: "FA-01", alarmZone: "Zone A", location: "Level 1 Lobby" }, { assetReference: "FA-02", alarmZone: "Zone B", location: "Level 2 Corridor" }];
+        const submitPrimary = (rows: typeof primaryRows) => call(fireAlarmPath, "inspector", "POST", {
+          id: id(), jobId: fireAlarmJob, patch: { kind: "update-format", locationKey: "general-primary", rows }
+        });
+        const firstPrimary = await submitPrimary(primaryRows);
+        assert.equal(firstPrimary.status, 201, await firstPrimary.clone().text());
+        const firstPrimaryId = (await firstPrimary.json() as { proposal: { id: string } }).proposal.id;
+        assert.equal((await decide(firstPrimaryId, "supervisor", { requestId: id(), decision: "approved" })).status, 201);
+
+        const secondaryRows = [{ assetReference: "FA-10", location: "Guard House Panel" }];
+        const submitSecondary = (rows: typeof secondaryRows) => call(fireAlarmPath, "inspector", "POST", {
+          id: id(), jobId: fireAlarmJob, patch: { kind: "update-format", locationKey: "general-secondary", rows }
+        });
+        const firstSecondary = await submitSecondary(secondaryRows);
+        assert.equal(firstSecondary.status, 201, await firstSecondary.clone().text());
+        const firstSecondaryId = (await firstSecondary.json() as { proposal: { id: string } }).proposal.id;
+        assert.equal((await decide(firstSecondaryId, "admin", { requestId: id(), decision: "approved" })).status, 201);
+
+        const storedFireAlarm = async () => (await pool.query<{ key: string; count: number; preset: unknown }>(`
+          SELECT location.location_key AS key, location.preset_row_count AS count, location.row_preset AS preset
+          FROM customer_system_locations location
+          JOIN customer_enabled_systems enabled ON enabled.id=location.enabled_system_id
+          JOIN customer_configuration_revisions revision ON revision.id=enabled.configuration_revision_id
+          WHERE revision.customer_id=$1 AND revision.status='active' AND enabled.system_key='fire_alarm_detector'
+          ORDER BY location.location_key`, [customer])).rows;
+        assert.deepEqual(await storedFireAlarm(), [
+          { key: "general-primary", count: 2, preset: { fireAlarmTable: "primary", rows: primaryRows } },
+          { key: "general-secondary", count: 1, preset: { fireAlarmTable: "secondary", rows: secondaryRows } }
+        ]);
+
+        // A second update-format against general-primary replaces its rows in place, preserves
+        // fireAlarmTable (losing it would make the next visit's form throw), and leaves
+        // general-secondary completely untouched.
+        const nextPrimaryRows = [{ assetReference: "FA-99", alarmZone: "Zone C", location: "Roof Plant Room" }];
+        const secondPrimary = await submitPrimary(nextPrimaryRows);
+        assert.equal(secondPrimary.status, 201, await secondPrimary.clone().text());
+        const secondPrimaryId = (await secondPrimary.json() as { proposal: { id: string } }).proposal.id;
+        assert.equal((await decide(secondPrimaryId, "supervisor", { requestId: id(), decision: "approved" })).status, 201);
+        assert.deepEqual(await storedFireAlarm(), [
+          { key: "general-primary", count: 1, preset: { fireAlarmTable: "primary", rows: nextPrimaryRows } },
+          { key: "general-secondary", count: 1, preset: { fireAlarmTable: "secondary", rows: secondaryRows } }
+        ]);
+
+        // A secondary-shaped row ({assetReference, location}, no alarmZone) submitted against
+        // general-primary is refused at submit time, not silently accepted or cross-applied.
+        const crossShape = await call(fireAlarmPath, "inspector", "POST", { id: id(), jobId: fireAlarmJob, patch: { kind: "update-format", locationKey: "general-primary", rows: secondaryRows } });
+        assert.equal(crossShape.status, 400, await crossShape.clone().text());
+      }
     } finally { await close(server); }
 
     // Append-only at the database level.
