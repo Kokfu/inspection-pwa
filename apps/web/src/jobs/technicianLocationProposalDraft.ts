@@ -1,50 +1,78 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
-import { submitTechnicianLocationProposal } from "../referenceData/referenceDataApi";
+import { submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
 
 /**
- * Technician-proposed customer zone/location breakdown, reviewed by a Supervisor/Admin before it
- * becomes the customer's real, versioned configuration. Modeled on `technicianCustomerDraft.ts` --
- * the closest existing "technician creates something offline that becomes real via server
- * confirmation" precedent -- but keyed per `(jobId, systemKey)` (not a single global draft) so a
- * technician can have at most one in-progress draft per job+system, and reopening the job resumes it.
+ * Technician-proposed customer location patch, reviewed by a Supervisor/Admin before it's merged into
+ * the customer's real, versioned configuration. Modeled on `technicianCustomerDraft.ts` -- the closest
+ * existing "technician creates something offline that becomes real via server confirmation" precedent
+ * -- but keyed per `(jobId, systemKey, targetLocationKey)` (not a single global draft) so a technician
+ * can have an "add a new location" draft AND an "update this location's format" draft for the same
+ * job+system pending locally at once, and reopening the job/form resumes the right one.
+ *
+ * `patch` is the same discriminated union the server validates (`LocationProposalPatch`):
+ * `add-location` (name a brand-new location; no real inspection data exists for it yet) or
+ * `update-format` (save row count + per-row content from the live inspection form's current
+ * responses, possibly still Draft; first approval may create Roller Shutter's General location).
  */
-
-export type TechnicianLocationProposalZone = { key: string; displayName: string };
-export type TechnicianLocationProposalLocation = { key: string; displayName: string; zoneKey: string; presetRowCount: number };
 
 export type TechnicianLocationProposalDraft = {
   id: string;
   jobId: string;
   customerId: string;
   systemKey: string;
-  zones: TechnicianLocationProposalZone[];
-  locations: TechnicianLocationProposalLocation[];
+  patch: LocationProposalPatch;
   status: "Draft" | "Pending" | "Failed" | "Synced";
   lastError?: string;
 };
 
-type ProposalOutboxPayload = {
-  id: string; jobId: string; customerId: string; systemKey: string;
-  zones: Array<{ key: string; displayName: string; sortOrder: number }>;
-  locations: Array<{ key: string; displayName: string; zoneId: string; presetRowCount: number }>;
-};
+type ProposalOutboxPayload = { id: string; jobId: string; customerId: string; systemKey: string; patch: LocationProposalPatch };
 
-function draftKey(jobId: string, systemKey: string) {
-  return `technician-location-proposal:${jobId}:${systemKey}`;
+function newLocalKey() {
+  const raw = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `k${Date.now()}${Math.random()}`;
+  return raw.replace(/[^a-z0-9]/gi, "").slice(0, 12) || `k${Date.now()}`;
 }
 
-export function newTechnicianLocationProposalDraft(jobId: string, customerId: string, systemKey: string): TechnicianLocationProposalDraft {
-  return { id: crypto.randomUUID(), jobId, customerId, systemKey, zones: [], locations: [], status: "Draft" };
+function draftKey(jobId: string, systemKey: string, targetLocationKey: string) {
+  return `technician-location-proposal:${jobId}:${systemKey}:${targetLocationKey}`;
 }
 
-function proposalPayload(draft: TechnicianLocationProposalDraft): ProposalOutboxPayload {
+export function newAddLocationDraft(jobId: string, customerId: string, systemKey: string): TechnicianLocationProposalDraft {
   return {
-    id: draft.id, jobId: draft.jobId, customerId: draft.customerId, systemKey: draft.systemKey,
-    zones: draft.zones.map((zone, index) => ({ key: zone.key, displayName: zone.displayName.trim(), sortOrder: index + 1 })),
-    locations: draft.locations.map((location) => ({
-      key: location.key, displayName: location.displayName.trim(), zoneId: location.zoneKey, presetRowCount: location.presetRowCount
-    }))
+    id: crypto.randomUUID(), jobId, customerId, systemKey,
+    patch: { kind: "add-location", locationKey: newLocalKey(), displayName: "", zoneKey: null, newZone: null },
+    status: "Draft"
   };
+}
+
+export function newUpdateFormatDraft(
+  jobId: string, customerId: string, systemKey: string, locationKey: string,
+  rows: Array<Record<string, string>>
+): TechnicianLocationProposalDraft {
+  return { id: crypto.randomUUID(), jobId, customerId, systemKey, patch: { kind: "update-format", locationKey, rows }, status: "Draft" };
+}
+
+function validPatch(value: unknown, systemKey: string): value is LocationProposalPatch {
+  if (!value || typeof value !== "object") return false;
+  const patch = value as Record<string, unknown>;
+  if (patch.kind === "add-location") {
+    return systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel" && typeof patch.locationKey === "string" && typeof patch.displayName === "string"
+      && (patch.zoneKey === null || typeof patch.zoneKey === "string")
+      && (patch.newZone === null || (typeof patch.newZone === "object" && patch.newZone !== null
+        && typeof (patch.newZone as Record<string, unknown>).key === "string" && typeof (patch.newZone as Record<string, unknown>).displayName === "string"));
+  }
+  if (patch.kind === "update-format") {
+    return typeof patch.locationKey === "string" && ((systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel") || patch.locationKey === "general")
+      && Array.isArray(patch.rows) && patch.rows.length > 0
+      && patch.rows.every((row) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+        const fields = row as Record<string, unknown>;
+        const allowed = systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"]
+          : (systemKey === "fire_rated_roller_shutter" || systemKey === "hydrant" || systemKey === "dry_wet_riser") ? ["assetReference", "locationText"]
+          : ["alarmZone", "location"];
+        return Object.keys(fields).length === allowed.length && allowed.every((name) => typeof fields[name] === "string");
+      });
+  }
+  return false;
 }
 
 function valid(value: unknown): value is TechnicianLocationProposalDraft {
@@ -52,18 +80,15 @@ function valid(value: unknown): value is TechnicianLocationProposalDraft {
   const draft = value as TechnicianLocationProposalDraft;
   return typeof draft.id === "string" && /^[0-9a-f-]{36}$/i.test(draft.id)
     && typeof draft.jobId === "string" && typeof draft.customerId === "string" && typeof draft.systemKey === "string"
-    && Array.isArray(draft.zones) && draft.zones.every((zone) => zone && typeof zone.key === "string" && typeof zone.displayName === "string")
-    && Array.isArray(draft.locations) && draft.locations.every((location) => location
-      && typeof location.key === "string" && typeof location.displayName === "string"
-      && typeof location.zoneKey === "string" && Number.isInteger(location.presetRowCount))
+    && validPatch(draft.patch, draft.systemKey)
     && ["Draft", "Pending", "Failed", "Synced"].includes(draft.status);
 }
 
 export async function loadTechnicianLocationProposalDraft(
-  jobId: string, systemKey: string, customerId: string
-): Promise<TechnicianLocationProposalDraft> {
-  const row = await localDatabase.drafts.get(draftKey(jobId, systemKey));
-  if (!row) return newTechnicianLocationProposalDraft(jobId, customerId, systemKey);
+  jobId: string, systemKey: string, targetLocationKey: string
+): Promise<TechnicianLocationProposalDraft | undefined> {
+  const row = await localDatabase.drafts.get(draftKey(jobId, systemKey, targetLocationKey));
+  if (!row) return undefined;
   if (row.entityType !== "technicianLocationProposal" || !valid(row.payload)) {
     throw new Error("Saved location proposal draft is invalid; it has been preserved on this device.");
   }
@@ -74,20 +99,28 @@ export async function saveTechnicianLocationProposalDraft(draft: TechnicianLocat
   if (currentWorkspaceUserId() === undefined || !valid(draft) || draft.status !== "Draft") {
     throw new Error("Location proposal draft cannot be saved in this workspace.");
   }
-  await localDatabase.drafts.put({ id: draftKey(draft.jobId, draft.systemKey), entityType: "technicianLocationProposal", payload: draft, updatedAt: new Date().toISOString() });
+  await localDatabase.drafts.put({
+    id: draftKey(draft.jobId, draft.systemKey, draft.patch.locationKey), entityType: "technicianLocationProposal",
+    payload: draft, updatedAt: new Date().toISOString()
+  });
+}
+
+function validateForQueue(draft: TechnicianLocationProposalDraft) {
+  if (draft.patch.kind === "add-location") {
+    if (!draft.patch.locationKey.trim() || !draft.patch.displayName.trim()) throw new Error("Name the new location before submitting.");
+    if (draft.patch.zoneKey === null && draft.patch.newZone === null) throw new Error("Choose an existing zone or name a new one before submitting.");
+    if (draft.patch.newZone !== null && (!draft.patch.newZone.key.trim() || !draft.patch.newZone.displayName.trim())) throw new Error("Name the new zone before submitting.");
+    return;
+  }
+  if (draft.patch.rows.length === 0) throw new Error("There are no rows to save as the format.");
 }
 
 export async function queueTechnicianLocationProposal(draft: TechnicianLocationProposalDraft): Promise<TechnicianLocationProposalDraft> {
   if (currentWorkspaceUserId() === undefined || draft.status !== "Draft") throw new Error("This location proposal cannot be queued.");
-  if (draft.zones.length === 0 || draft.zones.some((zone) => !zone.displayName.trim())) {
-    throw new Error("Add at least one named zone before submitting.");
-  }
-  if (draft.locations.length === 0 || draft.locations.some((location) => !location.displayName.trim() || !location.zoneKey)) {
-    throw new Error("Add at least one named location, each assigned to a zone, before submitting.");
-  }
-  const payload = proposalPayload(draft);
+  validateForQueue(draft);
+  const payload: ProposalOutboxPayload = { id: draft.id, jobId: draft.jobId, customerId: draft.customerId, systemKey: draft.systemKey, patch: draft.patch };
   const at = new Date().toISOString();
-  const key = draftKey(draft.jobId, draft.systemKey);
+  const key = draftKey(draft.jobId, draft.systemKey, draft.patch.locationKey);
   const operation: SyncOutboxItem = {
     operationId: draft.id, entityType: "technicianLocationProposal", entityId: draft.id,
     action: "create", payload, createdAt: at, attempts: 0, status: "Pending", activeKey: `technicianLocationProposal:create:${draft.id}`
@@ -114,11 +147,11 @@ export function syncPendingLocationProposals(actorUserId: number): Promise<void>
     for (const item of rows) {
       if (currentWorkspaceUserId() !== actorUserId || localDatabase !== database) return;
       const payload = item.payload as ProposalOutboxPayload;
-      const key = draftKey(payload.jobId, payload.systemKey);
+      const key = draftKey(payload.jobId, payload.systemKey, payload.patch.locationKey);
       const stored = await database.drafts.get(key);
       const draft = stored?.payload;
       if (!valid(draft) || draft.id !== item.entityId || (draft.status !== "Pending" && draft.status !== "Failed")
-        || JSON.stringify(proposalPayload(draft)) !== JSON.stringify(payload)) {
+        || JSON.stringify({ id: draft.id, jobId: draft.jobId, customerId: draft.customerId, systemKey: draft.systemKey, patch: draft.patch }) !== JSON.stringify(payload)) {
         const message = "Location proposal draft and frozen request do not match";
         await database.transaction("rw", database.drafts, database.syncOutbox, async () => {
           if (valid(draft) && draft.id === item.entityId) {
@@ -135,7 +168,7 @@ export function syncPendingLocationProposals(actorUserId: number): Promise<void>
         if (currentWorkspaceUserId() !== actorUserId || currentIdentity?.userId !== actorUserId
           || currentIdentity.explicitLogout || currentIdentity.serverLogoutPending) throw new Error("Authentication changed; retry after signing in.");
         const result = await submitTechnicianLocationProposal(payload.customerId, payload.systemKey, {
-          id: payload.id, jobId: payload.jobId, zones: payload.zones, locations: payload.locations
+          id: payload.id, jobId: payload.jobId, patch: payload.patch
         }, actorUserId);
         // Never infer success from HTTP 200 alone: the server must confirm this exact UUID.
         if (result.id !== draft.id) throw new Error("Server confirmed a different proposal id.");

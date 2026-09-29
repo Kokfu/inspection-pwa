@@ -1,0 +1,41 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { configuredFireRatedRollerShutterRows } from "../src/fireRatedRollerShutter/fireRatedRollerShutterRepository";
+import type { JobSystemSnapshot } from "../src/jobs/jobTypes";
+
+const locationId = "11111111-1111-4111-8111-111111111111";
+const enabledSystemId = "22222222-2222-4222-8222-222222222222";
+function system(presetRowCount: number, rowPreset: unknown): JobSystemSnapshot {
+  return { enabledSystemId, systemKey: "fire_rated_roller_shutter", displayName: "Fire Rated Roller Shutter",
+    sortOrder: 1, definitionStatus: "confirmed", zones: [], locations: [{ id: locationId, enabledSystemId,
+      zoneId: null, key: "general", displayName: "General", sortOrder: 1, presetRowCount, rowPreset }] };
+}
+
+test("a new Roller Shutter inspection reads both identity fields from each approved preset row", () => {
+  const rows = configuredFireRatedRollerShutterRows(system(2, { rows: [
+    { assetReference: "RS-01", locationText: "North lobby" },
+    { assetReference: "RS-02", locationText: "Loading bay" }
+  ] }));
+  assert.deepEqual(rows.map(({ assetReference, locationText, source, configuredRowOrdinal }) =>
+    ({ assetReference, locationText, source, configuredRowOrdinal })), [
+    { assetReference: "RS-01", locationText: "North lobby", source: "configured", configuredRowOrdinal: 1 },
+    { assetReference: "RS-02", locationText: "Loading bay", source: "configured", configuredRowOrdinal: 2 }
+  ]);
+});
+
+test("malformed or missing Roller Shutter row presets use safe legacy defaults", () => {
+  for (const preset of [undefined, null, {}, { rows: "wrong" }, { rows: [{ assetReference: "RS-01" }] },
+    { rows: [{ assetReference: "RS-01", locationText: "" }] }, { rows: [{ assetReference: "RS-01", locationText: "Lobby", extra: "bad" }] }]) {
+    const rows = configuredFireRatedRollerShutterRows(system(1, preset));
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.assetReference, "");
+    assert.equal(rows[0]?.locationText, "General");
+  }
+});
+
+test("a partial Roller Shutter preset does not produce a mixed configured layout", () => {
+  const rows = configuredFireRatedRollerShutterRows(system(2, { rows: [{ assetReference: "RS-01", locationText: "Lobby" }] }));
+  assert.deepEqual(rows.map(({ assetReference, locationText }) => ({ assetReference, locationText })), [
+    { assetReference: "", locationText: "General" }, { assetReference: "", locationText: "General" }
+  ]);
+});

@@ -725,7 +725,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
                 <input
                   type="number"
                   min={1}
-                  max={500}
+                  max={systemKey === "co2_fire_extinguisher" || systemKey === "fm200_fire_suppression" ? 250 : 500}
                   aria-label={`Preset rows for ${location.key}`}
                   value={location.presetRowCount}
                   onChange={(event) => updateLocation(location.localId, { presetRowCount: Math.trunc(Number(event.target.value)) || 1 })}

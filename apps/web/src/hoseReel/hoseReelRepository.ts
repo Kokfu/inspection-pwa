@@ -75,7 +75,33 @@ function definitionFor(catalog: InspectionCatalogInput, job: InspectionJob) {
     ?? resolvePublishedHoseReelControls(system.definition, template.code, template.version);
   return { definition: system.definition, resolvedControls };
 }
-function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number, isV7: boolean) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: location.displayName, assetReference: null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(isV7 ? { fieldRemarks: {}, drumType: null } : {}) }; }
+type HoseReelRowPreset = { assetReference: string; locationText: string; drumType: HoseReelDrumType | "" };
+/** A malformed saved format is ignored as a whole; an in-progress response is never rewritten. */
+function configuredRowPresets(location: JobLocationSnapshot): HoseReelRowPreset[] | undefined {
+  const preset = location.rowPreset;
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
+  const rows = (preset as Record<string, unknown>).rows;
+  if (!Array.isArray(rows) || rows.length !== location.presetRowCount) return undefined;
+  if (!rows.every((value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const item = value as Record<string, unknown>;
+    return Object.keys(item).length === 3 && Object.keys(item).every((field) => ["assetReference", "locationText", "drumType"].includes(field))
+      && typeof item.assetReference === "string" && item.assetReference.length <= 200
+      && typeof item.locationText === "string" && item.locationText.trim().length > 0 && item.locationText.length <= 300
+      && (item.drumType === "" || item.drumType === "swing" || item.drumType === "fixed");
+  })) return undefined;
+  return rows as HoseReelRowPreset[];
+}
+function row(location: JobLocationSnapshot, zone: JobSystemSnapshot["zones"][number] | undefined, sortOrder: number, isV7: boolean, preset?: HoseReelRowPreset) { return { rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, zoneSnapshot: zone ? { id: zone.id, key: zone.key, displayName: zone.displayName } : null, locationSnapshot: { id: location.id, key: location.key, displayName: location.displayName }, locationText: isV7 ? preset?.locationText ?? location.displayName : location.displayName, assetReference: isV7 && preset?.assetReference ? preset.assetReference : null, sortOrder, drumResult: null, hoseResult: null, nozzleResult: null, valveResult: null, nozzleBoxResult: null, remarks: "", ...(isV7 ? { fieldRemarks: {}, drumType: preset?.drumType || null } : {}) }; }
+export function configuredHoseReelRows(system: JobSystemSnapshot, isV7: boolean): HoseReelRow[] {
+  const zones = new Map(system.zones.map((zone) => [zone.id, zone]));
+  let order = 0;
+  return system.locations.flatMap((location) => {
+    const presets = isV7 ? configuredRowPresets(location) : undefined;
+    return Array.from({ length: location.presetRowCount }, (_, index) =>
+      row(location, zones.get(location.zoneId ?? ""), ++order, isV7, presets?.[index]));
+  });
+}
 /** A blank technician drum section. Schema 3 (V7) carries the per-drum `drumType`
  * label; schema 2 kept the finding-only `fieldRemarks`; historical rows carry
  * neither. */
@@ -90,11 +116,10 @@ function measurementUnit(definition: ResolvedMeasurementRow): string {
   if (units.size !== 1) throw new Error(`Hose Reel measurement ${definition.key} has inconsistent units`);
   return definition.values[0]?.unit ?? "";
 }
-function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelControls): HoseReelResponses {
-  const zones = new Map(system.zones.map((zone) => [zone.id, zone]));
+export function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelControls): HoseReelResponses {
   const jockey = measurement(controls, "jockey_pump_pressure");
   const standby = measurement(controls, "standby_pump_cut_in");
-  let order = 0;
+  const rows = configuredHoseReelRows(system, controls.source.templateVersion === 7);
   return {
     checklist: Object.fromEntries(
       [...controls.checklist.waterTank, ...controls.checklist.pumpHouse, ...(controls.checklist.testRunFirePump ?? [])]
@@ -114,15 +139,11 @@ function emptyResponses(system: JobSystemSnapshot, controls: ResolvedHoseReelCon
         remarks: ""
       }
     },
-    rows: system.locations.flatMap((location) =>
-      Array.from({ length: location.presetRowCount }, () =>
-        row(location, zones.get(location.zoneId ?? ""), ++order, controls.source.templateVersion === 7)
-      )
-    ),
+    rows,
     comments: "",
     // Schema 3 (V7): technician declares the drum count per visit and each drum
     // section carries its own `drumType`. Legacy keeps the global multi-select.
-    ...(controls.source.templateVersion === 7 ? { schemaVersion: 3, drumCount: order } : { drumTypes: { swing: false, fixed: false } })
+    ...(controls.source.templateVersion === 7 ? { schemaVersion: 3, drumCount: rows.length } : { drumTypes: { swing: false, fixed: false } })
   };
 }
 /** The job's frozen per-customer label map for this system, only when non-empty
@@ -160,7 +181,8 @@ function preserveConfiguredRows(current: HoseReelResponses, proposed: HoseReelRe
   const proposedByUuid = new Map(proposed.rows.map((item) => [item.rowUuid, item]));
   const configured = current.rows.filter((item) => item.source === "configured").map((item) => {
     const proposedRow = proposedByUuid.get(item.rowUuid);
-    return proposedRow ? { ...proposedRow, source: "configured" as const, configuredLocationId: item.configuredLocationId, zoneSnapshot: item.zoneSnapshot, locationSnapshot: item.locationSnapshot, locationText: item.locationText, sortOrder: item.sortOrder } : item;
+    return proposedRow ? { ...proposedRow, source: "configured" as const, configuredLocationId: item.configuredLocationId, zoneSnapshot: item.zoneSnapshot, locationSnapshot: item.locationSnapshot,
+      ...(current.schemaVersion === 3 ? {} : { locationText: item.locationText }), sortOrder: item.sortOrder } : item;
   });
   const technician = proposed.rows.filter((item) => item.source === "technician" && !current.rows.some((currentRow) => currentRow.rowUuid === item.rowUuid && currentRow.source === "configured"));
   return { ...proposed, rows: [...configured, ...technician.map((item, index) => ({ ...item, sortOrder: configured.length + index + 1 }))] };

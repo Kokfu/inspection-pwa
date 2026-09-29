@@ -76,7 +76,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
           <button type="button" onClick={() => { setSelectedId(proposal.id); setNote(""); setDecisionError(""); }}>
             <span className="navigation-primary">
               <strong>{proposal.customerDisplayName}</strong>
-              <small>{proposal.systemKey} · {proposal.zoneCount} zone{proposal.zoneCount === 1 ? "" : "s"}, {proposal.locationCount} location{proposal.locationCount === 1 ? "" : "s"}</small>
+              <small>{proposal.systemKey} · {proposal.payload.kind === "add-location" ? `New location: ${proposal.payload.displayName || proposal.payload.locationKey}` : `Update format: ${proposal.payload.locationKey} (${proposal.payload.rows.length} row${proposal.payload.rows.length === 1 ? "" : "s"})`}</small>
             </span>
             <span className="support-metadata">Submitted by {proposal.submittedBy}</span>
           </button>
@@ -88,23 +88,22 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
       <dl className="job-facts">
         <div><dt>Submitted by</dt><dd>{selected.submittedBy}</dd></div>
         <div><dt>Submitted at</dt><dd>{selected.submittedAt}</dd></div>
-        {selected.jobId ? <div><dt>Service visit</dt><dd>{selected.jobId}</dd></div> : null}
+        <div><dt>Service visit</dt><dd>{selected.jobId}</dd></div>
       </dl>
-      <h4>Zones</h4>
-      <ul className="manager-locations-zone-list">
-        {selected.payload.zones.map((zone) => <li key={zone.key}><strong>{zone.displayName}</strong></li>)}
-      </ul>
-      <h4>Locations</h4>
-      <ul className="manager-locations-location-list">
-        {selected.payload.locations.map((location) => {
-          const zone = selected.payload.zones.find((candidate) => candidate.key === location.zoneId);
-          return <li key={location.key}>
-            <strong>{location.displayName}</strong>
-            <span>{zone?.displayName ?? location.zoneId}</span>
-            <span>{location.presetRowCount} preset row{location.presetRowCount === 1 ? "" : "s"}</span>
-          </li>;
-        })}
-      </ul>
+      {selected.payload.kind === "add-location" ? <>
+        <h4>New location</h4>
+        <p><strong>{selected.payload.displayName}</strong> (key: {selected.payload.locationKey})</p>
+        <p>Zone: {selected.payload.newZone ? `${selected.payload.newZone.displayName} (new)` : selected.payload.zoneKey}</p>
+      </> : <>
+        <h4>Updated format for "{selected.payload.locationKey}"</h4>
+        <ul className="manager-locations-location-list">
+          {selected.payload.rows.map((row, index) => (
+            <li key={index}><strong>Row {index + 1}</strong>{"assetReference" in row
+              ? <><span>Asset: {row.assetReference || "(no reference)"}</span><span>Location: {row.locationText || "(no location)"}</span>{"drumType" in row ? <span>Drum type: {row.drumType === "swing" ? "Swing" : row.drumType === "fixed" ? "Fixed" : "Not selected"}</span> : null}</>
+              : <><span>Zone: {row.alarmZone || "(no zone)"}</span><span>Location: {row.location || "(no location)"}</span></>}</li>
+          ))}
+        </ul>
+      </>}
       {selected.decision ? <div className="offline-notice" role="status">
         <p>{selected.decision.decision === "approved" ? "Approved" : "Rejected"} by {selected.decision.decidedBy} ({selected.decision.decidedByRole}) at {selected.decision.decidedAt}.</p>
         {selected.decision.note ? <p>{selected.decision.note}</p> : null}

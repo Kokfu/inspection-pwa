@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail,
-  validateAcceptedFireIntercomV7Detail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail,
+  validateAcceptedFireIntercomV7Detail, validateAcceptedFireRatedRollerShutterV7Detail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail,
   validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail
 } from "../inspections/acceptedMasterSystemDetail.js";
 import { resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
@@ -39,7 +39,8 @@ export const correctableSystems: ReadonlyMap<string, DetailValidator> = new Map<
   ["automatic_sprinkler", validateAcceptedAutomaticSprinklerV7Detail],
   ["dry_wet_riser", validateAcceptedDryWetRiserV7Detail],
   ["smoke_ventilation", validateAcceptedSmokeVentilationV7Detail],
-  ["fire_intercom", validateAcceptedFireIntercomV7Detail]
+  ["fire_intercom", validateAcceptedFireIntercomV7Detail],
+  ["fire_rated_roller_shutter", validateAcceptedFireRatedRollerShutterV7Detail]
 ]);
 
 

@@ -102,7 +102,8 @@ const singleAuthoritySystems = new Set([
   "hydrant",
   "portable_fire_extinguisher",
   "smoke_ventilation",
-  "fire_intercom"
+  "fire_intercom",
+  "fire_rated_roller_shutter"
 ]);
 const perLocationSystems = new Set(["co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"]);
 

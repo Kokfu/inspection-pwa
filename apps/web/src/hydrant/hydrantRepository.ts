@@ -11,17 +11,40 @@ const key = "hydrant" as const;
 const now = () => new Date().toISOString();
 const fields = hydrantResultColumns.map(([responseKey]) => responseKey);
 
-function configured(system: JobSystemSnapshot, isV7: boolean): HydrantRow[] {
+/** Fail-closed per-row preset reader, mirroring `rowPresets` in
+ *  `fireRatedRollerShutterRepository.ts`: `location.rowPreset.rows[]`, index-aligned with the frozen
+ *  `presetRowCount`. Malformed/missing/short presets fall back to the flat legacy defaults below rather
+ *  than crashing or producing a partial configured layout. */
+function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string }> | undefined {
+  const preset = location.rowPreset;
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
+  const rows: unknown = (preset as Record<string, unknown>).rows;
+  if (!Array.isArray(rows) || rows.length !== location.presetRowCount) return undefined;
+  if (!rows.every((row: unknown) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    const value = row as Record<string, unknown>;
+    return Object.keys(value).length === 2
+      && typeof value.assetReference === "string" && value.assetReference.length <= 200
+      && typeof value.locationText === "string" && value.locationText.trim().length > 0 && value.locationText.length <= 300;
+  })) return undefined;
+  return rows as Array<{ assetReference: string; locationText: string }>;
+}
+
+export function configuredHydrantRows(system: JobSystemSnapshot, isV7: boolean): HydrantRow[] {
   let count = 0;
-  return system.locations.flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
-    rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
-    zoneSnapshot: system.zones.find((zone) => zone.id === location.zoneId) ? { id: location.zoneId!, displayName: system.zones.find((zone) => zone.id === location.zoneId)!.displayName } : null,
-    locationSnapshot: { id: location.id, displayName: location.displayName },
-    assetReference: typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "",
-    locationText: location.displayName,
-    canvasHose1Result: null, canvasHose2Result: null, diffuserNozzleResult: null, landingValveResult: null, landingValveHandleResult: null, hoseCabinetResult: null, keyLockResult: null,
-    remarks: "", ...(isV7 ? { fieldRemarks: {} } : {}), sortOrder: ++count
-  })));
+  return system.locations.flatMap((location) => {
+    const presets = rowPresets(location);
+    const fallbackAssetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
+    return Array.from({ length: location.presetRowCount }, (_, index) => ({
+      rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
+      zoneSnapshot: system.zones.find((zone) => zone.id === location.zoneId) ? { id: location.zoneId!, displayName: system.zones.find((zone) => zone.id === location.zoneId)!.displayName } : null,
+      locationSnapshot: { id: location.id, displayName: location.displayName },
+      assetReference: presets?.[index]?.assetReference ?? fallbackAssetReference,
+      locationText: presets?.[index]?.locationText ?? location.displayName,
+      canvasHose1Result: null, canvasHose2Result: null, diffuserNozzleResult: null, landingValveResult: null, landingValveHandleResult: null, hoseCabinetResult: null, keyLockResult: null,
+      remarks: "", ...(isV7 ? { fieldRemarks: {} } : {}), sortOrder: ++count
+    }));
+  });
 }
 
 export async function getOrCreateHydrantInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined) {
@@ -36,7 +59,7 @@ export async function getOrCreateHydrantInspection(job: InspectionJob, system: J
     originalCreatorSnapshot: creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } as DeviceReportedCreator : null,
     masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: job.configurationSnapshot.template.version }, configuration: job.configurationSnapshot.configuration,
     inspectionSnapshot: { schemaVersion: 1, capturedAt: timestamp, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: job.configurationSnapshot.template, system: { ...system, definition, repetitionMode: "single_with_repeatable_rows" } },
-    responses: { schemaVersion: 1, hydrantType: null, rows: configured(system, job.configurationSnapshot.template.version === 7), comments: "" }, performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft"
+    responses: { schemaVersion: 1, hydrantType: null, rows: configuredHydrantRows(system, job.configurationSnapshot.template.version === 7), comments: "" }, performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft"
   };
   await localDatabase.masterSystemInspections.add(record);
   return record;

@@ -202,5 +202,5 @@ The route (`createFinalReportPdfHandler` in `apps/api/src/routes/inspectionJobs.
   completion year. Historical closed rows with NULL numbers remain valid and hide the blank row.
 - The SERVICED BY Team line is omitted when there are no names beyond the test leader.
 - `downloadFinalReport` retains the Blob URL for 60 seconds after click, including a throwing click path.
-- The live cover list currently shows both "FM 200 System" and "FM200 System" as separate unchecked
-  entries. This predates R6 and needs a separate catalog/layout decision.
+- 2026-09-28 update: the duplicate "FM 200 System" cover entry was removed; the live cover uses
+  the single `fm200_fire_suppression` entry. The report-template snapshot was updated accordingly.

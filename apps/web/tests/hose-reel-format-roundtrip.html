@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><title>Hose Reel format round trip</title><link rel="stylesheet" href="/src/styles/app.css"><style>body{margin:0;padding:var(--space-4);box-sizing:border-box}#state{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body>
+<button id="next">Open next visit from saved format</button><pre id="state">Loading</pre><div id="form"></div>
+<script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import { masterServiceReportV7 } from "/@fs/C:/PWA_OfflineRecordWebApp/apps/api/src/inspections/templates/masterServiceReportV7.ts";
+import { getOrCreateHoseReelInspection, saveHoseReelDraft } from "/src/hoseReel/hoseReelRepository.ts";
+import { HoseReelInspectionForm } from "/src/hoseReel/HoseReelInspectionForm.tsx";
+import { loadTechnicianLocationProposalDraft } from "/src/jobs/technicianLocationProposalDraft.ts";
+const id = n => `85000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const definition = masterServiceReportV7.systems.find(system => system.key === "hose_reel");
+const templateId = id(807), customerId = id(2);
+const baseSystem = { enabledSystemId:id(4), systemKey:"hose_reel", displayName:"Hose Reel", sortOrder:1, definitionStatus:"confirmed", zones:[], locations:[] };
+const catalog = { id:templateId, code:"MFE-FSSR", name:"MFE", version:7, systems:[{ ...baseSystem, key:"hose_reel", definition }] };
+const makeJob = (number,system) => ({ id:id(number), reference:`HR-FORMAT-${number}`, title:"Hose Reel Format Walkthrough", status:"open", configurationSnapshot:{ schemaVersion:1, customer:{id:customerId,code:"HR",displayName:"Hose Reel Format Customer"}, configuration:{revisionId:id(number+100),revisionNumber:number}, template:{id:templateId,code:"MFE-FSSR",name:"MFE",version:7}, enabledSystems:[system] } });
+const root = ReactDomClient.createRoot(document.querySelector("#form"));
+let record;
+function render() { root.render(React.createElement(HoseReelInspectionForm,{ record, actorUserId:1, canUseServer:false, onSaveDraft:async responses=>{record=await saveHoseReelDraft(record,responses);render()}, onSubmitLocal:async()=>{}, onEditFailed:async()=>{}, onClose:()=>{} })); }
+function show() { document.querySelector("#state").textContent=JSON.stringify({visit:record.inspectionSnapshot.job.reference, drumCount:record.responses.drumCount, rows:record.responses.rows.map(row=>({source:row.source,locationText:row.locationText,assetReference:row.assetReference,drumType:row.drumType}))},null,2); }
+await activateUserWorkspace(1);
+record=await getOrCreateHoseReelInspection(makeJob(1,baseSystem),baseSystem,catalog,{id:1,username:"format-tech",role:"inspector"});render();show();
+document.querySelector("#next").onclick=async()=>{const draft=await loadTechnicianLocationProposalDraft(id(1),"hose_reel","general");if(!draft||draft.patch.kind!=="update-format")throw Error("No queued format");const nextSystem={...baseSystem,locations:[{id:id(7),enabledSystemId:baseSystem.enabledSystemId,zoneId:null,key:"general",displayName:"General",sortOrder:1,presetRowCount:draft.patch.rows.length,rowPreset:{rows:draft.patch.rows}}]};record=await getOrCreateHoseReelInspection(makeJob(10,nextSystem),nextSystem,catalog,{id:1,username:"format-tech",role:"inspector"});render();show();};
+</script></body></html>

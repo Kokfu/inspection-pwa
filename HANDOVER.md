@@ -3,6 +3,46 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-09-29 — **Hose Reel location-format reuse (uncommitted; stop before staging).**
+Hose Reel's schema-3 form now saves the actual drum count and each drum's type, location, and
+reference as a customer-level row format for Supervisor approval. Approval creates or updates
+one zone-free General location; a new visit freezes those rows and pre-fills its per-visit
+`response_payload.drumCount` and drum sections. Schema-3 response keys and historical readers
+are unchanged. A focused browser check also caught and fixed configured-row Draft save
+restoring the old location text. See the newest change-log entry for tests and limits.
+
+**Last updated:** 2026-09-29 — **Hydrant / Dry-Wet-Riser location-format reuse (uncommitted; stop before staging).**
+Extended the location-proposal patch model (Phase 2.1/2.2's `add-location` + `update-format`
+pattern) to Hydrant and Dry/Wet Riser -- the two remaining repeatable-row services with
+accepted production data. Unlike Roller Shutter/Hose Reel, neither is zone-free: both use
+`add-location` (real zones) exactly like CO2/FM200. `HydrantRow`/`RiserOutlet`'s frozen
+serialized shape is byte-identical; only the runtime pre-fill of newly-created configured rows
+and a UI fix changed. See the newest change-log entry for details, tests, and the manual
+walkthrough.
+
+**Last updated:** 2026-09-29 — **Phase 2.1 Roller Shutter location-format reuse (uncommitted).**
+The owner chose to keep Roller Shutter zone-free. A focused follow-up review tightened the
+Manager write boundary to one General layout with at most 250 rows. A technician can save actual Asset Reference
+and Location rows from the inspection form for Supervisor approval. The first approval creates
+the zone-free General configuration; later approvals update it, and the next visit pre-fills
+the saved rows. Focused tests, disposable-PostgreSQL integration, typechecks/builds, and a
+desktop-browser propose/approve/new-visit/acceptance walkthrough passed. See the newest
+change-log entry. Physical phone and PWA force-close checks remain for release acceptance.
+
+**Last updated:** 2026-09-29 — **Wet Chemical detector-row format reuse added (uncommitted).**
+Wet Chemical now uses the same saved row count/content and in-form format action as CO2;
+focused tests, web typecheck and build pass. The disposable-browser propose/approve/new-visit
+walkthrough also passed. See the newest change-log entry.
+
+**Last updated:** 2026-09-29 — **CO2/FM200 preset-row limit aligned with detector contract (uncommitted).**
+Newly saved CO2/FM200 location presets above 250 rows are rejected before a customer
+configuration revision is written; the Manager field now shows 250 as its maximum.
+Other systems retain the existing 500-row limit. The shared save guard also covers
+inline configuration revisions and location-proposal approval. Existing frozen jobs
+are unchanged. Focused disposable-Postgres Manager locations tests, both app typechecks,
+and `git diff --check` passed. The in-progress proposal-flow edits were left intact;
+this guard was added in a separate hunk of the shared Manager save file.
+
 **Last updated:** 2026-09-29 — **Four requested fixes reviewed for commit.**
 The location-proposal review now requires a real visit owned by the submitting technician
 for the target customer and system, and rejects a foreign technician's UUID replay.
@@ -2464,6 +2504,26 @@ server path a Manager's own "Zones & locations" edit uses. See the change-log en
 data-model / API / test summary. Migration 048 follows the separate 046 Roller Shutter and 047
 photo-source migrations in the shared working tree.
 
+**Status update (2026-09-29, later same day): Location Proposals redesigned to a patch model —
+owner feedback after using the above in the real app.** The above design had the workflow backwards:
+it asked a technician to invent zone/location structure (including row count) *before* doing any real
+inspection work, and its standalone screen never loaded a customer's already-approved locations before
+"replacing" them — a real bug (Approve does a full replace; the screen always started blank). Redesigned:
+a proposal is now a scoped PATCH (`add-location` — just names a brand-new location, since there's no
+real data for it yet; or `update-format` — replaces an EXISTING location's row count + per-row content,
+read straight out of what a technician actually typed into the live CO2/FM200 form) that the server
+merges into the customer's CURRENT configuration fresh at Approve time, never a client-submitted full
+replacement. The standalone screen is trimmed to just `add-location` (name + zone); a new "Save as
+format for next visit" action lives inside `Co2InspectionForm.tsx` / `Fm200InspectionForm.tsx` for
+`update-format`, available any time from Draft. One-pending-per-target (not per-system), so an
+`add-location` and an `update-format` proposal for the same system can be pending, and approved,
+independently. Manually verified end to end in a real (non-Docker, disposable-DB) browser session: added
+two named locations for a customer with only "General" before, approved both independently without
+clobbering each other, confirmed both appear as separate CO2 form instances on the NEXT visit, filled
+real detector rows ("Zone A"/"Zone A Room", "Zone B"/"Zone B Room"), saved that as the format, approved
+it, and confirmed a THIRD visit's form opened with those exact 2 rows pre-filled. Full details, file
+list, and known limitations in the change-log entry below (search "patch model").
+
 ---
 
 ## 2. How to run / rebuild / test
@@ -3034,6 +3094,306 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-09-29 — **Hydrant / Dry-Wet-Riser location-format reuse (uncommitted; stop before staging).**
+  Extended the location-proposal patch model to the two remaining repeatable-row services with
+  accepted production data (Hydrant V1, Dry/Wet Riser V2), reusing the exact generalized pattern
+  from Phase 2.1/2.2 (`add-location` + `update-format`, `technicianLocationProposalDraft.ts`,
+  `newUpdateFormatDraft`, `configuredRowPresets`-style fail-closed pre-fill).
+  - **Scope, per `.agents/skills/repeatable-row-model/SKILL.md`'s frozen warning.** Both
+    `HydrantRow` and `RiserOutlet` are explicitly frozen (accepted production data) -- this
+    change touches ONLY (a) whether `customer_system_locations` gets real rows written for these
+    two `systemKey`s (previously: never, since they were absent from
+    `locationConfigurableSystemKeys`), and (b) what DEFAULT content a newly-created "configured"
+    row is pre-filled with. **Neither row's TypeScript type nor its serialized field set changed
+    at all** -- confirmed by the pre-existing `hydrantV7SubmissionIssues.test.ts` /
+    `dryWetRiserV7SubmissionIssues.test.ts` / `repeatableRows.test.ts` suites (21/21) passing
+    unmodified, and by `git diff` showing no touched line inside either `*Types.ts` file.
+  - **Key difference from Roller Shutter/Hose Reel: NOT zone-free.** Hydrant and Dry/Wet Riser
+    keep their full zoned, multi-location model (like CO2/FM200) -- `add-location` (naming a new
+    location under an existing or new zone) is required before `update-format` can target it;
+    unlike Roller Shutter/Hose Reel's single implicit "general" layout, `update-format` against a
+    location that doesn't exist yet is refused (`LOCATION_PROPOSAL_TARGET_INVALID`), proven in
+    the integration test. Also unlike CO2/FM200 (one form instance per configured location),
+    Hydrant/Riser combine ALL of a system's locations into ONE inspection record
+    (`single_with_repeatable_rows`), so "Save as format for next visit" is scoped PER LOCATION --
+    each form renders one save button per `record.inspectionSnapshot.system.locations` entry,
+    reading only that location's own rows (`row.configuredLocationId === location.id`) into the
+    patch.
+  - **Real bug found and fixed: Dry/Wet Riser requires `systemConfiguration.riserMode` to be set
+    before/while it is first enabled** (`assertDryWetRiserAssignments`, pre-existing, unrelated to
+    this task). A technician's `add-location` proposal cannot be the FIRST thing that enables
+    Dry/Wet Riser for a customer -- discovered by the integration test failing with
+    `RISER_MODE_REQUIRED` until the test pre-enabled the system via the real
+    `POST .../configuration-revisions` route first, exactly as production requires. This is a
+    genuine (if narrow) product constraint, not a defect in this change, and is called out
+    explicitly rather than worked around.
+  - **UI fix required to make the feature functional for Hydrant.** `HydrantInspectionForm.tsx`
+    previously disabled `assetReference`/`locationText` inputs for `source === "configured"`
+    rows (`disabled={readOnly || configured}`), copied from Roller Shutter's pattern. This was
+    DEAD CODE until now (Hydrant was never in `locationConfigurableSystemKeys`, so `row.source`
+    was always `"technician"` in production) -- once live, it would have permanently locked a
+    configured row's identity fields the moment a location existed, making "Save as format"
+    produce nothing but a no-op re-save. Removed `|| configured}` to match the ALREADY-editable
+    behavior of CO2/FM200/Dry-Wet-Riser (3 of 4 existing precedents); Hydrant's own
+    `structuralSubmitIssues` never enforced configured-row content matching a frozen value
+    (unlike Roller Shutter's `authoritative.assetReference` check), so this was always a
+    server-permitted path, just UI-unreachable. Dry/Wet Riser's form never had this restriction.
+  - **`configuredHydrantRows`/`configuredDryWetRiserOutlets`** (both renamed from a private
+    `configured` and exported for testability, mirroring `configuredFireRatedRollerShutterRows`):
+    each location's `rowPreset.rows[]` is read index-aligned with `presetRowCount`, exactly
+    mirroring Roller Shutter's `rowPresets()` fail-closed reader (wrong length, wrong shape, or
+    extra/missing keys -> the WHOLE preset is ignored, never a partial/mixed layout). The
+    pre-existing flat `rowPreset.assetReference` fallback (a legacy single-value field some
+    already-configured locations may carry) is preserved as a lower-priority fallback beneath the
+    new per-row preset -- Roller Shutter's `expectedConfiguredRows` does the identical dual
+    fallback.
+  - **API.** `locationConfigurableSystemKeys` (both the API's and the web's copies) gained
+    `"hydrant"` and `"dry_wet_riser"`. `formatRowFieldsBySystem` gained
+    `hydrant: ["assetReference", "locationText"]` and the same for `dry_wet_riser` (both systems'
+    `add-location` remains available, unlike Roller Shutter/Hose Reel where it is refused).
+    `technicianLocationProposalDraft.ts`'s client-side `validPatch` field-set check extended to
+    match.
+  - **`ManagerLocationProposals.tsx` needed NO change** -- its `update-format` row renderer
+    already branches generically on `"assetReference" in row`, which both new systems' rows
+    satisfy verbatim.
+  - **Tests.** `locationConfiguration.test.ts`: new test proving assetReference/locationText rows
+    parse, `{alarmZone,location}` rows are refused, `update-format` against a non-existent
+    location is refused (not implicitly zone-free), and `add-location` still works, for both
+    systems. `hydrantRowPresetReuse.test.ts` / `dryWetRiserRowPresetReuse.test.ts` (new, 5 tests
+    each): preset-driven pre-fill, fail-closed on malformed/short presets, no mixed configured
+    layout, the flat-fallback preserved, V7 `fieldRemarks` presence. `locationProposals.integration.test.ts`
+    extended with a combined Hydrant + Dry/Wet Riser scenario (disposable Postgres): add-location
+    -> approve -> update-format -> approve -> exact stored `row_preset` verified by direct DB
+    read -> a second update-format replaces it in place -> a `update-format` against a
+    non-existent location is refused at Approve. The pre-existing "unsupported system" negative
+    controls in this file and in `managerLocations.integration.test.ts` were repointed from
+    `hydrant` (now legitimately supported) to `fire_alarm`. All API-side regressions
+    (`hydrantInspectionSync.test.ts`, `dryWetRiserConfiguration.test.ts`,
+    `dryWetRiserAccepted.test.ts`, `hydrantV7SubmissionIssues.test.ts`,
+    `dryWetRiserV7SubmissionIssues.test.ts`, `repeatableRows.test.ts`,
+    `managerSystemConfiguration.integration.test.ts`, `managerLabelOverrides.integration.test.ts`)
+    re-run -- **PASS, no regressions**. Both apps' `typecheck` and `build` -- **PASS**.
+    `git diff --check` -- clean (CRLF warnings only).
+  - **Manual browser walkthrough (real, non-Docker dev stack: disposable Postgres on 55432 +
+    `apps/api` dev server + a temporary Vite proxy, reverted afterward; Hydrant only -- Dry/Wet
+    Riser round-trip is covered by the integration test but not separately walked through in the
+    browser, given the extra riserMode pre-enable step).** Seeded a Hydrant-enabled customer with
+    zero locations. As technician (real signed-in session): used "Add a New Location" to name
+    "North Gate Hydrant" under a new "Yard Zone". As supervisor: approved it -- DB confirmed the
+    real `customer_system_locations` row. As technician on a freshly-seeded SECOND visit: the
+    Hydrant form opened with one configured row pre-filled `locationText="North Gate Hydrant"`,
+    confirmed **editable** (proving the UI fix); typed real content (`HYD-201` /
+    "North Gate — Fire Access Road") and clicked "Save 'North Gate Hydrant' as format for next
+    visit" -- "Submitted for Supervisor review", and a direct DB read showed the exact typed
+    content in the proposal's stored payload. As supervisor: approved it via an authenticated
+    fetch through the real running server after the click-through UI hit a reproducible,
+    PRE-EXISTING app-shell quirk unrelated to this change (see Known limitations) -- a direct read
+    of `customer_system_locations.row_preset` confirmed the exact approved content. As technician
+    on a freshly-seeded THIRD visit: the Hydrant form opened with the row pre-filled
+    `locationText="North Gate — Fire Access Road"`, `assetReference="HYD-201"` -- **the actual
+    payoff, read directly from the live DOM's input values, not inferred**. No horizontal overflow
+    confirmed at 375px. The disposable Postgres, temporary Vite proxy, and a throwaway seed script
+    were removed afterward; no production data or physical phone was used.
+  - **Known limitations.** (1) Navigating directly to `#/manager-location-proposals` via a full
+    page load (as opposed to in-app SPA navigation) intermittently triggers a stray, unrelated
+    `GET /inspection-jobs` call under a Supervisor session, which 403s and puts the app shell into
+    a persistent "Manager server data is currently unavailable" state that a fresh in-app
+    navigation click does not clear. Reproduced independently of this change's own code (confirmed
+    the underlying `/manager/location-proposals` endpoint returns 200 with correct data throughout
+    via direct authenticated `fetch`); not touched, since it is unrelated to the location-proposal
+    or repeatable-row code this task owns. Worth a dedicated look. (2) The Dry/Wet Riser round
+    trip was proven via the integration test and direct DB reads, not a full click-through browser
+    walkthrough (time-boxed; the riserMode pre-enable step makes it a longer setup than Hydrant's).
+  - **Files changed:** `apps/api/src/inspections/locationConfiguration.ts` (registry + row-field
+    map), `apps/api/src/inspections/locationConfiguration.test.ts` (new Hydrant/Riser cases),
+    `apps/api/src/routes/locationProposals.integration.test.ts` (new combined scenario +
+    unsupported-system fix), `apps/api/src/routes/managerLocations.integration.test.ts`
+    (unsupported-system fix), `apps/web/src/manager/managerApi.ts` (registry),
+    `apps/web/src/jobs/technicianLocationProposalDraft.ts` (`validPatch` field set),
+    `apps/web/src/hydrant/hydrantRepository.ts` (`configuredHydrantRows` + fail-closed preset
+    reader), `apps/web/src/dryWetRiser/dryWetRiserRepository.ts`
+    (`configuredDryWetRiserOutlets` + fail-closed preset reader),
+    `apps/web/src/hydrant/HydrantInspectionForm.tsx` (props, per-location Save-as-format, the
+    `disabled={configured}` fix), `apps/web/src/dryWetRiser/DryWetRiserInspectionForm.tsx`
+    (props, per-location Save-as-format in both the V7 and legacy branches), `apps/web/src/App.tsx`
+    (`actorUserId`/`canUseServer` threaded to both forms), `apps/web/tests/hydrantRowPresetReuse.test.ts`
+    (new), `apps/web/tests/dryWetRiserRowPresetReuse.test.ts` (new).
+
+- 2026-09-29 — **Hose Reel format reuse (uncommitted; stop before staging).**
+  Hose Reel now uses the Phase 2.1 `update-format` patch for one zone-free General layout (up to
+  250 drums). A format row is `{assetReference, locationText, drumType}`; type is `swing`, `fixed`,
+  or empty while the Draft is incomplete. Supervisor approval stores `{rows}` as the customer's
+  `rowPreset` and the row count as `presetRowCount`. A newly created V7 inspection reads the frozen
+  preset, validates the whole row list, and pre-fills configured drum sections plus schema-3
+  `response_payload.drumCount`; malformed presets fall back as a whole to safe defaults. The
+  response schema and historical V1–V6 behavior remain unchanged. The form saves the current
+  Draft's row content into the existing IndexedDB proposal outbox. Manager review now shows each
+  drum type. Hose Reel Draft save now preserves technician edits to a configured row's location
+  text; it previously restored the original frozen label.
+  API patch unit tests passed (14/14), web row-preset/submission/Roller regressions passed
+  (23/23), disposable-PostgreSQL proposal integration passed (1/1), Manager location integration
+  passed (4/4), both app typechecks and builds passed, and the focused browser test passed.
+  A manual in-app browser walkthrough used the actual signed-in app and a disposable local API
+  and PostgreSQL: technician created a first visit, entered two real drum sections (Swing/Fixed,
+  distinct locations/references), saved the Draft and format; Supervisor saw both exact rows and
+  approved; a new server-created visit showed `drumCount=2` and both rows prefilled. A direct
+  disposable-DB read confirmed the exact `preset_row_count=2` and `row_preset.rows`. The focused
+  browser regression separately proves a configured-row Draft edit survives reload and checks no
+  horizontal overflow at 360, 768, or 1280 px. The test-only API, temporary Vite proxy,
+  database container, and local seed data were removed after the walkthrough. No production data, physical phone,
+  or installed-PWA force-close test was used. No P0/P1 finding remains in this scope; release
+  phone checks remain outstanding.
+
+- 2026-09-29 — **Phase 2.1: Fire Rated Roller Shutter format reuse (uncommitted; stop before staging).**
+  The owner confirmed Roller Shutter remains zone-free. Its form now accepts an editable
+  Asset Reference beside Location and offers "Save as format for next visit" using the
+  existing IndexedDB proposal draft and outbox. The API validates Roller-only
+  `{assetReference, locationText}` rows and permits `update-format` for General; first
+  approval creates one zone-free General customer location and later approval updates it.
+  Follow-up review found and closed a direct Manager API path that otherwise accepted
+  multiple Roller Shutter locations; both parser and write boundary now enforce the
+  single General layout (up to 250 rows).
+  New visits freeze and pre-fill those exact rows. The other location systems retain their
+  zone and row contracts. A Roller-only job no longer offers "Add a New Location".
+  Focused API/web tests passed (13/13 after review, 3/3), existing CO2 and row-count regressions passed
+  (5/5, 2/2), disposable-PostgreSQL Manager locations and proposal integration passed
+  (4/4, 1/1), and IndexedDB Playwright proposal sync passed (1/1). Both app typechecks
+  and builds passed. A disposable desktop-browser walkthrough confirmed propose, review,
+  approve, a new visit pre-filled with two configured rows, and accepted sync; responsive
+  checks at 360, 768, and 1280 px found no horizontal overflow. No physical phone or PWA
+  force-close test was performed. No P0/P1 finding in Phase 2.1 scope.
+
+- 2026-09-29 — **Wet Chemical location-format reuse (uncommitted; stop before staging).**
+  Wet Chemical now initializes detector rows from its frozen location's `presetRowCount` and
+  `rowPreset.rows`, using the same count control and "Save as format for next visit" action as CO2.
+  Existing Draft rows are normalized without replacing text already entered. The former single-row
+  free-add/remove path had no documented Wet Chemical-specific requirement; a technician can still
+  choose any row count up to the form maximum. `wetChemicalRowPresetReuse.test.ts` checks the actual
+  blank-response initializer and preservation of older Draft text. Focused row-preset/count tests
+  passed (9/9), including unchanged `suppressionDetectorRowCount.test.ts`; web typecheck and build
+  passed. **Live browser walkthrough passed** against disposable PostgreSQL and the current Vite
+  source: technician proposed "Hood Annex" through "Add a New Location"; Supervisor approved it;
+  technician started a new visit, opened its real Wet Chemical form, set two detector rows, entered
+  "Kitchen Zone A"/"Hood A" and "Kitchen Zone B"/"Hood B", and saved them as the format;
+  Supervisor saw both rows and approved. The active customer configuration held
+  `preset_row_count=2` and those exact `row_preset.rows`. On a further new visit, Hood Annex opened
+  with both rows already prefilled, observed directly in the browser. The test-only API, Vite,
+  proxy, PostgreSQL container, credentials, and seed helpers were removed afterward.
+  **P2 follow-up:** The existing-zone radio appears selected on a fresh "Add a New Location"
+  draft, but Submit remains disabled until the technician explicitly reselects that zone (the
+  new-zone → existing-zone toggle worked). This predates the Wet Chemical row change and belongs
+  to the next proposal-screen acceptance pass. No API, migration, FM200, or patch-merge files
+  were changed for this follow-up.
+
+- 2026-09-29 — **Location Proposals redesigned to a patch model (uncommitted; stop before staging).**
+  Owner feedback after using the previous design (entry directly below) in the real app surfaced it had
+  the workflow backwards, plus a real correctness bug. Full redesign:
+  - **The problem.** (1) The standalone "Propose Customer Locations" screen asked a technician to
+    invent zone/location structure — including row count — *before* doing any real inspection work.
+    What's actually wanted: fill the real form, then save what was *actually entered* as the format for
+    next time. (2) That screen never loaded the customer's currently-approved locations before
+    submitting; since Approve does a full replace (`applyManagerLocationsUpdate`), using it on an
+    already-configured customer would silently propose to WIPE OUT existing locations. (3) `rowPreset`
+    (a JSONB column that already existed end-to-end — write path, job-freeze, and a client-side reader
+    for Hydrant/Dry-Wet-Riser/Fire-Rated-Roller-Shutter's `assetReference` field) was never read by
+    CO2/FM200's own detector-row generator (`detectorRowCount.ts`), so "reuse the same rows next visit"
+    had no reader on the one path that mattered for this task.
+  - **Data model.** `customer_location_proposals.payload` changes shape from "the complete desired
+    `{zones, locations}`" to a scoped PATCH (new types + parser + pure merge function in
+    `apps/api/src/inspections/locationConfiguration.ts`): `add-location` (`locationKey`, `displayName`,
+    `zoneKey` OR `newZone` — exactly one) names a brand-new location with no real content yet;
+    `update-format` (`locationKey`, `rows: Array<{alarmZone, location}>`) replaces an EXISTING
+    location's `presetRowCount` (= `rows.length`) and `rowPreset` (`{rows}`) in place, leaving every
+    other zone/location of the system byte-identical. No migration needed — the `payload` column was
+    already an unconstrained `JSONB`; only what the app considers a valid shape changed.
+  - **API (`locationProposals.ts`).** Submission parses `{id, jobId, patch}`, not `{id, jobId, zones,
+    locations}`. **One-pending-per-target, not per-system**: both patch kinds carry `locationKey`, so
+    the advisory-lock key and the "already pending" check both become
+    `customerId:systemKey:patch.locationKey` (extracted via `payload->>'locationKey'`) — an
+    `add-location` proposal for "TNB Room" and an `update-format` proposal for "General" on the SAME
+    system can now be pending, and approved, independently. **Approve no longer trusts the stored
+    payload as the whole picture**: it now does `loadConfiguration` (newly exported from
+    `managerCustomers.ts`) to read the customer's CURRENT configuration fresh, extracts this system's
+    `{zones, locations}`, applies the patch (`applyLocationProposalPatch`), and only then calls
+    `applyManagerLocationsUpdate` with the merged result — `LOCATION_PROPOSAL_TARGET_INVALID` (409) if
+    the patch's target no longer exists (renamed/removed since submission). This is what makes two
+    proposals for different locations of the same system safe to approve in either order without
+    clobbering each other, proven directly in the integration test.
+  - **Web — technician.** `TechnicianLocationProposal.tsx` (still the job-screen entry point, now
+    labeled "Add a New Location") is trimmed to just the `add-location` case: pick an existing zone
+    (read straight from the job's frozen snapshot — good enough for picking, since Approve
+    re-validates against live state anyway) or name a new one, name the location, submit. New "Save as
+    format for next visit" action inside `Co2InspectionForm.tsx` and `Fm200InspectionForm.tsx` (next
+    to Save Draft; available any time from Draft, per the owner's explicit answer — reads whatever's
+    currently typed, submit not required) builds an `update-format` patch from the form's current
+    `detectorRows` and queues it through the same offline-first draft/outbox mechanics.
+    `technicianLocationProposalDraft.ts` keeps its Draft→Pending→Syncing→Synced/Failed IndexedDB-first
+    design (unchanged, still exactly right for the Offline Contract) but the draft key becomes
+    `technician-location-proposal:${jobId}:${systemKey}:${targetLocationKey}` so an add-location draft
+    and an update-format draft for the same job+system coexist locally without collision.
+  - **The actual payoff (`detectorRowCount.ts`).** New `configuredRowPresets(system, instance)` reads
+    `location.rowPreset.rows[]`; `newDetectorRow` gained an optional preset param; `normalizeDetectorRows`
+    now pre-fills each newly-created "configured" row's `alarmZone`/`location` from the saved preset by
+    index, falling back to today's blank/instance-name defaults on anything malformed or missing (fails
+    closed, never crashes — proven by dedicated tests). This only fills the GAP at first creation of a
+    blank draft; it never retroactively rewrites a row a technician has already started editing.
+  - **Wet Chemical gap (pre-existing, not introduced by this change, not fixed here).**
+    `co2Repository.ts`'s `blankResponses` only runs the `presetRowCount`-driven multi-row branch for
+    `systemKey === "co2_fire_extinguisher"`; Wet Chemical falls into a single-row `legacyDetectorRow`
+    branch that never reads `presetRowCount` or `rowPreset` at all. `add-location`
+    (structural — new named locations) works identically for Wet Chemical; `update-format` /
+    row-content reuse does not take effect for it until that pre-existing branch is addressed
+    separately — left as a known limitation rather than folded into this change's scope.
+  - **Tests.** `locationConfiguration.test.ts` (new: 11 unit tests for `parseLocationProposalPatch` /
+    `applyLocationProposalPatch` — both patch kinds, every rejection path, byte-identical-untouched-
+    locations assertion). `locationProposals.integration.test.ts` (rewritten for the patch shape;
+    proves the two-independent-pending-targets scenario end to end against a disposable Postgres, with
+    sequential approval order and a DB-level check that neither location's row survives incorrectly).
+    `managerLocations.integration.test.ts` re-run — **PASS, no regression** (4/4; `loadConfiguration`
+    export and `applyManagerLocationsUpdate` call site unchanged in behaviour). `detectorRowPresetReuse.test.ts`
+    (new: pre-fill payoff, fail-closed-on-malformed-rowPreset, gap-fill-only-at-creation semantics — 5
+    tests). `suppressionDetectorRowCount.test.ts` (the other session's existing tests) re-run — **PASS,
+    no regression** (2/2). `technician-location-proposal-sync.html`/`.spec.ts` rewritten for the patch-
+    shaped draft mechanics (both kinds, independent-target coexistence, Failed-preservation, exact-UUID
+    confirmation). `roleAccess.test.ts` re-run — **PASS** (3/3, unaffected). `apps/api` + `apps/web`
+    `typecheck` and `build` — **PASS**. `git diff --check` — clean (CRLF warnings only).
+  - **Manual browser walkthrough (real, non-Docker dev stack, same discipline as the prior pass;
+    disposable Postgres removed and temporary Vite proxy reverted afterward).** Seeded a customer with
+    CO2 enabled and zero locations. As technician: added "TNB Room" and "Dust Room" (two separate
+    `add-location` proposals) via the trimmed screen. As supervisor: both showed in the Pending list
+    with a real per-kind summary line; approved TNB Room, then Dust Room — DB query confirmed both
+    survived as separate `customer_system_locations` rows. As technician: started a NEW service visit
+    for the same customer — confirmed both "TNB Room" and "Dust Room" appeared as independent CO2 form
+    instances (the point-2 payoff). Opened TNB Room's form, set detector count to 2, typed "Zone A" /
+    "Zone A Room" and "Zone B" / "Zone B Room" into the two rows, clicked "Save as format for next
+    visit" — confirmed "Submitted for Supervisor review." As supervisor: the proposal's detail view
+    listed both rows verbatim; approved it — DB query confirmed `preset_row_count=2` and the exact
+    `row_preset.rows` JSON. As technician: started a THIRD service visit for the same customer, opened
+    TNB Room's form — **it opened with 2 detector rows already pre-filled with "Zone A"/"Zone A Room"
+    and "Zone B"/"Zone B Room"**, the actual point-1 payoff, observed directly in the browser's
+    accessibility tree, not inferred.
+  - **Known limitations.** Wet Chemical's row-content reuse (see above). No technician-facing view of
+    a proposal's later decision (unchanged from the prior entry). The Manager review screen shows an
+    `add-location` patch's `zoneKey` as a raw key rather than resolving it to the zone's current
+    display name (cosmetic; the key is still legible, e.g. "zone: server-room" — noted as a nice-to-
+    have in the plan, not done this pass).
+  - **Files changed:** `apps/api/src/inspections/locationConfiguration.ts` (patch types/parser/merge),
+    `apps/api/src/inspections/locationConfiguration.test.ts` (new), `apps/api/src/inspections/locationProposal.ts`
+    (payload type), `apps/api/src/routes/locationProposals.ts` (patch submission/approve-merge/per-target
+    pending lock), `apps/api/src/routes/locationProposals.integration.test.ts` (rewritten),
+    `apps/api/src/routes/managerCustomers.ts` (`export` on `loadConfiguration`),
+    `apps/web/src/co2/Co2InspectionForm.tsx` / `apps/web/src/fm200/Fm200InspectionForm.tsx` (Save as
+    format action), `apps/web/src/co2/co2Repository.ts` / `apps/web/src/fm200/fm200Repository.ts`
+    (pass row presets into `blankResponses`), `apps/web/src/co2/detectorRowCount.ts`
+    (`configuredRowPresets`, preset-aware `newDetectorRow`/`normalizeDetectorRows`),
+    `apps/web/tests/detectorRowPresetReuse.test.ts` (new), `apps/web/src/App.tsx` (`actorUserId`/
+    `canUseServer` props threaded to both forms), `apps/web/src/jobs/TechnicianHome.tsx` (button
+    relabel), `apps/web/src/jobs/TechnicianLocationProposal.tsx` (trimmed to add-location),
+    `apps/web/src/jobs/technicianLocationProposalDraft.ts` (patch union, per-target draft keys),
+    `apps/web/src/manager/managerApi.ts` (patch union types), `apps/web/src/manager/ManagerLocationProposals.tsx`
+    (per-kind rendering), `apps/web/src/referenceData/referenceDataApi.ts` (patch-shaped submission
+    input), `apps/web/tests/technician-location-proposal-sync.html`/`.spec.ts` (rewritten).
 
 - 2026-09-29 — **Technician-proposed, Supervisor-approved customer locations. Reviewed for commit at owner request.**
   Today, zones/locations for CO2/Wet Chemical/FM200 could only be configured in advance by a Manager

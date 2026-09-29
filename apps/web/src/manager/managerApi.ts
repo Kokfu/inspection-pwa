@@ -942,7 +942,7 @@ export async function saveManagerLabelOverrides(
  *  migration. These services use a General location in new visits when the
  *  manager has not configured a location. */
 export const locationConfigurableSystemKeys: ReadonlySet<string> = new Set([
-  "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression"
+  "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression", "hydrant", "dry_wet_riser"
 ]);
 
 export type ManagerZone = {
@@ -1284,8 +1284,11 @@ export async function submitReportApproval(
 }
 
 /* ------------------------------------------------------------------------------------------------
- * Location proposal review. A technician-drafted zone/location breakdown for a customer's
- * location-dependent system (CO2 / Wet Chemical / FM200), reviewed by an admin/supervisor. Both
+ * Location proposal review. A technician-drafted PATCH for a customer's location-dependent system
+ * (CO2 / Wet Chemical / FM200) -- `add-location` names a brand-new location (no real inspection data
+ * yet), `update-format` replaces an EXISTING location's row count + per-row content, read straight out
+ * of what a technician actually typed into the live inspection form -- reviewed by an admin/supervisor.
+ * Approve merges the patch into the customer's CURRENT configuration, fresh, at decision time. Both
  * decisions are terminal -- no withdraw, no re-decision -- unlike report approval.
  * ---------------------------------------------------------------------------------------------- */
 
@@ -1305,8 +1308,19 @@ export type LocationProposalDecisionEvent = {
   resultingRevisionId: string | null;
 };
 
-export type LocationProposalZone = { key: string; displayName: string; sortOrder: number };
-export type LocationProposalLocation = { key: string; displayName: string; zoneId: string; presetRowCount: number; rowPreset: Record<string, unknown>; sortOrder: number };
+export type LocationProposalAddPatch = {
+  kind: "add-location";
+  locationKey: string;
+  displayName: string;
+  zoneKey: string | null;
+  newZone: { key: string; displayName: string } | null;
+};
+export type LocationProposalFormatPatch = {
+  kind: "update-format";
+  locationKey: string;
+  rows: Array<Record<string, string>>;
+};
+export type LocationProposalPatch = LocationProposalAddPatch | LocationProposalFormatPatch;
 
 export type LocationProposal = {
   id: string;
@@ -1318,21 +1332,28 @@ export type LocationProposal = {
   submittedBy: string;
   submittedByRole: "inspector";
   submittedAt: string;
-  zoneCount: number;
-  locationCount: number;
-  payload: { zones: LocationProposalZone[]; locations: LocationProposalLocation[] };
+  payload: LocationProposalPatch;
   status: LocationProposalStatus;
   decision: LocationProposalDecisionEvent | null;
 };
 
-function isLocationProposalZone(value: unknown): value is LocationProposalZone {
-  return isPlainObject(value) && typeof value.key === "string" && typeof value.displayName === "string" && typeof value.sortOrder === "number";
-}
-
-function isLocationProposalLocation(value: unknown): value is LocationProposalLocation {
-  return isPlainObject(value) && typeof value.key === "string" && typeof value.displayName === "string"
-    && typeof value.zoneId === "string" && typeof value.presetRowCount === "number" && typeof value.sortOrder === "number"
-    && isPlainObject(value.rowPreset);
+function isLocationProposalPatch(value: unknown, systemKey: string): value is LocationProposalPatch {
+  if (!isPlainObject(value)) return false;
+  if (value.kind === "add-location") {
+    return systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel" && typeof value.locationKey === "string" && typeof value.displayName === "string"
+      && (value.zoneKey === null || typeof value.zoneKey === "string")
+      && (value.newZone === null || (isPlainObject(value.newZone) && typeof value.newZone.key === "string" && typeof value.newZone.displayName === "string"));
+  }
+  if (value.kind === "update-format") {
+    return typeof value.locationKey === "string" && ((systemKey !== "fire_rated_roller_shutter" && systemKey !== "hose_reel") || value.locationKey === "general")
+      && Array.isArray(value.rows) && value.rows.length > 0
+      && value.rows.every((row) => {
+        if (!isPlainObject(row)) return false;
+        const allowed = systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"] : systemKey === "fire_rated_roller_shutter" ? ["assetReference", "locationText"] : ["alarmZone", "location"];
+        return Object.keys(row).length === allowed.length && allowed.every((name) => typeof row[name] === "string");
+      });
+  }
+  return false;
 }
 
 function isLocationProposalDecisionEvent(value: unknown): value is LocationProposalDecisionEvent {
@@ -1351,9 +1372,8 @@ function isLocationProposal(value: unknown): value is LocationProposal {
     && typeof value.customerDisplayName === "string" && typeof value.systemKey === "string"
     && typeof value.jobId === "string"
     && Number.isSafeInteger(value.submittedByUserId) && typeof value.submittedBy === "string" && value.submittedByRole === "inspector"
-    && typeof value.submittedAt === "string" && typeof value.zoneCount === "number" && typeof value.locationCount === "number"
-    && isPlainObject(value.payload) && Array.isArray(value.payload.zones) && value.payload.zones.every(isLocationProposalZone)
-    && Array.isArray(value.payload.locations) && value.payload.locations.every(isLocationProposalLocation)
+    && typeof value.submittedAt === "string"
+    && isLocationProposalPatch(value.payload, value.systemKey)
     && (value.status === "pending" || value.status === "approved" || value.status === "rejected")
     && (value.decision === null || isLocationProposalDecisionEvent(value.decision));
 }

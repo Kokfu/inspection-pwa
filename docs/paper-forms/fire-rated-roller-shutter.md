@@ -71,6 +71,11 @@ Both are recorded here; they are not merged. The task brief flagged this conflic
 specifically (phrasing it as the "Roller Shutter page vs Hokuden cover"); the roller
 shutter page footer does use `( / )` = "In Good Working Condition".
 
+**Product decision (2026-09-29):** Defer interpretation of the paper `/` mark. The
+digital Roller Shutter form keeps the existing V7 choices: Good, Not Good,
+Complete Repair, and N/A. Do not infer one of these choices from a historical
+`/` mark until the client resolves the paper legend.
+
 ## Ambiguities
 
 - The `Zone` header label is printed but never filled on any examined page.

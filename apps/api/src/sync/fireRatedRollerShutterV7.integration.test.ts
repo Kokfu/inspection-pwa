@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import test from "node:test";
+import pg from "pg";
+import { runMigrations } from "../db/migrations.js";
+import { v7EvidenceContractSha256 } from "../inspections/evidence/v7EvidenceContracts.js";
+import { acceptFireRatedRollerShutterV7Inspection } from "./fireRatedRollerShutterV7Acceptance.js";
+import { v7IntegrationDatabaseUrl } from "./v7IntegrationTestDatabase.js";
+
+const databaseUrl = v7IntegrationDatabaseUrl();
+const id = () => randomUUID();
+const performedAt = "2026-09-28T00:00:00.000Z";
+
+test("roller shutter V7 accepts a complete form exactly once and rejects a changed UUID retry", { skip: !databaseUrl }, async () => {
+  const database = new pg.Pool({ connectionString: databaseUrl });
+  const lock = await database.connect();
+  await lock.query("SELECT pg_advisory_lock(819282)");
+  try {
+    await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+    await runMigrations(database);
+    const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='fire_rated_roller_shutter'")).rows[0]!;
+    assert.ok(template);
+    const customer = id(), revision = id(), enabled = id(), job = id(), clientUuid = id(), rowUuid = id();
+    const actor = (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x','inspector') RETURNING id", [`roller-v7-${id()}`])).rows[0]!.id;
+    await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,'Roller V7',false)", [customer, `RS-${customer}`]);
+    await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
+    await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'fire_rated_roller_shutter',1,'{}')", [enabled, revision, template.id]);
+    const system = { enabledSystemId: enabled, systemKey: "fire_rated_roller_shutter", displayName: "Fire Rated Roller Shutter", sortOrder: 13, definitionStatus: "confirmed", zones: [], locations: [] };
+    const snapshot = { schemaVersion: 1, customer: { id: customer, code: `RS-${customer}`, displayName: "Roller V7" }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Roller V7','open',false,true,$4,$5,$6,'2026-09-28')", [job, template.id, `RS-${job}`, customer, revision, snapshot]);
+    const responses = { schemaVersion: 1, dateTested: "2026-09-28", zone: "Zone 1", inspectedBy: "Inspector A", rows: [{ rowUuid, source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText: "CNC Drill", autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: 1 }], comments: "" };
+    const item = { operationId: id(), entityType: "masterSystemInspection", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "fire_rated_roller_shutter", instanceKey: "primary", configuredZoneId: null, configuredLocationId: null, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 1, capturedAt: performedAt, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" } }, responses, evidenceManifest: [] as Array<{ photoUuid: string; fieldPath: string; sourceSha256: string }>, performedAt } };
+    assert.deepEqual((await acceptFireRatedRollerShutterV7Inspection(item, actor)).acceptedIds, [clientUuid]);
+    const accepted = (await database.query<{ response_payload: typeof responses }>("SELECT response_payload FROM master_system_form_instances WHERE client_uuid=$1", [clientUuid])).rows[0]!;
+    assert.equal(accepted.response_payload.rows[0]!.locationText, "CNC Drill");
+    assert.deepEqual((await acceptFireRatedRollerShutterV7Inspection(item, actor)).duplicateIds, [clientUuid]);
+    const changed = structuredClone(item); changed.payload.responses.comments = "changed";
+    assert.equal((await acceptFireRatedRollerShutterV7Inspection(changed, actor)).failed[0]?.code, "IDEMPOTENCY_CONFLICT");
+
+    // A second Job proves the evidence-first path, including the new database
+    // key constraints, independent field remark, atomic binding and retry.
+    const findingJob = id(), findingUuid = id(), findingRow = id(), photoUuid = id();
+    const findingSnapshot = { ...snapshot, enabledSystems: [system] };
+    await database.query("INSERT INTO inspection_jobs(id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,customer_id,customer_configuration_revision_id,configuration_snapshot,service_date) VALUES($1,$2,$3,'Roller V7 finding','open',false,true,$4,$5,$6,'2026-09-28')", [findingJob, template.id, `RS-${findingJob}`, customer, revision, findingSnapshot]);
+    const contract = v7EvidenceContractSha256(template.definition);
+    const fieldPath = `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${findingRow}.auto_alarm_mode`;
+    const digest = createHash("sha256").update("roller-v7-photo").digest("hex");
+    await database.query("INSERT INTO inspection_evidence_reservations(inspection_client_uuid,job_id,system_key,master_template_version_id,master_template_version,system_contract_sha256,reserved_by_user_id) VALUES($1,$2,'fire_rated_roller_shutter',$3,7,$4,$5)", [findingUuid, findingJob, template.id, contract, actor]);
+    await database.query("INSERT INTO staged_inspection_evidence(photo_uuid,inspection_client_uuid,job_id,system_key,field_path,master_template_version_id,master_template_version,system_contract_sha256,uploader_user_id,request_fingerprint,source_sha256,stored_sha256,mime_type,source_size_bytes,source_width,source_height,stored_size_bytes,width,height,storage_relative_path,status) VALUES($1,$2,$3,'fire_rated_roller_shutter',$4,$5,7,$6,$7,$8,$9,$9,'image/jpeg',1,2,2,1,2,2,$10,'staged')", [photoUuid, findingUuid, findingJob, fieldPath, template.id, contract, actor, createHash("sha256").update(photoUuid).digest("hex"), digest, `fixtures/${photoUuid}.jpg`]);
+    const findingItem = structuredClone(item);
+    findingItem.operationId = id(); findingItem.entityId = findingUuid;
+    findingItem.payload.clientUuid = findingUuid; findingItem.payload.jobId = findingJob;
+    findingItem.payload.inspectionSnapshot.job.id = findingJob;
+    findingItem.payload.responses.rows[0]!.rowUuid = findingRow;
+    findingItem.payload.responses.rows[0]!.autoAlarmModeResult = "not_good";
+    findingItem.payload.responses.rows[0]!.fieldRemarks = { autoAlarmModeResult: "Motor failed" };
+    findingItem.payload.evidenceManifest = [{ photoUuid, fieldPath, sourceSha256: digest }];
+    assert.deepEqual((await acceptFireRatedRollerShutterV7Inspection(findingItem, actor)).acceptedIds, [findingUuid]);
+    assert.deepEqual((await database.query<{ status: string }>("SELECT status FROM staged_inspection_evidence WHERE photo_uuid=$1", [photoUuid])).rows.map((row) => row.status), ["accepted"]);
+    assert.deepEqual((await acceptFireRatedRollerShutterV7Inspection(findingItem, actor)).duplicateIds, [findingUuid]);
+  } finally {
+    await lock.query("SELECT pg_advisory_unlock(819282)").catch(() => undefined);
+    lock.release();
+    await database.end();
+  }
+});

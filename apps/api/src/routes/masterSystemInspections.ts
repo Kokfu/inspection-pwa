@@ -5,7 +5,7 @@ import { pool } from "../db/pool.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
 import { validateStoredFireAlarmDetail } from "../inspections/fireAlarmAccepted.js";
-import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedFm200Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedFireIntercomV7Detail, validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
+import { validateAcceptedAutomaticSprinklerV7Detail, validateAcceptedCo2Detail, validateAcceptedDryWetRiserV7Detail, validateAcceptedFm200Detail, validateAcceptedHoseReelDetail, validateAcceptedHoseReelV7Detail, validateAcceptedHydrantV7Detail, validateAcceptedFireIntercomV7Detail, validateAcceptedFireRatedRollerShutterV7Detail, validateAcceptedSmokeVentilationV7Detail, validateAcceptedWetChemicalDetail } from "../inspections/acceptedMasterSystemDetail.js";
 import { applyLabelOverrides } from "../inspections/labelOverrides.js";
 import { requireRole } from "../middleware/requireRole.js";
 
@@ -15,7 +15,7 @@ const supportedSystemKeys = new Set([
   "hose_reel",
   "co2_fire_extinguisher",
   "wet_chemical",
-  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fm200_fire_suppression"
+  "automatic_sprinkler", "dry_wet_riser", "fire_alarm_detector", "hydrant", "portable_fire_extinguisher", "smoke_ventilation", "fire_intercom", "fire_rated_roller_shutter", "fm200_fire_suppression"
 ]);
 const pageSize = 100;
 const cursorTimestamp = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/;
@@ -53,7 +53,7 @@ function encodeCursor(row: { performedAt: string; clientUuid: string }) {
 }
 export const masterSystemInspectionsRouter = Router();
 
-async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression", actor: { id: number; role: UserRole }) {
+async function acceptedDetailRow(clientUuid: string, systemKey: "hose_reel" | "co2_fire_extinguisher" | "wet_chemical" | "hydrant" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fire_rated_roller_shutter" | "fm200_fire_suppression", actor: { id: number; role: UserRole }) {
   const result = await pool.query(`
     SELECT instance.client_uuid AS "clientUuid", instance.id AS "serverFormInstanceId",
       job.id AS "jobId", job.job_reference AS "jobReference", job.title AS "jobTitle",
@@ -596,6 +596,13 @@ masterSystemInspectionsRouter.get(
         if (!v7) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
         if (!validateAcceptedFireIntercomV7Detail(v7)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
         response.json({ inspection: { ...acceptedDetailResponse(v7, "Fire Intercom System"), displayControls: null } });
+        return;
+      }
+      if (inspection.systemKey === "fire_rated_roller_shutter") {
+        const v7 = await acceptedDetailRow(clientUuid, "fire_rated_roller_shutter", request.currentUser!);
+        if (!v7) { response.status(404).json({ error: "INSPECTION_NOT_FOUND" }); return; }
+        if (!validateAcceptedFireRatedRollerShutterV7Detail(v7)) { response.status(500).json({ error: "INVALID_STORED_INSPECTION" }); return; }
+        response.json({ inspection: { ...acceptedDetailResponse(v7, "Fire Rated Roller Shutter System"), displayControls: null } });
         return;
       }
       if (inspection.systemKey === "smoke_ventilation") {

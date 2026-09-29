@@ -1,0 +1,24 @@
+<!doctype html><html><body><div id="form"></div><pre id="state"></pre><script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import {localDatabase} from "/src/db/localDatabase.ts";
+import {getOrCreateFireRatedRollerShutterInspection,saveFireRatedRollerShutterDraft,submitLocalFireRatedRollerShutter} from "/src/fireRatedRollerShutter/fireRatedRollerShutterRepository.ts";
+import {FireRatedRollerShutterInspectionForm} from "/src/fireRatedRollerShutter/FireRatedRollerShutterInspectionForm.tsx";
+const id=n=>`84000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const values=["good","not_good","complete_repair","na"];
+const txt=(key,label,sortOrder)=>({key,label,control:"text",required:false,sortOrder});
+const result=(key,label,sortOrder)=>({key,label,control:"good_poor",required:false,sortOrder,allowedValues:values,remarksPolicy:"optional"});
+const definition={key:"fire_rated_roller_shutter",displayName:"Fire Rated Roller Shutter",sortOrder:13,definitionStatus:"confirmed",configuration:{supportsZones:false,supportsLocations:true,supportsPresetRows:true},sections:[
+  {key:"inspection_header",title:"Inspection Details",sortOrder:1,blocks:[{key:"inspection_header_fields",title:"Inspection Details",type:"checklist",sortOrder:1,items:[txt("date_tested","Date Tested",1),txt("zone","Zone",2),txt("inspected_by","Inspected By",3)]}]},
+  {key:"roller_shutter_schedule",title:"Roller Shutter Schedule",sortOrder:2,blocks:[{key:"roller_shutter_schedule_rows",title:"Roller Shutter Schedule Rows",type:"repeatable_table",sortOrder:1,supportsZones:false,supportsLocations:true,columns:[txt("location","Location",1),result("auto_alarm_mode","Auto Alarm Mode",2),result("manual_mode","Manual Mode",3),{...txt("remarks","Remarks",4),control:"remarks"}]},{key:"comments",title:"Comments",type:"comments",sortOrder:2,field:{key:"comments",label:"Comments",control:"remarks",required:false,sortOrder:1}}]}
+]};
+const templateId="00000000-0000-4000-8000-000000000807", system={enabledSystemId:id(4),systemKey:"fire_rated_roller_shutter",displayName:"Fire Rated Roller Shutter",sortOrder:13,definitionStatus:"confirmed",zones:[],locations:[]};
+const template={id:templateId,code:"MFE-FSSR",name:"MFE",version:7,systems:[{...system,key:system.systemKey,definition}]};
+const job={id:id(1),reference:"RS-BROWSER",title:"Roller Shutter Browser",status:"open",configurationSnapshot:{schemaVersion:1,customer:{id:id(2),code:"RS",displayName:"Roller Customer"},configuration:{revisionId:id(3),revisionNumber:1},template:{id:templateId,code:"MFE-FSSR",name:"MFE",version:7},enabledSystems:[system]}};
+const catalog={templates:[template]};
+let record,root=ReactDomClient.createRoot(document.querySelector("#form"));
+const render=()=>root.render(React.createElement(FireRatedRollerShutterInspectionForm,{record,onBack:()=>{},onSaveDraft:async responses=>{record=await saveFireRatedRollerShutterDraft(record,responses);render()},onSubmitLocal:async responses=>{record=await submitLocalFireRatedRollerShutter(record,responses);render()},onEditFailed:async()=>{}}));
+await localDatabase.open();record=await getOrCreateFireRatedRollerShutterInspection(job,system,catalog,{id:1,username:"browser-tech",role:"inspector"});render();
+window.inspect=async()=>{const stored=await localDatabase.masterSystemInspections.get(record.clientUuid);const outbox=await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray();return{stored,outbox}};
+window.clientUuid=record.clientUuid;
+</script></body></html>

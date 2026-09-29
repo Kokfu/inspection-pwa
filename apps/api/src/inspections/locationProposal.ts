@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { LocationConfigurationInput } from "./locationConfiguration.js";
+import type { LocationProposalPatch } from "./locationConfiguration.js";
 
 /**
  * Technician-proposed, Supervisor/Admin-approved customer zone/location configuration
@@ -46,7 +46,7 @@ export type LocationProposalRecord = {
   submittedBy: string;
   submittedByRole: "inspector";
   submittedAt: string;
-  payload: LocationConfigurationInput;
+  payload: LocationProposalPatch;
 };
 
 export type LocationProposalState = {

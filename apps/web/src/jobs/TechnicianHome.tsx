@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { locationConfigurableSystemKeys } from "../manager/managerApi";
 import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
@@ -365,9 +366,9 @@ export function TechnicianHome({
               if (window.confirm(`Delete this in-progress service visit? A manager can restore it if this was a mistake.`)) void onArchiveJob(selectedJob);
             }}>Delete this job</button> : null}
           </div> : null}
-          <div className="inline-actions">
-            <button type="button" className="secondary-command" onClick={() => onOpenLocationProposal(selectedJob)}>Propose Customer Locations</button>
-          </div>
+          {selectedJob.configurationSnapshot.enabledSystems.some((system) => locationConfigurableSystemKeys.has(system.systemKey)) ? <div className="inline-actions">
+            <button type="button" className="secondary-command" onClick={() => onOpenLocationProposal(selectedJob)}>Add a New Location</button>
+          </div> : null}
         </div>
         {selectedJob.status === "open" && selectedJob.completion?.eligible ? (
           <section className="job-completion job-completion--ready" aria-labelledby="job-completion-title">

@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  saveTechnicianLocationProposalDraft, syncPendingLocationProposals
+} from "../jobs/technicianLocationProposalDraft";
 import { controlsForHoseReelSnapshot } from "../inspectionControls/definitionResolver";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
@@ -12,6 +16,7 @@ import {
   setHoseReelDrumCount
 } from "./hoseReelRepository";
 import {
+  hoseReelLimits,
   type GoodPoor,
   type HoseReelDrumType,
   type HoseReelResponses,
@@ -28,6 +33,8 @@ import {
 
 type Props = {
   record: MasterSystemInspectionRecord;
+  actorUserId: number;
+  canUseServer: boolean;
   onSaveDraft: (responses: HoseReelResponses) => Promise<void>;
   onSubmitLocal: (responses: HoseReelResponses) => Promise<void>;
   onEditFailed: () => Promise<void>;
@@ -56,6 +63,8 @@ const technicianDrumSectionHasWork = (
 
 export function HoseReelInspectionForm({
   record,
+  actorUserId,
+  canUseServer,
   onSaveDraft,
   onSubmitLocal,
   onEditFailed,
@@ -63,6 +72,8 @@ export function HoseReelInspectionForm({
 }: Props) {
   const [responses, setResponses] = useState(record.responses);
   const [message, setMessage] = useState("");
+  const [formatStatus, setFormatStatus] = useState<"idle" | "saving" | "pending" | "synced" | "failed">("idle");
+  const [formatError, setFormatError] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listHoseReelV7Photos>>>([]);
   const [priorReference, setPriorReference] = useState<Awaited<ReturnType<typeof latestHoseReelReferenceForCustomer>>>(undefined);
@@ -175,6 +186,34 @@ export function HoseReelInspectionForm({
       row.rowUuid === rowUuid ? { ...row, ...change } : row
     )
   }));
+
+  async function saveAsFormat() {
+    setFormatStatus("saving"); setFormatError("");
+    try {
+      const rows = responses.rows.map((row) => ({
+        assetReference: row.assetReference ?? "", locationText: row.locationText, drumType: row.drumType ?? ""
+      }));
+      if (responses.schemaVersion !== 3 || rows.length < 1 || rows.length > hoseReelLimits.rows
+        || rows.some((row) => !row.locationText.trim())) {
+        throw new Error("Add at least one drum with a location before saving a format.");
+      }
+      const jobId = record.inspectionSnapshot.job.id, customerId = record.inspectionSnapshot.customer.id;
+      const locationKey = "general";
+      const draft = newUpdateFormatDraft(jobId, customerId, record.systemKey, locationKey, rows);
+      await saveTechnicianLocationProposalDraft(draft);
+      await queueTechnicianLocationProposal(draft);
+      setFormatStatus("pending");
+      if (canUseServer && navigator.onLine) {
+        await syncPendingLocationProposals(actorUserId);
+        const refreshed = await loadTechnicianLocationProposalDraft(jobId, record.systemKey, locationKey);
+        setFormatStatus(refreshed?.status === "Synced" ? "synced" : refreshed?.status === "Failed" ? "failed" : "pending");
+        if (refreshed?.status === "Failed") setFormatError(refreshed.lastError ?? "This format could not be submitted.");
+      }
+    } catch (error) {
+      setFormatStatus("failed");
+      setFormatError(error instanceof Error ? error.message : "This format could not be saved.");
+    }
+  }
 
   async function save() {
     try {
@@ -679,6 +718,13 @@ export function HoseReelInspectionForm({
           </button>
         ) : null}
       </fieldset>
+
+      {!readOnly && isSchema3 ? <div className="inline-actions">
+        <button type="button" className="secondary-command" disabled={formatStatus === "saving"} onClick={() => void saveAsFormat()}>{formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}</button>
+        {formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}
+        {formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}
+        {formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}
+      </div> : null}
 
       <fieldset
         className={invalidTargets.has("hose-reel-comments") ? "field-invalid" : ""}

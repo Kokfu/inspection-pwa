@@ -6,6 +6,10 @@ import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { getFm200SubmitIssues } from "./fm200Repository";
 import { configuredDetectorCount, normalizeDetectorRows, setDetectorRowCount } from "../co2/detectorRowCount";
 import { deriveFm200InstanceProgress } from "./fm200Progress";
+import {
+  loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  saveTechnicianLocationProposalDraft, syncPendingLocationProposals
+} from "../jobs/technicianLocationProposalDraft";
 import type {
   Fm200ChecklistResponse,
   Fm200DetectorStatus,
@@ -19,17 +23,21 @@ import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
 type Props = {
   record: Fm200MasterSystemFormInstanceRecord;
+  actorUserId: number;
+  canUseServer: boolean;
   onBack: () => void;
   onSaveDraft: (responses: Fm200Responses) => Promise<void>;
   onSubmitLocal: (responses: Fm200Responses) => Promise<void>;
   onEditFailed: () => Promise<void>;
 };
 
-export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
+export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
   const systemLabel = "FM200 System";
   const [responses, setResponses] = useState(() => record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [formatStatus, setFormatStatus] = useState<"idle" | "saving" | "pending" | "synced" | "failed">("idle");
+  const [formatError, setFormatError] = useState("");
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listV7SuppressionPhotos>>>([]);
   // G9: duplicate detection spans every location-instance of this system in the
   // Job, so the sibling evidence has to be in state next to `photos`.
@@ -86,6 +94,28 @@ export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal
       setMessage(inspectionSyncMessage("Draft"));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Draft could not be saved");
+    }
+  }
+
+  async function saveAsFormat() {
+    setFormatStatus("saving"); setFormatError("");
+    try {
+      const rows = responses.detectorRows.map((row) => ({ alarmZone: row.alarmZone, location: row.location }));
+      const jobId = record.inspectionSnapshot.job.id, customerId = record.inspectionSnapshot.customer.id;
+      const locationKey = record.inspectionSnapshot.instance.location.key;
+      const draft = newUpdateFormatDraft(jobId, customerId, record.inspectionSnapshot.system.systemKey, locationKey, rows);
+      await saveTechnicianLocationProposalDraft(draft);
+      await queueTechnicianLocationProposal(draft);
+      setFormatStatus("pending");
+      if (canUseServer && navigator.onLine) {
+        await syncPendingLocationProposals(actorUserId);
+        const refreshed = await loadTechnicianLocationProposalDraft(jobId, record.inspectionSnapshot.system.systemKey, locationKey);
+        setFormatStatus(refreshed?.status === "Synced" ? "synced" : refreshed?.status === "Failed" ? "failed" : "pending");
+        if (refreshed?.status === "Failed") setFormatError(refreshed.lastError ?? "This format could not be submitted.");
+      }
+    } catch (error) {
+      setFormatStatus("failed");
+      setFormatError(error instanceof Error ? error.message : "This format could not be saved.");
     }
   }
 
@@ -168,6 +198,14 @@ export function Fm200InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal
           onChange={(event) => setResponses((current) => setDetectorRowCount(current, record.inspectionSnapshot.system, record.inspectionSnapshot.instance, Number(event.target.value), controls.detectorRows.maximum))} />
       </label>
       {!readOnly ? <p className="form-message">Configured rows stay in place. Clear a filled technician row before reducing the count.</p> : null}
+      {!readOnly ? <div className="inline-actions">
+        <button type="button" className="secondary-command" disabled={formatStatus === "saving"} onClick={() => void saveAsFormat()}>
+          {formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}
+        </button>
+        {formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}
+        {formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}
+        {formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}
+      </div> : null}
       {responses.detectorRows.slice().sort((left, right) => left.displaySequence - right.displaySequence).map((row, index) => (
         <section className={`hose-row-card ${invalidTargets.has(`fm200-detector-${row.rowUuid}`) ? "field-invalid" : ""}`} id={`fm200-detector-${row.rowUuid}`} key={row.rowUuid}>
           <h3>Detector Row {index + 1}</h3>

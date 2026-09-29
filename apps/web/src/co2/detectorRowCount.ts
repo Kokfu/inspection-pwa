@@ -5,10 +5,32 @@ export function configuredDetectorCount(system: JobSystemSnapshot, instance: Co2
   return Math.max(0, system.locations.find((location) => location.id === instance.location.id)?.presetRowCount ?? 0);
 }
 
-export function newDetectorRow(instance: Co2ConfiguredInstance, sequence: number, source: "configured" | "technician"): Co2DetectorRow {
+/** One saved row default -- alarmZone/location free text a technician previously typed and saved via
+ *  "Save as format", reused here so the SAME rows pre-fill on the customer's next visit instead of
+ *  starting blank every time. Malformed/missing entries fail closed to `[]` (never crash), per the
+ *  Offline Contract's "fail closed on malformed data" rule -- a "configured" row still gets created
+ *  either way (from `configuredDetectorCount`'s presetRowCount), just without saved content. */
+export type DetectorRowPreset = { alarmZone: string; location: string };
+
+function isDetectorRowPreset(value: unknown): value is DetectorRowPreset {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && typeof (value as Record<string, unknown>).alarmZone === "string"
+    && typeof (value as Record<string, unknown>).location === "string";
+}
+
+export function configuredRowPresets(system: JobSystemSnapshot, instance: Co2ConfiguredInstance): DetectorRowPreset[] {
+  const location = system.locations.find((candidate) => candidate.id === instance.location.id);
+  const rowPreset = location?.rowPreset;
+  if (!rowPreset || typeof rowPreset !== "object" || Array.isArray(rowPreset)) return [];
+  const rows = (rowPreset as Record<string, unknown>).rows;
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(isDetectorRowPreset);
+}
+
+export function newDetectorRow(instance: Co2ConfiguredInstance, sequence: number, source: "configured" | "technician", preset?: DetectorRowPreset): Co2DetectorRow {
   return {
     rowUuid: crypto.randomUUID(), source, displaySequence: sequence,
-    alarmZone: instance.zone?.displayName ?? "", location: instance.location.displayName,
+    alarmZone: preset?.alarmZone ?? (instance.zone?.displayName ?? ""), location: preset?.location ?? instance.location.displayName,
     heatDetectorStatus: null, smokeDetectorStatus: null, remarks: ""
   };
 }
@@ -20,9 +42,10 @@ export function normalizeDetectorRows(responses: Co2Responses, system: JobSystem
     throw new Error("Stored detector row provenance is invalid");
   }
   const preset = configuredDetectorCount(system, instance);
+  const rowPresets = configuredRowPresets(system, instance);
   const configured = rows.filter((row, index) => (row.source ?? (index < preset ? "configured" : "technician")) === "configured");
   const technician = rows.filter((row, index) => (row.source ?? (index < preset ? "configured" : "technician")) === "technician");
-  while (configured.length < preset) configured.push(newDetectorRow(instance, 0, "configured"));
+  while (configured.length < preset) configured.push(newDetectorRow(instance, 0, "configured", rowPresets[configured.length]));
   if (configured.length + technician.length === 0) technician.push(newDetectorRow(instance, 0, "technician"));
   return { ...responses, detectorRows: [...configured, ...technician].map((row, index) => ({ ...row, source: index < configured.length ? "configured" : "technician", displaySequence: index + 1 })) };
 }

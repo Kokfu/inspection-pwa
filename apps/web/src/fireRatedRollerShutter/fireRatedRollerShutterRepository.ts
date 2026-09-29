@@ -32,27 +32,46 @@ const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdi
  * order of `system.locations`, so this must sort too - otherwise a snapshot
  * that happens to arrive out of order builds a Draft the server refuses
  * non-retryably. */
+function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string }> | undefined {
+  const preset = location.rowPreset;
+  if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
+  const rows: unknown = (preset as Record<string, unknown>).rows;
+  if (!Array.isArray(rows)
+    || rows.length !== location.presetRowCount) return undefined;
+  if (!rows.every((row: unknown) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    const value = row as Record<string, unknown>;
+    return Object.keys(value).length === 2
+      && typeof value.assetReference === "string" && value.assetReference.length <= 200
+      && typeof value.locationText === "string" && value.locationText.trim().length > 0 && value.locationText.length <= 300;
+  })) return undefined;
+  return rows as Array<{ assetReference: string; locationText: string }>;
+}
+
 function expectedConfiguredRows(system: JobSystemSnapshot) {
-  const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string }> = [];
+  const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string; locationText: string }> = [];
   for (const location of [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder)) {
     const assetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
+    const presets = rowPresets(location);
     for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
-      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1, assetReference, displayName: location.displayName });
+      expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1,
+        assetReference: presets?.[ordinal - 1]?.assetReference ?? assetReference,
+        locationText: presets?.[ordinal - 1]?.locationText ?? location.displayName,
+        displayName: location.displayName });
     }
   }
   return expected;
 }
 
-function configuredRows(system: JobSystemSnapshot): FireRatedRollerShutterRow[] {
-  let count = 0;
-  return [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder).flatMap((location) => Array.from({ length: location.presetRowCount }, (_, index) => ({
-    rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: location.id, configuredRowOrdinal: index + 1,
+export function configuredFireRatedRollerShutterRows(system: JobSystemSnapshot): FireRatedRollerShutterRow[] {
+  return expectedConfiguredRows(system).map((expected) => ({
+    rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: expected.locationId, configuredRowOrdinal: expected.ordinal,
     zoneSnapshot: null,
-    locationSnapshot: { id: location.id, displayName: location.displayName },
-    assetReference: typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "",
-    locationText: location.displayName, autoAlarmModeResult: null, manualModeResult: null,
-    remarks: "", fieldRemarks: {}, sortOrder: ++count
-  })));
+    locationSnapshot: { id: expected.locationId, displayName: expected.displayName },
+    assetReference: expected.assetReference,
+    locationText: expected.locationText, autoAlarmModeResult: null, manualModeResult: null,
+    remarks: "", fieldRemarks: {}, sortOrder: expected.sortOrder
+  }));
 }
 
 export async function getOrCreateFireRatedRollerShutterInspection(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog, creator: { id: number; username: string; role: "admin" | "inspector" } | undefined) {
@@ -67,7 +86,7 @@ export async function getOrCreateFireRatedRollerShutterInspection(job: Inspectio
     originalCreatorSnapshot: creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } as DeviceReportedCreator : null,
     masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 7 }, configuration: job.configurationSnapshot.configuration,
     inspectionSnapshot: { schemaVersion: 1, capturedAt: timestamp, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: job.configurationSnapshot.template, system: { ...system, definition, repetitionMode: "single_with_repeatable_rows" } },
-    responses: { schemaVersion: 1, dateTested: "", zone: "", inspectedBy: "", rows: configuredRows(system), comments: "" },
+    responses: { schemaVersion: 1, dateTested: "", zone: "", inspectedBy: "", rows: configuredFireRatedRollerShutterRows(system), comments: "" },
     performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft"
   };
   await localDatabase.masterSystemInspections.add(record);
@@ -116,7 +135,7 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
       else {
         if (row.sortOrder !== authoritative.sortOrder) issues.push("Configured Shutter row order does not match the frozen configuration");
         if (row.assetReference !== authoritative.assetReference) issues.push("Configured Shutter label does not match the frozen configuration");
-        if (row.locationText !== authoritative.displayName) issues.push("Configured Shutter location does not match the frozen configuration");
+        if (row.locationText !== authoritative.locationText) issues.push("Configured Shutter location does not match the frozen configuration");
         if (!row.locationSnapshot || Object.keys(row.locationSnapshot).length !== 2
           || row.locationSnapshot.id !== row.configuredLocationId
           || row.locationSnapshot.displayName !== authoritative.displayName) issues.push("Configured Shutter row location snapshot does not match the frozen configuration");

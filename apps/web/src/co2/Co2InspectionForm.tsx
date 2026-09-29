@@ -6,6 +6,10 @@ import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { addCo2DetectorRow, getCo2SubmitIssues } from "./co2Repository";
 import { configuredDetectorCount, normalizeDetectorRows, setDetectorRowCount } from "./detectorRowCount";
 import { deriveCo2InstanceProgress } from "./co2Progress";
+import {
+  loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  saveTechnicianLocationProposalDraft, syncPendingLocationProposals
+} from "../jobs/technicianLocationProposalDraft";
 import type {
   Co2ChecklistResponse,
   Co2Responses,
@@ -19,18 +23,22 @@ import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
 type Props = {
   record: MasterSystemFormInstanceRecord;
+  actorUserId: number;
+  canUseServer: boolean;
   onBack: () => void;
   onSaveDraft: (responses: Co2Responses) => Promise<void>;
   onSubmitLocal: (responses: Co2Responses) => Promise<void>;
   onEditFailed: () => Promise<void>;
 };
 
-export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
+export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
   const systemLabel = record.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
-  const countDriven = record.systemKey === "co2_fire_extinguisher";
+  const countDriven = record.systemKey === "co2_fire_extinguisher" || record.systemKey === "wet_chemical";
   const [responses, setResponses] = useState(() => countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
   const [message, setMessage] = useState("");
   const [showValidation, setShowValidation] = useState(false);
+  const [formatStatus, setFormatStatus] = useState<"idle" | "saving" | "pending" | "synced" | "failed">("idle");
+  const [formatError, setFormatError] = useState("");
   const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listV7SuppressionPhotos>>>([]);
   // G9: duplicate detection spans every location-instance of this system in the
   // Job, so the sibling evidence has to be in state next to `photos`.
@@ -59,7 +67,7 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
   }, [issues]);
   const readOnly = record.syncStatus !== "Draft";
 
-  useEffect(() => setResponses(record.systemKey === "co2_fire_extinguisher" && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [record]);
+  useEffect(() => setResponses(countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [record]);
   useEffect(() => { if (record.masterTemplate.version === 7) { void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); void collectV7SiblingEvidence(record).then(setSiblings); } else { setPhotos([]); setSiblings([]); } }, [record.clientUuid, record.groupKey, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);
 
@@ -87,6 +95,28 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
       setMessage(inspectionSyncMessage("Draft"));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Draft could not be saved");
+    }
+  }
+
+  async function saveAsFormat() {
+    setFormatStatus("saving"); setFormatError("");
+    try {
+      const rows = responses.detectorRows.map((row) => ({ alarmZone: row.alarmZone, location: row.location }));
+      const jobId = record.inspectionSnapshot.job.id, customerId = record.inspectionSnapshot.customer.id;
+      const locationKey = record.inspectionSnapshot.instance.location.key;
+      const draft = newUpdateFormatDraft(jobId, customerId, record.systemKey, locationKey, rows);
+      await saveTechnicianLocationProposalDraft(draft);
+      await queueTechnicianLocationProposal(draft);
+      setFormatStatus("pending");
+      if (canUseServer && navigator.onLine) {
+        await syncPendingLocationProposals(actorUserId);
+        const refreshed = await loadTechnicianLocationProposalDraft(jobId, record.systemKey, locationKey);
+        setFormatStatus(refreshed?.status === "Synced" ? "synced" : refreshed?.status === "Failed" ? "failed" : "pending");
+        if (refreshed?.status === "Failed") setFormatError(refreshed.lastError ?? "This format could not be submitted.");
+      }
+    } catch (error) {
+      setFormatStatus("failed");
+      setFormatError(error instanceof Error ? error.message : "This format could not be saved.");
     }
   }
 
@@ -169,6 +199,14 @@ export function Co2InspectionForm({ record, onBack, onSaveDraft, onSubmitLocal, 
           onChange={(event) => setResponses((current) => setDetectorRowCount(current, record.inspectionSnapshot.system, record.inspectionSnapshot.instance, Number(event.target.value), controls.detectorRows.maximum))} />
       </label> : null}
       {countDriven && !readOnly ? <p className="form-message">Configured rows stay in place. Clear a filled technician row before reducing the count.</p> : null}
+      {countDriven && !readOnly ? <div className="inline-actions">
+        <button type="button" className="secondary-command" disabled={formatStatus === "saving"} onClick={() => void saveAsFormat()}>
+          {formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}
+        </button>
+        {formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}
+        {formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}
+        {formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}
+      </div> : null}
       {responses.detectorRows.slice().sort((left, right) => left.displaySequence - right.displaySequence).map((row, index) => (
         <section className={`hose-row-card ${invalidTargets.has(`co2-detector-${row.rowUuid}`) ? "field-invalid" : ""}`} id={`co2-detector-${row.rowUuid}`} key={row.rowUuid}>
           <h3>Detector Row {index + 1}</h3>

@@ -97,6 +97,9 @@ const userDisplayNamesMigrationUrl = new URL(
 const v7Fm200EvidenceMigrationUrl = new URL(
   "../../migrations/033_v7_fm200_evidence.sql", import.meta.url
 );
+const v7RollerShutterEvidenceMigrationUrl = new URL(
+  "../../migrations/046_v7_roller_shutter_evidence.sql", import.meta.url
+);
 const reportNumberRequiredMigrationUrl = new URL(
   "../../migrations/034_report_number_required.sql", import.meta.url
 );
@@ -498,6 +501,9 @@ export async function runMigrations(
   // gated the same way on "does the CHECK already list this key".
   if (!(await evidenceSystemKeyCheckListsKey(database, "fm200_fire_suppression"))) {
     await database.query(await readFile(v7Fm200EvidenceMigrationUrl, "utf8"));
+  }
+  if (!(await evidenceSystemKeyCheckListsKey(database, "fire_rated_roller_shutter"))) {
+    await database.query(await readFile(v7RollerShutterEvidenceMigrationUrl, "utf8"));
   }
   // Migration 027 adds `customer_enabled_systems.label_overrides` (per-customer
   // display-label overrides). Its named CHECK is immutable like migration 008's

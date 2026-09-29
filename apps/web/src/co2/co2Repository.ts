@@ -8,7 +8,7 @@ import {
 } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { resolvePublishedCo2Controls } from "./co2Definition";
-import { configuredDetectorCount, newDetectorRow, wireDetectorResponses } from "./detectorRowCount";
+import { configuredDetectorCount, configuredRowPresets, newDetectorRow, wireDetectorResponses } from "./detectorRowCount";
 import type {
   Co2ConfiguredInstance,
   Co2DetectorRow,
@@ -70,18 +70,11 @@ function checklist(definitions: ResolvedCo2Controls["chargerAndBatteries"]) {
   return Object.fromEntries(definitions.map((definition) => [definition.key, { result: null, remarks: "" }]));
 }
 
-function legacyDetectorRow(instance: Co2ConfiguredInstance): Co2DetectorRow {
-  const { source: _source, ...row } = newDetectorRow(instance, 1, "technician");
-  return row;
-}
-
-function blankResponses(instance: Co2ConfiguredInstance, system: JobSystemSnapshot, controls: ResolvedCo2Controls): Co2Responses {
+export function blankResponses(instance: Co2ConfiguredInstance, system: JobSystemSnapshot, controls: ResolvedCo2Controls): Co2Responses {
   return {
     controlPanelLocation: instance.location.displayName,
-    detectorRows: system.systemKey === co2SystemKey
-      ? Array.from({ length: Math.max(1, configuredDetectorCount(system, instance)) }, (_, index) =>
-          newDetectorRow(instance, index + 1, configuredDetectorCount(system, instance) ? "configured" : "technician"))
-      : [legacyDetectorRow(instance)],
+    detectorRows: Array.from({ length: Math.max(1, configuredDetectorCount(system, instance)) }, (_, index) =>
+      newDetectorRow(instance, index + 1, configuredDetectorCount(system, instance) ? "configured" : "technician", configuredRowPresets(system, instance)[index])),
     chargerAndBatteries: checklist(controls.chargerAndBatteries),
     physicalOutlook: checklist(controls.physicalOutlook),
     mainFunctionKeys: checklist(controls.mainFunctionKeys),
@@ -245,7 +238,7 @@ export function getCo2SubmitIssues(record: MasterSystemFormInstanceRecord, respo
   if (responses.controlPanelLocation.length > controls.controlPanelLocation.maxLength) issues.push({ section: "CO2 Control Panel", message: `Control Panel Location exceeds ${controls.controlPanelLocation.maxLength} characters`, targetId: "co2-panel-location" });
   if (responses.detectorRows.length < controls.detectorRows.minimum) issues.push({ section: "Detector Table", message: "At least one detector row is required", targetId: "co2-detectors" });
   if (responses.detectorRows.length > controls.detectorRows.maximum) issues.push({ section: "Detector Table", message: `No more than ${controls.detectorRows.maximum} detector rows may be submitted`, targetId: "co2-detectors" });
-  if (record.systemKey === co2SystemKey) {
+  if (record.systemKey === co2SystemKey || record.systemKey === wetChemicalSystemKey) {
     const configuredCount = configuredDetectorCount(record.inspectionSnapshot.system, record.inspectionSnapshot.instance);
     if (responses.detectorRows.length < configuredCount || responses.detectorRows.some((row, index) =>
       row.source !== undefined && row.source !== (index < configuredCount ? "configured" : "technician"))) {
@@ -261,7 +254,7 @@ export function getCo2SubmitIssues(record: MasterSystemFormInstanceRecord, respo
     if (rowIds.has(row.rowUuid)) issues.push({ section: "Detector Table", message: `${prefix}: duplicate row identity`, targetId });
     rowIds.add(row.rowUuid);
     if (!Number.isInteger(row.displaySequence) || row.displaySequence < 1 || displaySequences.has(row.displaySequence)
-      || record.systemKey === co2SystemKey && row.displaySequence !== index + 1) {
+      || (record.systemKey === co2SystemKey || record.systemKey === wetChemicalSystemKey) && row.displaySequence !== index + 1) {
       issues.push({ section: "Detector Table", message: `${prefix}: display sequence is invalid or duplicated`, targetId });
     }
     displaySequences.add(row.displaySequence);

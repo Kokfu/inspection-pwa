@@ -8,7 +8,7 @@ import {
 } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { resolvePublishedFm200Controls, type ResolvedFm200Controls } from "./fm200Definition";
-import { configuredDetectorCount, newDetectorRow, wireDetectorResponses } from "../co2/detectorRowCount";
+import { configuredDetectorCount, configuredRowPresets, newDetectorRow, wireDetectorResponses } from "../co2/detectorRowCount";
 import type {
   Fm200ConfiguredInstance,
   Fm200DetectorRow,
@@ -72,7 +72,7 @@ function blankResponses(instance: Fm200ConfiguredInstance, system: JobSystemSnap
   return {
     controlPanelLocation: instance.location.displayName,
     detectorRows: Array.from({ length: Math.max(1, configuredDetectorCount(system, instance)) }, (_, index) =>
-      newDetectorRow(instance, index + 1, configuredDetectorCount(system, instance) ? "configured" : "technician")),
+      newDetectorRow(instance, index + 1, configuredDetectorCount(system, instance) ? "configured" : "technician", configuredRowPresets(system, instance)[index])),
     chargerAndBatteries: checklist(controls.chargerAndBatteries),
     physicalOutlook: checklist(controls.physicalOutlook),
     mainFunctionKeys: checklist(controls.mainFunctionKeys),

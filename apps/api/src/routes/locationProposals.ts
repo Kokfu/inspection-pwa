@@ -7,21 +7,30 @@ import { pool } from "../db/pool.js";
 import { requireRole, requireRoleAudited } from "../middleware/requireRole.js";
 import { requireExpectedActor } from "../jobs/technicianOwnership.js";
 import {
-  locationConfigurableSystemKeys, parseLocationConfigurationInput, type LocationConfigurationInput
+  applyLocationProposalPatch, locationConfigurableSystemKeys, parseLocationProposalPatch,
+  type LocationConfigurationInput, type LocationProposalPatch
 } from "../inspections/locationConfiguration.js";
 import {
   deriveLocationProposalState, listLocationProposals, loadLocationProposal, loadLocationProposalDecisions,
   type LocationProposalDecisionEvent, type LocationProposalRecord, type LocationProposalState, type LocationProposalStatus
 } from "../inspections/locationProposal.js";
-import { applyManagerLocationsUpdate, ManagerCustomerError } from "./managerCustomers.js";
+import { applyManagerLocationsUpdate, loadConfiguration, ManagerCustomerError } from "./managerCustomers.js";
 
 /**
- * Technician-proposed, Supervisor/Admin-approved customer zone/location configuration
- * (docs: the location-proposal design confirmed with the owner). A technician drafts the real
- * zone/location breakdown on-site (offline-capable via `technicianLocationProposalDraft.ts`), it
- * flows here for review, and Approve reuses `applyManagerLocationsUpdate` -- the exact write path a
- * Manager's own edit performs -- so an approved proposal becomes the customer's real, versioned
- * configuration. Both decisions are terminal: no withdraw, no re-decision.
+ * Technician-proposed, Supervisor/Admin-approved customer zone/location configuration.
+ *
+ * Phase 1 redesign: a proposal no longer carries "the complete desired {zones, locations}" for a
+ * system (that full-replace shape stays exactly as-is for the Manager's own
+ * `PUT .../systems/:systemKey/locations`, via `applyManagerLocationsUpdate`, unchanged). Instead a
+ * proposal carries a scoped PATCH -- `add-location` (name a brand-new location; no real inspection
+ * data exists for it yet) or `update-format` (save row count + per-row content from the live
+ * inspection form; Roller Shutter may create its General location on first approval) -- that
+ * Approve merges into whatever the customer's CURRENT state is, fetched fresh at decision time
+ * (`applyLocationProposalPatch`). This is what makes proposing something offline-safe (a technician
+ * never needs to know the customer's current full structure) and lets two proposals targeting
+ * different locations of the same system be pending, and approved, independently -- keyed by
+ * `patch.locationKey`, not just `(customerId, systemKey)`. Both decisions are terminal: no withdraw,
+ * no re-decision.
  */
 export class LocationProposalError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) { super(message); }
@@ -48,21 +57,21 @@ function parseProposalTarget(request: { params: Record<string, unknown> }) {
   return { customerId, systemKey };
 }
 
-function parseSubmissionBody(body: unknown): { id: string; jobId: string; parsed: LocationConfigurationInput } {
+function parseSubmissionBody(body: unknown, systemKey: string): { id: string; jobId: string; patch: LocationProposalPatch } {
   const invalid = (message: string) => new LocationProposalError("INVALID_LOCATION_PROPOSAL_REQUEST", message, 400);
   if (!object(body)) throw invalid("Request body is invalid.");
-  const allowed = ["id", "jobId", "zones", "locations"];
+  const allowed = ["id", "jobId", "patch"];
   if (Object.keys(body).some((key) => !allowed.includes(key))) throw invalid("Request body is invalid.");
   if (typeof body.id !== "string" || !uuidPattern.test(body.id)) throw invalid("id must be a valid UUID.");
   if (typeof body.jobId !== "string" || !uuidPattern.test(body.jobId)) throw invalid("jobId must be a valid UUID.");
-  const parsed = parseLocationConfigurationInput({ zones: body.zones, locations: body.locations });
-  if (!parsed) throw invalid("The zone/location payload is invalid for this system.");
-  return { id: body.id.toLowerCase(), jobId: body.jobId.toLowerCase(), parsed };
+  const patch = parseLocationProposalPatch(body.patch, systemKey);
+  if (!patch) throw invalid("The proposal patch is invalid.");
+  return { id: body.id.toLowerCase(), jobId: body.jobId.toLowerCase(), patch };
 }
 
-function submissionFingerprint(customerId: string, systemKey: string, jobId: string | null, payload: LocationConfigurationInput) {
+function submissionFingerprint(customerId: string, systemKey: string, jobId: string, patch: LocationProposalPatch) {
   return createHash("sha256").update(canonicalJson({
-    customerId: customerId.toLowerCase(), systemKey, jobId, payload
+    customerId: customerId.toLowerCase(), systemKey, jobId, patch
   })).digest("hex");
 }
 
@@ -89,14 +98,13 @@ function parseDecisionBody(body: unknown): ParsedDecisionBody {
 const publicDecision = ({ requestFingerprint: _fingerprint, ...decision }: LocationProposalDecisionEvent) => decision;
 
 function publicProposal(proposal: LocationProposalRecord & LocationProposalState) {
-  const { payload, decision, status } = proposal;
+  const { decision, status } = proposal;
   return {
     id: proposal.id, customerId: proposal.customerId, customerDisplayName: proposal.customerDisplayName,
     systemKey: proposal.systemKey, jobId: proposal.jobId,
     submittedByUserId: proposal.submittedByUserId, submittedBy: proposal.submittedBy, submittedByRole: proposal.submittedByRole,
     submittedAt: proposal.submittedAt,
-    zoneCount: payload.zones.length, locationCount: payload.locations.length,
-    payload,
+    payload: proposal.payload,
     status, decision: decision ? publicDecision(decision) : null
   };
 }
@@ -105,6 +113,33 @@ async function requireProposal(database: Queryable, id: string): Promise<Locatio
   const proposal = await loadLocationProposal(database, id);
   if (!proposal) throw new LocationProposalError("LOCATION_PROPOSAL_NOT_FOUND", "Location proposal was not found.", 404);
   return proposal;
+}
+
+/** This system's current `{zones, locations}`, in the same shape `applyLocationProposalPatch`/
+ *  `applyManagerLocationsUpdate` expect -- extracted from `loadConfiguration`'s full (all systems)
+ *  result. Mirrors `loadLocationsContext`'s posture in `managerCustomers.ts`: a not-yet-enabled system
+ *  resolves to an empty set (an add-location patch, or Roller Shutter's first General format,
+ *  gives it authority),
+ *  never a 404. */
+function extractSystemLocations(
+  configuration: Awaited<ReturnType<typeof loadConfiguration>>, systemKey: string
+): LocationConfigurationInput {
+  const enabled = configuration.enabled.find((system) => system.key === systemKey);
+  if (!enabled) return { zones: [], locations: [] };
+  const zones = configuration.zones.filter((zone) => zone.enabledSystemId === enabled.id);
+  const zoneKeyById = new Map(zones.map((zone) => [zone.id, zone.key]));
+  return {
+    zones: zones.map((zone) => ({ key: zone.key, displayName: zone.displayName, sortOrder: zone.sortOrder })),
+    locations: configuration.locations
+      .filter((location) => location.enabledSystemId === enabled.id)
+      .map((location) => ({
+        key: location.key, displayName: location.displayName,
+        zoneId: location.zoneId ? (zoneKeyById.get(location.zoneId) ?? "") : null,
+        presetRowCount: location.presetRowCount,
+        rowPreset: object(location.rowPreset) ? location.rowPreset : {},
+        sortOrder: location.sortOrder
+      }))
+  };
 }
 
 export function createLocationProposalsRouter(database: Database = pool) {
@@ -119,15 +154,15 @@ export function createLocationProposalsRouter(database: Database = pool) {
       let client: PoolClient | undefined;
       try {
         const { customerId, systemKey } = parseProposalTarget(request);
-        const { id, jobId, parsed } = parseSubmissionBody(request.body);
-        const fingerprint = submissionFingerprint(customerId, systemKey, jobId, parsed);
+        const { id, jobId, patch } = parseSubmissionBody(request.body, systemKey);
+        const fingerprint = submissionFingerprint(customerId, systemKey, jobId, patch);
         client = await database.connect();
         await client.query("BEGIN");
 
         // Idempotent replay check first, mirroring reportApprovals.ts: a retry of the
         // same client-generated id short-circuits before any domain-state check.
         const existing = await client.query<{
-          customerId: string; systemKey: string; jobId: string; submittedByUserId: number; payload: LocationConfigurationInput;
+          customerId: string; systemKey: string; jobId: string; submittedByUserId: number; payload: LocationProposalPatch;
         }>(`SELECT customer_id AS "customerId", system_key AS "systemKey", job_id AS "jobId",
               submitted_by_user_id::int AS "submittedByUserId", payload
             FROM customer_location_proposals WHERE id = $1`, [id]);
@@ -155,22 +190,23 @@ export function createLocationProposalsRouter(database: Database = pool) {
           [jobId, customerId, request.currentUser!.id, systemKey]);
         if (!job.rows[0]) throw new LocationProposalError("JOB_NOT_FOUND", "Service visit was not found.", 404);
 
-        // One pending proposal at a time per (customer, systemKey), serialised so two
-        // concurrent submissions cannot both observe "no pending proposal".
-        await client.query("SELECT pg_advisory_xact_lock(hashtext('location_proposal:' || $1 || ':' || $2))", [customerId, systemKey]);
+        // One pending proposal at a time per (customer, systemKey, target location), serialised so
+        // two concurrent submissions cannot both observe "no pending proposal" for the same target --
+        // but proposals targeting DIFFERENT locations of the same system may be pending together.
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('location_proposal:' || $1 || ':' || $2 || ':' || $3))", [customerId, systemKey, patch.locationKey]);
         const pending = await client.query(`
           SELECT proposal.id FROM customer_location_proposals proposal
-          WHERE proposal.customer_id = $1 AND proposal.system_key = $2
+          WHERE proposal.customer_id = $1 AND proposal.system_key = $2 AND proposal.payload->>'locationKey' = $3
             AND NOT EXISTS (SELECT 1 FROM customer_location_proposal_decisions decision WHERE decision.proposal_id = proposal.id)
-          LIMIT 1`, [customerId, systemKey]);
+          LIMIT 1`, [customerId, systemKey, patch.locationKey]);
         if (pending.rows[0]) {
-          throw new LocationProposalError("LOCATION_PROPOSAL_ALREADY_PENDING", "A location proposal for this customer and system is already awaiting review.", 409);
+          throw new LocationProposalError("LOCATION_PROPOSAL_ALREADY_PENDING", "A location proposal for this location is already awaiting review.", 409);
         }
 
         await client.query(`INSERT INTO customer_location_proposals
           (id, customer_id, system_key, job_id, submitted_by_user_id, submitted_by_role, payload)
           VALUES ($1,$2,$3,$4,$5,'inspector',$6)`,
-        [id, customerId, systemKey, jobId, request.currentUser!.id, JSON.stringify(parsed)]);
+        [id, customerId, systemKey, jobId, request.currentUser!.id, JSON.stringify(patch)]);
         await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result) VALUES ($1,'technician_location_proposal_submitted','customer_location_proposal',$2,'success')`,
           [request.currentUser!.id, id]);
         await client.query("COMMIT");
@@ -236,9 +272,15 @@ export function createLocationProposalsRouter(database: Database = pool) {
       }
       let resultingRevisionId: string | null = null;
       if (input.decision === "approved") {
-        // The exact write a Manager's own edit performs, re-validated against current
-        // customer state -- never trusting the state the proposal was drafted against.
-        resultingRevisionId = await applyManagerLocationsUpdate(client, proposal.customerId, proposal.systemKey, proposal.payload, request.currentUser!.id);
+        // Never trust the payload's stored patch to already describe the whole picture -- re-read the
+        // customer's CURRENT configuration fresh and merge the patch into it, right here, right now.
+        const configuration = await loadConfiguration(client, proposal.customerId);
+        const currentForSystem = extractSystemLocations(configuration, proposal.systemKey);
+        const merged = applyLocationProposalPatch(currentForSystem, proposal.payload, proposal.systemKey);
+        if (!merged) {
+          throw new LocationProposalError("LOCATION_PROPOSAL_TARGET_INVALID", "This proposal's target location is no longer valid against the customer's current configuration.", 409);
+        }
+        resultingRevisionId = await applyManagerLocationsUpdate(client, proposal.customerId, proposal.systemKey, merged, request.currentUser!.id);
       }
       const decisionId = randomUUID();
       await client.query(`INSERT INTO customer_location_proposal_decisions

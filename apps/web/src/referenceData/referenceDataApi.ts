@@ -115,19 +115,33 @@ export async function createTechnicianCustomer(input: {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Submit a technician-drafted zone/location proposal for review. Mirrors `createTechnicianCustomer`:
+/** Mirrors the API's `LocationProposalPatch` (`apps/api/src/inspections/locationConfiguration.ts`).
+ *  `add-location` names a brand-new location (no real inspection data exists for it yet);
+ *  `update-format` saves row count + per-row content from the live inspection form and may create
+ *  Roller Shutter's General location on first approval. The server merges either into whatever the
+ *  customer's CURRENT configuration is, fresh, at Approve time -- never trusting this payload alone. */
+export type LocationProposalAddPatch = {
+  kind: "add-location";
+  locationKey: string;
+  displayName: string;
+  zoneKey: string | null;
+  newZone: { key: string; displayName: string } | null;
+};
+export type LocationProposalFormatPatch = {
+  kind: "update-format";
+  locationKey: string;
+  rows: Array<Record<string, string>>;
+};
+export type LocationProposalPatch = LocationProposalAddPatch | LocationProposalFormatPatch;
+
+/** Submit a technician-drafted location proposal patch for review. Mirrors `createTechnicianCustomer`:
  *  server-side idempotent on `input.id`, `X-Expected-User-Id` guards against a stale cross-tab
  *  identity, and the response is validated (never trusted on HTTP 200 alone) before the caller may
  *  mark the local draft Synced. */
 export async function submitTechnicianLocationProposal(
   customerId: string,
   systemKey: string,
-  input: {
-    id: string;
-    jobId: string;
-    zones: Array<{ key: string; displayName: string; sortOrder: number }>;
-    locations: Array<{ key: string; displayName: string; zoneId: string; presetRowCount: number }>;
-  },
+  input: { id: string; jobId: string; patch: LocationProposalPatch },
   expectedUserId?: number
 ): Promise<{ id: string; status: string }> {
   const response = await fetch(`/api/technician/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/location-proposals`, {

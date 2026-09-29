@@ -184,7 +184,7 @@ function parseConfigurationRevisionLocations(
     if (!requested.has(systemKey) || !locationConfigurableSystemKeys.has(systemKey)) {
       throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", `locations is not permitted for ${systemKey}.`);
     }
-    const parsed = parseLocationConfigurationInput(configuration);
+    const parsed = parseLocationConfigurationInput(configuration, systemKey);
     if (!parsed) {
       throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", `locations for ${systemKey} is invalid.`);
     }
@@ -432,7 +432,7 @@ function withPendingLocationAuthority(
     for (const location of submission.locations) {
       locations.push({
         id: `pending-location:${key}:${location.key}`, enabledSystemId: syntheticId,
-        zoneId: zoneIdByKey.get(location.zoneId) ?? null, key: location.key, displayName: location.displayName,
+        zoneId: location.zoneId ? zoneIdByKey.get(location.zoneId) ?? null : null, key: location.key, displayName: location.displayName,
         presetRowCount: location.presetRowCount, rowPreset: location.rowPreset, sortOrder: location.sortOrder
       });
     }
@@ -440,7 +440,7 @@ function withPendingLocationAuthority(
   return { revision: current.revision, enabled, zones, locations };
 }
 
-async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: string) {
+export async function loadConfiguration(client: Pick<PoolClient, "query">, customerId: string) {
   const revisionResult = await client.query<{ id: string; revision: number; templateId: string }>(`
     SELECT id, revision, template_version_id AS "templateId" FROM customer_configuration_revisions
     WHERE customer_id = $1 AND status = 'active'`, [customerId]);
@@ -531,6 +531,12 @@ async function copySelectedConfiguration(
     zonesLocationsBySystemKey?: ReadonlyMap<string, LocationConfigurationInput>;
   } = {}
 ) {
+  for (const [systemKey, configuration] of options.zonesLocationsBySystemKey ?? []) {
+    if ((systemKey === "co2_fire_extinguisher" || systemKey === "fm200_fire_suppression")
+      && configuration.locations.some((location) => location.presetRowCount > 250)) {
+      throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "CO2 and FM200 detector presets cannot exceed 250 rows.");
+    }
+  }
   const current = await loadConfiguration(client, customerId);
   const supported = await requireSupportedKeys(client, keys);
   assertLocationDependentAssignments(keys, withPendingLocationAuthority(current, options.zonesLocationsBySystemKey));
@@ -576,7 +582,7 @@ async function copySelectedConfiguration(
         await client.query(`INSERT INTO customer_system_zones (id, enabled_system_id, zone_key, display_name, sort_order) VALUES ($1,$2,$3,$4,$5)`, [id, enabledId, zone.key, zone.displayName, zone.sortOrder]);
       }
       for (const location of submittedLocations.locations) {
-        await client.query(`INSERT INTO customer_system_locations (id, enabled_system_id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [randomUUID(), enabledId, submittedZoneIds.get(location.zoneId) ?? null, location.key, location.displayName, location.presetRowCount, JSON.stringify(location.rowPreset), location.sortOrder]);
+        await client.query(`INSERT INTO customer_system_locations (id, enabled_system_id, zone_id, location_key, display_name, preset_row_count, row_preset, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [randomUUID(), enabledId, location.zoneId ? submittedZoneIds.get(location.zoneId) ?? null : null, location.key, location.displayName, location.presetRowCount, JSON.stringify(location.rowPreset), location.sortOrder]);
       }
       continue;
     }
@@ -610,13 +616,13 @@ export async function applyManagerLocationsUpdate(
 ): Promise<string> {
   const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active AND NOT is_demo FOR UPDATE`, [customerId]);
   if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
-  // `serviceVisits.ts` buildSnapshot invariant (~:131): every location of a
-  // location-dependent system must carry a non-null zone that belongs to the
-  // SAME system. `parseLocationConfigurationInput` already guarantees every
-  // `location.zoneId` names a submitted zone `key`; assert it here too so the
-  // contract is explicit at the write path.
+  // Other location-dependent systems require a zone in this same system.
+  // Roller Shutter is zone-free; assert both contracts at the write path.
   const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
-  if (parsed.locations.some((location) => !submittedZoneKeys.has(location.zoneId))) {
+  if (systemKey === "fire_rated_roller_shutter" || systemKey === "hose_reel"
+    ? parsed.zones.length !== 0 || parsed.locations.length > 1
+      || parsed.locations.some((location) => location.zoneId !== null || location.key !== "general" || location.presetRowCount > 250)
+    : parsed.locations.some((location) => location.zoneId === null || !submittedZoneKeys.has(location.zoneId))) {
     throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
   }
   const current = await loadConfiguration(client, customerId);
@@ -1285,7 +1291,7 @@ export function createManagerCustomersRouter(
     try {
       const { customerId, systemKey } = parseLocationsTarget(request);
       const body = exactBody(request.body, ["zones", "locations"]);
-      const parsed = parseLocationConfigurationInput({ zones: body.zones, locations: body.locations });
+      const parsed = parseLocationConfigurationInput({ zones: body.zones, locations: body.locations }, systemKey);
       if (!parsed) throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "The zone/location payload is invalid for this system.");
       client = await database.connect();
       await client.query("BEGIN");

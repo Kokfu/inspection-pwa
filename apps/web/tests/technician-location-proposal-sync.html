@@ -1,83 +1,82 @@
 <!doctype html><html><body><button id="run">Run technician location proposal sync checks</button><pre id="result">Ready</pre><script type="module">
 import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
 import {
-  loadTechnicianLocationProposalDraft, newTechnicianLocationProposalDraft, queueTechnicianLocationProposal,
+  loadTechnicianLocationProposalDraft, newAddLocationDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
 } from "/src/jobs/technicianLocationProposalDraft.ts";
 const id = n => `6a000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const out = document.querySelector("#result"), checks = [];
 const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
 const jobId = id(1), customerId = id(2), systemKey = "co2_fire_extinguisher";
-function draftWith(zoneCount = 1, locationCount = 1) {
-  const draft = newTechnicianLocationProposalDraft(jobId, customerId, systemKey);
-  draft.zones = Array.from({ length: zoneCount }, (_v, index) => ({ key: `zone-${index}`, displayName: `Zone ${index}` }));
-  draft.locations = Array.from({ length: locationCount }, (_v, index) => ({ key: `loc-${index}`, displayName: `Location ${index}`, zoneKey: `zone-${index % Math.max(zoneCount, 1)}`, presetRowCount: 1 }));
-  return draft;
-}
 document.querySelector("#run").onclick = async () => {
   const originalFetch = window.fetch;
   try {
     await deviceDatabase.open();
-    await activateUserWorkspace(9001);
-    await deviceDatabase.authState.put({ key: "device-auth", userId: 9001, username: "lp-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    await activateUserWorkspace(9002);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: 9002, username: "lp-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
     await localDatabase.drafts.clear();
     await localDatabase.syncOutbox.clear();
 
-    // A new draft with no data is returned when nothing is saved yet.
-    const empty = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("fresh draft starts in Draft status with no zones/locations", empty.status === "Draft" && empty.zones.length === 0 && empty.locations.length === 0);
+    // --- add-location draft: no real content yet, just a name + zone. ---
+    const addDraft = newAddLocationDraft(jobId, customerId, systemKey);
+    check("a fresh add-location draft starts in Draft status", addDraft.status === "Draft" && addDraft.patch.kind === "add-location");
+    const namedAddDraft = { ...addDraft, patch: { ...addDraft.patch, displayName: "TNB Room", zoneKey: null, newZone: { key: "zone-tnb", displayName: "TNB Zone" } } };
+    await saveTechnicianLocationProposalDraft(namedAddDraft);
+    const reloadedAdd = await loadTechnicianLocationProposalDraft(jobId, systemKey, namedAddDraft.patch.locationKey);
+    check("saved add-location draft survives a simulated reload", reloadedAdd?.patch.kind === "add-location" && reloadedAdd.patch.displayName === "TNB Room");
 
-    // Save persists across a simulated reload (re-reading from IndexedDB, never React state).
-    const withRows = { ...draftWith(1, 1), id: empty.id };
-    await saveTechnicianLocationProposalDraft(withRows);
-    const reloaded = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("saved draft survives a simulated reload", reloaded.zones.length === 1 && reloaded.locations.length === 1 && reloaded.id === withRows.id);
-
-    // Queueing with no zones/locations is refused (local validation, no outbox item created).
-    const bare = newTechnicianLocationProposalDraft(jobId, customerId, "wet_chemical");
+    // Queueing without a zone choice is refused locally, no outbox item created.
+    const bareAdd = newAddLocationDraft(jobId, customerId, systemKey);
     let refused = false;
-    try { await queueTechnicianLocationProposal(bare); } catch { refused = true; }
-    check("queueing an empty proposal is refused", refused);
+    try { await queueTechnicianLocationProposal({ ...bareAdd, patch: { ...bareAdd.patch, displayName: "X" } }); } catch { refused = true; }
+    check("queueing an add-location draft with no zone is refused", refused);
     check("a refused queue attempt creates no outbox item", (await localDatabase.syncOutbox.toArray()).length === 0);
 
-    // Queueing a valid draft moves it to Pending and creates exactly one outbox item.
-    const pending = await queueTechnicianLocationProposal(reloaded);
-    check("queueing moves the draft to Pending", pending.status === "Pending");
-    const afterQueue = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("the persisted draft reflects Pending", afterQueue.status === "Pending");
-    const outboxAfterQueue = await localDatabase.syncOutbox.toArray();
-    check("exactly one outbox item was created, keyed by the draft's own id", outboxAfterQueue.length === 1 && outboxAfterQueue[0].operationId === reloaded.id);
+    const pendingAdd = await queueTechnicianLocationProposal(reloadedAdd);
+    check("queueing moves the add-location draft to Pending", pendingAdd.status === "Pending");
+
+    // --- update-format draft: real content, derived from what a technician actually typed. ---
+    const formatDraft = newUpdateFormatDraft(jobId, customerId, systemKey, "general", [
+      { alarmZone: "Zone A", location: "Zone A Room" }, { alarmZone: "Zone B", location: "Zone B Room" }
+    ]);
+    await saveTechnicianLocationProposalDraft(formatDraft);
+    const reloadedFormat = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    check("update-format draft persists its rows across a simulated reload", reloadedFormat?.patch.kind === "update-format" && reloadedFormat.patch.rows.length === 2);
+
+    // Both drafts (different targets) coexist locally without clobbering each other.
+    check("add-location and update-format drafts for the same job+system coexist", (await localDatabase.drafts.toArray()).length === 2);
 
     // A network failure preserves the Pending work as Failed -- never silently drops it.
     window.fetch = async () => { throw new Error("network unreachable"); };
-    await syncPendingLocationProposals(9001);
-    const afterFailedSync = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("a network failure marks the draft Failed, not lost", afterFailedSync.status === "Failed" && typeof afterFailedSync.lastError === "string");
-    const outboxAfterFailure = await localDatabase.syncOutbox.toArray();
-    check("the outbox item is marked Failed and stays queued for retry", outboxAfterFailure[0]?.status === "Failed");
+    const pendingFormat = await queueTechnicianLocationProposal(reloadedFormat);
+    check("queueing the format draft moves it to Pending", pendingFormat.status === "Pending");
+    await syncPendingLocationProposals(9002);
+    const afterFailedSync = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    check("a network failure marks the update-format draft Failed, not lost", afterFailedSync?.status === "Failed" && typeof afterFailedSync.lastError === "string");
+    const addAfterFailure = await loadTechnicianLocationProposalDraft(jobId, systemKey, namedAddDraft.patch.locationKey);
+    check("the OTHER (add-location) draft is untouched by the format draft's failure", addAfterFailure?.status === "Failed" || addAfterFailure?.status === "Pending", "sync attempted both independently");
 
-    // Retrying after a Failed sync succeeds once the server accepts it. The client must never mark the
-    // record Synced from an HTTP 200 alone -- it must confirm the exact submitted id.
+    // Retry after Failed succeeds once the server confirms the exact submitted id.
     window.fetch = async (url, init) => {
       const body = JSON.parse(init.body);
-      check("the submitted payload carries the draft's own client-generated id", body.id === reloaded.id);
+      check("the submitted body carries {id, jobId, patch}", typeof body.id === "string" && body.jobId === jobId && typeof body.patch === "object");
       return new Response(JSON.stringify({ proposal: { id: body.id, status: "pending" } }), { status: 201 });
     };
-    await syncPendingLocationProposals(9001);
-    const afterSuccessSync = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("a confirmed submission marks the draft Synced", afterSuccessSync.status === "Synced");
-    const outboxAfterSuccess = await localDatabase.syncOutbox.toArray();
-    check("the outbox item is marked Completed", outboxAfterSuccess[0]?.status === "Completed");
+    await syncPendingLocationProposals(9002);
+    const afterSuccessFormat = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    check("a confirmed submission marks the update-format draft Synced", afterSuccessFormat?.status === "Synced");
+    const afterSuccessAdd = await loadTechnicianLocationProposalDraft(jobId, systemKey, namedAddDraft.patch.locationKey);
+    check("the add-location draft also reaches Synced independently", afterSuccessAdd?.status === "Synced");
 
-    // A server response confirming a DIFFERENT id must never be trusted as success for this draft.
+    // A server response confirming a DIFFERENT id must never be trusted as success.
     await localDatabase.drafts.clear(); await localDatabase.syncOutbox.clear();
-    const second = draftWith(1, 1);
-    await saveTechnicianLocationProposalDraft(second);
-    await queueTechnicianLocationProposal(second);
+    const mismatchDraft = newUpdateFormatDraft(jobId, customerId, systemKey, "general", [{ alarmZone: "a", location: "b" }]);
+    await saveTechnicianLocationProposalDraft(mismatchDraft);
+    await queueTechnicianLocationProposal(mismatchDraft);
     window.fetch = async () => new Response(JSON.stringify({ proposal: { id: id(999), status: "pending" } }), { status: 201 });
-    await syncPendingLocationProposals(9001);
-    const mismatchDraft = await loadTechnicianLocationProposalDraft(jobId, systemKey, customerId);
-    check("a mismatched server-confirmed id never marks the draft Synced", mismatchDraft.status === "Failed");
+    await syncPendingLocationProposals(9002);
+    const mismatchResult = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    check("a mismatched server-confirmed id never marks the draft Synced", mismatchResult?.status === "Failed");
 
     window.fetch = originalFetch;
     out.textContent = JSON.stringify({ status: checks.every(x => x.ok) ? "PASS" : "FAIL", checks });

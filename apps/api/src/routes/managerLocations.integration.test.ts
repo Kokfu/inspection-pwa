@@ -107,7 +107,8 @@ test("Manager locations GET/PUT versions the zone/location set, freezes it into 
         { zones: submission.zones, locations: [{ key: "x", displayName: "X", zoneId: "not-a-zone", presetRowCount: 1 }] },
         { zones: [submission.zones[0], { ...submission.zones[1], key: "mgr-zone-a" }], locations: submission.locations },
         { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 0 }] },
-        { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 99999 }] }
+        { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 99999 }] },
+        { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 251 }] }
       ];
       for (const payload of bad) {
         const response = await call("PUT", co2Path, payload);
@@ -115,6 +116,9 @@ test("Manager locations GET/PUT versions the zone/location set, freezes it into 
         assert.equal((await response.json() as { error: string }).error, "INVALID_LOCATION_CONFIGURATION");
       }
       assert.equal((await call("PUT", co2Path, { zones: submission.zones, locations: submission.locations, extra: 1 })).status, 400, "unknown body key rejected");
+      assert.equal((await call("PUT", `/manager/customers/${demoCo2CustomerId}/systems/fm200_fire_suppression/locations`,
+        { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 251 }] })).status, 400,
+        "FM200 presets must respect its 250-detector contract");
       assert.equal(await revisionCount(), countBefore, "rejected writes create no revision");
       assert.equal((await pool.query<{ id: string }>("SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'", [demoCo2CustomerId])).rows[0]!.id, activeBefore, "rejected writes leave the active revision untouched");
 
@@ -231,13 +235,13 @@ test("locations endpoints: auth matrix, unsupported system", { skip: !databaseUr
       }
 
       // Unsupported system: 404 LOCATIONS_UNSUPPORTED_SYSTEM before any write.
-      const hydrantPath = `/manager/customers/${demoCo2CustomerId}/systems/hydrant/locations`;
-      const hydrantGet = await call("GET", hydrantPath, "admin");
-      assert.equal(hydrantGet.status, 404);
-      assert.equal((await hydrantGet.json() as { error: string }).error, "LOCATIONS_UNSUPPORTED_SYSTEM");
-      const hydrantPut = await call("PUT", hydrantPath, "admin", validBody);
-      assert.equal(hydrantPut.status, 404);
-      assert.equal((await hydrantPut.json() as { error: string }).error, "LOCATIONS_UNSUPPORTED_SYSTEM");
+      const unsupportedPath = `/manager/customers/${demoCo2CustomerId}/systems/fire_alarm/locations`;
+      const unsupportedGet = await call("GET", unsupportedPath, "admin");
+      assert.equal(unsupportedGet.status, 404);
+      assert.equal((await unsupportedGet.json() as { error: string }).error, "LOCATIONS_UNSUPPORTED_SYSTEM");
+      const unsupportedPut = await call("PUT", unsupportedPath, "admin", validBody);
+      assert.equal(unsupportedPut.status, 404);
+      assert.equal((await unsupportedPut.json() as { error: string }).error, "LOCATIONS_UNSUPPORTED_SYSTEM");
     } finally { await close(server); }
   } finally { await pool.end(); }
 });
@@ -344,6 +348,8 @@ test("configuration-revisions accepts an inline locations map that fresh-enables
       assert.equal((await call(revisionsPath, { systemKeys: ["hose_reel", "co2_fire_extinguisher"], locations: { wet_chemical: { zones: submission.zones, locations: submission.locations } } })).status, 400);
       assert.equal((await call(revisionsPath, { systemKeys: ["hose_reel", "co2_fire_extinguisher"], locations: { hose_reel: { zones: submission.zones, locations: submission.locations } } })).status, 400);
       assert.equal((await call(revisionsPath, { systemKeys: ["hose_reel", "co2_fire_extinguisher"], locations: { co2_fire_extinguisher: { zones: submission.zones, locations: [{ key: "x", displayName: "X", zoneId: "ghost", presetRowCount: 1 }] } } })).status, 400);
+      assert.equal((await call(revisionsPath, { systemKeys: ["hose_reel", "co2_fire_extinguisher"], locations: { co2_fire_extinguisher: { zones: submission.zones, locations: [{ ...submission.locations[0], presetRowCount: 251 }] } } })).status, 400,
+        "inline configuration revisions must respect the detector contract too");
       assert.equal((await pool.query<{ id: string }>("SELECT id FROM customer_configuration_revisions WHERE customer_id=$1 AND status='active'", [makSitiId])).rows[0]!.id, activeBefore, "invalid inline locations creates no revision");
 
       // Enable co2 fresh AND define its zones/locations in one revision.
