@@ -82,10 +82,10 @@ export async function stageV7Evidence(request: Request, actorUserId: number) {
       await client.query("BEGIN");
       const adapter = await reserveV7EvidenceSession(client, { inspectionClientUuid: f.inspectionClientUuid, jobId: f.jobId, systemKey, templateId: f.masterTemplateId, contractSha256: f.contractSha256, actorUserId });
       if (!adapter.isCanonicalFieldPath(f.fieldPath)) throw new V7EvidenceError(400, "VALIDATION_ERROR", "V7 evidence field path is not permitted by the frozen contract");
-      const existing = await client.query<{ request_fingerprint: string; inspection_client_uuid: string; uploader_user_id: number; stored_sha256: string; storage_relative_path: string; stored_size_bytes: number }>(`SELECT request_fingerprint,inspection_client_uuid,uploader_user_id,stored_sha256,storage_relative_path,stored_size_bytes FROM staged_inspection_evidence WHERE photo_uuid=$1 FOR UPDATE`, [f.photoUuid]);
+      const existing = await client.query<{ request_fingerprint: string; inspection_client_uuid: string; uploader_user_id: string; stored_sha256: string; storage_relative_path: string; stored_size_bytes: number }>(`SELECT request_fingerprint,inspection_client_uuid,uploader_user_id,stored_sha256,storage_relative_path,stored_size_bytes FROM staged_inspection_evidence WHERE photo_uuid=$1 FOR UPDATE`, [f.photoUuid]);
       if (existing.rowCount) {
         await client.query("ROLLBACK"); const row = existing.rows[0]!;
-        if (row.request_fingerprint !== fingerprint || row.inspection_client_uuid !== f.inspectionClientUuid || row.uploader_user_id !== actorUserId) throw new V7EvidenceError(409, "IDEMPOTENCY_CONFLICT", "Photo UUID was already staged with different immutable evidence");
+        if (row.request_fingerprint !== fingerprint || row.inspection_client_uuid !== f.inspectionClientUuid || row.uploader_user_id !== String(actorUserId)) throw new V7EvidenceError(409, "IDEMPOTENCY_CONFLICT", "Photo UUID was already staged with different immutable evidence");
         const integrity = await verifyAttachmentFile({ storageRelativePath: row.storage_relative_path, storedSizeBytes: row.stored_size_bytes, storedSha256: row.stored_sha256 });
         if (!integrity.ok) throw new V7EvidenceError(500, "ATTACHMENT_STORAGE_INTEGRITY_ERROR", "Stored staged evidence failed integrity verification");
         return { outcome: "duplicate" as const, photoUuid: f.photoUuid, fieldPath: f.fieldPath, sourceSha256: image.sourceSha256, storedSha256: image.storedSha256 };

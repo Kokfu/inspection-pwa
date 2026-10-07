@@ -119,10 +119,10 @@ export async function stageFireAlarmV6Evidence(request: Request, actorUserId: nu
     try {
       await client.query("BEGIN");
       await reserveFireAlarmV6Session(client, { inspectionClientUuid: f.inspectionClientUuid, jobId: f.jobId, systemKey: f.systemKey, masterTemplateId: f.masterTemplateId, contractSha256: f.contractSha256, actorUserId });
-      const existing = await client.query<{ request_fingerprint: string; stored_sha256: string; storage_relative_path: string; stored_size_bytes: number; inspection_client_uuid: string; uploader_user_id: number }>(`SELECT request_fingerprint,stored_sha256,storage_relative_path,stored_size_bytes,inspection_client_uuid,uploader_user_id FROM staged_inspection_evidence WHERE photo_uuid=$1 FOR UPDATE`, [f.photoUuid]);
+      const existing = await client.query<{ request_fingerprint: string; stored_sha256: string; storage_relative_path: string; stored_size_bytes: number; inspection_client_uuid: string; uploader_user_id: string }>(`SELECT request_fingerprint,stored_sha256,storage_relative_path,stored_size_bytes,inspection_client_uuid,uploader_user_id FROM staged_inspection_evidence WHERE photo_uuid=$1 FOR UPDATE`, [f.photoUuid]);
       if (existing.rowCount) {
         await client.query("ROLLBACK");
-        if (existing.rows[0].request_fingerprint !== fingerprint || existing.rows[0].inspection_client_uuid !== f.inspectionClientUuid || existing.rows[0].uploader_user_id !== actorUserId) throw new V6EvidenceError(409, "IDEMPOTENCY_CONFLICT", "Photo UUID was already staged with different immutable evidence");
+        if (existing.rows[0].request_fingerprint !== fingerprint || existing.rows[0].inspection_client_uuid !== f.inspectionClientUuid || existing.rows[0].uploader_user_id !== String(actorUserId)) throw new V6EvidenceError(409, "IDEMPOTENCY_CONFLICT", "Photo UUID was already staged with different immutable evidence");
         const integrity = await verifyAttachmentFile({ storageRelativePath: existing.rows[0].storage_relative_path, storedSizeBytes: existing.rows[0].stored_size_bytes, storedSha256: existing.rows[0].stored_sha256 });
         if (!integrity.ok) throw new V6EvidenceError(500, "ATTACHMENT_STORAGE_INTEGRITY_ERROR", "Stored staged evidence failed integrity verification");
         return { outcome: "duplicate" as const, photoUuid: f.photoUuid, fieldPath: f.fieldPath, sourceSha256: image.sourceSha256, storedSha256: image.storedSha256 };

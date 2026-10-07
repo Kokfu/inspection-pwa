@@ -56,7 +56,7 @@ test("CO2 V7 stages distinct multipart evidence and atomically binds it to its o
     response.chargerAndBatteries.main_supply.remarks = "Runtime CO2 Browser Poor A";
     response.physicalOutlook.co2_cylinder.remarks = "Runtime CO2 Browser Poor B";
     await database.query("UPDATE inspection_jobs SET created_by_user_id=$1 WHERE id=$2", [actor, job]);
-    const app = express(); app.use(express.json()); app.use((request, _response, next) => { const requested = request.header("x-test-actor"); if (requested !== "none") { const userId = requested === "admin" ? adminActor : requested === "foreign" ? foreignActor : actor; request.currentUser = { id: userId, username: "co2", role: requested === "admin" ? "admin" : "inspector" }; } next(); }); app.use(stagedEvidenceRouter); app.use(masterSystemInspectionsRouter); app.use(syncRouter);
+    const app = express(); app.use(express.json()); app.use((request, _response, next) => { const requested = request.header("x-test-actor"); if (requested !== "none") { const userId = requested === "admin" ? adminActor : requested === "foreign" ? foreignActor : actor; request.currentUser = { id: Number(userId), username: "co2", role: requested === "admin" ? "admin" : "inspector" }; } next(); }); app.use(stagedEvidenceRouter); app.use(masterSystemInspectionsRouter); app.use(syncRouter);
     const server = app.listen(0, "127.0.0.1"); await once(server, "listening"); const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     const stage = async (inspectionClientUuid: string, fieldPath: string, color: string, options: { actor?: "owner" | "foreign" | "admin"; photoUuid?: string; quality?: number; jobId?: string; systemKey?: string; templateId?: string; contractSha256?: string } = {}) => { const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: color } }).jpeg({ quality: options.quality ?? 80 }).toBuffer(); const photoUuid = options.photoUuid ?? id(); const form = new FormData(); const values: Record<string, string> = { photoUuid, inspectionClientUuid, jobId: options.jobId ?? job, systemKey: options.systemKey ?? "co2_fire_extinguisher", fieldPath, masterTemplateId: options.templateId ?? template.id, masterTemplateVersion: "7", contractSha256: options.contractSha256 ?? contract, captureSource: "camera", capturedAt: time, sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: String(bytes.length), width: "2", height: "2" }; for (const [key, value] of Object.entries(values)) form.set(key, value); form.set("file", new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }), "photo.jpg"); const http = await fetch(`${origin}/v7-evidence/stage`, { method: "POST", body: form, headers: options.actor ? { "x-test-actor": options.actor } : undefined }); return { http, photoUuid, fieldPath, sourceSha256: values.sha256 }; };
     const manifest = (...evidence: Array<{ photoUuid: string; fieldPath: string; sourceSha256: string }>) => evidence.map(({ photoUuid, fieldPath, sourceSha256 }) => ({ photoUuid, fieldPath, sourceSha256 })).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
@@ -72,6 +72,27 @@ test("CO2 V7 stages distinct multipart evidence and atomically binds it to its o
           assert.equal((await replay.http.json()).error,"IDEMPOTENCY_CONFLICT");
           assert.equal((await database.query("SELECT uploader_user_id FROM staged_inspection_evidence WHERE photo_uuid=$1",[a.photoUuid])).rows[0].uploader_user_id,actor);
         } finally { await database.query("UPDATE inspection_evidence_reservations SET reserved_by_user_id=$1 WHERE inspection_client_uuid=$2",[actor,clientUuid]); }
+      });
+      await t.test("exact owner retry of an already staged photo returns duplicate; changed bytes still conflict", async () => {
+        // A lost response is an unknown result: the client retries the exact same
+        // photoUuid + bytes. uploader_user_id is a bigint (string at runtime), so the
+        // owner check must not compare it to the numeric actor id with !==.
+        const countRows = async () => Number((await database.query("SELECT count(*) AS n FROM staged_inspection_evidence WHERE photo_uuid=$1", [a.photoUuid])).rows[0].n);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const retry = await stage(clientUuid, "charger_batteries.charger_battery_checks.main_supply", "white", { photoUuid: a.photoUuid });
+          assert.equal(retry.http.status, 200, `retry ${attempt}`);
+          const body = await retry.http.json() as { outcome: string; photoUuid: string; fieldPath: string; sourceSha256: string; storedSha256: string };
+          assert.equal(body.outcome, "duplicate");
+          assert.equal(body.photoUuid, a.photoUuid);
+          assert.equal(body.fieldPath, a.fieldPath);
+          assert.equal(body.sourceSha256, a.sourceSha256);
+          assert.match(body.storedSha256, /^[0-9a-f]{64}$/);
+          assert.equal(await countRows(), 1);
+        }
+        const changed = await stage(clientUuid, "charger_batteries.charger_battery_checks.main_supply", "black", { photoUuid: a.photoUuid });
+        assert.equal(changed.http.status, 409);
+        assert.equal((await changed.http.json() as { error: string }).error, "IDEMPOTENCY_CONFLICT");
+        assert.equal(await countRows(), 1);
       });
       const item = { operationId: id(), entityType: "masterSystemFormInstance", entityId: clientUuid, action: "create", payload: { clientUuid, jobId: job, systemKey: "co2_fire_extinguisher", instanceKey: `location:${location}`, configuredZoneId: zone, configuredLocationId: location, displaySequence: 1, originalCreatorSnapshot: null, masterTemplate: { id: template.id, code: "MFE-FSSR", version: 7 }, configuration: { revisionId: revision, revisionNumber: 1 }, inspectionSnapshot: { schemaVersion: 2, capturedAt: time, job: { id: job, reference: "client", title: "client" }, customer: snapshot.customer, configuration: snapshot.configuration, template: snapshot.template, system: { client: "not-authority" }, instance: { instanceKey: `location:${location}`, displaySequence: 1 } }, responses: response, evidenceManifest: manifest(a, b), performedAt: time } };
       const accepted = await syncCo2FormInstances([item], actor); assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
