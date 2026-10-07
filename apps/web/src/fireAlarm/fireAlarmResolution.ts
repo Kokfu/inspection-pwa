@@ -1,5 +1,6 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
+import { isServerUnreachable } from "../jobs/serverReachability";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
 import { fireAlarmJobSystemKey, getFireAlarmInspection, getOrCreateFireAlarmInspection, loadFireAlarmInspection } from "./fireAlarmRepository";
@@ -26,7 +27,7 @@ export async function resolveFireAlarmRoute(clientUuid:string,expectedJobId:stri
     if(error instanceof FireAlarmDetailNotFoundError)return{kind:"inconsistent",message:local?"The local Synced record has no matching accepted server detail.":"No accepted Fire Alarm inspection exists for this UUID."};
     if(error instanceof FireAlarmAuthenticationError)return{kind:"signed-out"};
     if(error instanceof InvalidFireAlarmDetailError)return{kind:"invalid",message:error.message};
-    if(local&&error instanceof TypeError)return{kind:"local",record:local};
+    if(local&&isServerUnreachable(error))return{kind:"local",record:local};
     return{kind:"server-unavailable",message:error instanceof Error?error.message:"Accepted Fire Alarm detail is unavailable"};
   }
 }
@@ -42,8 +43,14 @@ export async function resolveFireAlarmOpenTarget(job: InspectionJob, system: Job
     ? { kind: "server", clientUuid: local.clientUuid }
     : local.syncStatus === "Synced" ? { kind: "not-cached" } : { kind: "local", record: local };
   if (authStatus === "offline-unverified") return { kind: "not-cached" };
+  let server: Awaited<ReturnType<typeof findServer>>;
+  try { server = await findServer(job.id, system.systemKey); } catch (error) {
+    // No local record and the server cannot be reached: nothing to continue, and a new draft must not be
+    // created blindly (it may already be accepted elsewhere). Same outcome as the offline branch.
+    if (isServerUnreachable(error)) return { kind: "not-cached" };
+    return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Fire Alarm server summary is currently unavailable" };
+  }
   try {
-    const server = await findServer(job.id, system.systemKey);
     if (server) {
       if (server.jobId !== job.id
         || server.systemKey !== "fire_alarm_detector"

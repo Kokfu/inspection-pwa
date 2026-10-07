@@ -9,6 +9,8 @@
       import { getOrCreateDryWetRiserInspection, returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitIssues, submitLocalDryWetRiser } from "/src/dryWetRiser/dryWetRiserRepository.ts";
       import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "/src/dryWetRiser/dryWetRiserResolution.ts";
       import { ServerDryWetRiserNotFoundError } from "/src/dryWetRiser/serverDryWetRiserApi.ts";
+      import { ServerUnreachableError } from "/src/jobs/serverReachability.ts";
+      import { resolveFireAlarmOpenTarget } from "/src/fireAlarm/fireAlarmResolution.ts";
       import { deriveMasterSystemProgress, deriveNoLocalSystemProgress } from "/src/jobs/jobProgress.ts";
 
       const ids = { job: "31000000-0000-4000-8000-000000000001", customer: "31000000-0000-4000-8000-000000000002", revision: "31000000-0000-4000-8000-000000000003", template: "31000000-0000-4000-8000-000000000004", system: "31000000-0000-4000-8000-000000000005", server: "31000000-0000-4000-8000-000000000006" };
@@ -96,6 +98,26 @@
           check("completed job prioritizes Accepted server detail over local record", completedAcceptedOpen.kind === "server" && completedServerRoute.kind === "server");
           check("verified server not-found permits Draft creation", absentOpen.kind === "local");
           check("network/server failure does not create a Draft", unavailableOpen.kind === "server-unavailable" && created === 1, unavailableOpen.kind);
+          // Unreachable server (no browser offline event): never lock the technician out of a saved local draft.
+          const gateway = () => { throw new ServerUnreachableError("Server inspection listing failed: 502", 502); };
+          const unreachableNoLocal = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => { throw new TypeError("Failed to fetch"); }, async () => { created += 1; return first; });
+          const gatewayNoLocal = await resolveDryWetRiserOpenTarget(job, system, catalog, undefined, "verified", async () => gateway(), async () => { created += 1; return first; });
+          check("unreachable server with no local record is not-cached and creates no Draft", unreachableNoLocal.kind === "not-cached" && gatewayNoLocal.kind === "not-cached" && created === 1, unreachableNoLocal.kind + "/" + gatewayNoLocal.kind);
+          await localDatabase.masterSystemInspections.put(first);
+          const closedJob = { ...job, status: "closed" };
+          const closedUnreachableLocal = await resolveDryWetRiserOpenTarget(closedJob, system, catalog, undefined, "verified", async () => { throw new TypeError("Failed to fetch"); }, async () => { throw new Error("must not create a Draft"); });
+          const closedGatewayLocal = await resolveDryWetRiserOpenTarget(closedJob, system, catalog, undefined, "verified", async () => gateway(), async () => { throw new Error("must not create a Draft"); });
+          check("closed job with an unreachable server still opens the saved local record", closedUnreachableLocal.kind === "local" && closedGatewayLocal.kind === "local", closedUnreachableLocal.kind + "/" + closedGatewayLocal.kind);
+          const closedIntegrity = await resolveDryWetRiserOpenTarget(closedJob, system, catalog, undefined, "verified", async () => { throw new Error("Server inspection listing failed: 500"); }, async () => { throw new Error("must not create a Draft"); });
+          check("a deliberate server error (HTTP 500) still fails closed even with a local record", closedIntegrity.kind === "server-unavailable", closedIntegrity.kind);
+          // Fire Alarm open target (no local record for this job): unreachable server is not-cached, never a raw error or a blind Draft.
+          const faJob = { ...job, id: crypto.randomUUID() }, faSystem = { ...system, systemKey: "fire_alarm_detector" };
+          const faNetwork = await resolveFireAlarmOpenTarget(faJob, faSystem, catalog, undefined, "verified", async () => { throw new TypeError("Failed to fetch"); });
+          const faGateway = await resolveFireAlarmOpenTarget(faJob, faSystem, catalog, undefined, "verified", async () => gateway());
+          const faDeliberate = await resolveFireAlarmOpenTarget(faJob, faSystem, catalog, undefined, "verified", async () => { throw new Error("Server inspection listing failed: 500"); });
+          check("Fire Alarm: unreachable server (network or gateway) with no local record is not-cached", faNetwork.kind === "not-cached" && faGateway.kind === "not-cached", faNetwork.kind + "/" + faGateway.kind);
+          check("Fire Alarm: a deliberate server error (HTTP 500) still fails closed", faDeliberate.kind === "server-unavailable", faDeliberate.kind);
+          await removeHarnessRecords();
           check("offline-unverified with no local record returns Not cached", offlineRoute.kind === "not-cached", offlineRoute.kind);
           check("logged-out resolution is blocked", signedOutRoute.kind === "signed-out", signedOutRoute.kind);
           check("server-backed resolution creates no masterSystemInspections record", beforeInspectionCount === afterServerResolutionInspectionCount, `${beforeInspectionCount} -> ${afterServerResolutionInspectionCount}`);

@@ -1,3 +1,5 @@
+import { isGatewayUnreachableStatus, isServerUnreachable, noteServerReachable, noteServerUnreachable, SERVER_CHECK_TIMEOUT_MS, serverRecentlyUnreachable, ServerUnreachableError } from "../jobs/serverReachability";
+
 export type ServerMasterSystemInspectionSummary = {
   clientUuid: string;
   jobId: string;
@@ -84,12 +86,21 @@ export async function loadServerMasterSystemInspections(jobIds: string[] = []) {
   return loadAllPages(query, "load server inspections");
 }
 
-export async function loadAllPages(query: URLSearchParams, action: string, request: typeof fetch = fetch) {
+export async function loadAllPages(query: URLSearchParams, action: string, request: typeof fetch = fetch, options: { timeoutMs?: number } = {}) {
   const all: ServerMasterSystemInspectionSummary[] = []; const seenClientUuids = new Set<string>(); const seenCursors = new Set<string>(); const identities = new Set<string>(); let cursor: string | undefined; let previousFinal: ServerMasterSystemInspectionSummary | undefined;
   do {
     const pageQuery = new URLSearchParams(query); if (cursor) pageQuery.set("cursor", cursor);
-    const response = await request(`/api/master-system-inspections?${pageQuery}`, { credentials: "same-origin", cache: "no-store" });
+    // A bounded wait: a hung connection must not stall opening a saved draft. The timeout is reported as an unreachable server.
+    const signal = options.timeoutMs && typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(options.timeoutMs) : undefined;
+    let response: Response;
+    try {
+      response = await request(`/api/master-system-inspections?${pageQuery}`, { credentials: "same-origin", cache: "no-store", ...(signal ? { signal } : {}) });
+    } catch (error) {
+      if (signal?.aborted && error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) throw new ServerUnreachableError("Server inspection check timed out", 0);
+      throw error;
+    }
     if (response.status === 401 || response.status === 403) throw new Error(`Sign in required to ${action}`);
+    if (isGatewayUnreachableStatus(response.status)) throw new ServerUnreachableError(`Server inspection listing failed: ${response.status}`, response.status);
     if (!response.ok) throw new Error(`Server inspection listing failed: ${response.status}`);
     const page = parseServerMasterSystemInspectionPage(await response.json());
     if (previousFinal && page.inspections[0] && compareServerMasterSystemInspectionOrder(previousFinal, page.inspections[0]) >= 0) throw new Error("Unordered server inspection summaries across pages");
@@ -116,7 +127,17 @@ export async function findServerMasterSystemInspection(
 ) {
   const query = new URLSearchParams({ jobId, systemKey });
   if (expectedLocation) query.set("locationId", expectedLocation.configuredLocationId);
-  const inspections = await loadAllPages(query, "check server inspections");
+  // The first check to find the server unreachable is remembered briefly so the follow-up check made while the
+  // form route loads does not wait through the same failure again (see serverReachability.ts).
+  if (serverRecentlyUnreachable()) throw new ServerUnreachableError("Server was just found unreachable", 0);
+  let inspections: ServerMasterSystemInspectionSummary[];
+  try {
+    inspections = await loadAllPages(query, "check server inspections", fetch, { timeoutMs: SERVER_CHECK_TIMEOUT_MS });
+  } catch (error) {
+    if (isServerUnreachable(error)) noteServerUnreachable(); else noteServerReachable();
+    throw error;
+  }
+  noteServerReachable();
   if (!expectedLocation) return inspections[0];
   if (inspections.length > 1) throw new Error("Ambiguous server inspection summary for configured location");
   const inspection = inspections[0];

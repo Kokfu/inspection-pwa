@@ -1,6 +1,7 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
+import { isServerUnreachable } from "../jobs/serverReachability";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
 import { getOrCreateDryWetRiserInspection } from "./dryWetRiserRepository";
@@ -21,11 +22,22 @@ export async function resolveDryWetRiserRoute(clientUuid: string, authStatus: "v
 }
 export type DryWetRiserOpenTarget = { kind: "local"; record: DryWetRiserInspectionRecord } | { kind: "server"; clientUuid: string } | { kind: "not-cached" } | { kind: "server-unavailable"; message: string };
 export async function resolveDryWetRiserOpenTarget(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog | undefined, user: AuthUser | undefined, authStatus: "verified" | "offline-unverified", findServer = findServerMasterSystemInspection, createLocal = getOrCreateDryWetRiserInspection): Promise<DryWetRiserOpenTarget> {
+  let serverUnreachable = false;
   if (job.status === "closed" && authStatus === "verified") {
-    try { const server = await findServer(job.id, system.systemKey); if (server) return { kind: "server", clientUuid: server.clientUuid }; } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" }; }
+    try { const server = await findServer(job.id, system.systemKey); if (server) return { kind: "server", clientUuid: server.clientUuid }; } catch (error) {
+      // An unreachable server must not hide a saved local record; only a deliberate server answer fails closed.
+      if (!isServerUnreachable(error)) return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" };
+      serverUnreachable = true;
+    }
   }
   const local = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(`${job.id}:${system.systemKey}`).first();
   if (local?.systemKey === "dry_wet_riser") return { kind: "local", record: local as DryWetRiserInspectionRecord };
-  if (authStatus === "offline-unverified") return { kind: "not-cached" };
-  try { const server = await findServer(job.id, system.systemKey); if (server) return { kind: "server", clientUuid: server.clientUuid }; if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) }; } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" }; }
+  if (authStatus === "offline-unverified" || serverUnreachable) return { kind: "not-cached" };
+  let found: Awaited<ReturnType<typeof findServer>>;
+  try { found = await findServer(job.id, system.systemKey); } catch (error) {
+    // No local record and the server cannot be reached: do not create a draft blindly; same outcome as offline.
+    if (isServerUnreachable(error)) return { kind: "not-cached" };
+    return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" };
+  }
+  try { const server = found; if (server) return { kind: "server", clientUuid: server.clientUuid }; if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) }; } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" }; }
 }

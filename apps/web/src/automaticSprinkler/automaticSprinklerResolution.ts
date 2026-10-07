@@ -1,6 +1,7 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
+import { isServerUnreachable } from "../jobs/serverReachability";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
 import {
@@ -74,8 +75,13 @@ export async function resolveAutomaticSprinklerOpenTarget(
 ): Promise<SprinklerOpenTarget> {
   const jobSystemKey = `${job.id}:${system.systemKey}`;
   if (job.status === "closed" && verified) {
-    const server = await findServer(job.id, system.systemKey);
-    if (server) return { kind: "server", clientUuid: server.clientUuid };
+    try {
+      const server = await findServer(job.id, system.systemKey);
+      if (server) return { kind: "server", clientUuid: server.clientUuid };
+    } catch (error) {
+      // An unreachable server must not hide a saved local record; anything else still fails closed.
+      if (!isServerUnreachable(error)) throw error;
+    }
   }
   const local = await localDatabase.masterSystemInspections
     .where("jobSystemKey")
@@ -84,6 +90,8 @@ export async function resolveAutomaticSprinklerOpenTarget(
   if (local?.systemKey === "automatic_sprinkler") {
     return { kind: "local", record: local };
   }
+  // With no local record and an unreachable server the original network error propagates: a new draft
+  // must not be created blindly because the inspection may already be accepted elsewhere.
   if (verified) {
     const server = await findServer(job.id, system.systemKey);
     if (server) return { kind: "server", clientUuid: server.clientUuid };

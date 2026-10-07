@@ -1,6 +1,7 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
+import { isServerUnreachable } from "../jobs/serverReachability";
 import { findServerMasterSystemInspection, type ServerMasterSystemInspectionSummary } from "../hoseReel/serverMasterSystemInspectionApi";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { getOrCreateFireIntercomInspection } from "./fireIntercomRepository";
@@ -99,7 +100,7 @@ export async function resolveFireIntercomRoute(
     }
     return { kind: "server", inspection };
   } catch (error) {
-    if (local && error instanceof TypeError) return { kind: "local", record: local };
+    if (local && isServerUnreachable(error)) return { kind: "local", record: local };
     return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Accepted Fire Intercom detail is unavailable" };
   }
 }
@@ -114,12 +115,16 @@ export async function resolveFireIntercomOpenTarget(
   getLocal = getLocalFireIntercom,
   createLocal = getOrCreateFireIntercomInspection
 ): Promise<FireIntercomOpenTarget> {
+  let serverUnreachable = false;
   if (authStatus === "verified") {
     let server: ServerMasterSystemInspectionSummary | undefined;
     try {
       server = await findServer(job.id, "fire_intercom");
     } catch (error) {
-      return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Fire Intercom server inspection resolution is unavailable" };
+      // An unreachable server (weak signal, server restarting) must not lock the technician out of a saved
+      // local draft. Only a deliberate server answer or an integrity failure fails closed.
+      if (!isServerUnreachable(error)) return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Fire Intercom server inspection resolution is unavailable" };
+      serverUnreachable = true;
     }
     if (server) {
       if (!validServerFireIntercom(server, job, system)) {
@@ -131,7 +136,7 @@ export async function resolveFireIntercomOpenTarget(
 
   const local = await getLocal(job.id);
   if (local) return { kind: "local", record: local };
-  if (authStatus === "offline-unverified") return { kind: "not-cached" };
+  if (authStatus === "offline-unverified" || serverUnreachable) return { kind: "not-cached" };
 
   const catalog = await loadCatalog();
   if (!catalog) return { kind: "server-unavailable", message: "Fire Intercom reference data is not cached yet. Refresh jobs online first." };

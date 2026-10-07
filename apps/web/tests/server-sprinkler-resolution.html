@@ -9,6 +9,7 @@
     <pre id="result">Ready</pre>
     <script type="module">
       import { localDatabase } from "/src/db/localDatabase.ts";
+      import { ServerUnreachableError } from "/src/jobs/serverReachability.ts";
       import {
         resolveAutomaticSprinklerOpenTarget,
         resolveAutomaticSprinklerRoute
@@ -152,6 +153,14 @@
             true
           );
 
+          // Closed job + saved local record + unreachable server: open the local record; a deliberate server error still fails closed.
+          const closedJob = { ...job, status: "closed" };
+          const noCreate = async () => { throw new Error("must not create a Draft"); };
+          const closedUnreachableLocal = await resolveAutomaticSprinklerOpenTarget(closedJob, system, {}, undefined, true, async () => { throw new TypeError("Failed to fetch"); }, noCreate);
+          const closedGatewayLocal = await resolveAutomaticSprinklerOpenTarget(closedJob, system, {}, undefined, true, async () => { throw new ServerUnreachableError("Server inspection listing failed: 502", 502); }, noCreate);
+          let closedDeliberateFailsClosed = false;
+          try { await resolveAutomaticSprinklerOpenTarget(closedJob, system, {}, undefined, true, async () => { throw new Error("Server inspection listing failed: 500"); }, noCreate); } catch { closedDeliberateFailsClosed = true; }
+
           const serverProgress = (evidenceState, requiredEvidenceCount, confirmedEvidenceCount) =>
             deriveAutomaticSprinklerServerProgress(
               { evidenceState, requiredEvidenceCount, confirmedEvidenceCount },
@@ -189,6 +198,9 @@
             && existingLocalOpen.kind === "local"
             && localServerChecks === 0
             && completedServerOpen.kind === "server"
+            && closedUnreachableLocal.kind === "local"
+            && closedGatewayLocal.kind === "local"
+            && closedDeliberateFailsClosed
             && completedServerRoute.kind === "server"
             && serverAttachmentContentUrl(ids.photo) ===
               `/api/inspection-attachments/${ids.photo}/content`
