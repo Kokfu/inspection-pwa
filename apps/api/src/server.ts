@@ -44,13 +44,15 @@ app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
 app.use(managerServiceVisitsRouter);
 app.use(managerDashboardRouter);
+// Must precede managerCustomersRouter: its `/manager/customers/:customerId` would otherwise match
+// `/manager/customers/compliance-reminders` and answer 400 INVALID_CUSTOMER_ID (I-22).
+app.use(managerComplianceRemindersRouter);
 app.use(managerCustomersRouter);
 app.use(managerCompanyProfileRouter);
 app.use(managerTechniciansRouter);
 app.use(managerRemindersRouter);
 app.use(serviceCommonRemarksRouter);
 app.use(managerCorrectionsRouter);
-app.use(managerComplianceRemindersRouter);
 app.use(reportApprovalsRouter);
 app.use(locationProposalsRouter);
 app.use(masterSystemInspectionsRouter);

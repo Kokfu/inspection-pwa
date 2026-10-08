@@ -131,6 +131,31 @@ test("historical V2 Dry/Wet Riser accepted authority remains readable through th
   const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
 });
 
+test("regression (P0-FR1): V7 Dry/Wet Riser accepted authority is readable through the final-report and PDF path", async () => {
+  const definition = masterServiceReportV7.systems.find((system) => system.key === "dry_wet_riser")!; const locationId = ids[21]!, rowId = ids[22]!;
+  const checklistKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
+  const checklist = Object.fromEntries(checklistKeys.map((key) => [key, { result: "good", remarks: "" }])) as Record<string, { result: string; remarks: string }>;
+  checklist.water_level = { result: "not_good", remarks: "Water level low" };
+  const psi = (values: Record<string, number | null>, result = "good", remarks = "") => ({ values, unit: "PSI", result, remarks });
+  const responses = { schemaVersion: 2, mode: "dry", checklist, measurements: { jockey_psi: psi({ cut_in: 80, cut_out: 100 }), duty_psi: psi({ cut_in: 70 }), standby_psi: psi({ cut_in: null }) }, riserOutlets: [{ rowUuid: rowId, source: "configured", configuredLocationId: locationId, configuredRowOrdinal: 1, zoneSnapshot: null, locationSnapshot: { id: locationId, displayName: "Outlet A" }, assetReference: "", locationText: "Outlet A", canvasHoseAt2Result: "good", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good", remarks: "", fieldRemarks: {}, sortOrder: 1 }], comments: "V7 riser comments" };
+  const system = { enabledSystemId: ids[3]!, key: "dry_wet_riser", systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser System", definitionStatus: "confirmed", sortOrder: 1, definition, systemConfiguration: { riserMode: "dry" }, repetitionMode: "single_with_repeatable_rows", zones: [], locations: [{ id: locationId, zoneId: null, displayName: "Outlet A", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] };
+  const configuration = { schemaVersion: 1, customer: configurationSnapshot.customer, site: configurationSnapshot.site, configuration: { revisionId: ids[25]!, revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "Master", version: 7 }, enabledSystems: [system] };
+  const contractSha256 = v7EvidenceContractSha256(definition);
+  const snapshot = { schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", version: 7 }, system, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null }, contractSha256, evidenceManifest: [{ photoUuid: ids[23]!, fieldPath: "dry_wet_riser_checks.water_level", sourceSha256: "a".repeat(64) }] };
+  const row = { ...primary("dry_wet_riser", ids[10]!), master_template_version_id: masterServiceReportV7.id, customer_configuration_revision_id: ids[25]!, inspection_snapshot: snapshot, response_payload: responses, stored_sha256: null, storage_relative_path: null, width: null, height: null };
+  const database = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] }; throw new Error(`Unexpected query: ${sql}`); } };
+  const report = await loadFinalServiceReport(jobId, database as never);
+  assert.equal(report.sections[0]?.systemKey, "dry_wet_riser", "validHistoricalUnit no longer rejects a V7 (schemaVersion 2) Dry/Wet Riser record");
+  assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /not good/i);
+  const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+
+  // Regression guard: the new riserMode cross-check is not a no-op -- a response whose declared
+  // `mode` disagrees with the frozen `system.systemConfiguration.riserMode` must stay rejected.
+  const mismatchedRow = { ...row, response_payload: { ...responses, mode: "wet" } };
+  const mismatchedDatabase = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [mismatchedRow] }; throw new Error(`Unexpected query: ${sql}`); } };
+  await assert.rejects(() => loadFinalServiceReport(jobId, mismatchedDatabase as never), FinalReportError);
+});
+
 test("open service visits and missing accepted results fail closed", async () => {
   const database = new Database(); database.closed = false;
   await assert.rejects(() => loadFinalServiceReport(jobId, database as never), (error: unknown) => error instanceof FinalReportError && error.code === "FINAL_REPORT_NOT_AVAILABLE");

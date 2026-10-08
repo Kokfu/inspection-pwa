@@ -20,6 +20,7 @@ import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
 import { validateFm200Responses } from "../sync/fm200FormInstanceSync.js";
 import { validateAutomaticSprinklerHistoricalPayload } from "../sync/automaticSprinklerInspectionSync.js";
 import { validStoredDryWetRiser } from "../inspections/dryWetRiserAccepted.js";
+import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { validateHoseReelHistoricalPayload } from "../inspections/acceptedMasterSystemDetail.js";
 import { validateFireAlarmHistoricalPayload } from "../inspections/fireAlarmAccepted.js";
 import { resolveFireAlarmV6Controls } from "../inspections/templates/fireAlarmDefinitionControls.js";
@@ -363,7 +364,7 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
   const frozenJob = isRecord(job.configuration_snapshot) ? job.configuration_snapshot : undefined;
   const frozenTemplate = frozenJob && isRecord(frozenJob.template) ? frozenJob.template : undefined;
   const frozenConfiguration = frozenJob && isRecord(frozenJob.configuration) ? frozenJob.configuration : undefined;
-  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom" || row.system_key === "fire_rated_roller_shutter" || row.system_key === "fm200_fire_suppression") && isRecord(snapshot) && snapshot.schemaVersion === 2;
+  const v7Suppression = (row.system_key === "co2_fire_extinguisher" || row.system_key === "wet_chemical" || row.system_key === "fire_alarm_detector" || row.system_key === "hydrant" || row.system_key === "hose_reel" || row.system_key === "automatic_sprinkler" || row.system_key === "dry_wet_riser" || row.system_key === "smoke_ventilation" || row.system_key === "fire_intercom" || row.system_key === "fire_rated_roller_shutter" || row.system_key === "fm200_fire_suppression") && isRecord(snapshot) && snapshot.schemaVersion === 2;
   if (!isRecord(snapshot) || !isRecord(response) || Object.keys(response).length === 0
     || (snapshot.schemaVersion !== 1 && !(row.system_key === "fire_alarm_detector" && snapshot.schemaVersion === 2) && !v7Suppression) || !isRecord(snapshot.job) || !isRecord(snapshot.configuration)
     || !isRecord(snapshot.template) || !isRecord(snapshot.system)
@@ -411,6 +412,18 @@ function validHistoricalUnit(row: ReportInstanceRow, job: ReportJobRow, system: 
       || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
       || typeof snapshot.contractSha256 !== "string") return false;
     const adapter = resolveV7EvidenceContract({ systemKey: "hose_reel", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
+    return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
+  }
+  if (row.system_key === "dry_wet_riser" && snapshot.schemaVersion === 2) {
+    if (frozenTemplate.version !== 7 || snapshot.template.version !== 7 || snapshot.system.key !== "dry_wet_riser"
+      || snapshot.system.systemKey !== "dry_wet_riser" || snapshot.system.repetitionMode !== "single_with_repeatable_rows"
+      || !isRecord(snapshot.system.definition) || !isRecord(snapshot.instance)
+      || !exactKeys(snapshot.instance, ["instanceKey", "displaySequence", "zone", "location"])
+      || snapshot.instance.instanceKey !== "primary" || snapshot.instance.displaySequence !== 1 || snapshot.instance.zone !== null || snapshot.instance.location !== null
+      || typeof snapshot.contractSha256 !== "string") return false;
+    const riserMode = parseDryWetRiserSystemConfiguration(snapshot.system.systemConfiguration);
+    if (!riserMode || response.mode !== riserMode.riserMode) return false;
+    const adapter = resolveV7EvidenceContract({ systemKey: "dry_wet_riser", templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: snapshot.contractSha256 });
     return !!adapter && parseV7EvidenceManifest(snapshot.evidenceManifest, adapter, response) !== undefined;
   }
   if (row.system_key === "automatic_sprinkler" && snapshot.schemaVersion === 2) {

@@ -2,6 +2,35 @@
 	email off
 }
 
+(security_headers) {
+	# Security headers (I-08), applied to every response: the app shell, sw.js,
+	# the manifest, hashed assets, 404s and /api. Checked by
+	# scripts/check-security-headers.mjs.
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Camera capture is the only powerful feature the app uses. Chrome's camera
+		# path also reads device orientation (I-20), so same-origin sensors stay allowed.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)"
+		# The app has no inline scripts/styles and loads nothing from other hosts.
+		# blob:/data: images are the camera previews, photo thumbnails and logo.
+		# Enforced after a Report-Only soak: the phone test (camera, gallery, PDF
+		# download, offline launch, update, sign in/out) logged no violations.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# HSTS only for a real public hostname. Never for localhost / loopback, so the
+	# local Caddy-internal-CA setup and the phone-testing proxy cannot pin the
+	# developer machine to HTTPS. No includeSubDomains, no preload.
+	# Starts at one day. After the production domain has served HTTPS correctly
+	# for a while, raise max-age here (604800 -> 2592000 -> 31536000) and
+	# redeploy the proxy; a browser keeps the value it last saw until it expires.
+	@hsts_{args[0]} not host localhost 127.0.0.1 ::1
+	header @hsts_{args[0]} Strict-Transport-Security "max-age=86400"
+}
+
 {$PUBLIC_HOSTNAME:localhost} {
 	log {
 		output file /var/log/caddy/access.log
@@ -9,6 +38,8 @@
 	}
 
 	encode zstd gzip
+
+	import security_headers main
 
 	handle_path /api/* {
 		reverse_proxy api:3000
@@ -33,5 +64,13 @@
 
 		try_files {path} /index.html
 		file_server
+	}
+
+	# Caddy-generated errors (404 for a missing hashed asset, 502/504 when the API is
+	# down) bypass the routes above, so they need the headers too. Status codes are
+	# unchanged; the web app classifies 502/504 as "server unreachable".
+	handle_errors {
+		import security_headers errors
+		respond "{err.status_code} {err.status_text}" {err.status_code}
 	}
 }
