@@ -61,7 +61,7 @@ export function PhotoEvidenceField({
     processingController.current = controller;
     const generation = ++processingGeneration.current;
     setBusy(true);
-    setMessage("Processing photo...");
+    setMessage("Processing photo…");
     try {
       void requestPersistentAttachmentStorage();
       const processed = await processInspectionPhoto(blob, controller.signal);
@@ -111,7 +111,7 @@ export function PhotoEvidenceField({
   return <section className="photo-evidence-field" aria-label="PSI photo evidence">
     {attachment && previewUrl ? <>
       <button type="button" className="photo-thumbnail" onClick={() => setFullViewOpen(true)}>
-        <img src={previewUrl} alt="Attached PSI gauge evidence" />
+        <img src={previewUrl} alt="Attached PSI gauge evidence" width={320} height={240} />
       </button>
       <div className="photo-metadata">
         {attachment.captureSource === "gallery" ? <strong className="source-badge">Gallery attachment</strong> : null}
@@ -151,7 +151,7 @@ export function PhotoEvidenceField({
     /> : null}
     {fullViewOpen && previewUrl ? <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Attached PSI photo">
       <section className="photo-dialog photo-full-view">
-        <img src={previewUrl} alt="Full-size attached PSI gauge evidence" />
+        <img src={previewUrl} alt="Full-size attached PSI gauge evidence" width={1280} height={960} />
         <button type="button" className="secondary-command" onClick={() => setFullViewOpen(false)}>Close</button>
       </section>
     </div> : null}

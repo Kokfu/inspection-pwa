@@ -328,7 +328,7 @@ export function TechnicianHome({
           <div className="job-context-title">
             <div>
               <p className="eyebrow">Customer</p>
-              <h3>{selectedJob.configurationSnapshot.customer.displayName}</h3>
+              <h2>{selectedJob.configurationSnapshot.customer.displayName}</h2>
             </div>
             <span className={`status-badge status-badge--${selectedJob.status === "closed" ? "complete" : "draft"}`}>
               {jobStatusLabel(selectedJob.status)}
@@ -362,11 +362,11 @@ export function TechnicianHome({
             </div>
           ) : null}
           {selectedJob.status === "open" ? <div className="inline-actions">
-            <button type="button" className="secondary-command" disabled={!canDeleteSelectedJob} onClick={() => {
+            <button type="button" className="secondary-command danger-command" disabled={!canDeleteSelectedJob} aria-describedby={canDeleteSelectedJob ? undefined : "delete-visit-unavailable-note"} onClick={() => {
               if (window.confirm(`Permanently delete service visit ${selectedJob.reference}? This cannot be undone.`)) void onDeleteJob(selectedJob);
             }}>Delete unfinished visit</button>
-            {!canDeleteSelectedJob ? <span className="support-metadata">Deletion is available online only before inspection work starts. Existing work must be preserved.</span> : null}
-            {selectedHasDeviceWork ? <button type="button" className="secondary-command" disabled={!canArchiveSelectedJob} onClick={() => {
+            {!canDeleteSelectedJob ? <span className="support-metadata" id="delete-visit-unavailable-note">Deletion is available online only before inspection work starts. Existing work must be preserved.</span> : null}
+            {selectedHasDeviceWork ? <button type="button" className="secondary-command danger-command" disabled={!canArchiveSelectedJob} onClick={() => {
               if (window.confirm(`Delete this in-progress service visit? A manager can restore it if this was a mistake.`)) void onArchiveJob(selectedJob);
             }}>Delete this job</button> : null}
           </div> : null}

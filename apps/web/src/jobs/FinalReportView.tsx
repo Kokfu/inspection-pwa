@@ -5,7 +5,7 @@ import { ReportApprovalChip } from "./ReportApprovalChip";
 
 export function FinalReportView({ jobId, onBack }: { jobId: string; onBack: () => void }) {
   const [report, setReport] = useState<FinalReportPreview>();
-  const [message, setMessage] = useState("Loading final report...");
+  const [message, setMessage] = useState("Loading final report…");
   const [downloadError, setDownloadError] = useState("");
   const [downloading, setDownloading] = useState(false);
   useEffect(() => {
@@ -23,7 +23,7 @@ export function FinalReportView({ jobId, onBack }: { jobId: string; onBack: () =
     <button type="button" className="secondary-command" onClick={onBack}>Back to Service Job</button>
     <div className="workspace-heading">
       <div><p className="eyebrow">Completed service visit</p><h2 id="final-report-title">Final Report</h2></div>
-      {report ? <button type="button" onClick={() => void handleDownload()} disabled={downloading}>{downloading ? "Downloading PDF..." : "Download PDF"}</button> : null}
+      {report ? <button type="button" onClick={() => void handleDownload()} disabled={downloading}>{downloading ? "Downloading PDF…" : "Download PDF"}</button> : null}
     </div>
     {report ? <p><ReportApprovalChip jobId={jobId} /></p> : null}
     {message ? <p className="form-message">{message}</p> : null}

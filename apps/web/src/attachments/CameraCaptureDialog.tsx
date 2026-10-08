@@ -85,7 +85,7 @@ export function CameraCaptureDialog({ onCapture, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const initializationGeneration = useRef(0);
-  const [message, setMessage] = useState("Starting rear camera...");
+  const [message, setMessage] = useState("Starting rear camera…");
   const [capturing, setCapturing] = useState(false);
 
   function stopCamera(stream = streamRef.current) {

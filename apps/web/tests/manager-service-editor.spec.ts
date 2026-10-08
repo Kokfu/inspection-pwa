@@ -59,7 +59,7 @@ test("Form wording: sections, inline edit, Custom badge, exact PUT map, reset, d
   const pump = page.locator(".manager-wording-section", { hasText: "Pump House" });
   await expect(pump.locator(".measurement-card").first()).toContainText("PSI");
   await expect(pump.locator(".measurement-card input[type=number]").first()).toBeDisabled();
-  await expect(page.locator(".manager-wording-sample-row h4")).toContainText("Drum 1");
+  await expect(page.locator(".manager-wording-sample-row h3")).toContainText("Drum 1");
   expect(await page.locator(".manager-form-wording textarea:not([disabled])").count()).toBe(0);
 
   // Inline edit -> Custom + Unsaved badges -> save -> exact PUT body.

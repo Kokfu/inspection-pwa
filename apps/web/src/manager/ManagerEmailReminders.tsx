@@ -66,7 +66,7 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
       {visibleStaff.length === 0 && <p className="empty-state" role="status">{staff.length ? "No staff match this filter." : "No staff notification addresses."}</p>}
       <ul className="manager-technician-list">{visibleStaff.map((person) => <li key={person.id}><strong>{person.displayName ?? person.username}</strong> · {person.role === "supervisor" ? "Supervisor" : "Technician"} · {person.isActive ? "Active" : "Inactive"}
         <form onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("email"); if (typeof value === "string") void saveEmail(person, value); }}>
-          <label>Reminder email<input type="email" name="email" maxLength={254} defaultValue={person.email ?? ""} key={`${person.id}:${person.email}`} /></label>
+          <label>Reminder email<input type="email" name="email" autoComplete="off" maxLength={254} defaultValue={person.email ?? ""} key={`${person.id}:${person.email}`} /></label>
           <button type="submit" className="secondary-command" disabled={busy}>Save address</button>
         </form></li>)}</ul>
     </section>}

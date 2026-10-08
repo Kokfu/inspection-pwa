@@ -101,14 +101,14 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
       {catalogMessage ? <p className="form-message" role="status">{catalogMessage}</p> : null}
       <form className="report-summary setup-card customer-form-card" onSubmit={(event) => void submit(event)}>
         <fieldset disabled={locked || saving}>
-          <label>Customer display name<input required maxLength={160} value={draft.displayName} onChange={(event) => setField("displayName", event.target.value)} /></label>
-          <label>Initial Site<input required maxLength={160} value={draft.siteDisplayName} onChange={(event) => setField("siteDisplayName", event.target.value)} /></label>
-          <label>Telephone No<input maxLength={40} value={draft.contactPhone} onChange={(event) => setField("contactPhone", event.target.value)} /></label>
-          <label>Contact<input maxLength={160} value={draft.contactPerson} onChange={(event) => setField("contactPerson", event.target.value)} /></label>
-          <label>Fax<input maxLength={40} value={draft.fax} onChange={(event) => setField("fax", event.target.value)} /></label>
-          <label>Contract No.<input maxLength={160} value={draft.contractNumber} onChange={(event) => setField("contractNumber", event.target.value)} /></label>
+          <label>Customer display name<input required autoComplete="off" maxLength={160} value={draft.displayName} onChange={(event) => setField("displayName", event.target.value)} /></label>
+          <label>Initial Site<input required autoComplete="off" maxLength={160} value={draft.siteDisplayName} onChange={(event) => setField("siteDisplayName", event.target.value)} /></label>
+          <label>Telephone No<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={draft.contactPhone} onChange={(event) => setField("contactPhone", event.target.value)} /></label>
+          <label>Contact<input autoComplete="off" maxLength={160} value={draft.contactPerson} onChange={(event) => setField("contactPerson", event.target.value)} /></label>
+          <label>Fax<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={draft.fax} onChange={(event) => setField("fax", event.target.value)} /></label>
+          <label>Contract No.<input autoComplete="off" maxLength={160} value={draft.contractNumber} onChange={(event) => setField("contractNumber", event.target.value)} /></label>
           <label>Service Frequency<select value={draft.serviceFrequency} onChange={(event) => setField("serviceFrequency", event.target.value)}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></label>
-          <label>Site Address<input maxLength={500} value={draft.siteAddress} onChange={(event) => setField("siteAddress", event.target.value)} /></label>
+          <label>Site Address<input autoComplete="off" maxLength={500} value={draft.siteAddress} onChange={(event) => setField("siteAddress", event.target.value)} /></label>
           <fieldset className="manager-service-picker"><legend>Initial Assigned Services</legend>
             {!catalog.length ? <p className="empty-state">Service formats are unavailable on this device. You can save these details and assign services after reconnecting.</p> : null}
             {catalog.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" checked={draft.systemKeys.includes(system.key)} onChange={() => update({ systemKeys: draft.systemKeys.includes(system.key) ? draft.systemKeys.filter((key) => key !== system.key) : [...draft.systemKeys, system.key] })} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong></span></label>)}

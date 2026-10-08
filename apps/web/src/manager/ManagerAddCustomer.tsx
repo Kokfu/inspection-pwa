@@ -70,14 +70,14 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-add-customer-title">Add Customer</h2><p>Create a new customer and assign its initial services.</p></div></div>
     {error || catalogMessage ? <p className="form-message" role="alert">{error || catalogMessage}</p> : null}
     <form className="report-summary setup-card customer-form-card" onSubmit={submit}>
-      <label>Customer display name<input required maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
-      <label>Initial Site<input required maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
-      <label>Telephone No<input maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label>
-      <label>Contact<input maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>
-      <label>Fax<input maxLength={40} value={fax} onChange={(event) => setFax(event.target.value)} /></label>
-      <label>Contract No.<input maxLength={160} value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} /></label>
+      <label>Customer display name<input required autoComplete="off" maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label>Initial Site<input required autoComplete="off" maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
+      <label>Telephone No<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label>
+      <label>Contact<input autoComplete="off" maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>
+      <label>Fax<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={fax} onChange={(event) => setFax(event.target.value)} /></label>
+      <label>Contract No.<input autoComplete="off" maxLength={160} value={contractNumber} onChange={(event) => setContractNumber(event.target.value)} /></label>
       <label>Service Frequency<select value={serviceFrequency} onChange={(event) => setServiceFrequency(event.target.value)}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></label>
-      <label>Site Address<input maxLength={500} value={siteAddress} onChange={(event) => setSiteAddress(event.target.value)} /></label>
+      <label>Site Address<input autoComplete="off" maxLength={500} value={siteAddress} onChange={(event) => setSiteAddress(event.target.value)} /></label>
       <fieldset className="manager-service-picker"><legend>Initial Assigned Services</legend>
         {catalogLoading ? <p role="status">Loading service catalog…</p> : null}
         {!catalogLoading && catalog.length === 0 ? <p className="empty-state">No services are available to assign.</p> : null}

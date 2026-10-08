@@ -389,7 +389,7 @@ function ManagerFormWording({ customerId, systemKey, systemLabel, onSaved, onAut
     return <fieldset className="manager-wording-section" key={section.key} aria-labelledby={headingId}>
       <legend id={headingId}>{section.heading}</legend>
       {section.repeatable ? <section className="hose-row-card manager-wording-sample-row" aria-label={`${section.repeatable.rowHeading} 1 (sample row)`}>
-        <h4>{section.repeatable.rowHeading} 1 <small className="support-metadata">sample row — the technician adds as many as needed</small></h4>
+        <h3>{section.repeatable.rowHeading} 1 <small className="support-metadata">sample row — the technician adds as many as needed</small></h3>
         {body}
         <RemarksField label="Remarks" definition={replicaRemarks} value="" readOnly onChange={noop} />
       </section> : body}

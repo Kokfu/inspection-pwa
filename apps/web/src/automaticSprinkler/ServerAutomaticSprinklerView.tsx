@@ -106,7 +106,7 @@ function ServerV7AutomaticSprinklerView({ inspection, onBack }: Props) {
       <p><strong>Remark:</strong> {remarks || "Not recorded"}</p>
       {photoUrl ? <>
         <a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a>
-        <img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" />
+        <img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" width={240} height={180} />
       </> : null}
     </>;
   };
@@ -186,14 +186,14 @@ function ServerPhoto({
       onClick={() => setExpanded(true)}
       aria-label={`View ${source} photo`}
     >
-      <img src={contentUrl} alt={`${source} inspection evidence`} />
+      <img src={contentUrl} alt={`${source} inspection evidence`} width={320} height={240} />
     </button>
     <p className="secondary-metadata">
       {source} attachment M-BM-7 {formatClientDateTime(attachment.capturedAt)}
     </p>
     {expanded ? <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Inspection photo">
       <section className="photo-dialog photo-full-view">
-        <img src={contentUrl} alt={`${source} inspection evidence full size`} />
+        <img src={contentUrl} alt={`${source} inspection evidence full size`} width={1280} height={960} />
         <button type="button" onClick={() => setExpanded(false)}>Close</button>
       </section>
     </div> : null}

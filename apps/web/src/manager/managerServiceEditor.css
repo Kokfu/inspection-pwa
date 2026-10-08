@@ -52,8 +52,8 @@
 .manager-wording-section .measurement-card { padding: 12px; }
 .manager-wording-text { padding: 12px 0; }
 .manager-wording-sample-row { display: grid; gap: 10px; min-width: 0; }
-.manager-wording-sample-row > h4 { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-.manager-wording-sample-row > h4 small { font-weight: 600; }
+.manager-wording-sample-row > h3 { margin: 0; font-size: 1rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.manager-wording-sample-row > h3 small { font-weight: 600; }
 .manager-form-wording .result-option:disabled { cursor: default; }
 
 /* Editable label: the label text itself is the button; pencil is decorative. */

@@ -102,7 +102,7 @@ export function ManagerCompanyProfile({ onAuthorityFailure }: {
   };
 
   const field = (label: string, value: string, onChange: (value: string) => void, options: { maxLength: number; required?: boolean; type?: string } = { maxLength: 500 }) =>
-    <label>{label}<input type={options.type ?? "text"} maxLength={options.maxLength} required={options.required} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
+    <label>{label}<input type={options.type ?? "text"} autoComplete="off" maxLength={options.maxLength} required={options.required} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 
   return <section aria-labelledby="manager-company-profile-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-company-profile-title">Company Profile</h2><p>Edit the company letterhead shown on every generated PDF report — no code change or redeploy needed.</p></div></div>
@@ -125,13 +125,13 @@ export function ManagerCompanyProfile({ onAuthorityFailure }: {
       {field("Legal name", draft.legalName, (value) => setDraft({ ...draft, legalName: value }), { maxLength: 500, required: true })}
       {field("Registration No.", draft.registrationNo, (value) => setDraft({ ...draft, registrationNo: value }), { maxLength: 100 })}
       <label>Address<textarea maxLength={500} required value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} /></label>
-      {field("Telephone", draft.tel, (value) => setDraft({ ...draft, tel: value }), { maxLength: 100 })}
-      {field("Fax", draft.fax, (value) => setDraft({ ...draft, fax: value }), { maxLength: 100 })}
+      {field("Telephone", draft.tel, (value) => setDraft({ ...draft, tel: value }), { maxLength: 100, type: "tel" })}
+      {field("Fax", draft.fax, (value) => setDraft({ ...draft, fax: value }), { maxLength: 100, type: "tel" })}
       {field("Email", draft.email, (value) => setDraft({ ...draft, email: value }), { maxLength: 200, type: "email" })}
-      {field("Complaint hotline", draft.complaintHotline, (value) => setDraft({ ...draft, complaintHotline: value }), { maxLength: 100 })}
+      {field("Complaint hotline", draft.complaintHotline, (value) => setDraft({ ...draft, complaintHotline: value }), { maxLength: 100, type: "tel" })}
       {field("Verified-by name", draft.verifiedBy.name, (value) => setDraft({ ...draft, verifiedBy: { ...draft.verifiedBy, name: value } }), { maxLength: 200 })}
       {field("Verified-by title", draft.verifiedBy.title, (value) => setDraft({ ...draft, verifiedBy: { ...draft.verifiedBy, title: value } }), { maxLength: 200 })}
-      <label>Report number format<input type="text" maxLength={100} required value={draft.reportNumberFormat} onChange={(event) => setDraft({ ...draft, reportNumberFormat: event.target.value })} /></label>
+      <label>Report number format<input type="text" autoComplete="off" maxLength={100} required value={draft.reportNumberFormat} onChange={(event) => setDraft({ ...draft, reportNumberFormat: event.target.value })} /></label>
       <p className="empty-state">Must include the literal tokens <code>{"{YYYY}"}</code> and <code>{"{SEQ4}"}</code>, e.g. <code>MFE/SR/{"{YYYY}"}/{"{SEQ4}"}</code>.</p>
       <div className="inline-actions manager-company-actions"><label className="manager-show-archived"><input type="checkbox" checked={draft.confirmed} onChange={(event) => setDraft({ ...draft, confirmed: event.target.checked })} /> Company details confirmed as final</label>
         <button type="submit" disabled={saving || !dirty}>{saving ? "Saving…" : "Save company profile"}</button></div>

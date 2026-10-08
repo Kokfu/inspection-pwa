@@ -1458,3 +1458,19 @@ a[href]:focus-visible, summary:focus-visible, [role="tab"]:focus-visible, [role=
   .header-live--connection { justify-self: start; }
   .connection-state { max-width: none; }
 }
+
+/* I-29: hygiene bundle. Phone-safe additions only; nothing here changes a desktop layout or behaviour. */
+/* (1) viewport-fit=cover: keep content out of a notch / status area. Zero on devices without one. */
+@media (max-width: 767px) {
+  .app-shell { padding-top: max(var(--space-3), env(safe-area-inset-top)); }
+}
+/* (2) No 300 ms double-tap-zoom wait on controls; pan and pinch-zoom still work. */
+a, button, summary, input, select, textarea, label, [role="button"], [role="tab"] { touch-action: manipulation; }
+/* (4) Headings raised one level for a correct outline keep the look of the level they replace. */
+.job-context h2 { margin: 0; }
+.job-context-title h2 { font-size: clamp(1.45rem, 4vw, 2rem); letter-spacing: -.025em; }
+.manager-home .common-remark-edit-title { margin: 1.33em 0; font-size: 1rem; }
+/* (5) Photos now carry width/height attributes (no layout shift); CSS sizing stays in charge of the displayed size. */
+.photo-thumbnail img, .photo-full-view img, .accepted-evidence-photo { height: auto; }
+/* (8) The technician Add Customer form wraps its fields in a bare fieldset inside the card: no second border. */
+.customer-form-card > fieldset:not(.manager-service-picker) { display: grid; gap: var(--space-5); min-width: 0; margin: 0; padding: 0; border: 0; }

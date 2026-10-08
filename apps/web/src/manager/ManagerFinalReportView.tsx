@@ -65,7 +65,7 @@ function ReportApprovalPanel({ jobId, currentUserRole, reportApproval, checked, 
     {currentUserRole && reportApproval.status !== "approved" && <button type="button" disabled={busy} onClick={() => void decide("approved")}>
       {busy ? "Approving…" : "Approve report"}
     </button>}
-    {currentUserRole === "admin" && reportApproval.status === "approved" && !withdrawing && <button type="button" className="secondary-command" onClick={() => setWithdrawing(true)}>Withdraw approval</button>}
+    {currentUserRole === "admin" && reportApproval.status === "approved" && !withdrawing && <button type="button" className="secondary-command danger-command" onClick={() => setWithdrawing(true)}>Withdraw approval</button>}
     {currentUserRole === "admin" && reportApproval.status === "approved" && withdrawing && <div className="inline-actions">
       <label htmlFor="report-approval-withdraw-note">Reason for withdrawing (required)</label>
       <textarea id="report-approval-withdraw-note" value={note} onChange={(event) => setNote(event.target.value)} minLength={3} maxLength={500} />
@@ -85,7 +85,7 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
   onServerUnavailable: (message: string) => void;
 }) {
   const [report, setReport] = useState<FinalReportPreview>();
-  const [message, setMessage] = useState("Loading final report...");
+  const [message, setMessage] = useState("Loading final report…");
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
   /** T5: corrections made after submission. The V7 report now shows effective corrected values. */
@@ -126,7 +126,7 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
   /** Load both sources until their append-only correction revisions agree. Never display a mixed pair. */
   const refreshReport = async (active = { current: true }) => {
     setReport(undefined); setCorrections([]); setCorrectionsChecked(false);
-    setMessage("Loading final report...");
+    setMessage("Loading final report…");
     for (let attempt = 0; attempt < 3 && active.current; attempt += 1) {
       let value: FinalReportPreview;
       try { value = await loadFinalReport(jobId, managerEndpointBase); }
@@ -175,7 +175,7 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
       <div><p className="eyebrow">Completed service visit</p><h2 id="manager-final-report-title">Final Report</h2></div>
       {report ? <button type="button" disabled={downloading || !correctionsChecked || corrections.length > 0 || !reportApprovalChecked || reportApproval?.status !== "approved"} onClick={() => void handleDownload()}>{downloading ? "Downloading PDF…" : "Download PDF"}</button> : null}
     </div>
-    {!report && !correctionsChecked && message !== "Loading final report..." && <p className="operational-message operational-message--warning" role="status">
+    {!report && !correctionsChecked && message !== "Loading final report…" && <p className="operational-message operational-message--warning" role="status">
       Report and correction history could not be shown together.
       <button type="button" className="secondary-command" onClick={() => void refreshReport()}>Check again</button>
     </p>}
