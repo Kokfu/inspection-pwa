@@ -37,10 +37,19 @@ function draftKey(jobId: string, systemKey: string, targetLocationKey: string) {
   return `technician-location-proposal:${jobId}:${systemKey}:${targetLocationKey}`;
 }
 
-export function newAddLocationDraft(jobId: string, customerId: string, systemKey: string): TechnicianLocationProposalDraft {
+/** `zoneKeys` are the zones the job already has for this system. The draft starts on the first one so the
+ *  zone shown in the form is the zone that is actually saved (selecting an already-selected option fires no
+ *  change event). With no zones the draft starts on an empty "new zone" the technician must name. */
+export function newAddLocationDraft(
+  jobId: string, customerId: string, systemKey: string, zoneKeys: readonly string[] = []
+): TechnicianLocationProposalDraft {
+  const firstZone = zoneKeys[0];
   return {
     id: crypto.randomUUID(), jobId, customerId, systemKey,
-    patch: { kind: "add-location", locationKey: newLocalKey(), displayName: "", zoneKey: null, newZone: null },
+    patch: {
+      kind: "add-location", locationKey: newLocalKey(), displayName: "",
+      zoneKey: firstZone ?? null, newZone: firstZone === undefined ? { key: newLocalKey(), displayName: "" } : null
+    },
     status: "Draft"
   };
 }
@@ -74,6 +83,22 @@ export async function loadTechnicianLocationProposalDraft(
     throw new Error("Saved location proposal draft is invalid; it has been preserved on this device.");
   }
   return row.payload;
+}
+
+/** The add-location proposal this technician last worked on for this job + system, whatever its status.
+ *  An add-location draft's `locationKey` is generated when the draft is created, so the screen cannot
+ *  know it after a reload; find the stored row by its job + system prefix instead. Rows that are not valid
+ *  add-location drafts are left untouched on the device. */
+export async function loadLatestAddLocationProposalDraft(
+  jobId: string, systemKey: string
+): Promise<TechnicianLocationProposalDraft | undefined> {
+  const rows = await localDatabase.drafts.where("id").startsWith(`technician-location-proposal:${jobId}:${systemKey}:`).toArray();
+  let latest: { at: string; payload: TechnicianLocationProposalDraft } | undefined;
+  for (const row of rows) {
+    if (row.entityType !== "technicianLocationProposal" || !valid(row.payload) || row.payload.patch.kind !== "add-location") continue;
+    if (!latest || row.updatedAt > latest.at) latest = { at: row.updatedAt, payload: row.payload };
+  }
+  return latest?.payload;
 }
 
 export async function saveTechnicianLocationProposalDraft(draft: TechnicianLocationProposalDraft) {

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { locationConfigurableSystemKeys } from "../manager/managerApi";
 import type { InspectionJob } from "./jobTypes";
+import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 import {
-  loadTechnicianLocationProposalDraft, newAddLocationDraft, queueTechnicianLocationProposal,
+  loadLatestAddLocationProposalDraft, loadTechnicianLocationProposalDraft, newAddLocationDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals, type TechnicianLocationProposalDraft
 } from "./technicianLocationProposalDraft";
 
@@ -35,10 +36,17 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
     if (!systemKey) return;
     let active = true;
     setDraft(undefined); setError(""); setSaved(false);
-    const fresh = newAddLocationDraft(job.id, customerId, systemKey);
-    void loadTechnicianLocationProposalDraft(job.id, systemKey, fresh.patch.locationKey).then(async (loaded) => {
+    const zoneKeys = eligibleSystems.find((system) => system.systemKey === systemKey)?.zones.map((zone) => zone.key) ?? [];
+    void loadLatestAddLocationProposalDraft(job.id, systemKey).then((loaded) => {
       if (!active) return;
-      setDraft(loaded ?? fresh);
+      let resumed = loaded;
+      // A draft saved before the zone default existed can have neither zone: start it on the first zone.
+      if (resumed && resumed.status === "Draft" && resumed.patch.kind === "add-location" && !resumed.patch.zoneKey && !resumed.patch.newZone && zoneKeys[0]) {
+        resumed = { ...resumed, patch: { ...resumed.patch, zoneKey: zoneKeys[0] } };
+      }
+      const next = resumed ?? newAddLocationDraft(job.id, customerId, systemKey, zoneKeys);
+      setZoneChoice(next.patch.kind === "add-location" && next.patch.newZone ? "new" : "existing");
+      setDraft(next);
     }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Location proposal draft could not be loaded."); });
     return () => { active = false; };
   }, [job.id, systemKey, customerId]);
@@ -83,13 +91,21 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
   async function startAnother() {
     if (!systemKey) return;
     setSaving(true); setError("");
-    try { const next = newAddLocationDraft(job.id, customerId, systemKey); await saveTechnicianLocationProposalDraft(next); setDraft(next); setZoneChoice("existing"); }
+    try {
+      const next = newAddLocationDraft(job.id, customerId, systemKey, selectedSystem?.zones.map((zone) => zone.key) ?? []);
+      await saveTechnicianLocationProposalDraft(next); setDraft(next); setZoneChoice(next.patch.kind === "add-location" && next.patch.newZone ? "new" : "existing");
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "New location draft could not be saved."); }
     finally { setSaving(false); }
   }
 
   const locked = draft?.status !== "Draft";
   const patch = draft?.patch.kind === "add-location" ? draft.patch : undefined;
+  const candidateZoneId = patch?.newZone?.key ?? selectedSystem?.zones.find((zone) => zone.key === patch?.zoneKey)?.id ?? null;
+  const nameWarnings = selectedSystem && patch ? locationNameWarnings(
+    [...selectedSystem.zones, ...(patch.newZone ? [patch.newZone] : [])],
+    [...(selectedSystem.locations ?? []), { displayName: patch.displayName, zoneId: candidateZoneId }]
+  ) : [];
 
   return <section aria-labelledby="technician-location-proposal-title">
     <button type="button" className="secondary-command back-command" onClick={onBack}>Back to Service Visit</button>
@@ -145,6 +161,10 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
                 onChange={(event) => updatePatch({ newZone: { key: patch.newZone?.key ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12), displayName: event.target.value } })} />
             ) : null}
           </fieldset>
+          {nameWarnings.length > 0 ? <div className="offline-notice" role="status">
+            <p>{nameWarnings.join(" ")}</p>
+            <p>Compared with this visit's saved locations. Repeated names are allowed; consider a distinct name before submitting.</p>
+          </div> : null}
           <div className="inline-actions">
             <button type="button" className="secondary-command" disabled={locked || saving} onClick={() => { setError(""); setSaved(true); }}>Save Draft</button>
             <button type="button" disabled={locked || saving || !patch.displayName.trim() || (!patch.zoneKey && !patch.newZone?.displayName.trim())} onClick={() => void submit()}>{saving ? "Submitting…" : "Submit for Review"}</button>

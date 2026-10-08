@@ -1,0 +1,102 @@
+<!doctype html><html><body>
+<button id="run">Run technician location proposal form checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { TechnicianLocationProposal } from "/src/jobs/TechnicianLocationProposal.tsx";
+
+const id = (n) => `6b000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { try { const v = fn(); if (v) return v; } catch {} await wait(25); } return undefined; }
+
+const customerId = id(2);
+const job = (jobId, zones) => ({
+  id: jobId,
+  configurationSnapshot: {
+    customer: { id: customerId, displayName: "Form Check Customer" },
+    enabledSystems: [{ systemKey: "co2_fire_extinguisher", displayName: "CO2 Fire Extinguisher System", zones,
+      locations: zones.length ? [{ key: "existing", zoneId: zones[0].id, displayName: " annex ROOM " }] : [] }]
+  }
+});
+
+let root;
+function mount(jobValue) {
+  root = createRoot(document.querySelector("#view"));
+  root.render(React.createElement(TechnicianLocationProposal, { job: jobValue, actorUserId: 9003, canUseServer: false, onBack() {} }));
+}
+function unmount() { root.unmount(); document.querySelector("#view").innerHTML = ""; }
+const nameInput = () => document.querySelector('input[maxlength="300"]');
+const button = (label) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
+function type(input, value) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9003);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: 9003, username: "form-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    await localDatabase.drafts.clear();
+    await localDatabase.syncOutbox.clear();
+
+    // --- L-1: the zone shown is the zone saved; Submit needs only the name. ---
+    const zoned = job(id(1), [{ id: id(20), key: "z1", displayName: "Ground Floor" }]);
+    mount(zoned);
+    await until(() => nameInput());
+    check("Submit is disabled while the name is empty", button("Submit for Review").disabled);
+    type(nameInput(), "Annex Room");
+    check("L-1: Submit is enabled with a name and the default zone, with no zone click", await until(() => !button("Submit for Review").disabled));
+    check("L-4: a case-insensitive duplicate location name warns without disabling Submit", await until(() => document.body.textContent.includes("Duplicate location names") && !button("Submit for Review").disabled));
+
+    // --- L-2: Save Draft, then a full remount (reload) restores the typed draft. ---
+    button("Save Draft").click();
+    await until(() => document.body.textContent.includes("Location draft saved on this device."));
+    await wait(200);
+    unmount(); mount(zoned);
+    check("L-2: a saved draft is restored after a reload", await until(() => nameInput()?.value === "Annex Room"));
+    check("L-2: the restored draft keeps the default zone, so Submit is still enabled", !button("Submit for Review").disabled);
+    const rows = (await localDatabase.drafts.toArray()).filter((r) => r.entityType === "technicianLocationProposal");
+    check("L-2: reloading did not create a second draft row", rows.length === 1);
+
+    // --- Submit offline-safe: queues locally, and the Pending state also survives a reload. ---
+    button("Submit for Review").click();
+    check("submitting shows the pending-sync state", await until(() => document.body.textContent.includes("pending sync")));
+    check("submitting created exactly one outbox item", (await localDatabase.syncOutbox.toArray()).length === 1);
+    unmount(); mount(zoned);
+    check("L-2: the Pending proposal is still shown after a reload (no blank form)", await until(() => document.body.textContent.includes("pending sync") && !nameInput()));
+    unmount();
+
+    mount(job(id(4), zoned.configurationSnapshot.enabledSystems[0].zones));
+    await until(() => nameInput());
+    type(nameInput(), "Unique Room");
+    document.querySelectorAll('input[type="radio"]')[1].click();
+    await wait(100);
+    type(document.querySelector('input[placeholder="Zone name"]'), " ground FLOOR ");
+    check("L-4: a duplicate new zone warns without disabling Submit", await until(() => document.body.textContent.includes("Duplicate zone names") && !button("Submit for Review").disabled));
+    unmount();
+
+    // --- A job with no zones starts on a new zone that must be named. ---
+    const zoneless = job(id(3), []);
+    mount(zoneless);
+    await until(() => nameInput());
+    type(nameInput(), "Lone Room");
+    await wait(150);
+    check("no zones: Submit stays disabled until the new zone is named", button("Submit for Review").disabled);
+    const zoneInput = await until(() => document.querySelector('input[placeholder="Zone name"]'));
+    check("no zones: a zone name field is offered without extra clicks", Boolean(zoneInput));
+    type(zoneInput, "New Wing");
+    check("no zones: naming the zone enables Submit", await until(() => !button("Submit for Review").disabled));
+    unmount();
+
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error), checks });
+  }
+};
+</script></body></html>

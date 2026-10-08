@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   activateManagerCustomerConfiguration,
   archiveManagerCustomer,
@@ -24,6 +24,7 @@ import {
 } from "./managerApi";
 import { ManagerCustomerServiceHistory } from "./ManagerCustomerServiceHistory";
 import { ManagerCustomerServices } from "./ManagerCustomerServices";
+import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
   customers: ManagerCustomer[]; loading: boolean; message: string; onRefresh: () => Promise<void>; onManage: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
@@ -591,6 +592,14 @@ const normalizeLocationsDraft = (zoneRows: LocationsZoneRow[], locationRows: Loc
   }))
 });
 
+/** Local pre-check so a mistake gets a specific message instead of the server's generic "payload is invalid". */
+function locationsDraftProblem(zoneRows: LocationsZoneRow[], locationRows: LocationsLocationRow[]): string {
+  if (zoneRows.some((zone) => !zone.displayName.trim())) return "Every zone needs a name. Fill in or remove the blank zone.";
+  if (locationRows.some((location) => !location.displayName.trim())) return "Every location needs a name. Fill in or remove the blank location.";
+  if (locationRows.some((location) => !location.zoneLocalId)) return "Choose a zone for every location.";
+  return "";
+}
+
 export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onSaved, onAuthorityFailure, embedded = false }: {
   customerId: string; systemKey: string; systemLabel: string;
   onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
@@ -606,6 +615,9 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
   const [loadedSnapshot, setLoadedSnapshot] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const saveStatusRef = useRef<HTMLDivElement>(null);
+  // The save button sits far below the top of a long editor: bring the outcome next to it.
+  useEffect(() => { if (error || message) saveStatusRef.current?.scrollIntoView?.({ block: "nearest" }); }, [error, message]);
 
   const hydrate = (result: ManagerLocations) => {
     const zones = result.zones.map((zone) => ({ localId: zone.id, key: zone.key, displayName: zone.displayName }));
@@ -640,7 +652,10 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
   useEffect(() => { if (embedded) void load(); }, [embedded, customerId, systemKey]);
 
   const save = async () => {
-    setSaving(true); setError(""); setMessage("");
+    setError(""); setMessage("");
+    const problem = locationsDraftProblem(zoneRows, locationRows);
+    if (problem) { setError(problem); return; }
+    setSaving(true);
     try {
       const result = await saveManagerLocations(customerId, systemKey, normalizeLocationsDraft(zoneRows, locationRows));
       hydrate(result.locations);
@@ -668,6 +683,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
     setLocationRows((current) => current.filter((location) => location.localId !== localId));
 
   const changed = loaded && JSON.stringify(normalizeLocationsDraft(zoneRows, locationRows)) !== loadedSnapshot;
+  const nameWarnings = locationNameWarnings(zoneRows, locationRows.map((location) => ({ displayName: location.displayName, zoneId: location.zoneLocalId || null })));
 
   return <div className="manager-locations-system">
     {!embedded ? <button type="button" className="secondary-command" aria-expanded={open} onClick={toggleOpen}>
@@ -675,8 +691,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
     </button> : null}
     {open ? <div>
       {loading ? <p>Loading zones and locations…</p> : null}
-      {error ? <p className="form-message" role="alert">{error}</p> : null}
-      {message ? <p className="form-message" role="status">{message}</p> : null}
+      {!loaded && error ? <p className="form-message" role="alert">{error}</p> : null}
       {loaded ? <>
         <h5>Zones</h5>
         <ul className="manager-locations-zone-list">
@@ -736,6 +751,14 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
           ))}
         </ul>
         <button type="button" disabled={zoneRows.length === 0} onClick={addLocation}>Add location</button>
+        <div ref={saveStatusRef}>
+          {nameWarnings.length > 0 ? <div className="offline-notice" role="status">
+            <p>{nameWarnings.join(" ")}</p>
+            <p>Repeated names are allowed. Consider distinct names so technicians can tell them apart.</p>
+          </div> : null}
+          {error ? <p className="form-message" role="alert">{error}</p> : null}
+          {message ? <p className="form-message" role="status">{message}</p> : null}
+        </div>
         <p className="support-metadata">{perServiceUnsavedLine(changed)}</p>
         <div className="inline-actions">
           <button type="button" className="secondary-command" disabled={saving || loading} onClick={() => void load()}>Reload</button>
