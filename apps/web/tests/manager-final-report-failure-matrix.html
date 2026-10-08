@@ -13,7 +13,7 @@
     const report = {
       customer: "Manager Report Customer", site: "Manager Report Site", serviceDate: "2026-08-21", jobReference: "SV-MANAGER-REPORT", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
       systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
-      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true, captureSource: null }] }]
     };
     const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     const waitFor = async (predicate, label) => {
@@ -37,6 +37,8 @@
       globalThis.fetch = (input, init) => {
         const url = new URL(typeof input === "string" ? input : input.url, window.location.origin);
         if (url.pathname === "/api/manager/service-visits/job-1/corrections") return Promise.resolve(json({ corrections: [] }));
+        // The Final Report now also loads the report-approval state and only enables Download PDF once the report is approved (approval feature); the matrix exercises PDF failures, so it serves an approved report.
+        if (url.pathname === "/api/manager/service-visits/job-1/report-approval") return Promise.resolve(json({ reportApproval: { status: "approved", decidedBy: "report-approver", decidedByRole: "admin", decidedAt: "2026-08-21T11:00:00.000Z", note: null, latestCorrectionAt: null, correctedAfterApproval: false }, events: [] }));
         return fetchHandler(input, init);
       };
       const root = ReactDom.createRoot(mount);

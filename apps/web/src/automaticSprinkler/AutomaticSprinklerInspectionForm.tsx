@@ -1,4 +1,6 @@
+import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
+import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import {
   resolveAutomaticSprinklerEvidencePolicy,
   type AutomaticSprinklerPsiFieldPath
@@ -32,6 +34,7 @@ type Props = {
   onSaveDraft: (responses: AutomaticSprinklerResponses) => Promise<void>;
   onSubmitLocal: (responses: AutomaticSprinklerResponses) => Promise<void>;
   onEditFailed: () => Promise<void>;
+  onStartCorrectedCopy: () => Promise<void>;
   onAttachmentsChange: () => Promise<void>;
 };
 
@@ -50,6 +53,7 @@ export function AutomaticSprinklerInspectionForm({
   onSaveDraft,
   onSubmitLocal,
   onEditFailed,
+  onStartCorrectedCopy,
   onAttachmentsChange
 }: Props) {
   const [responses, setResponses] = useState(record.responses);
@@ -111,6 +115,7 @@ export function AutomaticSprinklerInspectionForm({
   }, [isV7, record.inspectionSnapshot.system.evidencePolicy]);
 
   useEffect(() => setResponses(record.responses), [record]);
+  const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: onSaveDraft, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
   async function refreshAttachments() {
     setAttachments(await listInspectionAttachments(record.clientUuid));
     await onAttachmentsChange();
@@ -275,7 +280,7 @@ export function AutomaticSprinklerInspectionForm({
       return;
     }
     try {
-      await onSubmitLocal(responses);
+      await submitLocal();
       await refreshAttachments();
       setShowValidation(false);
       setMessage("");
@@ -324,6 +329,7 @@ export function AutomaticSprinklerInspectionForm({
         setMessage(error instanceof Error ? error.message : "Automatic Sprinkler inspection could not be corrected");
       })}>Edit Failed Inspection</button>
       : null}
+    <CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
 
     <fieldset disabled={readOnly}><legend>Water Tank</legend>{sectionRows("waterTank")}</fieldset>
     <fieldset disabled={readOnly}><legend>Pump House</legend>{sectionRows("pumpHouse")}</fieldset>

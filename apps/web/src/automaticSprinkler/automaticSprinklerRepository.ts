@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { attachmentOutboxPayload } from "../attachments/attachmentRepository";
 import type {
@@ -578,3 +579,6 @@ export async function returnFailedAutomaticSprinklerToDraft(record: AutomaticSpr
   if (!next) throw new Error("Automatic Sprinkler inspection was not returned for correction");
   return next;
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedAutomaticSprinklerCopy = (record: AutomaticSprinklerInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Automatic Sprinkler");

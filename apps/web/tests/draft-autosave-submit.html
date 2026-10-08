@@ -1,0 +1,35 @@
+<!doctype html><html><body><div id="view"></div><script type="module">
+import * as React from "react";import * as ReactDomClient from "react-dom/client";import { useDraftAutosave } from "/src/inspectionControls/useDraftAutosave.ts";import { AutosaveStatusLine } from "/src/inspectionControls/AutosaveStatusLine.tsx";
+// I-17 harness: stands in for a form + App.tsx. Writes use optimistic concurrency on localUpdatedAt exactly like the
+// repositories, and each render hands the form handlers that close over THAT render's record (as App.tsx does).
+const h = React.createElement;
+const log = { saves: [], submits: [], saveErrors: 0, submitErrors: 0 };window.__log = log;
+const direct = new URLSearchParams(location.search).get("direct") === "1";
+const bump = (t) => new Date(Date.parse(t) + 1000).toISOString();
+const db = { updatedAt: "2026-08-10T00:00:00.000Z" };
+let root, current = { responses: { text: "" }, localUpdatedAt: db.updatedAt, syncStatus: "Draft" };
+const stale = () => new Error("This record changed elsewhere. Reload before continuing.");
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+let saveDelay = 700;
+function Demo({ record, onSave, onSubmit }) {
+  const [responses, setResponses] = React.useState(record.responses);
+  const [message, setMessage] = React.useState("");
+  React.useEffect(() => setResponses(record.responses), [record]);
+  const auto = useDraftAutosave({ record, responses, setResponses, save: onSave, submit: onSubmit, enabled: record.syncStatus === "Draft" });
+  const go = () => (direct ? onSubmit(responses) : auto.submit()).catch((e) => setMessage(e.message));
+  return h("div", null,
+    h("input", { "aria-label": "Remarks", value: responses.text, onChange: (e) => setResponses({ text: e.target.value }) }),
+    h("button", { type: "button", onClick: go }, "Submit"),
+    h("p", { role: "status" }, message), h("p", null, record.syncStatus));
+}
+function render() {
+  const rec = current;
+  root.render(h(React.Fragment, null, h(AutosaveStatusLine), h(Demo, {
+    record: rec,
+    // The write is checked and committed at once; `saveDelay` is the slow part after it (refreshing the lists, re-render).
+    onSave: async (r) => { if (rec.localUpdatedAt !== db.updatedAt) { log.saveErrors++; throw stale(); } db.updatedAt = bump(db.updatedAt); log.saves.push(r.text); const saved = { ...current, responses: r, localUpdatedAt: db.updatedAt }; await wait(saveDelay); current = saved; render(); },
+    onSubmit: async (r) => { await wait(20); if (rec.localUpdatedAt !== db.updatedAt) { log.submitErrors++; throw stale(); } db.updatedAt = bump(db.updatedAt); log.submits.push(r.text); current = { ...current, responses: r, syncStatus: "Pending", localUpdatedAt: db.updatedAt }; render(); }
+  })));
+}
+window.__mount = (opts = {}) => { saveDelay = opts.saveDelay ?? 700; root = ReactDomClient.createRoot(document.querySelector("#view")); render(); };
+</script></body></html>

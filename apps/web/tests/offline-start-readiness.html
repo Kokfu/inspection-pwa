@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>I-02 offline start readiness harness</title></head>
+  <body>
+    <button id="run" type="button">Run offline start readiness checks</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "/src/jobs/offlineStartReadiness.ts";
+      import { resolveDryWetRiserOpenTarget } from "/src/dryWetRiser/dryWetRiserResolution.ts";
+      import { resolveFireAlarmOpenTarget } from "/src/fireAlarm/fireAlarmResolution.ts";
+      import { resolveHydrantOpenTarget } from "/src/hydrant/hydrantResolution.ts";
+
+      const checks = [];
+      const check = (name, passed, detail = "") => checks.push({ name, passed: Boolean(passed), detail });
+      const user = { id: 1, username: "tech", role: "inspector" };
+      const unreachable = () => Promise.reject(new TypeError("Failed to fetch"));
+      const deliberate = () => Promise.reject(new Error("Server inspection listing failed: 500"));
+      const none = () => Promise.resolve(undefined);
+      const mkJob = (n) => ({ id: `32000000-0000-4000-8000-00000000000${n}`, status: "open" });
+      const days = (n) => new Date(Date.now() - n * 86400000);
+
+      // (job, system, catalog, user, authStatus, findServer, createLocal) for riser / fire alarm
+      const systems = [
+        ["Dry/Wet Riser", "dry_wet_riser", (job, key, auth, find, create) => resolveDryWetRiserOpenTarget(job, { systemKey: key }, {}, user, auth, find, create)],
+        ["Fire Alarm", "fire_alarm_detector", (job, key, auth, find, create) => resolveFireAlarmOpenTarget(job, { systemKey: key }, {}, user, auth, find, create)],
+        // (job, system, user, authStatus, loadCatalog, findServer, getLocal, createLocal)
+        ["Hydrant", "hydrant", (job, key, auth, find, create) => resolveHydrantOpenTarget(job, { systemKey: key }, user, auth, async () => ({}), find, async () => undefined, create)]
+      ];
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const result = document.querySelector("#result");
+        try {
+          await localDatabase.drafts.where("entityType").equals("offlineStartConfirmation").delete();
+          let n = 0;
+          for (const [name, key, open] of systems) {
+            n += 1;
+            const job = mkJob(n);
+            let created = 0;
+            const create = async () => { created += 1; return { created: true }; };
+            const run = async (auth, find) => { created = 0; return open(job, key, auth, find, create); };
+
+            let r = await run("offline-unverified", none);
+            check(`${name}: offline, never confirmed -> not-cached, nothing created`, r.kind === "not-cached" && created === 0, JSON.stringify(r));
+
+            await recordOfflineStartConfirmations([job], []);
+            r = await run("offline-unverified", none);
+            check(`${name}: offline, confirmed with nothing accepted -> starts a local draft`, r.kind === "local" && created === 1, JSON.stringify(r));
+
+            r = await run("verified", unreachable);
+            check(`${name}: online but server unreachable, confirmed -> starts a local draft`, r.kind === "local" && created === 1, JSON.stringify(r));
+
+            r = await run("verified", deliberate);
+            check(`${name}: a deliberate server error still fails closed`, r.kind === "server-unavailable" && created === 0, JSON.stringify(r));
+
+            await recordOfflineStartConfirmations([job], [{ jobId: job.id, systemKey: key }]);
+            r = await run("offline-unverified", none);
+            check(`${name}: server had it accepted -> not-cached, nothing created`, r.kind === "not-cached" && created === 0, JSON.stringify(r));
+
+            await recordOfflineStartConfirmations([job], [], days(4));
+            r = await run("offline-unverified", none);
+            check(`${name}: confirmation older than 3 days -> not-cached`, r.kind === "not-cached" && created === 0, JSON.stringify(r));
+
+            await recordOfflineStartConfirmations([job], [{ jobId: job.id, systemKey: "some_other_system" }]);
+            r = await run("offline-unverified", none);
+            check(`${name}: another system accepted does not block this one`, r.kind === "local" && created === 1, JSON.stringify(r));
+          }
+
+          // Job-card indicator
+          const fresh = mkJob(7), old = mkJob(8), never = mkJob(9);
+          await recordOfflineStartConfirmations([fresh], []);
+          await recordOfflineStartConfirmations([old], [], days(5));
+          const ready = await listOfflineReadyJobIds([fresh.id, old.id, never.id]);
+          check("indicator: only the freshly confirmed job is ready", ready.has(fresh.id) && !ready.has(old.id) && !ready.has(never.id), JSON.stringify([...ready]));
+
+          // Malformed stored data fails closed
+          await localDatabase.drafts.put({ id: `offline-start:${never.id}`, entityType: "offlineStartConfirmation", updatedAt: new Date().toISOString(), payload: { jobId: "other", confirmedAt: "nonsense", acceptedSystemKeys: "x" } });
+          const bad = await listOfflineReadyJobIds([never.id]);
+          check("malformed confirmation is ignored", !bad.has(never.id));
+
+          await localDatabase.drafts.where("entityType").equals("offlineStartConfirmation").delete();
+          result.textContent = JSON.stringify({ status: checks.every((item) => item.passed) ? "PASS" : "FAIL", checks }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({ status: "ERROR", message: String(error), checks }, null, 2);
+        }
+      });
+    </script>
+  </body>
+</html>

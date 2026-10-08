@@ -1,3 +1,4 @@
+import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { FireAlarmInspectionRecord, FireAlarmResponses, ResolvedFireAlarmControls } from "./fireAlarmTypes";
@@ -57,6 +58,7 @@ export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attac
   const fields = new Set(attachments.filter((attachment) => attachment.protocolVersion === 7).map((attachment) => attachment.fieldPath));
   for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
   issues.push(...duplicateV7PhotoIssues(attachments, required));
+  issues.push(...submittedPhotoIssues(attachments, required));
   return issues;
 }
 /** The server refuses a manifest that reuses one image across two findings
@@ -83,6 +85,7 @@ export async function saveFireAlarmV7Photo(values: { record: FireAlarmInspection
     const clash = held.find((item) => item.protocolVersion === 7 && item.sha256 === values.sha256 && item.fieldPath !== values.fieldPath);
     if (clash) throw new Error(`This photo is already attached to ${clash.fieldPath}. Each finding needs its own photo.`);
     const existing = held.find((item) => item.fieldPath === values.fieldPath); const timestamp = now();
+    assertPhotoReplaceable(existing);
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: "fire_alarm_detector", fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }

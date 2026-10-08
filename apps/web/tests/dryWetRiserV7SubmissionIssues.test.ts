@@ -65,7 +65,7 @@ const checkPath = "dry_wet_riser_checks.saj_main_water_supply" as const;
 const measurementPath = "dry_wet_riser_measurements.jockey_psi" as const;
 const rowPath = `riser_outlet.riser_outlet_rows.rows.${uuid}.canvasHoseAt2Result` as const;
 function attachment(fieldPath: string, sha256: string) {
-  return { photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "dry_wet_riser", fieldPath, sha256, protocolVersion: 7 } as Parameters<typeof v7DryWetRiserSubmissionIssues>[2][number];
+  return { photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "dry_wet_riser", fieldPath, sha256, protocolVersion: 7, syncStatus: "Draft" } as Parameters<typeof v7DryWetRiserSubmissionIssues>[2][number];
 }
 
 test("a complete Dry/Wet Riser V7 draft passes the submit gate", () => {

@@ -1,4 +1,5 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
+import { isOfflineStartConfirmed } from "../jobs/offlineStartReadiness";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { isServerUnreachable } from "../jobs/serverReachability";
@@ -113,7 +114,8 @@ export async function resolveFireRatedRollerShutterOpenTarget(
   loadCatalog: () => Promise<InspectionCatalog | undefined>,
   findServer = findServerMasterSystemInspection,
   getLocal = getLocalFireRatedRollerShutter,
-  createLocal = getOrCreateFireRatedRollerShutterInspection
+  createLocal = getOrCreateFireRatedRollerShutterInspection,
+  offlineStartConfirmed = isOfflineStartConfirmed
 ): Promise<FireRatedRollerShutterOpenTarget> {
   let serverUnreachable = false;
   if (authStatus === "verified") {
@@ -136,7 +138,7 @@ export async function resolveFireRatedRollerShutterOpenTarget(
 
   const local = await getLocal(job.id);
   if (local) return { kind: "local", record: local };
-  if (authStatus === "offline-unverified" || serverUnreachable) return { kind: "not-cached" };
+  if ((authStatus === "offline-unverified" || serverUnreachable) && !await offlineStartConfirmed(job.id, system.systemKey)) return { kind: "not-cached" };
 
   const catalog = await loadCatalog();
   if (!catalog) return { kind: "server-unavailable", message: "Fire Rated Roller Shutter reference data is not cached yet. Refresh jobs online first." };

@@ -26,7 +26,7 @@ function responses(overrides: Partial<SmokeVentilationResponses> = {}): SmokeVen
 
 const rowPath = (wire: "auto" | "manual") => `fan_schedule.fan_schedule_rows.rows.${uuid}.${wire}`;
 const checklistPath = (key: string) => `smoke_ventilation_checks.${key}`;
-const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "smoke_ventilation", fieldPath: path, sha256, protocolVersion: 7 }) as unknown as Parameters<typeof v7SmokeVentilationSubmissionIssues>[2][number];
+const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "smoke_ventilation", fieldPath: path, sha256, protocolVersion: 7, syncStatus: "Draft" }) as unknown as Parameters<typeof v7SmokeVentilationSubmissionIssues>[2][number];
 
 /** One finding in each of this system's two evidence scopes. */
 function withFindings(): SmokeVentilationResponses {

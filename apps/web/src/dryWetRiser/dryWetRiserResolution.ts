@@ -1,4 +1,5 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
+import { isOfflineStartConfirmed } from "../jobs/offlineStartReadiness";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { isServerUnreachable } from "../jobs/serverReachability";
@@ -21,8 +22,14 @@ export async function resolveDryWetRiserRoute(clientUuid: string, authStatus: "v
   try { return { kind: "server", inspection: await loadServer(clientUuid) }; } catch (error) { if (error instanceof ServerDryWetRiserNotFoundError) return { kind: "not-found" }; return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection is currently unavailable" }; }
 }
 export type DryWetRiserOpenTarget = { kind: "local"; record: DryWetRiserInspectionRecord } | { kind: "server"; clientUuid: string } | { kind: "not-cached" } | { kind: "server-unavailable"; message: string };
-export async function resolveDryWetRiserOpenTarget(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog | undefined, user: AuthUser | undefined, authStatus: "verified" | "offline-unverified", findServer = findServerMasterSystemInspection, createLocal = getOrCreateDryWetRiserInspection): Promise<DryWetRiserOpenTarget> {
+export async function resolveDryWetRiserOpenTarget(job: InspectionJob, system: JobSystemSnapshot, catalog: InspectionCatalog | undefined, user: AuthUser | undefined, authStatus: "verified" | "offline-unverified", findServer = findServerMasterSystemInspection, createLocal = getOrCreateDryWetRiserInspection, offlineStartConfirmed = isOfflineStartConfirmed): Promise<DryWetRiserOpenTarget> {
   let serverUnreachable = false;
+  // I-02 (A1): with the server out of reach, a system the server last confirmed as having nothing accepted may be started from the cached catalog.
+  const startOffline = async (): Promise<DryWetRiserOpenTarget> => {
+    if (!await offlineStartConfirmed(job.id, system.systemKey)) return { kind: "not-cached" };
+    try { if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) }; }
+    catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" }; }
+  };
   if (job.status === "closed" && authStatus === "verified") {
     try { const server = await findServer(job.id, system.systemKey); if (server) return { kind: "server", clientUuid: server.clientUuid }; } catch (error) {
       // An unreachable server must not hide a saved local record; only a deliberate server answer fails closed.
@@ -32,11 +39,11 @@ export async function resolveDryWetRiserOpenTarget(job: InspectionJob, system: J
   }
   const local = await localDatabase.masterSystemInspections.where("jobSystemKey").equals(`${job.id}:${system.systemKey}`).first();
   if (local?.systemKey === "dry_wet_riser") return { kind: "local", record: local as DryWetRiserInspectionRecord };
-  if (authStatus === "offline-unverified" || serverUnreachable) return { kind: "not-cached" };
+  if (authStatus === "offline-unverified" || serverUnreachable) return startOffline();
   let found: Awaited<ReturnType<typeof findServer>>;
   try { found = await findServer(job.id, system.systemKey); } catch (error) {
     // No local record and the server cannot be reached: do not create a draft blindly; same outcome as offline.
-    if (isServerUnreachable(error)) return { kind: "not-cached" };
+    if (isServerUnreachable(error)) return startOffline();
     return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" };
   }
   try { const server = found; if (server) return { kind: "server", clientUuid: server.clientUuid }; if (!catalog) throw new Error("Dry/Wet Riser reference data is not cached yet. Refresh jobs online first."); return { kind: "local", record: await createLocal(job, system, catalog, inspectionCreatorUser(user)) }; } catch (error) { return { kind: "server-unavailable", message: error instanceof Error ? error.message : "Server inspection check is currently unavailable" }; }

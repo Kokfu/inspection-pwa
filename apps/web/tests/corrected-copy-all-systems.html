@@ -1,0 +1,89 @@
+<!doctype html><html><body><button id="run">Run corrected copy checks for every system</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import { supersededArchiveKey } from "/src/attachments/correctedCopy.ts";
+import { startCorrectedHydrantCopy } from "/src/hydrant/hydrantRepository.ts";
+import { startCorrectedHoseReelCopy } from "/src/hoseReel/hoseReelRepository.ts";
+import { startCorrectedAutomaticSprinklerCopy } from "/src/automaticSprinkler/automaticSprinklerRepository.ts";
+import { startCorrectedDryWetRiserCopy } from "/src/dryWetRiser/dryWetRiserRepository.ts";
+import { startCorrectedSmokeVentilationCopy } from "/src/smokeVentilation/smokeVentilationRepository.ts";
+import { startCorrectedFireRatedRollerShutterCopy } from "/src/fireRatedRollerShutter/fireRatedRollerShutterRepository.ts";
+import { startCorrectedFireAlarmCopy } from "/src/fireAlarm/fireAlarmRepository.ts";
+import { startCorrectedCo2Copy } from "/src/co2/co2Repository.ts";
+import { startCorrectedFm200Copy } from "/src/fm200/fm200Repository.ts";
+import { startCorrectedFireIntercomCopy } from "/src/fireIntercom/fireIntercomRepository.ts";
+
+const checks = [];
+const check = (name, passed, detail) => checks.push({ name, passed: Boolean(passed), detail: passed ? undefined : detail });
+const id = (n) => `96000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const jobId = id(1), oldUuid = id(2), photoA = id(3), photoB = id(4), groupKey = "group-1";
+const at = "2026-10-07T10:00:00.000Z";
+const bytes = (n) => new Blob([new Uint8Array(400).fill(n)], { type: "image/jpeg" });
+const systems = [
+  { name: "Hydrant", fn: startCorrectedHydrantCopy, key: "hydrant", table: "masterSystemInspections" },
+  { name: "Hose Reel", fn: startCorrectedHoseReelCopy, key: "hose_reel", table: "masterSystemInspections" },
+  { name: "Automatic Sprinkler", fn: startCorrectedAutomaticSprinklerCopy, key: "automatic_sprinkler", table: "masterSystemInspections", legacyLock: true },
+  { name: "Dry/Wet Riser", fn: startCorrectedDryWetRiserCopy, key: "dry_wet_riser", table: "masterSystemInspections" },
+  { name: "Smoke Ventilation", fn: startCorrectedSmokeVentilationCopy, key: "smoke_ventilation", table: "masterSystemInspections" },
+  { name: "Fire Rated Roller Shutter", fn: startCorrectedFireRatedRollerShutterCopy, key: "fire_rated_roller_shutter", table: "masterSystemInspections" },
+  { name: "Fire Alarm", fn: startCorrectedFireAlarmCopy, key: "fire_alarm_detector", table: "masterSystemInspections" },
+  { name: "Fire Intercom", fn: startCorrectedFireIntercomCopy, key: "fire_intercom", table: "masterSystemInspections" },
+  { name: "CO2", fn: startCorrectedCo2Copy, key: "co2_fire_extinguisher", table: "masterSystemFormInstances" },
+  { name: "Wet Chemical (CO2 form)", fn: startCorrectedCo2Copy, key: "wet_chemical", table: "masterSystemFormInstances" },
+  { name: "FM200", fn: startCorrectedFm200Copy, key: "fm200_fire_suppression", table: "masterSystemFormInstances" }
+];
+const record = (s, over = {}) => ({ clientUuid: oldUuid, jobId, systemKey: s.key, jobSystemKey: `${jobId}:${s.key}`, groupKey, instanceKey: "loc-1", masterTemplate: { id: id(9), code: "MFE-FSSR", version: 7 }, responses: { marker: s.key }, performedAt: at, localCreatedAt: at, localUpdatedAt: at, syncStatus: "Failed", lastSyncError: "Each finding needs its own photo", lastSyncedAt: at, ...(s.legacyLock ? { attachmentSetSubmittedAt: at } : {}), ...over });
+const photo = (s, photoUuid, fieldPath, n, status = "Synced") => ({ photoUuid, inspectionClientUuid: oldUuid, systemKey: s.key, fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: "camera", blob: bytes(n), mimeType: "image/jpeg", sizeBytes: 400, width: 8, height: 8, sha256: String(n).repeat(64).slice(0, 64), storedSha256: "e".repeat(64), serverAttachmentId: "srv", lastSyncedAt: at, capturedAt: at, localCreatedAt: at, localUpdatedAt: at, syncStatus: status, protocolVersion: 7, masterTemplateId: id(9), contractSha256: "c".repeat(64) });
+const outbox = (operationId, entityType, entityId, status) => ({ operationId, entityType, entityId, action: "create", payload: {}, createdAt: at, attempts: 3, status, activeKey: status === "Completed" ? undefined : `${entityType}:create:${entityId}` });
+const attempt = async (fn) => { try { await fn(); return ""; } catch (error) { return String(error.message); } };
+
+async function seed(s, over = {}, parentOutbox = "Failed") {
+  const db = localDatabase;
+  await Promise.all([db.masterSystemInspections.clear(), db.masterSystemFormInstances.clear(), db.inspectionAttachments.clear(), db.syncOutbox.clear(), db.drafts.clear()]);
+  await db.table(s.table).add(record(s, over));
+  await db.inspectionAttachments.bulkAdd([photo(s, photoA, "field.a", 1), photo(s, photoB, "field.b", 1)]);
+  await db.syncOutbox.bulkAdd([outbox("op-parent", "masterSystemInspection", oldUuid, parentOutbox), outbox("op-a", "v7StagedEvidence", photoA, "Completed"), outbox("op-b", "v7StagedEvidence", photoB, "Failed")]);
+}
+
+document.getElementById("run").addEventListener("click", async () => {
+  try {
+    await activateUserWorkspace(903);
+    const db = localDatabase;
+    for (const s of systems) {
+      const tag = s.name;
+      await seed(s);
+      const live = () => db.table(s.table).get(oldUuid);
+      const old = await live();
+      const copy = await s.fn(old);
+      check(`${tag}: new identity, Draft, supersedes the rejected record`, copy.clientUuid !== oldUuid && copy.syncStatus === "Draft" && copy.supersedes?.clientUuid === oldUuid && copy.systemKey === s.key, copy);
+      check(`${tag}: answers, job and instance identity carried over; no stale sync fields`, JSON.stringify(copy.responses) === JSON.stringify(old.responses) && copy.jobId === jobId && copy.groupKey === groupKey && copy.instanceKey === "loc-1" && copy.lastSyncError === undefined && copy.lastSyncedAt === undefined, copy);
+      check(`${tag}: rejected record is gone and exactly one live record remains for the unique key`, !(await live()) && (await db.table(s.table).count()) === 1, await db.table(s.table).count());
+      if (s.legacyLock) check(`${tag}: the legacy photo-set lock does not carry over`, copy.attachmentSetSubmittedAt === undefined, copy);
+      const photos = await db.inspectionAttachments.toArray();
+      check(`${tag}: photos re-keyed to the copy as Draft, bytes kept, server fields cleared`, photos.length === 2 && photos.every((p) => p.inspectionClientUuid === copy.clientUuid && ![photoA, photoB].includes(p.photoUuid) && p.syncStatus === "Draft" && p.storedSha256 === undefined && p.serverAttachmentId === undefined && p.lastSyncedAt === undefined && p.blob.size === 400), photos.map((p) => [p.photoUuid, p.syncStatus]));
+      const archive = await db.drafts.get(supersededArchiveKey(oldUuid));
+      check(`${tag}: archived without photo bytes`, archive?.entityType === "supersededInspection" && archive.payload.replacedBy === copy.clientUuid && archive.payload.photos.length === 2 && archive.payload.photos.every((p) => !("blob" in p)), archive);
+      check(`${tag}: no open outbox item remains`, (await db.syncOutbox.where("status").notEqual("Completed").count()) === 0);
+
+      // Guards and atomicity (per system, through the real exported function).
+      await seed(s, { syncStatus: "Pending" });
+      check(`${tag}: refused for a Pending record, nothing changed`, /rejected record/.test(await attempt(async () => s.fn(await live()))) && Boolean(await live()));
+      await seed(s);
+      check(`${tag}: a stale caller is refused`, /changed elsewhere/.test(await attempt(async () => s.fn({ ...(await live()), localUpdatedAt: "2020-01-01T00:00:00.000Z" }))) && Boolean(await live()));
+      await seed(s, {}, "Syncing");
+      check(`${tag}: refused while mid-sync`, /syncing right now/.test(await attempt(async () => s.fn(await live()))) && Boolean(await live()));
+      await seed(s, { syncStatus: "Draft" });
+      const draftCopy = await s.fn(await live());
+      check(`${tag}: a Draft that holds submitted photos can also start a copy`, draftCopy.syncStatus === "Draft" && draftCopy.clientUuid !== oldUuid);
+      await seed(s);
+      const realAdd = db.inspectionAttachments.add.bind(db.inspectionAttachments); let calls = 0;
+      db.inspectionAttachments.add = (...args) => { calls += 1; if (calls === 2) throw new Error("injected failure"); return realAdd(...args); };
+      const injected = await attempt(async () => s.fn(await live()));
+      db.inspectionAttachments.add = realAdd;
+      check(`${tag}: a mid-transaction failure rolls everything back`, /injected/.test(injected) && Boolean(await live()) && (await db.table(s.table).count()) === 1 && (await db.inspectionAttachments.count()) === 2 && !(await db.drafts.get(supersededArchiveKey(oldUuid))) && (await db.syncOutbox.where("status").notEqual("Completed").count()) === 2, injected);
+    }
+    document.getElementById("result").textContent = JSON.stringify({ status: checks.every((c) => c.passed) ? "PASS" : "FAIL", count: checks.length, checks: checks.filter((c) => !c.passed) });
+  } catch (error) {
+    document.getElementById("result").textContent = JSON.stringify({ status: "FAIL", message: String(error?.stack ?? error), checks });
+  }
+});
+</script></body></html>

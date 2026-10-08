@@ -1,3 +1,5 @@
+import { isGatewayUnreachableStatus } from "../jobs/serverReachability";
+
 export type AuthUser = {
   id: number;
   username: string;
@@ -53,6 +55,11 @@ export async function getCurrentUser(timeoutMs = authVerificationTimeoutMs) {
 
   if (response.status === 401 || response.status === 403) {
     return { status: "unauthenticated" } as const;
+  }
+  // A 502/504 comes from the reverse proxy: the API itself did not answer (restarting or timed out), which is
+  // the same as no connection, not a server decision (I-13).
+  if (isGatewayUnreachableStatus(response.status)) {
+    return { status: "transport-unavailable" } as const;
   }
   if (!response.ok) {
     return { status: "unavailable" } as const;

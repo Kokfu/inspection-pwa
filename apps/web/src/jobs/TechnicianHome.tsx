@@ -82,6 +82,8 @@ type TechnicianHomeProps = {
   inspectionAttachments: InspectionAttachmentRecord[];
   serverMasterSystemInspections: ServerMasterSystemInspectionSummary[];
   serverMasterSystemProgressState: "idle" | "loading" | "loaded" | "failed";
+  /** I-02: jobs the server confirmed recently enough to start their systems offline. */
+  offlineReadyJobIds?: ReadonlySet<string>;
   loading: boolean;
   message: string;
   selectedJobId?: string;
@@ -122,6 +124,7 @@ export function TechnicianHome({
   inspectionAttachments,
   serverMasterSystemInspections,
   serverMasterSystemProgressState,
+  offlineReadyJobIds,
   loading,
   message,
   selectedJobId,
@@ -274,6 +277,7 @@ export function TechnicianHome({
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
     return <ServiceJobCard key={job.id} job={job} progress={progress} canViewReport={canUseServer}
+      offlineReady={offlineReadyJobIds ? offlineReadyJobIds.has(job.id) : undefined}
       onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
   };
 

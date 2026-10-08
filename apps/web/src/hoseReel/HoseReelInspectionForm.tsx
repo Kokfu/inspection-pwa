@@ -1,4 +1,6 @@
+import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
+import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import {
   loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
@@ -38,6 +40,7 @@ type Props = {
   onSaveDraft: (responses: HoseReelResponses) => Promise<void>;
   onSubmitLocal: (responses: HoseReelResponses) => Promise<void>;
   onEditFailed: () => Promise<void>;
+  onStartCorrectedCopy: () => Promise<void>;
   onClose: () => void;
 };
 
@@ -68,6 +71,7 @@ export function HoseReelInspectionForm({
   onSaveDraft,
   onSubmitLocal,
   onEditFailed,
+  onStartCorrectedCopy,
   onClose
 }: Props) {
   const [responses, setResponses] = useState(record.responses);
@@ -119,6 +123,7 @@ export function HoseReelInspectionForm({
   useEffect(() => {
     setResponses(record.responses);
   }, [record]);
+  const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: onSaveDraft, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
 
   useEffect(() => {
     setMessage("");
@@ -243,7 +248,7 @@ export function HoseReelInspectionForm({
     }
 
     try {
-      await onSubmitLocal(responses);
+      await submitLocal();
       setShowValidation(false);
       setMessage("");
     } catch (error) {
@@ -323,6 +328,7 @@ export function HoseReelInspectionForm({
           Edit Failed Inspection
         </button>
       ) : null}
+      <CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
 
       <fieldset disabled={readOnly}>
         <legend>Water Tank</legend>

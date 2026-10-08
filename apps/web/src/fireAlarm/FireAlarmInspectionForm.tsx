@@ -1,4 +1,6 @@
+import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useState } from "react";
+import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { inspectionSyncMessage } from "../uiPresentation";
 import {
   addFireAlarmPrimaryTechnicianRow,
@@ -21,7 +23,7 @@ import {
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
 } from "../jobs/technicianLocationProposalDraft";
 
-type Props = { record: FireAlarmInspectionRecord; actorUserId: number; canUseServer: boolean; onBack: () => void; onSaveDraft: (responses: FireAlarmResponses) => Promise<void>; onSubmitLocal: (responses: FireAlarmResponses) => Promise<void>; onEditFailed: () => Promise<void>; onRecordChange?: (record: FireAlarmInspectionRecord) => void };
+type Props = { record: FireAlarmInspectionRecord; actorUserId: number; canUseServer: boolean; onBack: () => void; onSaveDraft: (responses: FireAlarmResponses) => Promise<void>; onSubmitLocal: (responses: FireAlarmResponses) => Promise<void>; onEditFailed: () => Promise<void>; onStartCorrectedCopy: () => Promise<void>; onRecordChange?: (record: FireAlarmInspectionRecord) => void };
 type FormatStatus = "idle" | "saving" | "pending" | "synced" | "failed";
 const labels: Record<string, string> = { main_supply: "Main Supply", battery: "Battery", charger: "Charger", main_alarm_reset: "Main Alarm Reset", lamp_test: "Lamp Test", evacuate: "Evacuate", ac_supply: "A/C Supply", dc_supply: "D/C Supply", spka_system: "SPKA System", alarm_lift_trip: "Alarm Lift Trip", signal_gas_discharge: "Signal Gas Discharge" };
 const deviceOptions: Array<[DeviceState, string]> = [["normal", "Normal"], ["test", "Test"], ["isolation", "Isolation"]];
@@ -33,7 +35,7 @@ function Select<T extends string>({ label, value, options, onChange, disabled = 
   return <label>{label}<select aria-label={label} value={value ?? ""} disabled={disabled} onChange={(event) => onChange(event.target.value === "" ? null : event.target.value as T)}><option value="">Select</option>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>;
 }
 
-export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onRecordChange }: Props) {
+export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onStartCorrectedCopy, onRecordChange }: Props) {
   const [responses, setResponses] = useState(record.responses); const [message, setMessage] = useState(""); const [error, setError] = useState(""); const [issues, setIssues] = useState<ReturnType<typeof getFireAlarmSubmissionIssues>>([]); const [photos, setPhotos] = useState<Awaited<ReturnType<typeof listFireAlarmV6Photos>>>([]);
   const [primaryFormatStatus, setPrimaryFormatStatus] = useState<FormatStatus>("idle"); const [primaryFormatError, setPrimaryFormatError] = useState("");
   const [secondaryFormatStatus, setSecondaryFormatStatus] = useState<FormatStatus>("idle"); const [secondaryFormatError, setSecondaryFormatError] = useState("");
@@ -53,13 +55,15 @@ export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onB
     : usesEvidence ? goodPoorV6Options : goodPoorOptions;
   const visibleLabels = resolveFireAlarmVisibleLabels(record.inspectionSnapshot.system.definition, isV7 ? 7 : isV6 ? 6 : 3);
   useEffect(() => { setResponses(record.responses); setError(""); if (isV6) void listFireAlarmV6Photos(record.clientUuid).then(setPhotos); else if (isV7) void listFireAlarmV7Photos(record.clientUuid).then(setPhotos); else setPhotos([]); }, [record, isV6, isV7]);
+  const storedCopy = (value: typeof responses) => (usesEvidence ? structuredClone(value) : canonicalizeFireAlarmResponses(value, record.inspectionSnapshot));
+  const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: (value) => onSaveDraft(storedCopy(value)), echoOf: storedCopy, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
   const editable = record.syncStatus === "Draft";
   const primary = (rowUuid: string, change: object) => setResponses((current) => ({ ...current, primaryDeviceRows: current.primaryDeviceRows.map((row) => row.rowUuid === rowUuid ? { ...row, ...change } : row) }));
   const secondary = (rowUuid: string, change: object) => setResponses((current) => ({ ...current, secondaryAlarmDeviceRows: current.secondaryAlarmDeviceRows.map((row) => row.rowUuid === rowUuid ? { ...row, ...change } : row) }));
   async function save() { setMessage(""); setError(""); try { const canonical = usesEvidence ? structuredClone(responses) : canonicalizeFireAlarmResponses(responses, record.inspectionSnapshot); await onSaveDraft(canonical); setMessage(inspectionSyncMessage("Draft")); } catch (reason) { setError(reason instanceof Error ? reason.message : "Fire Alarm Draft could not be saved"); } }
   const evidenceFor = (fieldPath: string) => photos.find((photo) => photo.fieldPath === fieldPath);
   const refreshPhotos = async () => setPhotos(isV7 ? await listFireAlarmV7Photos(record.clientUuid) : await listFireAlarmV6Photos(record.clientUuid));
-  async function submit() { setMessage(""); setError(""); const currentIssues = isV6 ? v6SubmissionIssues(responses, photos).map((message) => ({ section: "Evidence", message })) : isV7 ? v7FireAlarmSubmissionIssues(responses, photos, record.inspectionSnapshot.system.resolvedControls).map((message) => ({ section: "Evidence", message })) : getFireAlarmSubmissionIssues(responses, record.inspectionSnapshot); setIssues(currentIssues); if (currentIssues.length) return; try { await onSubmitLocal(responses); setMessage(inspectionSyncMessage("Pending")); } catch (reason) { setError(reason instanceof Error ? reason.message : "Fire Alarm inspection could not be submitted locally"); } }
+  async function submit() { setMessage(""); setError(""); const currentIssues = isV6 ? v6SubmissionIssues(responses, photos).map((message) => ({ section: "Evidence", message })) : isV7 ? v7FireAlarmSubmissionIssues(responses, photos, record.inspectionSnapshot.system.resolvedControls).map((message) => ({ section: "Evidence", message })) : getFireAlarmSubmissionIssues(responses, record.inspectionSnapshot); setIssues(currentIssues); if (currentIssues.length) return; try { await submitLocal(); setMessage(inspectionSyncMessage("Pending")); } catch (reason) { setError(reason instanceof Error ? reason.message : "Fire Alarm inspection could not be submitted locally"); } }
   async function saveAsFormat(table: "primary" | "secondary", setStatus: (status: FormatStatus) => void, setFormatError: (message: string) => void) {
     setStatus("saving"); setFormatError("");
     try {
@@ -89,7 +93,7 @@ export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onB
     <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="fire-alarm-title">Fire Alarm / Detector System</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
     {message ? <p className="success-message" role="status">{message}</p> : null}{record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{error ? <section className="validation-summary" role="alert"><h3>Fire Alarm action failed</h3><p>{error}</p></section> : null}
     {issues.length ? <section className="validation-summary" role="alert"><h3>Cannot submit yet</h3><ul>{issues.map((issue, index) => <li key={`${issue.section}-${index}`}>{issue.message}</li>)}</ul></section> : null}
-    {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed().catch((reason) => setError(reason instanceof Error ? reason.message : "Fire Alarm inspection could not be corrected"))}>Edit Failed Inspection</button> : null}
+    {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed().catch((reason) => setError(reason instanceof Error ? reason.message : "Fire Alarm inspection could not be corrected"))}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
     <fieldset disabled={!editable}><legend>Control Panel Location</legend><label htmlFor="fire-alarm-control-panel">Control Panel Location<input id="fire-alarm-control-panel" maxLength={300} value={responses.controlPanelLocation} onChange={(event) => setResponses({ ...responses, controlPanelLocation: event.target.value })} /></label></fieldset>
     <fieldset disabled={!editable}><legend>{visibleLabels.primaryRows}</legend>
       {responses.primaryDeviceRows.map((row, index) => <section className="fire-alarm-row" id={`fire-alarm-primary-${row.rowUuid}`} key={row.rowUuid}><div className="fire-alarm-row-heading"><strong>Primary row {index + 1}</strong><span>{row.source === "configured" ? "Configured" : "Technician"}</span></div>

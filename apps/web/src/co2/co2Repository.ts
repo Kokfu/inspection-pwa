@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResolvedCo2Controls, ResultControlDefinition } from "../inspectionControls/definitionTypes";
@@ -400,3 +401,6 @@ export function addCo2DetectorRow(responses: Co2Responses) {
     }]
   };
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedCo2Copy = (record: MasterSystemFormInstanceRecord) => startCorrectedCopy(record, "masterSystemFormInstances", "suppression-system form");

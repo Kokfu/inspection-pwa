@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { SYNC_FINISHED_EVENT } from "../sync/syncEvents";
 import { cachedServiceFormatOptions, loadServiceFormatOptions, type ServiceFormatOption } from "../referenceData/referenceDataApi";
 import {
   loadTechnicianCustomerDraft, newTechnicianCustomerDraft, queueTechnicianCustomer,
@@ -35,6 +36,17 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
       .catch((reason) => { if (active) setCatalogMessage(reason instanceof Error ? reason.message : "Service formats could not be refreshed."); });
     return () => { active = false; };
   }, [actorUserId, canUseServer]);
+
+  // A background (automatic) sync may complete the queued customer while this screen is open: re-read it.
+  // Only a submitted request is refreshed; a Draft being typed is never replaced.
+  const submittedRef = useRef(false);
+  submittedRef.current = draft !== undefined && draft.status !== "Draft";
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { if (submittedRef.current) void loadTechnicianCustomerDraft().then((next) => { if (active && submittedRef.current) setDraft(next); }).catch(() => undefined); };
+    window.addEventListener(SYNC_FINISHED_EVENT, refresh);
+    return () => { active = false; window.removeEventListener(SYNC_FINISHED_EVENT, refresh); };
+  }, []);
 
   function update(patch: Partial<TechnicianCustomerDraft>) {
     if (!draft || draft.status !== "Draft") return;

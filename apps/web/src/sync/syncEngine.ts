@@ -1,7 +1,8 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { refreshCommonRemarks, type CommonRemark } from "../inspectionControls/commonRemarks";
-import { syncPendingTechnicianCustomers } from "../jobs/technicianCustomerDraft";
-import { syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
+import { outboxHasAutoSyncWork, type AutoSyncReason } from "./autoSync";
+import { syncPendingTechnicianCustomers, technicianCustomerSyncIdle } from "../jobs/technicianCustomerDraft";
+import { locationProposalSyncIdle, syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -490,6 +491,12 @@ async function syncPendingAttachments() {
   return { accepted, failed, pending: items.length - accepted - failed };
 }
 
+/** Cheap read-only check used by the automatic triggers so an idle app never hits the network. */
+export async function hasAutoSyncWork(reason: AutoSyncReason) {
+  const items = await localDatabase.syncOutbox.where("status").anyOf("Pending", "Failed", "Syncing").toArray();
+  return outboxHasAutoSyncWork(items, reason, Date.now());
+}
+
 export async function syncPendingRecords(actorUserId?: number) {
   if (syncInProgress) {
     return { started: false, message: "Sync already running" };
@@ -506,6 +513,9 @@ export async function syncPendingRecords(actorUserId?: number) {
       if (!deviceIdentity?.explicitLogout) syncActorId = deviceIdentity?.userId;
     }
     await assertSyncIdentity();
+    // A customer / location-proposal sync started from its own screen marks its item "Syncing"; recovering now would
+    // reset it under that live request and lose its completion (found by I-03 auto-sync, I-19).
+    await Promise.all([technicianCustomerSyncIdle(), locationProposalSyncIdle()]);
     await recoverInterruptedSync();
 
     if (syncActorId !== undefined) await syncPendingTechnicianCustomers(syncActorId);

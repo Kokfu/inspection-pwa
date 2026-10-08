@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
@@ -191,3 +192,6 @@ export async function returnFailedFireRatedRollerShutterToDraft(record: FireRate
   await localDatabase.masterSystemInspections.put(saved);
   return saved;
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedFireRatedRollerShutterCopy = (record: FireRatedRollerShutterInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Fire Rated Roller Shutter");

@@ -83,7 +83,10 @@
         root.render(React.createElement(App));
         try {
           await waitFor(() => connection() === "Online", "initial verified header");
+          // I-03: the verified session at launch now syncs a Pending record automatically (once).
+          if (scenario === "outbox") await waitFor(() => syncCalls === 1, "automatic sync at launch");
           await new Promise(resolve => setTimeout(resolve, 75));
+          const syncCallsBeforeOutage = syncCalls;
 
           if (scenario === "unavailable" || scenario === "malformed") {
             window.dispatchEvent(new Event("online"));
@@ -102,11 +105,18 @@
           }
           if (scenario === "retry" || scenario === "outbox") {
             await waitFor(() => connection() === "Reconnecting", "reconnecting header");
+            // Recovery retries (session not yet re-verified) must never send anything.
+            const syncCallsWhileReconnecting = syncCalls, attachmentCallsWhileReconnecting = attachmentCalls;
             await waitFor(() => connection() === "Online", "retried online header");
+            // Once the session is verified again the pending record is synced automatically, exactly once.
+            if (scenario === "outbox") await waitFor(() => syncCalls === syncCallsBeforeOutage + 1, "automatic sync after reconnect");
+            await new Promise(resolve => setTimeout(resolve, 300));
             const record = pendingFixture && await localDatabase.testRecords.get(pendingFixture.clientUuid);
             const outbox = pendingFixture && await localDatabase.syncOutbox.where("entityId").equals(pendingFixture.clientUuid).first();
-            return { authCalls, syncCalls, attachmentCalls, record, outbox, pass: authCalls === 4 && connection() === "Online"
-              && (scenario !== "outbox" || (syncCalls === 0 && attachmentCalls === 0 && record?.syncStatus === "Pending" && outbox?.status === "Pending")) };
+            return { authCalls, syncCalls, attachmentCalls, syncCallsWhileReconnecting, record, outbox, pass: authCalls === 4 && connection() === "Online"
+              && (scenario !== "outbox" || (syncCallsWhileReconnecting === syncCallsBeforeOutage && attachmentCallsWhileReconnecting === 0 && syncCalls === syncCallsBeforeOutage + 1 && attachmentCalls === 0
+                // The mocked server confirmed no UUID, so the record must NOT be marked Synced (exact-UUID rule).
+                && record?.syncStatus !== "Synced" && outbox !== undefined && outbox.status !== "Completed")) };
           }
           if (scenario === "bounded") {
             await new Promise(resolve => setTimeout(resolve, 4_300));

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadLocationProposals, ManagerApiError } from "../src/manager/managerApi.js";
+import { loadLocationProposals } from "../src/manager/managerApi.js";
 
 const examples = [
   ["co2_fire_extinguisher", "loc-a", { alarmZone: "A", location: "Lobby" }],
@@ -29,15 +29,21 @@ test("Supervisor inbox accepts every supported proposal row shape together", asy
   const oldFetch = globalThis.fetch;
   const proposals = examples.map(([systemKey, locationKey, row]) => proposal(systemKey, locationKey, row));
   globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
-  try { assert.deepEqual(await loadLocationProposals("pending"), proposals); }
+  try { assert.deepEqual(await loadLocationProposals("pending"), { proposals, unreadable: [] }); }
   finally { globalThis.fetch = oldFetch; }
 });
 
+// I-24: a row that fails the strict check is still never a proposal that can be decided; it is reported as unreadable
+// instead of making the whole list unavailable.
 test("Supervisor inbox rejects a row submitted for the wrong Fire Alarm table", async () => {
   const oldFetch = globalThis.fetch;
   const proposals = [proposal("fire_alarm_detector", "general-primary", { assetReference: "FA-02", location: "Guard House" })];
   globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
-  try { await assert.rejects(loadLocationProposals("pending"), (error) => error instanceof ManagerApiError && error.kind === "unavailable"); }
+  try {
+    const result = await loadLocationProposals("pending");
+    assert.deepEqual(result.proposals, [], "the mismatched row is not a proposal");
+    assert.equal(result.unreadable.length, 1, "it is reported as unreadable");
+  }
   finally { globalThis.fetch = oldFetch; }
 });
 
@@ -47,7 +53,9 @@ test("Supervisor inbox rejects an unknown system instead of treating it as CO2",
     for (const systemKey of ["unknown_system", "__proto__"]) {
       const proposals = [proposal(systemKey, "loc-a", { alarmZone: "A", location: "Lobby" })];
       globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
-      await assert.rejects(loadLocationProposals("pending"), (error) => error instanceof ManagerApiError && error.kind === "unavailable");
+      const result = await loadLocationProposals("pending");
+      assert.deepEqual(result.proposals, [], `${systemKey} is not treated as a known system`);
+      assert.equal(result.unreadable.length, 1);
     }
   }
   finally { globalThis.fetch = oldFetch; }

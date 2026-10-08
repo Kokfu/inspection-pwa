@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import {
   controlsForHoseReelSnapshot,
@@ -353,3 +354,6 @@ export async function latestHoseReelReferenceForCustomer(customerId: string, exc
     localUpdatedAt: latest.localUpdatedAt
   };
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedHoseReelCopy = (record: MasterSystemInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Hose Reel");

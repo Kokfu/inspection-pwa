@@ -90,7 +90,7 @@ test("dedicated Supervisor login opens the review workspace", async ({ page }) =
 test("supervisor Home shows only the review cards; Services, visit detail and Final Report work", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
-  await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done"]);
+  await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done", "Location Proposals"]); // review-only cards; Location Proposals is in supervisorRoutes (roleAccess.ts)
   await expect(page.getByText("Supervisor workspace")).toBeVisible();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
@@ -135,7 +135,7 @@ for (const hash of ["#/manager-customers", "#/manager-technicians", "#/manager-u
     const requests = await installSupervisorApi(page);
     await enterAsSupervisor(page, hash);
     await expect(page).toHaveURL(/#\/manager$/);
-    await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done"]);
+    await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done", "Location Proposals"]); // review-only cards; Location Proposals is in supervisorRoutes (roleAccess.ts)
     await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
     expect(requests.filter((entry) => /\/api\/manager\/(customers\/|customers\/upcoming|technicians\/)/.test(entry))).toEqual([]);
   });

@@ -4,6 +4,7 @@ import type { InspectionAttachmentRecord } from "./attachments/attachmentTypes";
 import { AutomaticSprinklerInspectionForm } from "./automaticSprinkler/AutomaticSprinklerInspectionForm";
 import {
   returnFailedAutomaticSprinklerToDraft,
+  startCorrectedAutomaticSprinklerCopy,
   saveAutomaticSprinklerDraft,
   submitLocalAutomaticSprinkler
 } from "./automaticSprinkler/automaticSprinklerRepository";
@@ -20,37 +21,37 @@ import type {
   AutomaticSprinklerResponses
 } from "./automaticSprinkler/automaticSprinklerTypes";
 import { DryWetRiserInspectionForm } from "./dryWetRiser/DryWetRiserInspectionForm";
-import { returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, submitLocalDryWetRiser } from "./dryWetRiser/dryWetRiserRepository";
+import { returnFailedDryWetRiserToDraft, saveDryWetRiserDraft, startCorrectedDryWetRiserCopy, submitLocalDryWetRiser } from "./dryWetRiser/dryWetRiserRepository";
 import type { DryWetRiserInspectionRecord, DryWetRiserResponses } from "./dryWetRiser/dryWetRiserTypes";
 import { resolveDryWetRiserOpenTarget, resolveDryWetRiserRoute } from "./dryWetRiser/dryWetRiserResolution";
 import { ServerDryWetRiserView } from "./dryWetRiser/ServerDryWetRiserView";
 import type { ServerDryWetRiserDetail } from "./dryWetRiser/serverDryWetRiserApi";
 import { FireAlarmInspectionForm } from "./fireAlarm/FireAlarmInspectionForm";
-import { returnFailedFireAlarmToDraft, saveFireAlarmDraft, submitFireAlarmLocal } from "./fireAlarm/fireAlarmRepository";
+import { returnFailedFireAlarmToDraft, saveFireAlarmDraft, startCorrectedFireAlarmCopy, submitFireAlarmLocal } from "./fireAlarm/fireAlarmRepository";
 import { resolveFireAlarmOpenTarget, resolveFireAlarmRoute } from "./fireAlarm/fireAlarmResolution";
 import { FireAlarmAcceptedDetail } from "./fireAlarm/FireAlarmAcceptedDetail";
 import type { FireAlarmInspectionRecord, FireAlarmResponses, ServerFireAlarmDetail } from "./fireAlarm/fireAlarmTypes";
 import { HydrantInspectionForm } from "./hydrant/HydrantInspectionForm";
-import { returnFailedHydrantToDraft, saveHydrantDraft, submitLocalHydrant } from "./hydrant/hydrantRepository";
+import { returnFailedHydrantToDraft, saveHydrantDraft, startCorrectedHydrantCopy, submitLocalHydrant } from "./hydrant/hydrantRepository";
 import type { HydrantInspectionRecord, HydrantResponses } from "./hydrant/hydrantTypes";
 import type { ServerHydrantDetail } from "./hydrant/serverHydrantApi";
 import { AcceptedCorrectionsPanel } from "./corrections/AcceptedCorrectionsPanel";
 import { ServerHydrantView } from "./hydrant/ServerHydrantView";
 import { canRenderLocalHydrant, resolveHydrantOpenTarget, resolveHydrantRoute, type HydrantAuthorityResolution } from "./hydrant/hydrantResolution";
 import { SmokeVentilationInspectionForm } from "./smokeVentilation/SmokeVentilationInspectionForm";
-import { returnFailedSmokeVentilationToDraft, saveSmokeVentilationDraft, submitLocalSmokeVentilation } from "./smokeVentilation/smokeVentilationRepository";
+import { returnFailedSmokeVentilationToDraft, saveSmokeVentilationDraft, startCorrectedSmokeVentilationCopy, submitLocalSmokeVentilation } from "./smokeVentilation/smokeVentilationRepository";
 import type { SmokeVentilationInspectionRecord, SmokeVentilationResponses } from "./smokeVentilation/smokeVentilationTypes";
 import type { ServerSmokeVentilationDetail } from "./smokeVentilation/serverSmokeVentilationApi";
 import { ServerSmokeVentilationView } from "./smokeVentilation/ServerSmokeVentilationView";
 import { canRenderLocalSmokeVentilation, resolveSmokeVentilationOpenTarget, resolveSmokeVentilationRoute, type SmokeVentilationAuthorityResolution } from "./smokeVentilation/smokeVentilationResolution";
 import { FireIntercomInspectionForm } from "./fireIntercom/FireIntercomInspectionForm";
-import { returnFailedFireIntercomToDraft, saveFireIntercomDraft, submitLocalFireIntercom } from "./fireIntercom/fireIntercomRepository";
+import { returnFailedFireIntercomToDraft, saveFireIntercomDraft, startCorrectedFireIntercomCopy, submitLocalFireIntercom } from "./fireIntercom/fireIntercomRepository";
 import type { FireIntercomInspectionRecord, FireIntercomResponses } from "./fireIntercom/fireIntercomTypes";
 import type { ServerFireIntercomDetail } from "./fireIntercom/serverFireIntercomApi";
 import { ServerFireIntercomView } from "./fireIntercom/ServerFireIntercomView";
 import { canRenderLocalFireIntercom, resolveFireIntercomOpenTarget, resolveFireIntercomRoute, type FireIntercomAuthorityResolution } from "./fireIntercom/fireIntercomResolution";
 import { FireRatedRollerShutterInspectionForm } from "./fireRatedRollerShutter/FireRatedRollerShutterInspectionForm";
-import { returnFailedFireRatedRollerShutterToDraft, saveFireRatedRollerShutterDraft, submitLocalFireRatedRollerShutter } from "./fireRatedRollerShutter/fireRatedRollerShutterRepository";
+import { returnFailedFireRatedRollerShutterToDraft, saveFireRatedRollerShutterDraft, startCorrectedFireRatedRollerShutterCopy, submitLocalFireRatedRollerShutter } from "./fireRatedRollerShutter/fireRatedRollerShutterRepository";
 import type { FireRatedRollerShutterInspectionRecord, FireRatedRollerShutterResponses } from "./fireRatedRollerShutter/fireRatedRollerShutterTypes";
 import type { ServerFireRatedRollerShutterDetail } from "./fireRatedRollerShutter/serverFireRatedRollerShutterApi";
 import { ServerFireRatedRollerShutterView } from "./fireRatedRollerShutter/ServerFireRatedRollerShutterView";
@@ -68,6 +69,7 @@ import { ServerCo2View } from "./co2/ServerCo2View";
 import {
   initializeCo2InspectionGroup,
   returnFailedCo2ToDraft,
+  startCorrectedCo2Copy,
   saveCo2Draft,
   submitLocalCo2
 } from "./co2/co2Repository";
@@ -84,6 +86,7 @@ import { ServerFm200View } from "./fm200/ServerFm200View";
 import {
   initializeFm200InspectionGroup,
   returnFailedFm200ToDraft,
+  startCorrectedFm200Copy,
   saveFm200Draft,
   submitLocalFm200
 } from "./fm200/fm200Repository";
@@ -154,7 +157,7 @@ import { FinalReportView } from "./jobs/FinalReportView";
 import { FinalReportApiError, downloadFinalReport } from "./jobs/finalReportApi";
 import { acceptCanonicalNewServiceVisit } from "./jobs/newServiceVisitSuccess";
 import { HoseReelInspectionForm } from "./hoseReel/HoseReelInspectionForm";
-import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
+import { editFailedHoseReel, getOrCreateHoseReelInspection, saveHoseReelDraft, startCorrectedHoseReelCopy, submitLocalHoseReel } from "./hoseReel/hoseReelRepository";
 import type { HoseReelResponses, MasterSystemInspectionRecord } from "./hoseReel/hoseReelTypes";
 import { resolveHoseReelAuthority } from "./hoseReel/hoseReelAuthority";
 import { loadServerHoseReelDetail, type ServerHoseReelDetail } from "./hoseReel/serverHoseReelApi";
@@ -196,10 +199,19 @@ import {
 import {
   pruneCompletedOutboxItems,
   recoverInterruptedSync,
-  syncPendingTestRecords, waitForSyncIdle
+  hasAutoSyncWork, syncPendingTestRecords, waitForSyncIdle
 } from "./sync/syncEngine";
+import { AUTO_SYNC_INTERVAL_MS, AutoSyncCoordinator } from "./sync/autoSync";
+import { runAttachmentCleanupIfDue } from "./attachments/attachmentRetention";
+import { announceSyncFinished } from "./sync/syncEvents";
+import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
+import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
+import { offlineReadinessLabel, useOfflineReadiness } from "./pwa/offlineReadiness";
+import { useServerUnreachable } from "./jobs/serverHealth";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
+import { AutosaveStatusLine } from "./inspectionControls/AutosaveStatusLine";
+import { isRouteRefresh, mergeResolvedRecord, routeRefreshKey } from "./jobs/routeRefresh";
 import { isSafeForAppUpdate } from "./pwa/updateRoutePolicy";
 import { usePwaUpdate } from "./pwa/usePwaUpdate";
 
@@ -342,6 +354,8 @@ const emptyReferenceCache = {
 
 export function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
+  const [offlineReadyJobIds, setOfflineReadyJobIds] = useState<ReadonlySet<string>>(new Set());
+  const [offlineReadyRefresh, setOfflineReadyRefresh] = useState(0);
   const [apiHealth, setApiHealth] = useState<ApiHealth>("Not checked");
   const [authState, setAuthState] = useState<ClientAuthState>({ status: "restoring" });
   const [initialAuthRestored, setInitialAuthRestored] = useState(false);
@@ -395,15 +409,18 @@ export function App() {
   const [hydrantRouteMessage, setHydrantRouteMessage] = useState("");
   const [hydrantAuthorityResolution, setHydrantAuthorityResolution] = useState<HydrantAuthorityResolution>();
   const verifiedHydrantAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  const hydrantResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "hydrant-form") { setActiveHydrant(undefined); setServerHydrant(undefined); setServerAcceptedHydrantUuid(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("idle"); setHydrantRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("loading"); setHydrantRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Hydrant inspection." : ""); return; }
     if (authState.status === "online-unavailable") { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("server-unavailable"); setHydrantRouteMessage(authState.message); return; }
     let current = true;
-    setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("loading"); setHydrantRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, verifiedAt: verifiedHydrantAuthorityToken, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeHydrant, route.clientUuid, hydrantResolvedKey.current, refreshKey)) { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantAuthorityResolution(undefined); setHydrantRouteState("loading"); setHydrantRouteMessage(""); }
     void resolveHydrantRoute(route.clientUuid, serverAcceptedHydrantUuid, authState.status).then((resolution) => {
       if (!current) return;
-      if (resolution.kind === "local") { setActiveHydrant(resolution.record); setServerHydrant(undefined); if (authState.status === "verified") setHydrantAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setHydrantRouteState("idle"); }
+      if (resolution.kind === "local") { setActiveHydrant((shown) => mergeResolvedRecord(shown, resolution.record)); hydrantResolvedKey.current = refreshKey; setServerHydrant(undefined); if (authState.status === "verified") setHydrantAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setHydrantRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveHydrant(undefined); setServerHydrant(resolution.inspection); setHydrantRouteState("idle"); }
       else { setActiveHydrant(undefined); setServerHydrant(undefined); setHydrantRouteState(resolution.kind); setHydrantRouteMessage("message" in resolution ? resolution.message : ""); }
     });
@@ -416,15 +433,18 @@ export function App() {
   const [smokeVentilationRouteMessage, setSmokeVentilationRouteMessage] = useState("");
   const [smokeVentilationAuthorityResolution, setSmokeVentilationAuthorityResolution] = useState<SmokeVentilationAuthorityResolution>();
   const verifiedSmokeVentilationAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  const smokeVentilationResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "smoke-ventilation-form") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setServerAcceptedSmokeVentilationUuid(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("idle"); setSmokeVentilationRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("loading"); setSmokeVentilationRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Smoke Ventilation inspection." : ""); return; }
     if (authState.status === "online-unavailable") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("server-unavailable"); setSmokeVentilationRouteMessage(authState.message); return; }
     let currentSmokeVentilation = true;
-    setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("loading"); setSmokeVentilationRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, verifiedAt: verifiedSmokeVentilationAuthorityToken, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeSmokeVentilation, route.clientUuid, smokeVentilationResolvedKey.current, refreshKey)) { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationAuthorityResolution(undefined); setSmokeVentilationRouteState("loading"); setSmokeVentilationRouteMessage(""); }
     void resolveSmokeVentilationRoute(route.clientUuid, serverAcceptedSmokeVentilationUuid, authState.status).then((resolution) => {
       if (!currentSmokeVentilation) return;
-      if (resolution.kind === "local") { setActiveSmokeVentilation(resolution.record); setServerSmokeVentilation(undefined); if (authState.status === "verified") setSmokeVentilationAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setSmokeVentilationRouteState("idle"); }
+      if (resolution.kind === "local") { setActiveSmokeVentilation((shown) => mergeResolvedRecord(shown, resolution.record)); smokeVentilationResolvedKey.current = refreshKey; setServerSmokeVentilation(undefined); if (authState.status === "verified") setSmokeVentilationAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setSmokeVentilationRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(resolution.inspection); setSmokeVentilationRouteState("idle"); }
       else { setActiveSmokeVentilation(undefined); setServerSmokeVentilation(undefined); setSmokeVentilationRouteState(resolution.kind); setSmokeVentilationRouteMessage("message" in resolution ? resolution.message : ""); }
     });
@@ -437,15 +457,18 @@ export function App() {
   const [fireIntercomRouteMessage, setFireIntercomRouteMessage] = useState("");
   const [fireIntercomAuthorityResolution, setFireIntercomAuthorityResolution] = useState<FireIntercomAuthorityResolution>();
   const verifiedFireIntercomAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  const fireIntercomResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "fire-intercom-form") { setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setServerAcceptedFireIntercomUuid(undefined); setFireIntercomAuthorityResolution(undefined); setFireIntercomRouteState("idle"); setFireIntercomRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setFireIntercomAuthorityResolution(undefined); setFireIntercomRouteState("loading"); setFireIntercomRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Fire Intercom inspection." : ""); return; }
     if (authState.status === "online-unavailable") { setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setFireIntercomAuthorityResolution(undefined); setFireIntercomRouteState("server-unavailable"); setFireIntercomRouteMessage(authState.message); return; }
     let currentFireIntercom = true;
-    setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setFireIntercomAuthorityResolution(undefined); setFireIntercomRouteState("loading"); setFireIntercomRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, verifiedAt: verifiedFireIntercomAuthorityToken, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeFireIntercom, route.clientUuid, fireIntercomResolvedKey.current, refreshKey)) { setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setFireIntercomAuthorityResolution(undefined); setFireIntercomRouteState("loading"); setFireIntercomRouteMessage(""); }
     void resolveFireIntercomRoute(route.clientUuid, serverAcceptedFireIntercomUuid, authState.status).then((resolution) => {
       if (!currentFireIntercom) return;
-      if (resolution.kind === "local") { setActiveFireIntercom(resolution.record); setServerFireIntercom(undefined); if (authState.status === "verified") setFireIntercomAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setFireIntercomRouteState("idle"); }
+      if (resolution.kind === "local") { setActiveFireIntercom((shown) => mergeResolvedRecord(shown, resolution.record)); fireIntercomResolvedKey.current = refreshKey; setServerFireIntercom(undefined); if (authState.status === "verified") setFireIntercomAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setFireIntercomRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveFireIntercom(undefined); setServerFireIntercom(resolution.inspection); setFireIntercomRouteState("idle"); }
       else { setActiveFireIntercom(undefined); setServerFireIntercom(undefined); setFireIntercomRouteState(resolution.kind); setFireIntercomRouteMessage("message" in resolution ? resolution.message : ""); }
     });
@@ -458,26 +481,33 @@ export function App() {
   const [fireRatedRollerShutterRouteMessage, setFireRatedRollerShutterRouteMessage] = useState("");
   const [fireRatedRollerShutterAuthorityResolution, setFireRatedRollerShutterAuthorityResolution] = useState<FireRatedRollerShutterAuthorityResolution>();
   const verifiedFireRatedRollerShutterAuthorityToken = authState.status === "verified" ? authState.lastVerifiedAt : undefined;
+  const fireRatedRollerShutterResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "fire-rated-roller-shutter-form") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setServerAcceptedFireRatedRollerShutterUuid(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("idle"); setFireRatedRollerShutterRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("loading"); setFireRatedRollerShutterRouteMessage(authState.status === "verifying" ? "Verifying server session before resolving the Fire Rated Roller Shutter inspection." : ""); return; }
     if (authState.status === "online-unavailable") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("server-unavailable"); setFireRatedRollerShutterRouteMessage(authState.message); return; }
     let currentFireRatedRollerShutter = true;
-    setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("loading"); setFireRatedRollerShutterRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, verifiedAt: verifiedFireRatedRollerShutterAuthorityToken, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeFireRatedRollerShutter, route.clientUuid, fireRatedRollerShutterResolvedKey.current, refreshKey)) { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterAuthorityResolution(undefined); setFireRatedRollerShutterRouteState("loading"); setFireRatedRollerShutterRouteMessage(""); }
     void resolveFireRatedRollerShutterRoute(route.clientUuid, serverAcceptedFireRatedRollerShutterUuid, authState.status).then((resolution) => {
       if (!currentFireRatedRollerShutter) return;
-      if (resolution.kind === "local") { setActiveFireRatedRollerShutter(resolution.record); setServerFireRatedRollerShutter(undefined); if (authState.status === "verified") setFireRatedRollerShutterAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setFireRatedRollerShutterRouteState("idle"); }
+      if (resolution.kind === "local") { setActiveFireRatedRollerShutter((shown) => mergeResolvedRecord(shown, resolution.record)); fireRatedRollerShutterResolvedKey.current = refreshKey; setServerFireRatedRollerShutter(undefined); if (authState.status === "verified") setFireRatedRollerShutterAuthorityResolution({ clientUuid: route.clientUuid, generation: authAuthorityGeneration, verifiedAt: authState.lastVerifiedAt }); setFireRatedRollerShutterRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(resolution.inspection); setFireRatedRollerShutterRouteState("idle"); }
       else { setActiveFireRatedRollerShutter(undefined); setServerFireRatedRollerShutter(undefined); setFireRatedRollerShutterRouteState(resolution.kind); setFireRatedRollerShutterRouteMessage("message" in resolution ? resolution.message : ""); }
     });
     return () => { currentFireRatedRollerShutter = false; };
   }, [authAuthorityGeneration, authState.status, initialAuthRestored, masterSystemInspections, route, serverAcceptedFireRatedRollerShutterUuid, verifiedFireRatedRollerShutterAuthorityToken]);
+  const portableResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "portable-fire-extinguisher-form") { setActivePortable(undefined); setServerPortable(undefined); setServerAcceptedPortableUuid(undefined); setPortableRouteState("idle"); setPortableRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); return; }
     if (authState.status === "online-unavailable") { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("server-unavailable"); setPortableRouteMessage(authState.message); return; }
-    let current=true; setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); setPortableRouteMessage("");
-    void resolvePortableRoute(route.clientUuid,serverAcceptedPortableUuid,authState.status).then(resolution=>{if(!current)return;if(resolution.kind==="local"){setActivePortable(resolution.record);setPortableRouteState("idle");}else if(resolution.kind==="server"){setServerPortable(resolution.inspection);setPortableRouteState("idle");}else{setPortableRouteState(resolution.kind);setPortableRouteMessage(("message" in resolution?resolution.message:"")??"");}});
+    let current=true;
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activePortable, route.clientUuid, portableResolvedKey.current, refreshKey)) { setActivePortable(undefined); setServerPortable(undefined); setPortableRouteState("loading"); setPortableRouteMessage(""); }
+    void resolvePortableRoute(route.clientUuid,serverAcceptedPortableUuid,authState.status).then(resolution=>{if(!current)return;if(resolution.kind==="local"){setActivePortable((shown)=>mergeResolvedRecord(shown,resolution.record));portableResolvedKey.current=refreshKey;setPortableRouteState("idle");}else if(resolution.kind==="server"){setServerPortable(resolution.inspection);setPortableRouteState("idle");}else{setPortableRouteState(resolution.kind);setPortableRouteMessage(("message" in resolution?resolution.message:"")??"");}});
     return()=>{current=false;};
   },[authAuthorityGeneration,authState.status,initialAuthRestored,masterSystemInspections,route,serverAcceptedPortableUuid]);
   const [serverFireAlarm, setServerFireAlarm] = useState<ServerFireAlarmDetail>();
@@ -735,6 +765,8 @@ export function App() {
       if (!isCurrentRefresh()) return "stale" as const;
       setServerMasterSystemInspections(summaries);
       setServerMasterSystemProgressState("loaded");
+      // I-02 (A1): remember that the server just confirmed these jobs, so their unopened systems can start offline.
+      void recordOfflineStartConfirmations(cachedJobs, summaries).then(() => setOfflineReadyRefresh((value) => value + 1)).catch(() => undefined);
       return "loaded" as const;
     } catch {
       if (!isCurrentRefresh()) return "stale" as const;
@@ -988,22 +1020,26 @@ export function App() {
       setActiveHoseReel(undefined);
     }
   }, [masterSystemInspections, route]);
+  const riserResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     const generation = ++riserRouteGeneration.current;
     if (route.name !== "riser-form") { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setServerAcceptedDryWetRiserUuid(undefined); setRiserRouteState("idle"); setRiserRouteMessage(""); return; }
     if (!initialAuthRestored || authState.status === "restoring" || authState.status === "verifying" || authState.status === "online-unavailable") { setRiserRouteState("loading"); return; }
-    setRiserRouteState("loading"); setRiserRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeDryWetRiser, route.clientUuid, riserResolvedKey.current, refreshKey)) { setRiserRouteState("loading"); setRiserRouteMessage(""); }
     const restoredCompletedJob = masterSystemInspections.find((record) => record.clientUuid === route.clientUuid);
     const preferAcceptedServer = serverAcceptedDryWetRiserUuid === route.clientUuid
       || Boolean(restoredCompletedJob && jobs.some((job) => job.id === restoredCompletedJob.jobId && job.status === "closed"));
     void resolveDryWetRiserRoute(route.clientUuid, authState.status, undefined, preferAcceptedServer).then((resolution) => {
       if (riserRouteGeneration.current !== generation) return;
-      if (resolution.kind === "local") { setActiveDryWetRiser(resolution.record); setServerDryWetRiser(undefined); setRiserRouteState("idle"); }
+      if (resolution.kind === "local") { setActiveDryWetRiser((shown) => mergeResolvedRecord(shown, resolution.record)); riserResolvedKey.current = refreshKey; setServerDryWetRiser(undefined); setRiserRouteState("idle"); }
       else if (resolution.kind === "server") { setActiveDryWetRiser(undefined); setServerDryWetRiser(resolution.inspection); setRiserRouteState("idle"); }
       else { setActiveDryWetRiser(undefined); setServerDryWetRiser(undefined); setRiserRouteState(resolution.kind); setRiserRouteMessage("message" in resolution ? resolution.message : ""); }
     });
   }, [authAuthorityGeneration, authState.status, initialAuthRestored, jobs, masterSystemInspections, route, serverAcceptedDryWetRiserUuid]);
 
+  const sprinklerResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     const generation = ++sprinklerRouteGeneration.current;
     if (route.name !== "sprinkler-form") {
@@ -1018,15 +1054,20 @@ export function App() {
       setSprinklerRouteState("loading");
       return;
     }
-    setSprinklerRouteState("loading");
-    setSprinklerRouteMessage("");
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration, clientUuid: route.clientUuid });
+    // I-23: a refresh of the record already shown (after a save) must not unmount the open form.
+    if (!isRouteRefresh(activeAutomaticSprinkler, route.clientUuid, sprinklerResolvedKey.current, refreshKey)) {
+      setSprinklerRouteState("loading");
+      setSprinklerRouteMessage("");
+    }
     const restoredCompletedJob = masterSystemInspections.find((record) => record.clientUuid === route.clientUuid);
     const preferAcceptedServer = serverAcceptedAutomaticSprinklerUuid === route.clientUuid
       || Boolean(restoredCompletedJob && jobs.some((job) => job.id === restoredCompletedJob.jobId && job.status === "closed"));
     void resolveAutomaticSprinklerRoute(route.clientUuid, authState.status, undefined, preferAcceptedServer).then((resolution) => {
       if (sprinklerRouteGeneration.current !== generation) return;
       if (resolution.kind === "local") {
-        setActiveAutomaticSprinkler(resolution.record);
+        setActiveAutomaticSprinkler((shown) => mergeResolvedRecord(shown, resolution.record));
+        sprinklerResolvedKey.current = refreshKey;
         setServerAutomaticSprinkler(undefined);
         setSprinklerRouteState("idle");
       } else if (resolution.kind === "server") {
@@ -1087,14 +1128,49 @@ export function App() {
 
   useEffect(()=>{if(route.name!=="fm200-form"){setServerFm200(undefined);setFm200AuthorityState("idle");setFm200RouteMessage("");return;}let current=true;setServerFm200(undefined);setFm200AuthorityState("loading");setFm200RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="fm200_fire_suppression");void resolveFm200Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"fm200_fire_suppression",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerFm200Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveFm200Form(undefined);setServerFm200(resolution.inspection);setFm200AuthorityState("server");}else if(resolution.kind==="local"){setActiveFm200Form(resolution.record);setServerFm200(undefined);setFm200AuthorityState("local");}else{setActiveFm200Form(undefined);setServerFm200(undefined);setFm200AuthorityState(resolution.kind);setFm200RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
 
-  useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(resolution.record);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
+  const fireAlarmResolvedKey = useRef<string | undefined>(undefined);
+  useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}const refreshKey=routeRefreshKey({authStatus:authState.status,authorityGeneration:authAuthorityGeneration,clientUuid:route.clientUuid});if(!isRouteRefresh(activeFireAlarm,route.clientUuid,fireAlarmResolvedKey.current,refreshKey)){setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");}void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(shown=>mergeResolvedRecord(shown,resolution.record));fireAlarmResolvedKey.current=refreshKey;setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
 
+  useEffect(() => {
+    if (!databaseReady) return;
+    let active = true;
+    void listOfflineReadyJobIds(jobs.map((job) => job.id)).then((ids) => { if (active) setOfflineReadyJobIds(ids); });
+    return () => { active = false; };
+  }, [databaseReady, jobs, offlineReadyRefresh]);
   const currentUser = authStateUser(authState);
   const canUseServer = authState.status === "verified";
   useEffect(() => {
     if (authState.status === "verified" && currentUser?.role === "inspector" && navigator.onLine)
       void syncPendingTechnicianCustomers(currentUser.id).catch(() => undefined);
   }, [authState.status, currentUser?.id, currentUser?.role]);
+  // I-03: automatic sync. The engine's single-flight guard and exact-UUID confirmation still do the work;
+  // these triggers only ask it to run (launch/reconnect = verified session, tab foregrounded, safe interval).
+  const autoSyncLatest = useRef({ eligible: false, run: () => Promise.resolve() });
+  autoSyncLatest.current = { eligible: canUseServer && databaseReady, run: () => runSync(true) };
+  const autoSync = useRef<AutoSyncCoordinator | undefined>(undefined);
+  autoSync.current ??= new AutoSyncCoordinator({
+    isEligible: () => autoSyncLatest.current.eligible && navigator.onLine !== false,
+    hasWork: hasAutoSyncWork,
+    run: () => autoSyncLatest.current.run()
+  });
+  useEffect(() => {
+    if (!canUseServer || !databaseReady) return;
+    // Entering "verified" covers app launch and every reconnect (the online event re-verifies the session).
+    void autoSync.current?.trigger("launch");
+    const tick = () => { if (document.visibilityState === "visible") void autoSync.current?.trigger("interval"); };
+    const timer = window.setInterval(tick, AUTO_SYNC_INTERVAL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void autoSync.current?.trigger("visible"); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [canUseServer, databaseReady, currentUser?.id]);
+  // I-07: local photo retention. Local-only (no server needed), at most once per day per workspace, after the
+  // app has settled so it never competes with opening a form; the pass re-validates inside one transaction.
+  useEffect(() => {
+    const userId = currentUser?.id;
+    if (!databaseReady || userId === undefined) return;
+    const timer = window.setTimeout(() => { void runAttachmentCleanupIfDue(userId); }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [databaseReady, currentUser?.id]);
   const technicianExperience = selectedExperience === "technician"
     && (authState.status === "verified" || authState.status === "offline-unverified")
     && currentUser?.role === "inspector";
@@ -1378,13 +1454,17 @@ export function App() {
     } finally { finishLocalWork(); }
   }
 
-  async function handleSync() {
+  function handleSync() { return runSync(false); }
+
+  async function runSync(automatic: boolean) {
     if (!canUseServer) {
-      setSyncMessage("Reconnect to verify your session before syncing");
+      if (!automatic) setSyncMessage("Reconnect to verify your session before syncing");
       return;
     }
     const result = await syncPendingTestRecords(currentUser?.id);
-    setSyncMessage(result.message);
+    announceSyncFinished();
+    // A background run stays quiet unless it actually did something; Sync Now always reports.
+    if (!automatic || (result.started && result.message !== "No pending records")) setSyncMessage(result.message);
     await refreshRecords();
     await refreshMasterSystemInspections();
     await refreshCo2Inspections();
@@ -1514,6 +1594,13 @@ export function App() {
   async function handleLogout() {
     // Unsaved Manager wording edits are asked about before signing out, never dropped silently.
     if (!confirmManagerLeave()) return;
+    // I-10: submitted work that has not reached the server is named before the technician signs out.
+    try {
+      const warning = describeUnsyncedWork(await countUnsyncedWork(), currentUser?.username, navigator.onLine !== false);
+      if (warning && !window.confirm(warning)) return;
+    } catch {
+      // The count is advisory; never block sign-out because it could not be read.
+    }
     const operation = beginExplicitAuthOperation();
     try {
       clearManagerSession();
@@ -1766,6 +1853,106 @@ if(activeFireIntercom){setActiveFireIntercom(await submitLocalFireIntercom(activ
     const finishLocalWork = beginWorkspaceActivity();
     try {
 if(activeFireIntercom){setActiveFireIntercom(await returnFailedFireIntercomToDraft(activeFireIntercom));await refreshMasterSystemInspections();}
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedHydrantCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeHydrant) return;
+      const copy = await startCorrectedHydrantCopy(activeHydrant);
+      await refreshMasterSystemInspections();
+      setActiveHydrant(copy);
+      navigate({ name: "hydrant-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedSmokeVentilationCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeSmokeVentilation) return;
+      const copy = await startCorrectedSmokeVentilationCopy(activeSmokeVentilation);
+      await refreshMasterSystemInspections();
+      setActiveSmokeVentilation(copy);
+      navigate({ name: "smoke-ventilation-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedFireRatedRollerShutterCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeFireRatedRollerShutter) return;
+      const copy = await startCorrectedFireRatedRollerShutterCopy(activeFireRatedRollerShutter);
+      await refreshMasterSystemInspections();
+      setActiveFireRatedRollerShutter(copy);
+      navigate({ name: "fire-rated-roller-shutter-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedDryWetRiserCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeDryWetRiser) return;
+      const copy = await startCorrectedDryWetRiserCopy(activeDryWetRiser);
+      await refreshMasterSystemInspections();
+      setActiveDryWetRiser(copy);
+      navigate({ name: "riser-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedFireAlarmCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeFireAlarm) return;
+      const copy = await startCorrectedFireAlarmCopy(activeFireAlarm);
+      await refreshMasterSystemInspections();
+      setActiveFireAlarm(copy);
+      navigate({ name: "fire-alarm-form", jobId: copy.jobId, clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedAutomaticSprinklerCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeAutomaticSprinkler) return;
+      const copy = await startCorrectedAutomaticSprinklerCopy(activeAutomaticSprinkler);
+      await refreshMasterSystemInspections();
+      setActiveAutomaticSprinkler(copy);
+      navigate({ name: "sprinkler-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedHoseReelCopy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeHoseReel) return;
+      const copy = await startCorrectedHoseReelCopy(activeHoseReel);
+      await refreshMasterSystemInspections();
+      setActiveHoseReel(copy);
+      navigate({ name: "inspection", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedCo2Copy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeCo2Form) return;
+      const copy = await startCorrectedCo2Copy(activeCo2Form);
+      await refreshCo2Inspections();
+      setActiveCo2Form(copy);
+      navigate({ name: copy.systemKey === "wet_chemical" ? "wet-chemical-form" : "co2-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedFm200Copy() {
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeFm200Form) return;
+      const copy = await startCorrectedFm200Copy(activeFm200Form);
+      await refreshCo2Inspections();
+      setActiveFm200Form(copy);
+      navigate({ name: "fm200-form", clientUuid: copy.clientUuid });
+    } finally { finishLocalWork(); }
+  }
+  async function handleStartCorrectedFireIntercomCopy(){
+    const finishLocalWork = beginWorkspaceActivity();
+    try {
+      if (!activeFireIntercom) return;
+      const copy = await startCorrectedFireIntercomCopy(activeFireIntercom);
+      await refreshMasterSystemInspections();
+      setActiveFireIntercom(copy);
+      navigate({ name: "fire-intercom-form", clientUuid: copy.clientUuid });
     } finally { finishLocalWork(); }
   }
   async function handleOpenFireRatedRollerShutter(job:InspectionJob,system:JobSystemSnapshot){
@@ -2063,7 +2250,11 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
   const headerUser = authState.status === "verified" || authState.status === "offline-unverified" || authState.status === "verifying" || authState.status === "online-unavailable"
     ? authState.user
     : undefined;
-  const connectionState = authState.status === "verified"
+  const serverUnreachable = useServerUnreachable(authState.status === "verified");
+  const offlineReadiness = useOfflineReadiness(import.meta.env.PROD && authState.status !== "restoring", pwaUpdate.offlineReady);
+  const connectionState = authState.status === "verified" && serverUnreachable
+    ? { className: "unavailable", label: "Server unreachable" }
+    : authState.status === "verified"
     ? { className: "online", label: "Online" }
     : authState.status === "online-unavailable"
       ? { className: "unavailable", label: "Server unavailable" }
@@ -2101,11 +2292,16 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           </div>
         </div>
         {headerUser ? <div className="header-utilities">
-          <div className="connection-summary" aria-live="polite">
-            <span className={`connection-state connection-state--${connectionState.className}`}>
-              <i aria-hidden="true" />{connectionState.label}
+          <div className="connection-summary">
+            <span className="header-live header-live--connection" aria-live="polite">
+              <span className={`connection-state connection-state--${connectionState.className}`}>
+                <i aria-hidden="true" />{connectionState.label}
+              </span>
             </span>
-            <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
+            <span className="header-live header-live--status" aria-live="polite">
+              <span className={syncNeedsAttention ? "sync-summary sync-summary--attention" : "sync-summary"}>{syncSummary}</span>
+              {offlineReadiness ? <span className={`offline-readiness offline-readiness--${offlineReadiness}`}>{offlineReadinessLabel[offlineReadiness]}</span> : null}
+            </span>
           </div>
           <div className="app-account">
             <span className="app-account-name">{headerUser.username}</span>
@@ -2123,6 +2319,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         safeToUpdate={safeToUpdate}
         onUpdate={pwaUpdate.requestUpdate}
       />
+
+      <AutosaveStatusLine />
 
       {!selectedExperience || (authenticated && !technicianExperience && !managerExperience) ? (
         <section className="login-view workspace" aria-label="Choose sign-in role">
@@ -2229,7 +2427,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 canUseServer={canUseServer}
                 onSaveDraft={handleSaveHoseReelDraft}
                 onSubmitLocal={handleSubmitHoseReel}
-                onEditFailed={handleEditFailedHoseReel}
+                onEditFailed={handleEditFailedHoseReel} onStartCorrectedCopy={handleStartCorrectedHoseReelCopy}
                 onClose={() => navigate({ name: "job", jobId: activeHoseReel.jobId })}
               />
             ) : (
@@ -2246,7 +2444,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 onBack={() => navigate({ name: "job", jobId: activeAutomaticSprinkler.jobId })}
                 onSaveDraft={handleSaveAutomaticSprinklerDraft}
                 onSubmitLocal={handleSubmitAutomaticSprinkler}
-                onEditFailed={handleEditFailedAutomaticSprinkler}
+                onEditFailed={handleEditFailedAutomaticSprinkler} onStartCorrectedCopy={handleStartCorrectedAutomaticSprinklerCopy}
                 onAttachmentsChange={refreshInspectionAttachments}
               />
             ) : serverAutomaticSprinkler ? (
@@ -2276,11 +2474,11 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               </section>
             )
           ) : route.name === "riser-form" ? (
-            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} /> : serverDryWetRiser ? <><AcceptedCorrectionsPanel key={serverDryWetRiser.clientUuid} clientUuid={serverDryWetRiser.clientUuid} /><ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /></> : <section className="workspace"><h2>{riserRouteState === "loading"?"Opening Dry/Wet Riser inspection…":"Dry/Wet Riser inspection unavailable"}</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeDryWetRiser && !jobIsCompleted(activeDryWetRiser.jobId) ? <DryWetRiserInspectionForm record={activeDryWetRiser} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: activeDryWetRiser.jobId })} onSaveDraft={handleSaveDryWetRiser} onSubmitLocal={handleSubmitDryWetRiser} onEditFailed={handleEditFailedDryWetRiser} onStartCorrectedCopy={handleStartCorrectedDryWetRiserCopy} /> : serverDryWetRiser ? <><AcceptedCorrectionsPanel key={serverDryWetRiser.clientUuid} clientUuid={serverDryWetRiser.clientUuid} /><ServerDryWetRiserView inspection={serverDryWetRiser} onBack={() => navigate({ name: "job", jobId: serverDryWetRiser.jobId })} /></> : <section className="workspace"><h2>{riserRouteState === "loading"?"Opening Dry/Wet Riser inspection…":"Dry/Wet Riser inspection unavailable"}</h2><p>{activeDryWetRiser && jobIsCompleted(activeDryWetRiser.jobId) ? "This service visit is complete and read-only. Reconnect to view the completed inspection." : riserRouteState === "loading" ? "Loading the inspection." : riserRouteState === "not-cached" ? "This inspection is not cached on this device." : riserRouteState === "signed-out" ? "Sign in to view this inspection." : riserRouteState === "not-found" ? "No inspection is available for this record." : riserRouteMessage || "The server inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "fire-alarm-form" ? (
-            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <><AcceptedCorrectionsPanel key={serverFireAlarm.clientUuid} clientUuid={serverFireAlarm.clientUuid} /><FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/></> : <section className="workspace"><h2>{fireAlarmRouteState==="loading"?"Opening Fire Alarm inspection…":"Fire Alarm inspection unavailable"}</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading the inspection.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            activeFireAlarm && !jobIsCompleted(activeFireAlarm.jobId) ? <FireAlarmInspectionForm record={activeFireAlarm} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: activeFireAlarm.jobId })} onSaveDraft={handleSaveFireAlarm} onSubmitLocal={handleSubmitFireAlarm} onEditFailed={handleEditFailedFireAlarm} onStartCorrectedCopy={handleStartCorrectedFireAlarmCopy} onRecordChange={(saved) => { setActiveFireAlarm(saved); void refreshMasterSystemInspections(); }} /> : serverFireAlarm ? <><AcceptedCorrectionsPanel key={serverFireAlarm.clientUuid} clientUuid={serverFireAlarm.clientUuid} /><FireAlarmAcceptedDetail inspection={serverFireAlarm} onBack={()=>navigate({name:"job",jobId:serverFireAlarm.jobId})}/></> : <section className="workspace"><h2>{fireAlarmRouteState==="loading"?"Opening Fire Alarm inspection…":"Fire Alarm inspection unavailable"}</h2><p>{activeFireAlarm&&jobIsCompleted(activeFireAlarm.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireAlarmRouteState==="loading"?"Loading the inspection.":fireAlarmRouteState==="not-cached"?"Completed inspection detail is not available on this device. Reconnect to view it.":fireAlarmRouteState==="signed-out"?"Sign in to view this completed inspection.":fireAlarmRouteState==="inconsistent"?fireAlarmRouteMessage||"The completed inspection could not be verified.":fireAlarmRouteState==="invalid"?fireAlarmRouteMessage||"The completed inspection cannot be displayed.":fireAlarmRouteMessage||"The server detail is currently unavailable."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "wet-chemical-form" ? (
-            wetChemicalAuthorityState === "server" && serverWetChemical ? <><AcceptedCorrectionsPanel key={serverWetChemical.clientUuid} clientUuid={serverWetChemical.clientUuid} /><ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /></> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
+            wetChemicalAuthorityState === "server" && serverWetChemical ? <><AcceptedCorrectionsPanel key={serverWetChemical.clientUuid} clientUuid={serverWetChemical.clientUuid} /><ServerWetChemicalView inspection={serverWetChemical} onBack={() => navigate({ name: "job", jobId: serverWetChemical.jobId })} /></> : wetChemicalAuthorityState === "loading" ? <section className="workspace"><h2>Loading authoritative Wet Chemical inspection</h2><p>Checking inspection completion before displaying editable data.</p></section> : wetChemicalAuthorityState === "local" && activeCo2Form && activeCo2Form.systemKey === "wet_chemical" && !jobIsCompleted(activeCo2Form.jobId) ? <Co2InspectionForm record={activeCo2Form} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })} onSaveDraft={handleSaveCo2Draft} onSubmitLocal={handleSubmitCo2} onEditFailed={handleEditFailedCo2} onStartCorrectedCopy={handleStartCorrectedCo2Copy} /> : <section className="workspace"><h2>Wet Chemical inspection unavailable</h2><p>{activeCo2Form&&jobIsCompleted(activeCo2Form.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":wetChemicalRouteMessage || "This inspection is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
           ) : route.name === "co2-form" ? (
             co2AuthorityState === "server" && serverCo2 ? <><AcceptedCorrectionsPanel key={serverCo2.clientUuid} clientUuid={serverCo2.clientUuid} /><ServerCo2View inspection={serverCo2} onBack={()=>navigate({name:"system",jobId:serverCo2.jobId,systemKey:"co2_fire_extinguisher"})}/></> : co2AuthorityState === "local" && activeCo2Form && !jobIsCompleted(activeCo2Form.jobId) ? (
               <Co2InspectionForm
@@ -2290,7 +2488,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 onBack={() => navigate({ name: "system", jobId: activeCo2Form.jobId, systemKey: activeCo2Form.systemKey })}
                 onSaveDraft={handleSaveCo2Draft}
                 onSubmitLocal={handleSubmitCo2}
-                onEditFailed={handleEditFailedCo2}
+                onEditFailed={handleEditFailedCo2} onStartCorrectedCopy={handleStartCorrectedCo2Copy}
               />
             ) : (
               <section className="workspace"><h2>CO2 form unavailable</h2><p>{co2AuthorityState==="loading"?"Checking inspection completion for this configured location.":co2RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
@@ -2304,19 +2502,19 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                 onBack={() => navigate({ name: "system", jobId: activeFm200Form.jobId, systemKey: activeFm200Form.systemKey })}
                 onSaveDraft={handleSaveFm200Draft}
                 onSubmitLocal={handleSubmitFm200}
-                onEditFailed={handleEditFailedFm200}
+                onEditFailed={handleEditFailedFm200} onStartCorrectedCopy={handleStartCorrectedFm200Copy}
               />
             ) : (
               <section className="workspace"><h2>FM200 form unavailable</h2><p>{fm200AuthorityState==="loading"?"Checking inspection completion for this configured location.":fm200RouteMessage||"This form is not available in local device storage."}</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to Jobs</button></section>
             )
           ) : route.name === "hydrant-form" ? (
-            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} /> : serverHydrant ? <><AcceptedCorrectionsPanel key={serverHydrant.clientUuid} clientUuid={serverHydrant.clientUuid} /><ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /></> : <section className="workspace"><h2>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Opening Hydrant inspection…":"Hydrant inspection unavailable"}</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading the inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalHydrant && activeHydrant && !jobIsCompleted(activeHydrant.jobId) ? <HydrantInspectionForm record={activeHydrant} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeHydrant.jobId})} onSaveDraft={handleSaveHydrant} onSubmitLocal={handleSubmitHydrant} onEditFailed={handleEditFailedHydrant} onStartCorrectedCopy={handleStartCorrectedHydrantCopy} /> : serverHydrant ? <><AcceptedCorrectionsPanel key={serverHydrant.clientUuid} clientUuid={serverHydrant.clientUuid} /><ServerHydrantView inspection={serverHydrant} onBack={()=>navigate({name:"job",jobId:serverHydrant.jobId})} /></> : <section className="workspace"><h2>{hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Opening Hydrant inspection…":"Hydrant inspection unavailable"}</h2><p>{activeHydrant&&jobIsCompleted(activeHydrant.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":hydrantRouteState==="loading"||authState.status==="verified"&&!hydrantAuthorityResolution&&hydrantRouteState==="idle"?"Loading the inspection.":hydrantRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":hydrantRouteMessage||"The completed Hydrant inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "smoke-ventilation-form" ? (
-            mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} /> : serverSmokeVentilation ? <><AcceptedCorrectionsPanel key={serverSmokeVentilation.clientUuid} clientUuid={serverSmokeVentilation.clientUuid} /><ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /></> : <section className="workspace"><h2>{smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Opening Smoke Ventilation inspection…":"Smoke Ventilation inspection unavailable"}</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading the inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalSmokeVentilation && activeSmokeVentilation && !jobIsCompleted(activeSmokeVentilation.jobId) ? <SmokeVentilationInspectionForm record={activeSmokeVentilation} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeSmokeVentilation.jobId})} onSaveDraft={handleSaveSmokeVentilation} onSubmitLocal={handleSubmitSmokeVentilation} onEditFailed={handleEditFailedSmokeVentilation} onStartCorrectedCopy={handleStartCorrectedSmokeVentilationCopy} /> : serverSmokeVentilation ? <><AcceptedCorrectionsPanel key={serverSmokeVentilation.clientUuid} clientUuid={serverSmokeVentilation.clientUuid} /><ServerSmokeVentilationView inspection={serverSmokeVentilation} onBack={()=>navigate({name:"job",jobId:serverSmokeVentilation.jobId})} /></> : <section className="workspace"><h2>{smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Opening Smoke Ventilation inspection…":"Smoke Ventilation inspection unavailable"}</h2><p>{activeSmokeVentilation&&jobIsCompleted(activeSmokeVentilation.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":smokeVentilationRouteState==="loading"||authState.status==="verified"&&!smokeVentilationAuthorityResolution&&smokeVentilationRouteState==="idle"?"Loading the inspection.":smokeVentilationRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":smokeVentilationRouteMessage||"The completed Smoke Ventilation inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "fire-intercom-form" ? (
-            mayRenderLocalFireIntercom && activeFireIntercom && !jobIsCompleted(activeFireIntercom.jobId) ? <FireIntercomInspectionForm record={activeFireIntercom} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeFireIntercom.jobId})} onSaveDraft={handleSaveFireIntercom} onSubmitLocal={handleSubmitFireIntercom} onEditFailed={handleEditFailedFireIntercom} /> : serverFireIntercom ? <><AcceptedCorrectionsPanel key={serverFireIntercom.clientUuid} clientUuid={serverFireIntercom.clientUuid} /><ServerFireIntercomView inspection={serverFireIntercom} onBack={()=>navigate({name:"job",jobId:serverFireIntercom.jobId})} /></> : <section className="workspace"><h2>{fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Opening Fire Intercom inspection…":"Fire Intercom inspection unavailable"}</h2><p>{activeFireIntercom&&jobIsCompleted(activeFireIntercom.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Loading the inspection.":fireIntercomRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireIntercomRouteMessage||"The completed Fire Intercom inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalFireIntercom && activeFireIntercom && !jobIsCompleted(activeFireIntercom.jobId) ? <FireIntercomInspectionForm record={activeFireIntercom} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeFireIntercom.jobId})} onSaveDraft={handleSaveFireIntercom} onSubmitLocal={handleSubmitFireIntercom} onEditFailed={handleEditFailedFireIntercom} onStartCorrectedCopy={handleStartCorrectedFireIntercomCopy} /> : serverFireIntercom ? <><AcceptedCorrectionsPanel key={serverFireIntercom.clientUuid} clientUuid={serverFireIntercom.clientUuid} /><ServerFireIntercomView inspection={serverFireIntercom} onBack={()=>navigate({name:"job",jobId:serverFireIntercom.jobId})} /></> : <section className="workspace"><h2>{fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Opening Fire Intercom inspection…":"Fire Intercom inspection unavailable"}</h2><p>{activeFireIntercom&&jobIsCompleted(activeFireIntercom.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireIntercomRouteState==="loading"||authState.status==="verified"&&!fireIntercomAuthorityResolution&&fireIntercomRouteState==="idle"?"Loading the inspection.":fireIntercomRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireIntercomRouteMessage||"The completed Fire Intercom inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "fire-rated-roller-shutter-form" ? (
-            mayRenderLocalFireRatedRollerShutter && activeFireRatedRollerShutter && !jobIsCompleted(activeFireRatedRollerShutter.jobId) ? <FireRatedRollerShutterInspectionForm record={activeFireRatedRollerShutter} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeFireRatedRollerShutter.jobId})} onSaveDraft={handleSaveFireRatedRollerShutter} onSubmitLocal={handleSubmitFireRatedRollerShutter} onEditFailed={handleEditFailedFireRatedRollerShutter} /> : serverFireRatedRollerShutter ? <><AcceptedCorrectionsPanel key={serverFireRatedRollerShutter.clientUuid} clientUuid={serverFireRatedRollerShutter.clientUuid} /><ServerFireRatedRollerShutterView inspection={serverFireRatedRollerShutter} onBack={()=>navigate({name:"job",jobId:serverFireRatedRollerShutter.jobId})} /></> : <section className="workspace"><h2>{fireRatedRollerShutterRouteState==="loading"||authState.status==="verified"&&!fireRatedRollerShutterAuthorityResolution&&fireRatedRollerShutterRouteState==="idle"?"Opening Fire Rated Roller Shutter inspection…":"Fire Rated Roller Shutter inspection unavailable"}</h2><p>{activeFireRatedRollerShutter&&jobIsCompleted(activeFireRatedRollerShutter.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteState==="loading"||authState.status==="verified"&&!fireRatedRollerShutterAuthorityResolution&&fireRatedRollerShutterRouteState==="idle"?"Loading the inspection.":fireRatedRollerShutterRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteMessage||"The completed Fire Rated Roller Shutter inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
+            mayRenderLocalFireRatedRollerShutter && activeFireRatedRollerShutter && !jobIsCompleted(activeFireRatedRollerShutter.jobId) ? <FireRatedRollerShutterInspectionForm record={activeFireRatedRollerShutter} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={()=>navigate({name:"job",jobId:activeFireRatedRollerShutter.jobId})} onSaveDraft={handleSaveFireRatedRollerShutter} onSubmitLocal={handleSubmitFireRatedRollerShutter} onEditFailed={handleEditFailedFireRatedRollerShutter} onStartCorrectedCopy={handleStartCorrectedFireRatedRollerShutterCopy} /> : serverFireRatedRollerShutter ? <><AcceptedCorrectionsPanel key={serverFireRatedRollerShutter.clientUuid} clientUuid={serverFireRatedRollerShutter.clientUuid} /><ServerFireRatedRollerShutterView inspection={serverFireRatedRollerShutter} onBack={()=>navigate({name:"job",jobId:serverFireRatedRollerShutter.jobId})} /></> : <section className="workspace"><h2>{fireRatedRollerShutterRouteState==="loading"||authState.status==="verified"&&!fireRatedRollerShutterAuthorityResolution&&fireRatedRollerShutterRouteState==="idle"?"Opening Fire Rated Roller Shutter inspection…":"Fire Rated Roller Shutter inspection unavailable"}</h2><p>{activeFireRatedRollerShutter&&jobIsCompleted(activeFireRatedRollerShutter.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteState==="loading"||authState.status==="verified"&&!fireRatedRollerShutterAuthorityResolution&&fireRatedRollerShutterRouteState==="idle"?"Loading the inspection.":fireRatedRollerShutterRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":fireRatedRollerShutterRouteMessage||"The completed Fire Rated Roller Shutter inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "portable-fire-extinguisher-form" ? (
             activePortable && !jobIsCompleted(activePortable.jobId) ? <PortableFireExtinguisherForm record={activePortable} onBack={()=>navigate({name:"job",jobId:activePortable.jobId})} onSaveDraft={handleSavePortable} onSubmitLocal={handleSubmitPortable} onEditFailed={handleEditFailedPortable} /> : serverPortable ? <><AcceptedCorrectionsPanel key={serverPortable.clientUuid} clientUuid={serverPortable.clientUuid} /><ServerPortableFireExtinguisherView inspection={serverPortable} onBack={()=>navigate({name:"job",jobId:serverPortable.jobId})} /></> : <section className="workspace"><h2>{portableRouteState==="loading"?"Opening Portable Fire Extinguisher inspection…":"Portable Fire Extinguisher inspection unavailable"}</h2><p>{activePortable&&jobIsCompleted(activePortable.jobId)?"This service visit is complete and read-only. Reconnect to view the completed inspection.":portableRouteState==="loading"?"Loading the inspection.":portableRouteState==="not-cached"?"This inspection is not cached on this device. Reconnect to view the completed inspection.":portableRouteMessage||"The completed Portable Fire Extinguisher inspection is currently unavailable."}</p><button type="button" className="secondary-command" onClick={()=>navigate({name:"jobs"})}>Back to Jobs</button></section>
           ) : route.name === "system" && (route.systemKey === "co2_fire_extinguisher" || route.systemKey === "wet_chemical") ? (
@@ -2413,6 +2611,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               inspectionAttachments={inspectionAttachments}
               serverMasterSystemInspections={serverMasterSystemInspections}
               serverMasterSystemProgressState={serverMasterSystemProgressState}
+              offlineReadyJobIds={offlineReadyJobIds}
               loading={jobLoading}
               message={jobMessage}
               selectedJobId={selectedJobId}

@@ -99,7 +99,7 @@ test("every client-accepted detector-state combination is accepted by the server
 });
 
 const attachment = (fieldPath: string, sha256: string) => ({
-  photoUuid: crypto.randomUUID(), fieldPath, sha256, protocolVersion: 7
+  photoUuid: crypto.randomUUID(), fieldPath, sha256, protocolVersion: 7, syncStatus: "Draft"
 } as unknown as Parameters<typeof v7FireAlarmSubmissionIssues>[1][number]);
 
 const twoFindings = () => responses({

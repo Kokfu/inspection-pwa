@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   decideLocationProposal, loadLocationProposals, ManagerApiError,
-  type LocationProposal, type LocationProposalStatus
+  type LocationProposal, type LocationProposalStatus, type UnreadableLocationProposal
 } from "./managerApi";
 
 /**
@@ -14,6 +14,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
 }) {
   const [statusFilter, setStatusFilter] = useState<LocationProposalStatus>("pending");
   const [proposals, setProposals] = useState<LocationProposal[]>();
+  const [unreadable, setUnreadable] = useState<UnreadableLocationProposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
@@ -22,8 +23,8 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
   const [decisionError, setDecisionError] = useState("");
 
   const load = async (status: LocationProposalStatus) => {
-    setLoading(true); setError("");
-    try { setProposals(await loadLocationProposals(status)); }
+    setLoading(true); setError(""); setUnreadable([]);
+    try { const list = await loadLocationProposals(status); setProposals(list.proposals); setUnreadable(list.unreadable); }
     catch (reason) {
       if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
       else setError(reason instanceof Error ? reason.message : "Location proposals could not be loaded.");
@@ -69,7 +70,17 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
     </div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     {loading ? <p role="status">Loading location proposals…</p> : null}
-    {!loading && proposals && proposals.length === 0 ? <p className="empty-state">No {statusFilter} location proposals.</p> : null}
+    {!loading && proposals && proposals.length === 0 && unreadable.length === 0 ? <p className="empty-state">No {statusFilter} location proposals.</p> : null}
+    {!loading && unreadable.length > 0 ? <section className="offline-notice" role="alert" aria-labelledby="unreadable-proposals-title">
+      <h3 id="unreadable-proposals-title">{unreadable.length === 1 ? "1 proposal cannot be shown" : `${unreadable.length} proposals cannot be shown`}</h3>
+      <p>{unreadable.length === 1 ? "It is" : "They are"} in a format this version of the app cannot read, so {unreadable.length === 1 ? "it" : "they"} cannot be approved or rejected here. The other proposals below are not affected. Ask an administrator to check {unreadable.length === 1 ? "it" : "them"}.</p>
+      <ul>
+        {unreadable.map((item, index) => <li key={item.id ?? `unreadable-${index}`}>
+          {[item.customerDisplayName, item.systemKey, item.submittedBy ? `submitted by ${item.submittedBy}` : undefined, item.submittedAt].filter(Boolean).join(" · ") || "Details unavailable"}
+          {item.id ? <small> (reference {item.id.slice(0, 8)})</small> : null}
+        </li>)}
+      </ul>
+    </section> : null}
     {proposals && proposals.length > 0 ? <ul className="record-list">
       {proposals.map((proposal) => (
         <li key={proposal.id}>

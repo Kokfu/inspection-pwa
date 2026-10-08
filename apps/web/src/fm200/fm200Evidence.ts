@@ -1,3 +1,4 @@
+import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { Fm200MasterSystemFormInstanceRecord, Fm200Responses } from "./fm200Types";
@@ -35,6 +36,7 @@ export function v7SubmissionIssues(record: Fm200MasterSystemFormInstanceRecord, 
   for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
   issues.push(...duplicateV7PhotoIssues(attachments, required));
   issues.push(...crossInstanceV7PhotoIssues(attachments, required, siblings));
+  issues.push(...submittedPhotoIssues(attachments, required));
   return issues;
 }
 /** See the Fire Alarm twin: the server refuses one image reused across two
@@ -149,6 +151,7 @@ export async function saveV7SuppressionPhoto(values: { record: Fm200MasterSystem
     if (elsewhere) throw new Error(`This photo is already attached to ${elsewhere.fieldPath} at ${elsewhere.locationLabel}. Each finding needs its own photo.`);
     const existing = held.find((item) => item.fieldPath === values.fieldPath);
     const timestamp = now();
+    assertPhotoReplaceable(existing);
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: live.systemKey, fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }

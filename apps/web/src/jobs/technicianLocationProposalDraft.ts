@@ -116,6 +116,8 @@ export async function queueTechnicianLocationProposal(draft: TechnicianLocationP
 }
 
 let syncing: Promise<void> | undefined;
+/** Resolves when no location-proposal sync is running (see technicianCustomerSyncIdle). */
+export function locationProposalSyncIdle(): Promise<void> { return (syncing ?? Promise.resolve()).catch(() => undefined); }
 export function syncPendingLocationProposals(actorUserId: number): Promise<void> {
   if (syncing) return syncing;
   syncing = (async () => {

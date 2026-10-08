@@ -36,7 +36,8 @@ document.querySelector("#run").onclick=async()=>{try{checks.length=0;const f=fix
   check("V7 form renders one card per station row",formEl.querySelectorAll(".hose-row-card").length===3);
   check("V7 form renders a four-state control per station row",formEl.querySelectorAll('[aria-label="Condition result"]').length===3);
   check("V7 form has NO checklist rows (Fire Intercom has no checklist sections)",formEl.querySelectorAll(".hose-check-row").length===0);
-  check("V7 form has exactly one Comments box and no Date Tested / panel / location field",formEl.textContent.includes("Comments")&&!formEl.textContent.includes("Date Tested")&&!formEl.textContent.includes("Control Panel")&&formEl.querySelectorAll("fieldset").length===2);
+  // Fieldsets: the station schedule, the "Save Station Schedule Format" block (location-format reuse, d8510cc) and Comments -- and no header fields.
+  check("V7 form has exactly one Comments box and no Date Tested / panel / location field",formEl.textContent.includes("Comments")&&!formEl.textContent.includes("Date Tested")&&!formEl.textContent.includes("Control Panel")&&JSON.stringify([...formEl.querySelectorAll("fieldset > legend")].map((legend)=>legend.textContent))===JSON.stringify(["Station Schedule","Save Station Schedule Format","Comments"]));
   check("the write-in Station label is editable on a technician row",[...formEl.querySelectorAll("input")].some(i=>i.value==="Pump Room"&&!i.disabled));
   check("V7 finding reveals the photo widget on findings only",formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.a}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.b}"]`).length===1&&formEl.querySelectorAll(`[aria-label="Evidence photo for ${paths.clean}"]`).length===0);
   formRoot.unmount();

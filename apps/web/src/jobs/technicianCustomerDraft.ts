@@ -77,6 +77,8 @@ export async function queueTechnicianCustomer(draft: TechnicianCustomerDraft) {
 }
 
 let syncing: Promise<void> | undefined;
+/** Resolves when no customer sync is running (the engine must not recover "Syncing" items under a live sync). */
+export function technicianCustomerSyncIdle(): Promise<void> { return (syncing ?? Promise.resolve()).catch(() => undefined); }
 export function syncPendingTechnicianCustomers(actorUserId: number): Promise<void> {
   if (syncing) return syncing;
   syncing = (async () => {

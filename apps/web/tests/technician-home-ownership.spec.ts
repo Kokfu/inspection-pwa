@@ -51,6 +51,8 @@ test("same browser logout/login hides A's jobs and preserves unsynced draft for 
   expect(before.syncStatus).toBe("Draft");
   expect(await page.evaluate(async()=>await (window as any).pendingCount())).toBe(1);
   const signIn=async(username:string)=>{
+    // I-10: signing out with submitted-but-unsynced work now asks first; these tests intend to sign out.
+    page.once("dialog",(dialog)=>dialog.accept());
     await page.getByRole("button",{name:"Sign out",exact:true}).click();
     await page.getByRole("button",{name:/Technician/}).click();
     await page.getByLabel("Username",{exact:true}).fill(username);
@@ -88,6 +90,8 @@ test("logout waits for a suspended local save before another identity can replac
   await comments.getByRole("textbox",{name:"Type a new remark"}).fill("A saved during sign-out");
   await page.evaluate(()=>(window as any).holdNextLocalTransaction());
   await page.getByRole("button",{name:"Save Draft",exact:true}).click();
+  // I-10: signing out with unsynced work asks first; this test intends to sign out.
+  page.once("dialog",(dialog)=>dialog.accept());
   await page.getByRole("button",{name:"Sign out",exact:true}).click();
   expect(await page.evaluate(()=>(window as any).requests.filter((r:any)=>r.path==="/api/auth/logout"))).toHaveLength(0);
   await page.evaluate(()=>(window as any).releaseLocalTransaction());
@@ -110,9 +114,11 @@ test("T14: a technician can delete their own in-progress job; it disappears from
   await page.getByRole("button", { name: /Technician/ }).click();
   await expect(page.getByRole("tab", { name: "In Progress (2)" })).toBeVisible();
   const card = page.locator(".job-card-list li").filter({ hasText: "A-NEW" });
-  await expect(card.getByRole("button", { name: "Delete A-NEW" })).toBeVisible();
+  // The Delete action lives on the job's own page (not on the list card): open the job, then "Delete this job".
+  await card.getByRole("button").first().click();
+  await expect(page.getByRole("button", { name: "Delete this job" })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await card.getByRole("button", { name: "Delete A-NEW" }).click();
+  await page.getByRole("button", { name: "Delete this job" }).click();
   await expect(page.getByRole("tab", { name: "In Progress (1)" })).toBeVisible();
   await expect(page.locator(".job-card-list li").filter({ hasText: "A-NEW" })).toHaveCount(0);
   await expect

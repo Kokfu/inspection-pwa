@@ -57,7 +57,7 @@ function completeResponses(version = 7): HoseReelResponses {
 const checkPath = "hose_reel_checks.saj_main_water_supply" as const;
 const rowPath = `hose_reel_drum.hose_reel_rows.rows.${uuid}.drum` as const;
 function attachment(fieldPath: string, sha256: string) {
-  return { photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "hose_reel", fieldPath, sha256, protocolVersion: 7 } as Parameters<typeof v7HoseReelSubmissionIssues>[2][number];
+  return { photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "hose_reel", fieldPath, sha256, protocolVersion: 7, syncStatus: "Draft" } as Parameters<typeof v7HoseReelSubmissionIssues>[2][number];
 }
 
 test("a complete Hose Reel V7 draft passes the submit gate", () => {

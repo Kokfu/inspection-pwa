@@ -64,10 +64,12 @@ async function installApi(page: Page, actor: typeof supervisor | typeof admin, i
   return state;
 }
 
-async function openReport(page: Page) {
+// A supervisor signs in through the Supervisor card, whose sidebar "Services" is the review list; an admin uses the Manager
+// card, where "Services" is customer configuration and the service-visit list is "Operations".
+async function openReport(page: Page, as: "supervisor" | "admin" = "supervisor") {
   await page.goto("/tests/manager-service-editor.html#/manager");
-  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
-  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await page.getByRole("button", { name: as === "admin" ? /^Manager Monitor/ : /^Supervisor Review/ }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: as === "admin" ? "Operations" : "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-APPROVE-860/ }).click();
   await page.getByRole("button", { name: "View Final Report" }).click();
   await expect(page.getByRole("heading", { name: "Final Report" })).toBeVisible();
@@ -97,7 +99,7 @@ test("a supervisor approves the report and the Operations chip updates", async (
 test("an admin can withdraw an approval with a required note", async ({ page }) => {
   const approvedByAdmin: ApprovalState = { status: "approved", decidedBy: "the-admin", decidedByRole: "admin", decidedAt: "2026-09-20T11:00:00.000Z", note: null, latestCorrectionAt: null, correctedAfterApproval: false };
   const api = await installApi(page, admin, approvedByAdmin);
-  await openReport(page);
+  await openReport(page, "admin");
   await expect(page.getByRole("heading", { name: "Report approved" })).toBeVisible();
   await page.getByRole("button", { name: "Withdraw approval" }).click();
   await page.getByRole("button", { name: "Confirm withdraw" }).click();

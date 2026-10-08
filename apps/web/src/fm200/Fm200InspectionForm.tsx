@@ -1,4 +1,6 @@
+import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
+import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { inspectionSyncMessage } from "../uiPresentation";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { RemarksField } from "../inspectionControls/RemarksField";
@@ -29,9 +31,10 @@ type Props = {
   onSaveDraft: (responses: Fm200Responses) => Promise<void>;
   onSubmitLocal: (responses: Fm200Responses) => Promise<void>;
   onEditFailed: () => Promise<void>;
+  onStartCorrectedCopy: () => Promise<void>;
 };
 
-export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed }: Props) {
+export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onStartCorrectedCopy }: Props) {
   const systemLabel = "FM200 System";
   const [responses, setResponses] = useState(() => record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
   const [message, setMessage] = useState("");
@@ -67,6 +70,7 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
   const readOnly = record.syncStatus !== "Draft";
 
   useEffect(() => setResponses(record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [record]);
+  const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: onSaveDraft, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
   useEffect(() => { if (record.masterTemplate.version === 7) { void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); void collectV7SiblingEvidence(record).then(setSiblings); } else { setPhotos([]); setSiblings([]); } }, [record.clientUuid, record.groupKey, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);
 
@@ -127,7 +131,7 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
       return;
     }
     try {
-      await onSubmitLocal(responses);
+      await submitLocal();
       setShowValidation(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "FM200 form could not be submitted");
@@ -227,6 +231,6 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
     </fieldset>
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Inspection</button></div> : null}
-    {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed()}>Return to Draft</button> : null}
+    {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed()}>Return to Draft</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
   </section>;
 }

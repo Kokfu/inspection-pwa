@@ -1,5 +1,6 @@
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { compatibleCatalogSystem } from "../referenceData/systemContractCompatibility";
 import { singleInstanceAssetReferences } from "../jobs/singleInstanceRowPreset";
@@ -173,3 +174,7 @@ export async function returnFailedFireIntercomToDraft(record: FireIntercomInspec
   await localDatabase.masterSystemInspections.put(saved);
   return saved;
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export { supersededArchiveKey } from "../attachments/correctedCopy";
+export const startCorrectedFireIntercomCopy = (record: FireIntercomInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Fire Intercom");

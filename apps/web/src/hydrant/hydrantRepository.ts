@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
@@ -127,3 +128,6 @@ export async function returnFailedHydrantToDraft(record: HydrantInspectionRecord
   await localDatabase.masterSystemInspections.put(saved);
   return saved;
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedHydrantCopy = (record: HydrantInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Hydrant");

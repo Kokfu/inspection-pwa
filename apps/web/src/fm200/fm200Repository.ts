@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { ResultControlDefinition } from "../inspectionControls/definitionTypes";
@@ -396,3 +397,6 @@ export function addFm200DetectorRow(responses: Fm200Responses) {
     }]
   };
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedFm200Copy = (record: Fm200MasterSystemFormInstanceRecord) => startCorrectedCopy(record, "masterSystemFormInstances", "FM200");

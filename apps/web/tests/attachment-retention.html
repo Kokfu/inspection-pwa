@@ -1,0 +1,72 @@
+<!doctype html><html><body><button id="run">Run attachment retention checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import { cleanupLocalAttachments, runAttachmentCleanupIfDue } from "/src/attachments/attachmentRetention.ts";
+
+const DAY = 86400000;
+const now = new Date("2026-10-08T10:00:00.000Z");
+const ago = (ms) => new Date(now.getTime() - ms).toISOString();
+const checks = [];
+const check = (name, passed, detail) => checks.push({ name, passed: Boolean(passed), detail: passed ? undefined : detail });
+
+document.getElementById("run").addEventListener("click", async () => {
+  try {
+    await activateUserWorkspace(901);
+    const db = localDatabase;
+    await Promise.all([db.inspectionAttachments.clear(), db.masterSystemInspections.clear(), db.masterSystemFormInstances.clear(), db.inspectionRecords.clear(), db.syncOutbox.clear(), db.referenceData.clear()]);
+    const blob = () => new Blob([new Uint8Array(1000)], { type: "image/jpeg" });
+    const parent = (clientUuid, syncStatus, ageMs) => ({ clientUuid, jobSystemKey: clientUuid, jobId: "job", systemKey: "fire_intercom", syncStatus, localUpdatedAt: ago(ageMs), lastSyncedAt: syncStatus === "Synced" ? ago(ageMs) : undefined });
+    const photo = (photoUuid, parentUuid, syncStatus, ageMs, field) => ({ photoUuid, inspectionClientUuid: parentUuid, systemKey: "fire_intercom", fieldPath: field, evidencePolicyId: "p", evidencePolicyVersion: 1, captureSource: "camera", blob: blob(), mimeType: "image/jpeg", sizeBytes: 1000, width: 8, height: 8, sha256: photoUuid, capturedAt: ago(ageMs), localCreatedAt: ago(ageMs), localUpdatedAt: ago(ageMs), lastSyncedAt: syncStatus === "Synced" ? ago(ageMs) : undefined, syncStatus });
+    await db.masterSystemInspections.bulkPut([
+      parent("synced-old", "Synced", 40 * DAY), parent("synced-recent", "Synced", 2 * DAY), parent("synced-fresh", "Synced", 60_000),
+      parent("failed-old", "Failed", 40 * DAY), parent("pending", "Pending", 40 * DAY), parent("draft", "Draft", 40 * DAY)
+    ]);
+    await db.masterSystemFormInstances.bulkPut([{ ...parent("form-synced-old", "Synced", 40 * DAY), groupKey: "g", instanceKey: "i" }]);
+    await db.inspectionAttachments.bulkPut([
+      photo("stale-draft-old", "synced-old", "Draft", 40 * DAY, "a"),          // delete
+      photo("synced-photo-old", "synced-old", "Synced", 40 * DAY, "b"),         // delete (30 d)
+      photo("stale-draft-recent", "synced-recent", "Draft", 2 * DAY, "c"),      // delete (24 h)
+      photo("synced-photo-recent", "synced-recent", "Synced", 2 * DAY, "d"),    // keep
+      photo("stale-draft-fresh", "synced-fresh", "Draft", 60_000, "e"),         // keep (grace)
+      photo("failed-draft", "failed-old", "Draft", 40 * DAY, "f"),              // keep
+      photo("failed-synced", "failed-old", "Synced", 40 * DAY, "g"),            // keep
+      photo("pending-photo", "pending", "Synced", 40 * DAY, "h"),               // keep
+      photo("draft-photo", "draft", "Draft", 40 * DAY, "i"),                    // keep
+      photo("parentless", "no-such-parent", "Draft", 40 * DAY, "j"),            // keep
+      photo("form-photo-old", "form-synced-old", "Synced", 40 * DAY, "k"),      // delete (form-instance parent)
+      photo("outbox-held", "synced-old", "Draft", 40 * DAY, "l"),               // keep (active outbox item)
+      photo("uploading", "synced-old", "Uploading", 40 * DAY, "m")              // keep (in flight)
+    ]);
+    await db.syncOutbox.put({ operationId: "op1", entityType: "inspectionAttachment", entityId: "outbox-held", action: "Create", payload: {}, createdAt: ago(DAY), attempts: 0, status: "Pending" });
+    const parentsBefore = (await db.masterSystemInspections.count()) + (await db.masterSystemFormInstances.count());
+    const outboxBefore = await db.syncOutbox.count();
+
+    const result = await cleanupLocalAttachments({ now });
+    const left = (await db.inspectionAttachments.toArray()).map((row) => row.photoUuid).sort();
+    const expectedLeft = ["draft-photo", "failed-draft", "failed-synced", "outbox-held", "parentless", "pending-photo", "stale-draft-fresh", "synced-photo-recent", "uploading"].sort();
+    check("only provably-final photos were deleted", JSON.stringify(left) === JSON.stringify(expectedLeft), left);
+    check("deleted count and reclaimed bytes", result.deleted === 4 && result.reclaimedBytes === 4000, result);
+    check("parent records are untouched", (await db.masterSystemInspections.count()) + (await db.masterSystemFormInstances.count()) === parentsBefore);
+    check("outbox is untouched", (await db.syncOutbox.count()) === outboxBefore);
+    const again = await cleanupLocalAttachments({ now });
+    check("idempotent: a second pass deletes nothing", again.deleted === 0, again);
+
+    // The workspace guard aborts the whole transaction: nothing is deleted.
+    await db.inspectionAttachments.put(photo("guarded", "synced-old", "Draft", 40 * DAY, "n"));
+    let aborted = false;
+    try { await cleanupLocalAttachments({ now, canCommit: () => false }); } catch { aborted = true; }
+    check("a superseded workspace aborts without deleting", aborted && Boolean(await db.inspectionAttachments.get("guarded")));
+
+    // App entry point: runs once, then is throttled for 24 h; refuses a different workspace.
+    const first = await runAttachmentCleanupIfDue(901, now);
+    check("entry point runs when due (and removed the guarded stale photo)", first !== "skipped" && first.deleted === 1 && !(await db.inspectionAttachments.get("guarded")), first);
+    await db.inspectionAttachments.put(photo("guarded2", "synced-old", "Draft", 40 * DAY, "o"));
+    check("entry point is throttled to once per day", (await runAttachmentCleanupIfDue(901, new Date(now.getTime() + 3600_000))) === "skipped" && Boolean(await db.inspectionAttachments.get("guarded2")));
+    const next = await runAttachmentCleanupIfDue(901, new Date(now.getTime() + 25 * 3600_000));
+    check("runs again after 24 h and the 24 h grace of the fresh stale photo has now elapsed", next !== "skipped" && next.deleted === 2 && !(await db.inspectionAttachments.get("guarded2")) && !(await db.inspectionAttachments.get("stale-draft-fresh")) && Boolean(await db.inspectionAttachments.get("failed-draft")), next);
+    check("entry point refuses a workspace that is not active", (await runAttachmentCleanupIfDue(555, new Date(now.getTime() + 99 * DAY))) === "skipped");
+    document.getElementById("result").textContent = JSON.stringify({ status: checks.every((c) => c.passed) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    document.getElementById("result").textContent = JSON.stringify({ status: "FAIL", message: String(error?.stack ?? error), checks });
+  }
+});
+</script></body></html>

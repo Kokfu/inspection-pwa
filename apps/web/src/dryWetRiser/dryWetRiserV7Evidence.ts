@@ -1,3 +1,4 @@
+import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type {
@@ -69,6 +70,7 @@ export function v7DryWetRiserSubmissionIssues(record: DryWetRiserInspectionRecor
     if (prior) issues.push(`${prior} and ${photo.fieldPath} use the same photo; each finding needs its own photo`);
     else first.set(photo.sha256, photo.fieldPath);
   }
+  issues.push(...submittedPhotoIssues(attachments, required));
   return issues;
 }
 
@@ -84,6 +86,7 @@ export async function saveDryWetRiserV7Photo(values: { record: DryWetRiserInspec
     const clash = held.find((item) => item.sha256 === values.sha256 && item.fieldPath !== values.fieldPath);
     if (clash) throw new Error(`This photo is already attached to ${clash.fieldPath}. Each finding needs its own photo.`);
     const existing = held.find((item) => item.fieldPath === values.fieldPath);
+    assertPhotoReplaceable(existing);
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: "dry_wet_riser", fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? now, localCreatedAt: existing?.localCreatedAt ?? now, localUpdatedAt: now, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }

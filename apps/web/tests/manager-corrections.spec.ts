@@ -118,7 +118,8 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
 
 async function openVisit(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
-  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  // The account is a supervisor: it signs in through the Supervisor role card (its sidebar "Services" opens the review list).
+  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-CORRECT-840/ }).click();
   await expect(page.getByRole("heading", { name: "Accepted records" })).toBeVisible();

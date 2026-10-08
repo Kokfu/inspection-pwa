@@ -13,7 +13,7 @@ const definition = masterServiceReportV7.systems.find((system) => system.key ===
 const record = { masterTemplate: { version: 7 }, inspectionSnapshot: { system: { definition, locations: [] } } } as unknown as FireIntercomInspectionRecord;
 
 const rowPath = (rowUuid: string) => `station_schedule.station_schedule_rows.rows.${rowUuid}.condition`;
-const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: rowA, systemKey: "fire_intercom", fieldPath: path, sha256, protocolVersion: 7 }) as unknown as Parameters<typeof v7FireIntercomSubmissionIssues>[2][number];
+const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: rowA, systemKey: "fire_intercom", fieldPath: path, sha256, protocolVersion: 7, syncStatus: "Draft" }) as unknown as Parameters<typeof v7FireIntercomSubmissionIssues>[2][number];
 
 function stationRow(rowUuid: string, sortOrder: number, overrides: Partial<FireIntercomResponses["rows"][number]> = {}): FireIntercomResponses["rows"][number] {
   return {
@@ -284,4 +284,21 @@ test("Sol P1: client submit gate now rejects every shape the server's validRespo
     assert.equal(serverRejects, true, `server must reject ${JSON.stringify(draft)}`);
     assert.ok(submitIssues(record, draft, []).length > 0, `client must reject ${JSON.stringify(draft)}`);
   }
+});
+
+// I-21: a photo that has left Draft may already be staged on the server (immutable there). If the findings no
+// longer need it, acceptance would see EXTRA staged evidence forever - only a corrected copy can drop it.
+test("a submitted photo that the findings no longer need blocks submit and points to a corrected copy", () => {
+  const draft = withFindings();
+  draft.rows[0]!.conditionResult = "good";
+  draft.rows[0]!.fieldRemarks = {};
+  const photos = bothPhotos().map((item) => ({ ...item, syncStatus: "Synced" })) as unknown as ReturnType<typeof bothPhotos>;
+  const issues = v7FireIntercomSubmissionIssues(record, draft, photos);
+  assert.ok(issues.some((issue) => issue.includes(rowPath(rowA)) && /no longer needed/.test(issue) && /Start corrected copy/.test(issue)), JSON.stringify(issues));
+  assert.equal(issues.filter((issue) => /no longer needed/.test(issue)).length, 1, "only the dropped field is flagged");
+});
+
+test("submitted photos that are still required raise no corrected-copy issue", () => {
+  const photos = bothPhotos().map((item) => ({ ...item, syncStatus: "Synced" })) as unknown as ReturnType<typeof bothPhotos>;
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, withFindings(), photos), []);
 });

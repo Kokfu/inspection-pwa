@@ -66,7 +66,9 @@ test("T7: a malformed compliance-reminders response degrades gracefully -- Home 
   await expect(page.getByRole("region", { name: "Overdue" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Due soon" })).toHaveCount(0);
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Next Upcoming Service", exact: true })).toBeVisible();
+  // The Home card and (since the persistent sidebar) the sidebar link share this label; the card is what proves Home rendered.
+  await expect(page.locator(".manager-dashboard-card").filter({ hasText: "Next Upcoming Service" })).toBeVisible();
+  await expect(page.getByLabel("Primary navigation").getByRole("button", { name: "Next Upcoming Service", exact: true })).toBeVisible();
 });
 
 test("T7: a real 401/403 on compliance-reminders IS an authorization failure and falls back to the role chooser, matching every other Manager screen", async ({ page }) => {

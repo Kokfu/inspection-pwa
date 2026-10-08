@@ -1,3 +1,4 @@
+import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -24,6 +25,7 @@ export async function saveFireAlarmV6Photo(values: { record: FireAlarmInspection
     if (!live || live.systemKey !== "fire_alarm_detector" || live.syncStatus !== "Draft") throw new Error("Fire Alarm Draft changed before evidence was saved");
     const existing = await localDatabase.inspectionAttachments.where("[inspectionClientUuid+fieldPath]").equals([values.record.clientUuid, values.fieldPath]).first();
     const timestamp = now();
+    assertPhotoReplaceable(existing);
     const attachment: InspectionAttachmentRecord = { photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: values.record.clientUuid, systemKey: "fire_alarm_detector", fieldPath: values.fieldPath, evidencePolicyId: "v6-staged-evidence", evidencePolicyVersion: 6, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 6, masterTemplateId: values.record.masterTemplate.id, contractSha256 };
     await localDatabase.inspectionAttachments.put(attachment);
   });
@@ -65,5 +67,6 @@ export function v6SubmissionIssues(responses: FireAlarmResponses, attachments: I
   });
   const photos = new Set(attachments.map((attachment) => attachment.fieldPath));
   v6RequiredFieldPaths(responses).forEach((path) => { if (!photos.has(path)) issues.push(`${path} requires its own Photo`); });
+  issues.push(...submittedPhotoIssues(attachments, v6RequiredFieldPaths(responses)));
   return issues;
 }

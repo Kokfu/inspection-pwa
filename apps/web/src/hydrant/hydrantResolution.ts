@@ -1,4 +1,5 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
+import { isOfflineStartConfirmed } from "../jobs/offlineStartReadiness";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { isServerUnreachable } from "../jobs/serverReachability";
@@ -113,7 +114,8 @@ export async function resolveHydrantOpenTarget(
   loadCatalog: () => Promise<InspectionCatalog | undefined>,
   findServer = findServerMasterSystemInspection,
   getLocal = getLocalHydrant,
-  createLocal = getOrCreateHydrantInspection
+  createLocal = getOrCreateHydrantInspection,
+  offlineStartConfirmed = isOfflineStartConfirmed
 ): Promise<HydrantOpenTarget> {
   let serverUnreachable = false;
   if (authStatus === "verified") {
@@ -136,7 +138,7 @@ export async function resolveHydrantOpenTarget(
 
   const local = await getLocal(job.id);
   if (local) return { kind: "local", record: local };
-  if (authStatus === "offline-unverified" || serverUnreachable) return { kind: "not-cached" };
+  if ((authStatus === "offline-unverified" || serverUnreachable) && !await offlineStartConfirmed(job.id, system.systemKey)) return { kind: "not-cached" };
 
   const catalog = await loadCatalog();
   if (!catalog) return { kind: "server-unavailable", message: "Hydrant reference data is not cached yet. Refresh jobs online first." };

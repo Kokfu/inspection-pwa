@@ -1,3 +1,4 @@
+import { startCorrectedCopy } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { DeviceReportedCreator } from "../hoseReel/hoseReelTypes";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
@@ -332,3 +333,6 @@ export function removeFireAlarmSecondaryTechnicianRow(record: FireAlarmInspectio
     return { ...current, secondaryAlarmDeviceRows: resequence(current.secondaryAlarmDeviceRows.filter((item) => item.rowUuid !== rowUuid)) };
   });
 }
+
+/** I-21: corrected copy (shared core in attachments/correctedCopy.ts). */
+export const startCorrectedFireAlarmCopy = (record: FireAlarmInspectionRecord) => startCorrectedCopy(record, "masterSystemInspections", "Fire Alarm");

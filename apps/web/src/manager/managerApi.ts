@@ -1362,11 +1362,36 @@ function isLocationProposal(value: unknown): value is LocationProposal {
     && (value.decision === null || isLocationProposalDecisionEvent(value.decision));
 }
 
-export async function loadLocationProposals(status?: LocationProposalStatus, signal?: AbortSignal): Promise<LocationProposal[]> {
+/** A proposal row this client cannot read (for example one saved before the current payload shape). Shown, never decided. */
+export type UnreadableLocationProposal = { id?: string; customerDisplayName?: string; systemKey?: string; submittedBy?: string; submittedAt?: string };
+export type LocationProposalList = { proposals: LocationProposal[]; unreadable: UnreadableLocationProposal[] };
+
+const plainText = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
+
+/**
+ * I-24: each row is checked on its own. A readable row is returned; an unreadable one is reported with only the plain text
+ * fields it has (no invented details) so a Manager can see it exists, and it can never be approved or rejected from here.
+ * A response that is not a list at all still fails closed.
+ */
+export function parseLocationProposalList(data: unknown): LocationProposalList {
+  if (!Array.isArray(data)) unavailable();
+  const proposals: LocationProposal[] = [];
+  const unreadable: UnreadableLocationProposal[] = [];
+  for (const row of data as unknown[]) {
+    if (isLocationProposal(row)) { proposals.push(row); continue; }
+    const record = isPlainObject(row) ? row : {};
+    unreadable.push({
+      id: plainText(record.id), customerDisplayName: plainText(record.customerDisplayName), systemKey: plainText(record.systemKey),
+      submittedBy: plainText(record.submittedBy), submittedAt: plainText(record.submittedAt)
+    });
+  }
+  return { proposals, unreadable };
+}
+
+export async function loadLocationProposals(status?: LocationProposalStatus, signal?: AbortSignal): Promise<LocationProposalList> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
   const data = await managerRequest<unknown>(`/api/manager/location-proposals${query}`, "GET", "proposals", undefined, signal);
-  if (!Array.isArray(data) || !data.every(isLocationProposal)) unavailable();
-  return data as LocationProposal[];
+  return parseLocationProposalList(data);
 }
 
 export async function loadLocationProposal(proposalId: string, signal?: AbortSignal): Promise<LocationProposal> {

@@ -26,7 +26,7 @@ function responses(overrides: Record<string, unknown> = {}): HydrantResponses {
 }
 
 const fieldPath = (wire: typeof hydrantResultColumns[number][1]) => `hydrant_set.hydrant_rows.rows.${uuid}.${wire}`;
-const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "hydrant", fieldPath: path, sha256, protocolVersion: 7 }) as unknown as Parameters<typeof v7HydrantSubmissionIssues>[2][number];
+const attachment = (path: string, sha256: string) => ({ photoUuid: crypto.randomUUID(), inspectionClientUuid: uuid, systemKey: "hydrant", fieldPath: path, sha256, protocolVersion: 7, syncStatus: "Draft" }) as unknown as Parameters<typeof v7HydrantSubmissionIssues>[2][number];
 const withFindings = () => responses({ rows: [{ ...responses().rows[0], canvasHose1Result: "not_good", landingValveResult: "complete_repair", fieldRemarks: { canvasHose1Result: "Canvas damaged", landingValveResult: "Valve rebuilt" } }] });
 
 test("a complete V7 Hydrant draft raises no evidence issues", () => {

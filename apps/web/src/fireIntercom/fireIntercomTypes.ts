@@ -64,4 +64,6 @@ export type FireIntercomInspectionRecord = {
   lastSyncedAt?: string;
   syncStatus: FireIntercomStatus;
   lastSyncError?: string;
+  /** I-21: set on a corrected copy; names the rejected record it replaced (kept as an archive in `drafts`). */
+  supersedes?: { clientUuid: string; supersededAt: string };
 };

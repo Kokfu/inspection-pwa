@@ -253,7 +253,8 @@ test("Preset rows and Settings tabs save exactly as the previous editors did", a
 
   // Riser system configuration.
   await openService(page, /Dry \/ Wet Riser System/);
-  await expect(page.getByRole("tab")).toHaveText(["Form wording", "Settings"]);
+  // Dry/Wet Riser is location-configurable (managerApi locationConfigurableSystemKeys), so it has a Preset rows tab as well.
+  await expect(page.getByRole("tab")).toHaveText(["Form wording", "Preset rows", "Settings"]);
   await page.getByRole("tab", { name: "Settings" }).click();
   const riser = page.getByRole("combobox", { name: "Riser mode" });
   await expect(riser).toHaveValue("dry");

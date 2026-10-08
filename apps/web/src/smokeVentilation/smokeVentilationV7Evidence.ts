@@ -1,3 +1,4 @@
+import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { ResultControlDefinition } from "../inspectionControls/definitionTypes";
@@ -133,6 +134,7 @@ export function v7SmokeVentilationSubmissionIssues(record: SmokeVentilationInspe
   const attachedFields = new Set(attachments.filter((item) => item.systemKey === "smoke_ventilation" && item.protocolVersion === 7).map((item) => item.fieldPath));
   for (const fieldPath of required) if (!attachedFields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
   issues.push(...duplicateSmokeVentilationV7PhotoIssues(attachments, required));
+  issues.push(...submittedPhotoIssues(attachments, required));
   return issues;
 }
 
@@ -153,6 +155,7 @@ export async function saveSmokeVentilationV7Photo(values: { record: SmokeVentila
     if (clash) throw new Error(`This photo is already attached to ${clash.fieldPath}. Each finding needs its own photo.`);
     const existing = held.find((item) => item.systemKey === "smoke_ventilation" && item.protocolVersion === 7 && item.fieldPath === values.fieldPath);
     const timestamp = now();
+    assertPhotoReplaceable(existing);
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: "smoke_ventilation", fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }

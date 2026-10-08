@@ -20,7 +20,7 @@
       customer: visit.customer, site: visit.site, serviceDate: visit.serviceDate, jobReference: visit.reference,
       completedAt: visit.completion.completedAt, completedBy: "technician-one",
       systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", locations: ["Zone North", "Gate A"] }],
-      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true }] }]
+      sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true, captureSource: null }] }]
     };
     const mount = document.querySelector("#mount");
     const result = document.querySelector("#result");
@@ -73,6 +73,8 @@
         if (url === "/api/manager/customers") return json({ customers: [] });
         if (url === "/api/manager/service-visits/" + visit.id + "/final-report") return json({ report });
         if (url === "/api/manager/service-visits/" + visit.id + "/corrections") return json({ corrections: [] });
+        // The Final Report now also loads the report-approval state (approval feature).
+        if (url === "/api/manager/service-visits/" + visit.id + "/report-approval") return json({ reportApproval: { status: "not_applicable", decidedBy: null, decidedByRole: null, decidedAt: null, note: null, latestCorrectionAt: null, correctedAfterApproval: false }, events: [] });
         if (url === "/api/manager/service-visits/" + visit.id) { detailRequests += 1; return json({ serviceVisit: visit }); }
         if (url === "/api/inspection-jobs") return json({ jobs: [] });
         if (url.includes("/master-system-inspections")) return json({ inspections: [], hasMore: false, nextCursor: null });
