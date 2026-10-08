@@ -3,6 +3,92 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-10-07 — **G7 / Fire Intercom Sol recheck — found a new P0: Final Report is
+broken for any job containing a V7 Dry/Wet Riser inspection.** Confirmed live on the runtime
+(`docker compose`, not touched otherwise) with the demo job `SV-20260909-42` (Demo V7 Shared
+Evidence Client, customer `DEMO-V7-SHARED-EVIDENCE`): submitted and synced all 7 applicable
+systems (Fire Alarm, CO2, Wet Chemical, Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser),
+completed the service visit (7/7), then **View Final Report returned a 409** —
+`GET /api/inspection-jobs/:id/final-report` → `"Required accepted inspection history is
+unavailable for Dry / Wet Riser System."` Root cause: `validHistoricalUnit()` in
+[`apps/api/src/reports/finalServiceReport.ts:366`](apps/api/src/reports/finalServiceReport.ts:366)
+has a `v7Suppression` allowlist that includes every other V7 system (`co2_fire_extinguisher`,
+`wet_chemical`, `fire_alarm_detector`, `hydrant`, `hose_reel`, `automatic_sprinkler`,
+`smoke_ventilation`, `fire_intercom`, `fire_rated_roller_shutter`, `fm200_fire_suppression`) but
+**omits `dry_wet_riser`**, and there is no dedicated `row.system_key === "dry_wet_riser" &&
+snapshot.schemaVersion === 2` branch either (unlike Hydrant/Hose Reel/Automatic Sprinkler, which
+each have one at lines 396/406/416). The function's entry guard therefore always returns `false`
+for a V7 Riser record, so `finalServiceReport.ts:885` always throws. Accepted Detail's own
+validator (`validateAcceptedDryWetRiserV7Detail` in
+[`apps/api/src/inspections/acceptedMasterSystemDetail.ts:353`](apps/api/src/inspections/acceptedMasterSystemDetail.ts:353))
+already does this correctly and is the pattern to mirror. No `finalServiceReport.integration.test.ts`
+case exercises Dry/Wet Riser at all, which is why this was never caught — STEP 1.4's own proof
+(`dry-wet-riser-v7-offline.html/.spec.ts`) stops at Accepted and never calls Final Report. **This
+likely affects any already-accepted production job with a V7 Dry/Wet Riser inspection that reaches
+Complete Service** (not checked against runtime data — out of scope for this recheck). Not fixed;
+left for the owner to prioritize. The demo job above is left closed/read-only as a live repro —
+harmless, and the underlying data is valid, so a code fix alone (no migration, no data change)
+resolves it retroactively.
+
+Also found and fixed, in the same pass: the **"Remark \*" required-indicator never renders** for
+any V7 finding needing Not Good/Complete Repair — [`RemarksField.tsx:72-76`](apps/web/src/inspectionControls/RemarksField.tsx:72)
+ignores the `label` prop whenever `systemKey` is set (always, in practice), always showing plain
+"Remark". Submission is still correctly blocked without a remark (verified via the submit-gate
+error text), so this is cosmetic/UX only, not a data-integrity bug — technicians just get no
+advance visual cue. Not fixed; flagged for the owner.
+
+**G7 (4-state browser sanity) — steps 1–2 confirmed, step 3 confirmed for Fire Alarm, step 4
+blocked by the new P0 above.** Live-tested on `https://localhost/` as `technician-demo`: Good/N.A.
+correctly hide the remark+photo widgets, Not Good/Complete Repair correctly reveal them; the G7
+duplicate-photo guard fired exactly as documented (*"This photo is already attached to
+charger_batteries.charger_battery_checks.battery. Each finding needs its own photo."*); Fire
+Alarm's Accepted Detail rendered the 4-state labels correctly and the `/api/v7-evidence/accepted`
+manifest returned `200`. Could not reach the PDF-embedding step (step 4) for *this* job because
+Dry/Wet Riser blocks Final Report — the mechanism itself remains covered by
+`fireAlarmV7.integration.test.ts`'s own PDF-embed case (not independently re-run this session; see
+below). **Fire Intercom Sol verdict — CONFIRMED SAFE, closing the long-open §6a line.** Reviewed
+`0e17c74` against the server's `validResponses()`: client/server key-literal parity confirmed
+word-for-word, no drift since September. `test:v7-fire-intercom-submit` 23/23 (incl. all 5 "Sol
+P1" regression cases), `acceptedMasterSystemDetail.fireIntercomV7.test.ts` 6/6,
+`fireIntercomV7.integration.test.ts` 12/12 on fresh disposable PostgreSQL, both typecheck/build
+clean, DO-NOT-MODIFY list clean, V1–V6 byte-identical to `e30c649`. P0: 0, P1: 0, NEW DEFECTS: N
+(aside from the two above, both outside Fire Intercom's own scope). SAFE TO COMMIT: Y (already
+committed).
+
+**Process note:** two background disposable-Postgres test runs (covering CO2/Wet
+Chemical/Fire Alarm/Smoke Ventilation/Fire Intercom + PDF embedding together) were accidentally
+started overlapping each other against the same disposable DB and hung; killing them was correctly
+blocked by the harness's workload-safety guard, so they were left running rather than force-killed.
+Their result was never obtained, but the live-runtime walkthrough above independently confirms the
+same ground for Fire Alarm. Docker Desktop was started this session (it restored the
+`inspection_pwa-*` runtime compose stack automatically); a separate disposable Postgres container
+(`phase8f-v7-verify`, port 55432) was used for all integration-test runs, per the standing rule
+never to point tests at the runtime database.
+
+**Last updated:** 2026-09-29 — **Paused pending client domain and confirmations; resume around 2026-10-06.**
+Current code is at `18e9895` on `phase-8e-client-demo-polish`; the working tree was clean before
+this status note. All 12 listed services have an implemented V7 path (Portable Fire Extinguisher
+is registration-only by design). Location-format reuse for the seven repeatable-row systems is
+committed and reviewed, including Supervisor approval, concurrent merge protection, and frozen
+historical row shapes. The latest API/web builds, historical/V6/V7 and focused integration
+suites, and relevant browser regression tests passed on 2026-09-29. These are development
+checks, not a production-domain, physical-phone, or installed-PWA acceptance claim.
+
+**Waiting on client/owner input:** the production domain and its DNS control; the client's
+public-IP/router/reverse-proxy and production-credential details; confirmation of FM200 against
+the client's source format; sign-off on the provisional Final Report condition mapping and
+Roller Shutter PDF/paper interpretation; and the backup retention/off-device-copy policy.
+The owner may bring other confirmations when returning. Until then, do not infer production
+HTTPS readiness from the interim local/tunnel tests. On return, confirm these inputs, review
+the fresh PDF with the client, then run the Phase 9 deployment and real-device/offline
+acceptance gates before release. See §4–§5 for the longer-standing backlog.
+
+**Internal follow-ups (no client input needed, not yet confirmed closed):** the §4 "Outstanding
+owner check — 4-state browser sanity" checklist (G7) and the Fire Intercom final Sol review
+verdict (§6a) were still open as of early September and were never explicitly marked closed
+despite a lot of overlapping browser-proof work since. Recheck whether they're already covered
+before re-running them from scratch — see the note in §1.
+
 **Last updated:** 2026-09-29 — **Location-format reuse baseline review and migration disposition.**
 The completed feature and review fixes are in `d8510cc`. A clean `0024707` source archive,
 run against fresh disposable PostgreSQL with the installed Chromium path, passed
@@ -2479,6 +2565,21 @@ Hydrant STEP 1.1 (`81db211`), Hose Reel STEP 1.2 (`efef275`) and Automatic Sprin
 
 ## 1. One-line status
 
+**Pause snapshot (2026-09-29):** Code head `18e9895`; awaiting client domain and the
+confirmations listed at the top of this file. The current implementation covers 12/12 listed
+services; location-format reuse and its review fixes are committed. Next work is client
+confirmation, fresh PDF visual sign-off, then production HTTPS and physical-phone/offline
+acceptance. Earlier deployment/build notes below are historical and do not certify the new
+feature on the client's production domain.
+
+**Superseded — see the pause snapshot above and §6a for current status.** The "10 of 12" count
+and the "next: G7 browser sanity, then Fire Intercom Sol pass" line below are from early
+September and predate FM200, Roller Shutter, and the full Phase 2 location-format work; §6a's
+service table (12/12, updated 2026-09-29) is the current source of truth. **Both G7 and the Fire
+Intercom Sol pass were rechecked and closed 2026-10-07** (see the 2026-10-07 note at the very top
+of this file) — the recheck also turned up a new P0 (Dry/Wet Riser blocks Final Report, P0-FR1 in
+§4) and a cosmetic P2 (missing "Remark \*" indicator, P2-RM1 in §4).
+
 **10 of 12 services on the V7 evidence model** — 9 with a full evidence workflow (Fire Alarm, CO2,
 Wet Chemical, Hydrant, Hose Reel, Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire
 Intercom), plus Portable Fire Extinguisher (registration-only by design, C4). All committed and
@@ -2727,6 +2828,8 @@ Sol-re-reviewed on `ecc3e34`, behaviour PASS (0 P0 / 0 P1; 154 tests, 0 skip); s
 
 | # | Gap | Impact | Where |
 |---|-----|--------|-------|
+| P0-FR1 | **OPEN 2026-10-07.** Final Report / PDF generation always fails (`409 FINAL_REPORT_DATA_INVALID`, `"Required accepted inspection history is unavailable for Dry / Wet Riser System."`) for any completed job containing a V7 Dry/Wet Riser inspection. `validHistoricalUnit()`'s `v7Suppression` allowlist omits `dry_wet_riser` (every other V7 system is listed) and there is no dedicated `dry_wet_riser` + `schemaVersion === 2` branch, unlike Hydrant/Hose Reel/Automatic Sprinkler. Confirmed live end-to-end on `SV-20260909-42`. Accepted Detail's own validator (`validateAcceptedDryWetRiserV7Detail`) already does this correctly and is the pattern to mirror. No migration/data fix needed — read-path only. Likely affects existing accepted production jobs with V7 Riser that reach Complete Service (not checked against runtime data). | Final Report / PDF unusable for any job with a V7 Dry/Wet Riser inspection. | `apps/api/src/reports/finalServiceReport.ts:366` (allowlist), `:396-425` (sibling systems' pattern to mirror); reference validator at `apps/api/src/inspections/acceptedMasterSystemDetail.ts:353` |
+| P2-RM1 | **OPEN 2026-10-07.** The "Remark \*" required-indicator never renders for a V7 finding needing `Not Good`/`Complete Repair` — `RemarksField.tsx` ignores its `label` prop whenever `systemKey` is set (always), always showing plain "Remark". Submission is still correctly blocked without a remark (server + client gate both enforce it); this is a missing visual cue only. | Technician gets no advance warning a remark is required until Submit is rejected. | `apps/web/src/inspectionControls/RemarksField.tsx:70-78` |
 | ~~P0-M1~~ | **CLOSED 2026-09-06 — committed (`4eee41e` + `07a859b`), deployed image rebuilt, API verified `Up` (`restarts=0`, health `200`, migrate + seed clean).** The forward-only replay guards cleared the `23514`; the rebuild then surfaced the `023`/`024` legacy-source drift one step later in the post-migration seed, fixed by re-homing V7 definition publication to the seed with a guarded `ON CONFLICT DO UPDATE` (§5). Postgres / proxy never touched; runtime DB never queried or mutated. Was: `runMigrations` replayed every migration unconditionally, and `018` — plus `021`–`026` — each re-`ADD` the evidence `system_key` CHECK narrowed to the systems known when it was written. `ALTER TABLE … ADD CONSTRAINT … CHECK` re-validates existing rows, so any database holding a reservation for a system newer than that migration's list aborted startup with `23514` before a downstream migration could re-widen. Pre-existing since `81db211` (STEP 1.1, `021` introduced `hydrant`). Confirmed live: `inspection_pwa-api-1` = `Restarting (1)`, API log `23514` on `inspection_evidence_reservations_system_key_check` at `runMigrations` (`dist/db/migrations.js:202`). **Fix:** `018` replays only when the `staged_inspection_evidence_master_template_version_check` marker it sets is absent (the guard that already gates `017`). `021`–`025` replay only while the schema has not reached `026` at all; `026` — the only one of the six carrying the full nine-system list — replays whenever the two `system_key` CHECKs do not both list `fire_intercom`, and is the reconciliation step for a fresh install, a part-way rollout, or two CHECKs drifted apart. Predicate `evidenceSystemKeyCheckListsKey(key, "both" | "either")` inspects **both** evidence CHECKs with a literal `position()` match (no `LIKE` wildcards); `021`–`025` are additionally gated on `evidenceRowExistsForSystemOutside` so a database with both CHECKs hand-dropped still reconciles via `026` — both hardened after Sol review rounds 1–2. A fresh DB runs all of them; a deployed DB runs none. `017`/`018` byte-frozen; no runtime DB touched. Recovered by rebuilding + recreating the API container (`docker compose build api && docker compose up -d`) — code fix, not a DB change. Proof: `migrationReplayForwardOnly.integration.test.ts` (6 cases; case 1 fails pre-fix, case 3 fails the round-1 predicate, case 4 fails the round-2 code, case 5 — the 023/024 drift heal — fails against the pre-`DO UPDATE` seed). | Deployed API restart no longer fatal — verified `Up` on the `07a859b` image. | `apps/api/src/db/migrations.ts:83-168` (helpers), `:388-418` (guards); `apps/api/src/db/seedMasterServiceReport.ts:454-467` (drift fix); `apps/api/src/db/migrationReplayForwardOnly.integration.test.ts` |
 | ~~G2~~ | **CLOSED 2026-09-03.** Full browser workflow proven for Fire Alarm + CO2 + Wet Chemical V7 on `SV-20260903-34`: 3-state, Poor+own remark+own photo, Save Draft → reload → offline Submit → reconnect → Sync → Accepted → Accepted Detail → photo → Complete Service → Final Report → PDF with 3 embedded images. Stale Poor→Good evidence correctly excluded. Historical CO2 V1 / Wet Chemical V4 unchanged (2-state). | — | — |
 | ~~G3~~ | **CLOSED.** All V7 work through C1-REWORK committed (`d7ecc0d`). | — | — |
@@ -3141,7 +3244,7 @@ then the repo is self-describing.
 | Portable Fire Extinguisher | ✅ confirmed | ✅ **n/a by design (C4)** — confirmed working on V7 with zero code changes, browser + integration proven | — |
 | FM200 | ⚠️ source-format confirmation pending | ✅ implemented | Confirm against the client's source document before final sign-off |
 | Smoke Ventilation | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 9-case DB proven, committed `ade85f6`) | — |
-| Fire Intercom | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 12-case DB proven) | Sol pass |
+| Fire Intercom | ✅ confirmed (V7-only) | ✅ **done** (4-state, browser + 12-case DB proven) | — (Sol pass closed 2026-10-07, SAFE TO COMMIT: Y) |
 | Fire Rated Roller Shutter | ✅ four digital choices confirmed; paper `/` deferred | ✅ implemented, browser and disposable-PostgreSQL tested | Fresh-PDF visual sign-off and physical-phone acceptance remain |
 
 Current V7 code includes **12 / 12 listed services**, including the independent FM200
@@ -3152,6 +3255,19 @@ visual sign-off on a regenerated PDF and release-level phone acceptance remain o
 remains a documentation/confirmation question, not a missing runtime form.
 
 ## 7. Change log
+
+- 2026-10-07 — **G7 / Fire Intercom Sol recheck — found P0-FR1 (Dry/Wet Riser blocks Final
+  Report) and P2-RM1 (missing "Remark \*" indicator).** No code changed — investigation and
+  live-runtime verification only. Fire Intercom Sol verdict closed (SAFE TO COMMIT: Y, already
+  committed, 0 P0/P1). G7 steps 1-2 confirmed live on `https://localhost/`; step 4 blocked by the
+  newly found P0. Full details, repro, and fix pointers in the 2026-10-07 note at the top of this
+  file and in §4 (P0-FR1, P2-RM1). Demo job `SV-20260909-42` left closed/read-only as a live repro
+  of P0-FR1 — harmless, no production data touched.
+
+- 2026-09-29 — **Project pause snapshot.** Recorded commit `18e9895`, the verified
+  location-format reuse status, outstanding client domain/infrastructure and format/report/
+  backup confirmations, and the Phase 9 release checks to run when the owner returns in
+  about one week. Documentation only; no production configuration or runtime data changed.
 
 - 2026-09-29 — **Baseline review proof and migration disposition.** Extracted `0024707`
   with `git archive` into a disposable checkout without stash, branch changes, or runtime-data
