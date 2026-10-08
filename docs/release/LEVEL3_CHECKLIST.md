@@ -22,13 +22,42 @@ HTTP inside) → web assets + `/api` → API → PostgreSQL on the private netwo
 
 ---
 
+## Local verification checkpoint — 2026-10-08 (development stack only)
+
+Build `build-20261008T150537Z`, release `sha256-e66944cf3f89e348`, source HEAD `7c4c092`
+plus uncommitted changes. **Client handover: NOT YET.** These ticks describe the local pass;
+the production gates below remain open. The physical WebAPK uses USB `http://localhost:8081`,
+not the production HTTPS hostname. [Full evidence and reproduction](../testing/RELEASE_LOCATION_VERIFICATION.md).
+
+| Local check | Status | Evidence / limit |
+|-------------|--------|------------------|
+| Web/API typecheck and both builds | ☑ | Host builds and final Docker proxy build pass. |
+| Full configured Playwright; web Node; rejection script | ☑ | 188/188; 371/371; 5/5. Separate live accepted-detail gate 2/2. Zero skips. |
+| Full API/Node regression against disposable PostgreSQL | ⛔ | 519 total, 507 pass, 12 fail, zero skips; four pre-existing fixture failures reproduced fresh/sequentially (I-32). |
+| Historical baseline exception inspected | ☑ | Only two V6 uploader type/comparison lines from `10f3bbb`; owner reconciliation pending. Other protected historical paths unchanged. |
+| Web/proxy-only deployment and build identity | ☑ | Current index/SW assets and phone agree on `150537Z`; API source hashes match host build. |
+| Local health and security headers | ☑ | Health-Check.ps1 and check-security-headers.mjs pass on local HTTPS. No production certificate/HSTS claim. |
+| API/PostgreSQL unchanged; data survives proxy recreation | ☑ | Container IDs/start times/restart counts unchanged; customer/job/proposal/decision counts unchanged across deployment. No API/PG restart rehearsal. |
+| Physical phone L-1/L-2 and offline round trip | ☑ | Draft reload/navigation/force-close; Pending offline reload/force-close; reconnect confirms exactly one server row for submitted UUID. Failed after 503 + reload; Synced after re-entry. |
+| Physical phone L-3 and manager decisions | ☑ | Specific local errors send zero PUT; real 400 appears above Save; own readable proposals approved/rejected. Legacy row Rejected, not deleted; older unrelated readable Pending row retained. |
+| Physical phone smoke and test cleanup | ☑ | Login/home/draft, real typing persisted to IndexedDB, header observed; own temporary local data and active location removed. Audit decisions remain. |
+| Owner's L-4 non-blocking warning | ☑ | Two browser cases fail before/pass after; three Node tests; phone plus 360/768/1280 layout checks. Technician compares frozen visit data. |
+| git diff --check | ☑ | Pass; no staging or Git mutation. |
+| Production phone HTTPS, camera, API/PG restart, backup/restore and PC reboot | ☐ | Not performed in this pass; use production checklist below. |
+
+Still open: I-31 pre-existing direct cross-job proposal-route crash; I-32 API fixture gate;
+L-5–L-8 and E-1 deferred checks; E-2 email retry acknowledgement. Owner decisions remain:
+corrected-visit PDF support (currently blocked), Supervisor correction rights (currently both
+Admin and Supervisor), no password-reset feature/recovery procedure, and historical V6 baseline exception.
+No P0/P1 introduced by the verified location changes was identified.
+
 ## 0. Go / no-go gates (before touching production)
 
 | # | Gate | Who | Status | Evidence |
 |---|------|-----|--------|----------|
 | 0.1 | Release candidate is a **clean, committed** revision on the agreed branch; note the commit id and tag it (e.g. `release-YYYYMMDD`) so a rollback target exists. No uncommitted or unmerged changes on the client PC checkout. | Owner | ☐ | |
 | 0.2 | No open **P0/P1** in the register; any open P2 is documented and owned by a later phase (`PHONE_TESTING_STATUS.md` §5/§8). | Both | ☐ | |
-| 0.3 | Level 1/2 gates green on that commit: web + API typecheck, web build, Node suites, the V7/V6 integration suites against the **disposable** Postgres (127.0.0.1:55432 only), full Playwright (last baseline **185 pass / 0 fail**, one known load-related flake `manager-supervisor` T3 that passes alone), `git diff --check`. | Agent | ☐ | |
+| 0.3 | Level 1/2 gates green on that commit: web + API typecheck, web build, Node suites, the V7/V6 integration suites against the **disposable** Postgres (127.0.0.1:55432 only), full Playwright, `git diff --check`. | Agent | ⛔ | Local 2026-10-08: Playwright **188/188** (prior baseline 185), separate live specs 2/2; API **507 pass / 12 fail** (I-32). Candidate remains uncommitted; full gate not green. |
 | 0.4 | Production secrets prepared **outside Git**: unique `POSTGRES_PASSWORD` (same value URL-encoded in `DATABASE_URL`), session/cookie secrets, `CLOUDFLARE_TUNNEL_TOKEN`, reminder e-mail credentials if used. Nothing from `.env` committed (`git status` shows no `.env`). | Owner | ☐ | |
 | 0.5 | Client has accepted in writing: they own the domain, Cloudflare account and renewals; Cloudflare Tunnel free tier has **no uptime SLA** (accepted trade-off). | Owner | ☐ | |
 | 0.6 | Production database starts **empty** (no demo customers/visits, no demo accounts such as the test technician/manager/supervisor logins). Demo data stays on the dev machine. | Owner | ☐ | |

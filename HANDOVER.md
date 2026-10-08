@@ -3,6 +3,39 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
+**Last updated:** 2026-10-08 — **Local release verification and owner-selected L-4 warning.**
+Deployed web/proxy build `build-20261008T150537Z`, release `sha256-e66944cf3f89e348`;
+API/PostgreSQL containers were unchanged. Physical installed-PWA checks closed L-1/L-2/L-3:
+draft recovery, offline Pending recovery through force-close, exactly-one-UUID sync, admin
+validation/refusal placement, and readable proposal approval/rejection. L-4 now warns about
+duplicate display names without blocking; tests failed before and pass after implementation.
+Both typechecks/builds, 188 Playwright, 2 live accepted-detail specs, 371 web Node tests and
+5 rejection-script tests pass. Full API run is **507 pass / 12 fail / 519**, zero skips:
+four pre-existing fixture failures reproduced against fresh disposable PostgreSQL (I-32).
+Pre-existing direct cross-job proposal-route crash I-31 is documented, not fixed.
+**Client handover: NOT YET** — regression gate, I-31 and production/owner acceptance remain open.
+See [complete evidence, cleanup and commit/ignore inventory](docs/testing/RELEASE_LOCATION_VERIFICATION.md),
+[phone register](docs/testing/PHONE_TESTING_STATUS.md) and
+[production checklist/local verification](docs/release/LEVEL3_CHECKLIST.md).
+No client-document edits, staging or other Git mutations in this pass.
+
+**Earlier checkpoint:** 2026-10-08 — **Prompt B: legacy proposal disposition and client documentation.**
+Owner confirmed proposal `678f1e17-34b2-42f5-9674-2bd8d0392524` is demo debris and authorized rejection only.
+The dry-run-default [one-off script](scripts/reject-legacy-location-proposal.mjs) ran with explicit `--apply`
+through the existing authenticated API as admin `mobiletest`; no proposal deletion, payload update,
+validator change, schema change or new endpoint. Full before/after output is preserved in
+[the rejection report](docs/testing/LEGACY_PROPOSAL_REJECTION.json). Pending is clear in the built-in
+browser; Rejected retains the unreadable submission summary by design. Focused script, route,
+parser/browser tests and both typechecks pass; readable-proposal fixtures were browser-local and
+cleaned up with their test contexts (no extra runtime proposals).
+[Evidence policy](docs/client/EVIDENCE_POLICY.md) and [client user guide](docs/client/USER_GUIDE.md)
+describe actual behavior and mark unverified/setup steps `[CONFIRM]`. Current V7 is four-state;
+both Admin and Supervisor can append audited corrections; corrected reports currently block PDF
+download. Password reset has no implemented UI. See [scope/gates/limitations](docs/testing/PROMPT_B_REPORT.md).
+The other chat's email/location verification files and edits are outside this task and preserved.
+No staging or other Git mutation. Client deployment, phone install/offline acceptance and marked
+handover confirmations remain separate gates.
+
 **Last updated:** 2026-10-07 — **G7 / Fire Intercom Sol recheck — found a new P0: Final Report is
 broken for any job containing a V7 Dry/Wet Riser inspection.** Confirmed live on the runtime
 (`docker compose`, not touched otherwise) with the demo job `SV-20260909-42` (Demo V7 Shared
