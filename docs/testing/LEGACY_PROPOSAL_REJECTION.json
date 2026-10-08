@@ -1,0 +1,162 @@
+{
+  "dryRun": {
+    "printed": [
+      "BEFORE\n{\n  \"id\": \"678f1e17-34b2-42f5-9674-2bd8d0392524\",\n  \"customerId\": \"1b8d0e5f-01ae-47f8-a9f6-17de087af9ad\",\n  \"customerDisplayName\": \"28/9/2026 All Services\",\n  \"systemKey\": \"fm200_fire_suppression\",\n  \"jobId\": \"f65398ea-b787-4560-bf22-e93f199cdbfe\",\n  \"submittedByUserId\": 439,\n  \"submittedBy\": \"Technician1\",\n  \"submittedByRole\": \"inspector\",\n  \"submittedAt\": \"2026-09-28T18:10:05.637Z\",\n  \"payload\": {\n    \"zones\": [\n      {\n        \"key\": \"54ad152f7e95\",\n        \"sortOrder\": 1,\n        \"displayName\": \"1\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"key\": \"3319d2416c98\",\n        \"zoneId\": \"54ad152f7e95\",\n        \"rowPreset\": {},\n        \"sortOrder\": 1,\n        \"displayName\": \"1\",\n        \"presetRowCount\": 3\n      }\n    ]\n  },\n  \"status\": \"pending\",\n  \"decision\": null\n}",
+      "AFTER\n{\n  \"id\": \"678f1e17-34b2-42f5-9674-2bd8d0392524\",\n  \"customerId\": \"1b8d0e5f-01ae-47f8-a9f6-17de087af9ad\",\n  \"customerDisplayName\": \"28/9/2026 All Services\",\n  \"systemKey\": \"fm200_fire_suppression\",\n  \"jobId\": \"f65398ea-b787-4560-bf22-e93f199cdbfe\",\n  \"submittedByUserId\": 439,\n  \"submittedBy\": \"Technician1\",\n  \"submittedByRole\": \"inspector\",\n  \"submittedAt\": \"2026-09-28T18:10:05.637Z\",\n  \"payload\": {\n    \"zones\": [\n      {\n        \"key\": \"54ad152f7e95\",\n        \"sortOrder\": 1,\n        \"displayName\": \"1\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"key\": \"3319d2416c98\",\n        \"zoneId\": \"54ad152f7e95\",\n        \"rowPreset\": {},\n        \"sortOrder\": 1,\n        \"displayName\": \"1\",\n        \"presetRowCount\": 3\n      }\n    ]\n  },\n  \"status\": \"pending\",\n  \"decision\": null\n}",
+      "DRY RUN: no decision sent; status and payload unchanged."
+    ],
+    "report": {
+      "after": {
+        "customerDisplayName": "28/9/2026 All Services",
+        "customerId": "1b8d0e5f-01ae-47f8-a9f6-17de087af9ad",
+        "decision": null,
+        "id": "678f1e17-34b2-42f5-9674-2bd8d0392524",
+        "jobId": "f65398ea-b787-4560-bf22-e93f199cdbfe",
+        "payload": {
+          "locations": [
+            {
+              "displayName": "1",
+              "key": "3319d2416c98",
+              "presetRowCount": 3,
+              "rowPreset": {},
+              "sortOrder": 1,
+              "zoneId": "54ad152f7e95"
+            }
+          ],
+          "zones": [
+            {
+              "displayName": "1",
+              "key": "54ad152f7e95",
+              "sortOrder": 1
+            }
+          ]
+        },
+        "status": "pending",
+        "submittedAt": "2026-09-28T18:10:05.637Z",
+        "submittedBy": "Technician1",
+        "submittedByRole": "inspector",
+        "submittedByUserId": 439,
+        "systemKey": "fm200_fire_suppression"
+      },
+      "before": {
+        "customerDisplayName": "28/9/2026 All Services",
+        "customerId": "1b8d0e5f-01ae-47f8-a9f6-17de087af9ad",
+        "decision": null,
+        "id": "678f1e17-34b2-42f5-9674-2bd8d0392524",
+        "jobId": "f65398ea-b787-4560-bf22-e93f199cdbfe",
+        "payload": {
+          "locations": [
+            {
+              "displayName": "1",
+              "key": "3319d2416c98",
+              "presetRowCount": 3,
+              "rowPreset": {},
+              "sortOrder": 1,
+              "zoneId": "54ad152f7e95"
+            }
+          ],
+          "zones": [
+            {
+              "displayName": "1",
+              "key": "54ad152f7e95",
+              "sortOrder": 1
+            }
+          ]
+        },
+        "status": "pending",
+        "submittedAt": "2026-09-28T18:10:05.637Z",
+        "submittedBy": "Technician1",
+        "submittedByRole": "inspector",
+        "submittedByUserId": 439,
+        "systemKey": "fm200_fire_suppression"
+      },
+      "mode": "dry-run",
+      "targetId": "678f1e17-34b2-42f5-9674-2bd8d0392524"
+    }
+  },
+  "apply": {
+    "printed": [
+      "BEFORE\n{\n  \"id\": \"678f1e17-34b2-42f5-9674-2bd8d0392524\",\n  \"customerId\": \"1b8d0e5f-01ae-47f8-a9f6-17de087af9ad\",\n  \"customerDisplayName\": \"28/9/2026 All Services\",\n  \"systemKey\": \"fm200_fire_suppression\",\n  \"jobId\": \"f65398ea-b787-4560-bf22-e93f199cdbfe\",\n  \"submittedByUserId\": 439,\n  \"submittedBy\": \"Technician1\",\n  \"submittedByRole\": \"inspector\",\n  \"submittedAt\": \"2026-09-28T18:10:05.637Z\",\n  \"payload\": {\n    \"zones\": [\n      {\n        \"key\": \"54ad152f7e95\",\n        \"sortOrder\": 1,\n        \"displayName\": \"1\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"key\": \"3319d2416c98\",\n        \"zoneId\": \"54ad152f7e95\",\n        \"rowPreset\": {},\n        \"sortOrder\": 1,\n        \"displayName\": \"1\",\n        \"presetRowCount\": 3\n      }\n    ]\n  },\n  \"status\": \"pending\",\n  \"decision\": null\n}",
+      "AFTER\n{\n  \"id\": \"678f1e17-34b2-42f5-9674-2bd8d0392524\",\n  \"customerId\": \"1b8d0e5f-01ae-47f8-a9f6-17de087af9ad\",\n  \"customerDisplayName\": \"28/9/2026 All Services\",\n  \"systemKey\": \"fm200_fire_suppression\",\n  \"jobId\": \"f65398ea-b787-4560-bf22-e93f199cdbfe\",\n  \"submittedByUserId\": 439,\n  \"submittedBy\": \"Technician1\",\n  \"submittedByRole\": \"inspector\",\n  \"submittedAt\": \"2026-09-28T18:10:05.637Z\",\n  \"payload\": {\n    \"zones\": [\n      {\n        \"key\": \"54ad152f7e95\",\n        \"sortOrder\": 1,\n        \"displayName\": \"1\"\n      }\n    ],\n    \"locations\": [\n      {\n        \"key\": \"3319d2416c98\",\n        \"zoneId\": \"54ad152f7e95\",\n        \"rowPreset\": {},\n        \"sortOrder\": 1,\n        \"displayName\": \"1\",\n        \"presetRowCount\": 3\n      }\n    ]\n  },\n  \"status\": \"rejected\",\n  \"decision\": {\n    \"id\": \"b4dbed42-6e58-4869-8d7b-1e075a38d864\",\n    \"decision\": \"rejected\",\n    \"note\": \"Owner-approved demo cleanup: legacy FM200 proposal contains generic zone/location names \\\"1\\\", three empty preset rows, and no active FM200 configuration. Original payload preserved; no deletion.\",\n    \"decidedBy\": \"mobiletest\",\n    \"decidedByRole\": \"admin\",\n    \"decidedAt\": \"2026-10-08T14:18:59.327Z\",\n    \"sequence\": 1,\n    \"requestId\": \"c8193b36-4aee-4935-a453-3e0b5db3a247\",\n    \"resultingRevisionId\": null\n  }\n}",
+      "Confirmed rejected; original immutable payload preserved."
+    ],
+    "report": {
+      "after": {
+        "customerDisplayName": "28/9/2026 All Services",
+        "customerId": "1b8d0e5f-01ae-47f8-a9f6-17de087af9ad",
+        "decision": {
+          "decidedAt": "2026-10-08T14:18:59.327Z",
+          "decidedBy": "mobiletest",
+          "decidedByRole": "admin",
+          "decision": "rejected",
+          "id": "b4dbed42-6e58-4869-8d7b-1e075a38d864",
+          "note": "Owner-approved demo cleanup: legacy FM200 proposal contains generic zone/location names \"1\", three empty preset rows, and no active FM200 configuration. Original payload preserved; no deletion.",
+          "requestId": "c8193b36-4aee-4935-a453-3e0b5db3a247",
+          "resultingRevisionId": null,
+          "sequence": 1
+        },
+        "id": "678f1e17-34b2-42f5-9674-2bd8d0392524",
+        "jobId": "f65398ea-b787-4560-bf22-e93f199cdbfe",
+        "payload": {
+          "locations": [
+            {
+              "displayName": "1",
+              "key": "3319d2416c98",
+              "presetRowCount": 3,
+              "rowPreset": {},
+              "sortOrder": 1,
+              "zoneId": "54ad152f7e95"
+            }
+          ],
+          "zones": [
+            {
+              "displayName": "1",
+              "key": "54ad152f7e95",
+              "sortOrder": 1
+            }
+          ]
+        },
+        "status": "rejected",
+        "submittedAt": "2026-09-28T18:10:05.637Z",
+        "submittedBy": "Technician1",
+        "submittedByRole": "inspector",
+        "submittedByUserId": 439,
+        "systemKey": "fm200_fire_suppression"
+      },
+      "before": {
+        "customerDisplayName": "28/9/2026 All Services",
+        "customerId": "1b8d0e5f-01ae-47f8-a9f6-17de087af9ad",
+        "decision": null,
+        "id": "678f1e17-34b2-42f5-9674-2bd8d0392524",
+        "jobId": "f65398ea-b787-4560-bf22-e93f199cdbfe",
+        "payload": {
+          "locations": [
+            {
+              "displayName": "1",
+              "key": "3319d2416c98",
+              "presetRowCount": 3,
+              "rowPreset": {},
+              "sortOrder": 1,
+              "zoneId": "54ad152f7e95"
+            }
+          ],
+          "zones": [
+            {
+              "displayName": "1",
+              "key": "54ad152f7e95",
+              "sortOrder": 1
+            }
+          ]
+        },
+        "status": "pending",
+        "submittedAt": "2026-09-28T18:10:05.637Z",
+        "submittedBy": "Technician1",
+        "submittedByRole": "inspector",
+        "submittedByUserId": 439,
+        "systemKey": "fm200_fire_suppression"
+      },
+      "mode": "apply",
+      "targetId": "678f1e17-34b2-42f5-9674-2bd8d0392524"
+    }
+  }
+}
