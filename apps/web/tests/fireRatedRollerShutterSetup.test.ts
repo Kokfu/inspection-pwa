@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
-  newTechnicianShutterRow, parseShutterCount, parseZonePlan, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, zoneNameTaken, type ZonePlan
+  newTechnicianShutterRow, parseShutterCount, parseZonePlan, defaultCollapsedKeys, renameTechnicianZone, rollerShutterSetupStep, shutterRowComplete, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type ZonePlan
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
 
@@ -198,4 +198,38 @@ test("a zone-only change makes the layout differ; a missing heading equals a bla
   assert.equal(layoutDiffersFrom(saved, [{ assetReference: "A", locationText: "L", zoneText: "Zone 2" }]), true);
   assert.equal(layoutDiffersFrom(saved, [{ assetReference: "A", locationText: "L" }]), true);
   assert.equal(layoutDiffersFrom([{ assetReference: "A", locationText: "L" }], [{ assetReference: "A", locationText: "L", zoneText: "" }]), false);
+});
+
+// ---- I-35: collapsible zone groups ------------------------------------------------------------------
+
+const noPhoto = () => false;
+const done = (row: FireRatedRollerShutterRow): FireRatedRollerShutterRow => ({ ...row, locationText: row.locationText || "Gate", autoAlarmModeResult: "good", manualModeResult: "na" });
+
+test("a shutter is complete only with a location, both results, and each finding's own remark and photo", () => {
+  const base = zonedRow(1, "A");
+  assert.equal(shutterRowComplete(base, noPhoto), false, "no results yet");
+  assert.equal(shutterRowComplete(done(base), noPhoto), true);
+  assert.equal(shutterRowComplete({ ...done(base), locationText: "  " }, noPhoto), false, "blank location");
+  assert.equal(shutterRowComplete({ ...done(base), manualModeResult: null }, noPhoto), false, "one result missing");
+  const finding = { ...done(base), autoAlarmModeResult: "not_good" as const };
+  assert.equal(shutterRowComplete(finding, () => true), false, "finding without a remark");
+  const remarked = { ...finding, fieldRemarks: { autoAlarmModeResult: "Motor failed" } };
+  assert.equal(shutterRowComplete(remarked, noPhoto), false, "finding without a photo");
+  assert.equal(shutterRowComplete(remarked, (uuid, wire) => uuid === remarked.rowUuid && wire === "auto_alarm_mode"), true);
+  assert.equal(shutterRowComplete(remarked, (_uuid, wire) => wire === "manual_mode"), false, "a photo for the other column does not count");
+  assert.equal(shutterRowComplete({ ...remarked, autoAlarmModeResult: "complete_repair" }, () => true), true, "Complete Repair is a finding too");
+  assert.equal(shutterRowComplete({ ...done(base), autoAlarmModeResult: "na" }, noPhoto), true, "N.A. needs no evidence");
+});
+
+test("zone progress counts complete shutters per group", () => {
+  const groups = zoneGroups([done(zonedRow(1, "A")), zonedRow(2, "A"), done(zonedRow(3, "B"))]);
+  assert.deepEqual(groups.map((group) => zoneProgress(group, noPhoto)), [{ total: 2, complete: 1 }, { total: 1, complete: 1 }]);
+});
+
+test("with two or more zones all but the first start collapsed; one zone has nothing to collapse", () => {
+  const several = zoneGroups([zonedRow(1, "A"), zonedRow(2, "B"), zonedRow(3, "C")]);
+  assert.deepEqual([...defaultCollapsedKeys(several)], [zoneGroupKey(several[1]!), zoneGroupKey(several[2]!)]);
+  assert.equal(defaultCollapsedKeys(zoneGroups([zonedRow(1, "A")])).size, 0);
+  assert.equal(defaultCollapsedKeys([]).size, 0);
+  assert.equal(zoneGroupKey(several[0]!), several[0]!.rows[0]!.rowUuid, "a group is identified by its first row, so renaming keeps it");
 });

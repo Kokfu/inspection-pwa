@@ -1,4 +1,4 @@
-import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "./fireRatedRollerShutterTypes";
+import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterResponses, type FireRatedRollerShutterRow } from "./fireRatedRollerShutterTypes";
 
 /** Server cap on Roller Shutter schedule rows (`validResponses`); also the cap on a saved layout. */
 export const maxShutterRows = 250;
@@ -100,6 +100,30 @@ export function zoneGroups(rows: readonly FireRatedRollerShutterRow[]): ShutterZ
     if (row.source === "configured") group.hasConfigured = true;
   }
   return groups;
+}
+
+/** Stable identity of a zone group on screen: its first row. Renaming a zone does not change it. */
+export const zoneGroupKey = (group: ShutterZoneGroup) => group.rows[0]!.rowUuid;
+
+/** A shutter is complete when it has a location, both results, and each finding (Not Good / Complete Repair)
+ *  has its own remark and photo. `hasPhoto` answers for one result column (wire key). */
+export function shutterRowComplete(row: FireRatedRollerShutterRow, hasPhoto: (rowUuid: string, wireKey: string) => boolean): boolean {
+  if (!row.locationText.trim()) return false;
+  return fireRatedRollerShutterRowColumns.every(([field, wireKey]) => {
+    const result = row[field];
+    if (result === null) return false;
+    return result !== "not_good" && result !== "complete_repair"
+      || ((row.fieldRemarks?.[field] ?? "").trim() !== "" && hasPhoto(row.rowUuid, wireKey));
+  });
+}
+
+export function zoneProgress(group: ShutterZoneGroup, hasPhoto: (rowUuid: string, wireKey: string) => boolean): { total: number; complete: number } {
+  return { total: group.rows.length, complete: group.rows.filter((row) => shutterRowComplete(row, hasPhoto)).length };
+}
+
+/** Which zone groups start collapsed: with two or more zones, all but the first (one zone shows no headings at all). */
+export function defaultCollapsedKeys(groups: readonly ShutterZoneGroup[]): ReadonlySet<string> {
+  return new Set(groups.length > 1 ? groups.slice(1).map(zoneGroupKey) : []);
 }
 
 const renumbered = (rows: FireRatedRollerShutterRow[]) => rows.map((row, index) => ({ ...row, sortOrder: index + 1 }));

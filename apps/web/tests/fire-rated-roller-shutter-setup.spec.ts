@@ -4,6 +4,8 @@ const inspect = (page: Page) => page.evaluate(() => (window as any).inspect());
 const start = (page: Page) => page.getByRole("button", { name: "Start Inspection" }).click();
 
 async function fillInspection(page: Page) {
+  const expand = page.getByRole("button", { name: "Expand all zones" });
+  if (await expand.count() && await expand.isEnabled()) await expand.click();
   await page.getByLabel("Date Tested").fill("2026-10-09");
   if (await page.getByLabel("Zone", { exact: true }).count()) await page.getByLabel("Zone", { exact: true }).fill("Zone 1");
   await page.getByLabel("Inspected By").fill("Inspector A");
@@ -86,6 +88,7 @@ test("submitting a first-visit zoned layout saves it for next visit automaticall
   await page.getByLabel("Number of zones").fill("2");
   await page.getByLabel("Locations in each zone").fill("2");
   await start(page);
+  await expandAll(page);
   await groupOf(page, "Zone 1").getByLabel("Zone name").fill("North Wing");
   const north = groupOf(page, "North Wing").locator(".hose-row-card");
   await north.nth(0).getByLabel("Asset Reference").fill("RS-A");
@@ -129,6 +132,7 @@ test("a saved zoned layout is confirmed with its zones, opens grouped and frozen
 test("a shutter can be added to a saved zone and a new zone added; the proposal lists rows grouped by zone", async ({ page }) => {
   await page.goto("/tests/fire-rated-roller-shutter-form.html?zoned=1");
   await start(page);
+  await expandAll(page);
   await page.getByRole("button", { name: "Add shutter to Zone 2" }).click();
   await expect(groupOf(page, "Zone 2").locator(".hose-row-card")).toHaveCount(2);
   await groupOf(page, "Zone 2").locator(".hose-row-card").nth(1).getByLabel("Location").fill("Gate");
@@ -241,4 +245,105 @@ test("Add Zone on a single unnamed zone names it Zone 1 and creates Zone 2", asy
   await page.getByRole("button", { name: "Add Zone" }).click();
   await expect(groupOf(page, "Zone 1").locator(".hose-row-card")).toHaveCount(1);
   await expect(groupOf(page, "Zone 2").locator(".hose-row-card")).toHaveCount(1);
+});
+
+const expandAll = async (page: Page) => {
+  const button = page.getByRole("button", { name: "Expand all zones" });
+  if (await button.count() && await button.isEnabled()) await button.click();
+};
+const zoneToggle = (page: Page, zone: string, state: "Show" | "Hide") => page.getByRole("button", { name: `${state} shutters in ${zone}`, exact: true });
+
+test("with several zones only the first is open; the others are collapsed with a progress count", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("3");
+  await page.getByLabel("Locations in each zone").fill("2");
+  await start(page);
+  await expect(zoneToggle(page, "Zone 1", "Hide")).toHaveAttribute("aria-expanded", "true");
+  await expect(zoneToggle(page, "Zone 2", "Show")).toHaveAttribute("aria-expanded", "false");
+  await expect(zoneToggle(page, "Zone 3", "Show")).toHaveAttribute("aria-expanded", "false");
+  await expect(groupOf(page, "Zone 1").locator(".hose-row-card").first()).toBeVisible();
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card").first()).toBeHidden();
+  await expect(groupOf(page, "Zone 2").getByText("0 of 2 complete")).toBeVisible();
+  await expect(page.locator(".hose-row-card")).toHaveCount(6);
+  // the zone name stays editable while its shutters are collapsed
+  await groupOf(page, "Zone 2").getByLabel("Zone name").fill("Warehouse");
+  await expect(groupOf(page, "Warehouse").getByText("0 of 2 complete")).toBeVisible();
+  await expect(groupOf(page, "Warehouse").locator(".hose-row-card").first()).toBeHidden();
+});
+
+test("a zone can be opened and closed, all zones can be expanded or collapsed, and the progress count follows the results", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("2");
+  await page.getByLabel("Locations in each zone").fill("2");
+  await start(page);
+  await expect(page.getByRole("button", { name: "Expand all zones" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Collapse all zones" })).toBeEnabled();
+  await zoneToggle(page, "Zone 2", "Show").click();
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Expand all zones" })).toBeDisabled();
+  await page.getByRole("button", { name: "Collapse all zones" }).click();
+  await expect(groupOf(page, "Zone 1").locator(".hose-row-card").first()).toBeHidden();
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card").first()).toBeHidden();
+  await expect(page.getByRole("button", { name: "Collapse all zones" })).toBeDisabled();
+  await page.getByRole("button", { name: "Expand all zones" }).click();
+  const first = groupOf(page, "Zone 1").locator(".hose-row-card").first();
+  await first.getByLabel("Location").fill("Lobby");
+  for (const name of ["Auto Alarm Mode result", "Manual Mode result"]) await first.getByRole("group", { name }).getByRole("button", { name: "Good", exact: true }).click();
+  await expect(groupOf(page, "Zone 1").getByText("1 of 2 complete")).toBeVisible();
+  await expect(groupOf(page, "Zone 2").getByText("0 of 2 complete")).toBeVisible();
+  await zoneToggle(page, "Zone 1", "Hide").click();
+  await expect(groupOf(page, "Zone 1").getByText("1 of 2 complete")).toBeVisible();
+  await expect(first).toBeHidden();
+  await zoneToggle(page, "Zone 1", "Show").click();
+  await expect(first.getByLabel("Location")).toHaveValue("Lobby");
+});
+
+test("a failed Submit opens the zones that still have unfinished shutters and leaves finished zones as they are", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("3");
+  await page.getByLabel("Locations in each zone").fill("1");
+  await start(page);
+  await expandAll(page);
+  await page.getByLabel("Date Tested").fill("2026-10-09");
+  await page.getByLabel("Inspected By").fill("Inspector A");
+  for (const zone of ["Zone 1", "Zone 3"]) {
+    const card = groupOf(page, zone).locator(".hose-row-card");
+    await card.getByLabel("Location").fill(`${zone} gate`);
+    for (const name of ["Auto Alarm Mode result", "Manual Mode result"]) await card.getByRole("group", { name }).getByRole("button", { name: "Good", exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Collapse all zones" }).click();
+  await page.getByRole("button", { name: "Submit Inspection" }).click();
+  await expect(page.getByText("Cannot submit yet")).toBeVisible();
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card")).toBeVisible();
+  await expect(groupOf(page, "Zone 1").locator(".hose-row-card")).toBeHidden();
+  await expect(groupOf(page, "Zone 3").locator(".hose-row-card")).toBeHidden();
+});
+
+test("a finding counts as complete only with its own remark and photo, and a single zone has no collapse controls", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await start(page);
+  await expect(page.getByRole("button", { name: /shutters in/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Expand all zones" })).toHaveCount(0);
+  await expect(page.locator(".zone-rows")).toBeVisible();
+  await page.getByRole("button", { name: "Add Zone" }).click();
+  await expandAll(page);
+  const card = groupOf(page, "Zone 1").locator(".hose-row-card");
+  await card.getByLabel("Location").fill("Gate");
+  await card.getByRole("group", { name: "Manual Mode result" }).getByRole("button", { name: "Good", exact: true }).click();
+  await card.getByRole("group", { name: "Auto Alarm Mode result" }).getByRole("button", { name: "Not Good" }).click();
+  await expect(groupOf(page, "Zone 1").getByText("0 of 1 complete")).toBeVisible();
+  await card.getByLabel("Auto Alarm Mode Remark *").fill("Motor failed");
+  await expect(groupOf(page, "Zone 1").getByText("0 of 1 complete")).toBeVisible();
+});
+
+test("the zone collapse controls fit phone, tablet and desktop widths with 44px targets", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html?zoned=1");
+  await start(page);
+  for (const width of [360, 768, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    for (const name of ["Expand all zones", "Collapse all zones", "Show shutters in Zone 2", "Hide shutters in Zone 1"]) {
+      expect((await page.getByRole("button", { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+  }
 });

@@ -10,7 +10,7 @@ import {
 } from "../jobs/technicianLocationProposalDraft";
 import { configuredFireRatedRollerShutterRows, submitIssues } from "./fireRatedRollerShutterRepository";
 import { FireRatedRollerShutterSetupPrompt } from "./FireRatedRollerShutterSetupPrompt";
-import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows, maxZoneTextLength, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, zoneNameTaken, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
+import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, defaultCollapsedKeys, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows, maxZoneTextLength, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterInspectionRecord, type FireRatedRollerShutterResponses, type FireRatedRollerShutterResult } from "./fireRatedRollerShutterTypes";
 import { isFireRatedRollerShutterV7EvidenceFinding, listFireRatedRollerShutterV7Photos, resolveFireRatedRollerShutterRowResultDefinitions, type FireRatedRollerShutterV7FieldPath } from "./fireRatedRollerShutterV7Evidence";
 
@@ -23,6 +23,8 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
   const [formatCorrections, setFormatCorrections] = useState<ShutterLayoutCorrections>({});
   const [layoutNote, setLayoutNote] = useState("");
   const [zoneNameNote, setZoneNameNote] = useState("");
+  // Which zone groups are collapsed. null = the default (all but the first); once the technician toggles one it is explicit.
+  const [collapsedKeys, setCollapsedKeys] = useState<ReadonlySet<string> | null>(null);
   // The pre-form step is decided once per record from its persisted content, then only ever cleared:
   // removing rows or editing while filling the form must never bring the prompt back.
   const [setup, setSetup] = useState<{ uuid: string; step: RollerShutterSetupStep | null }>(() => ({ uuid: record.clientUuid, step: record.syncStatus === "Draft" ? rollerShutterSetupStep(record.responses) : null }));
@@ -94,6 +96,14 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
   const groups = zoneGroups(responses.rows);
   const showZoneHeadings = zoned && (groups.length > 1 || (groups[0]?.zoneText ?? "") !== "");
   const configuredRows = responses.rows.filter((row) => row.source === "configured");
+  const hasPhoto = (rowUuid: string, wireKey: string) => evidenceFor(`roller_shutter_schedule.roller_shutter_schedule_rows.rows.${rowUuid}.${wireKey}`) !== undefined;
+  const collapsed: ReadonlySet<string> = showZoneHeadings ? (collapsedKeys ?? defaultCollapsedKeys(groups)) : new Set<string>();
+  const toggleZone = (key: string) => setCollapsedKeys(() => { const next = new Set(collapsed); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  /** A failed Submit opens every zone that still has unfinished shutters, so the problem is on screen. */
+  const openIncompleteZones = () => setCollapsedKeys(new Set([...collapsed].filter((key) => {
+    const group = groups.find((candidate) => zoneGroupKey(candidate) === key);
+    return !group || (() => { const progress = zoneProgress(group, hasPhoto); return progress.complete === progress.total; })();
+  })));
   const setCorrection = (rowUuid: string, change: { assetReference?: string; locationText?: string; zoneText?: string }) => {
     setFormatCorrections((current) => ({ ...current, [rowUuid]: { ...current[rowUuid], ...change } }));
     setFormatStatus("idle");
@@ -126,10 +136,22 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
     </fieldset>
     <fieldset disabled={readOnly}><legend>Roller Shutter Schedule</legend>
       {zoneNameNote ? <p className="form-message" role="status">{zoneNameNote}</p> : null}
+      {showZoneHeadings ? <div className="inline-actions">
+        <button type="button" className="secondary-command" disabled={collapsed.size === 0} onClick={() => setCollapsedKeys(new Set())}>Expand all zones</button>
+        <button type="button" className="secondary-command" disabled={groups.every((group) => collapsed.has(zoneGroupKey(group)))} onClick={() => setCollapsedKeys(new Set(groups.map(zoneGroupKey)))}>Collapse all zones</button>
+      </div> : null}
       {groups.map((group) => {
         const name = group.zoneText;
-        return <section className="location-group" key={group.rows[0]!.rowUuid} aria-label={showZoneHeadings ? `Zone ${name || "(unnamed)"}` : undefined}>
-          {showZoneHeadings ? <h3>{name || "Unnamed zone"}</h3> : null}
+        const key = zoneGroupKey(group);
+        const isCollapsed = collapsed.has(key);
+        const progress = zoneProgress(group, hasPhoto);
+        return <section className="location-group" key={key} aria-label={showZoneHeadings ? `Zone ${name || "(unnamed)"}` : undefined}>
+          {showZoneHeadings ? <div className="zone-header">
+            <h3>{name || "Unnamed zone"}</h3>
+            <span className="support-metadata">{progress.complete} of {progress.total} complete</span>
+            <button type="button" className="secondary-command" aria-expanded={!isCollapsed} aria-controls={`zone-rows-${key}`}
+              aria-label={`${isCollapsed ? "Show" : "Hide"} shutters in ${name || "unnamed zone"}`} onClick={() => toggleZone(key)}>{isCollapsed ? "Show shutters" : "Hide shutters"}</button>
+          </div> : null}
           {showZoneHeadings && !group.hasConfigured && !readOnly
             ? <label>Zone name<input maxLength={maxZoneTextLength} value={name} onChange={(event) => {
               const next = event.target.value;
@@ -137,8 +159,10 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
               setZoneNameNote("");
               setResponses((current) => renameTechnicianZone(current, name, next));
             }} /></label> : null}
-          {group.rows.map((row, index) => renderRow(row, index + 1))}
-          {!readOnly && zoned ? <button type="button" className="secondary-command" disabled={atRowLimit} onClick={() => setResponses((current) => addRowToZone(current, name))}>{showZoneHeadings ? `Add shutter to ${name || "this zone"}` : "Add Row"}</button> : null}
+          <div id={`zone-rows-${key}`} className="zone-rows" hidden={isCollapsed}>
+            {group.rows.map((row, index) => renderRow(row, index + 1))}
+            {!readOnly && zoned ? <button type="button" className="secondary-command" disabled={atRowLimit} onClick={() => setResponses((current) => addRowToZone(current, name))}>{showZoneHeadings ? `Add shutter to ${name || "this zone"}` : "Add Row"}</button> : null}
+          </div>
         </section>;
       })}
       {!readOnly && (!zoned || groups.length === 0) ? <button type="button" className="secondary-command" disabled={atRowLimit} onClick={addRow}>Add Row</button> : null}
@@ -151,7 +175,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       {!readOnly ? <div className="inline-actions"><button type="button" className="secondary-command" disabled={formatStatus === "saving"} onClick={() => void saveAsFormat()}>{formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}</button>{formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}{formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}{formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}</div> : null}
     </fieldset>
     <fieldset disabled={readOnly}><legend>Comments</legend><RemarksField label="Comments" definition={{ policy: "optional", maxLength: 4000 }} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} /></fieldset>
-    {!readOnly ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void onSaveDraft(responses).then(() => setMessage("Draft saved on this device.")).catch((error) => setMessage(error.message))}>Save Draft</button><button type="button" onClick={() => { setShow(true); if (!submitIssues(record, responses, photos).length) { const submitted = responses; void submitLocal().then(() => saveLayoutAfterSubmit(submitted)).catch((error) => setMessage(error.message)); } }}>Submit Inspection</button></div> : null}
+    {!readOnly ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void onSaveDraft(responses).then(() => setMessage("Draft saved on this device.")).catch((error) => setMessage(error.message))}>Save Draft</button><button type="button" onClick={() => { setShow(true); if (submitIssues(record, responses, photos).length) openIncompleteZones(); else { const submitted = responses; void submitLocal().then(() => saveLayoutAfterSubmit(submitted)).catch((error) => setMessage(error.message)); } }}>Submit Inspection</button></div> : null}
     </>}
   </section>;
 }
