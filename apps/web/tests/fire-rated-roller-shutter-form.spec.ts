@@ -3,10 +3,11 @@ import { expect, test } from "@playwright/test";
 test("roller shutter fields and buttons save a local draft then queue a complete inspection", async ({ page }) => {
   await page.goto("/tests/fire-rated-roller-shutter-form.html");
   await expect(page.getByRole("heading", { name: "Fire Rated Roller Shutter System" })).toBeVisible();
+  await page.getByLabel("Number of shutters").fill("1");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
   await expect(page.getByLabel("Date Tested")).toBeVisible();
   await expect(page.getByLabel("Zone", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Inspected By")).toBeVisible();
-  await page.getByRole("button", { name: "Add Row" }).click();
   await expect(page.locator(".hose-row-card")).toHaveCount(1);
   await page.getByRole("button", { name: "Add Row" }).click();
   await expect(page.locator(".hose-row-card")).toHaveCount(2);
@@ -42,6 +43,7 @@ test("roller shutter fields and buttons save a local draft then queue a complete
 test("configured shutter labels can be corrected for the next visit without changing the frozen inspection", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/tests/fire-rated-roller-shutter-form.html?configured=1");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
   await expect(page.getByLabel("Asset Reference", { exact: true })).toBeDisabled();
   await expect(page.getByLabel("Location", { exact: true })).toHaveValue("Old Lobby");
   await page.getByLabel("Shutter 1 format reference").fill("RS-02");
