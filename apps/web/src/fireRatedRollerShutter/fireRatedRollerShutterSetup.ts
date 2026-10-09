@@ -2,6 +2,8 @@ import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from 
 
 /** Server cap on Roller Shutter schedule rows (`validResponses`); also the cap on a saved layout. */
 export const maxShutterRows = 250;
+/** Longest zone heading. Mirrors `maxZoneTextLength` in `apps/api/src/inspections/locationConfiguration.ts` (parity-tested). */
+export const maxZoneTextLength = 200;
 
 /** One saved-layout row, exactly the shape the `update-format` proposal carries. `zoneText` is present
  *  only when the layout uses zone headings (all rows carry it, or none does). */
@@ -127,9 +129,15 @@ export function addZone(responses: FireRatedRollerShutterResponses): FireRatedRo
   return { ...current, rows: renumbered([...current.rows, { ...newTechnicianShutterRow(0), zoneText: `Zone ${number}` }]) };
 }
 
-/** Rename a technician-only zone. Configured rows keep their frozen heading, so a zone that holds one is left alone. */
+/** True when renaming zone `from` to `to` would merge it into a different existing zone. */
+export function zoneNameTaken(responses: FireRatedRollerShutterResponses, from: string, to: string): boolean {
+  return from !== to && responses.rows.some((row) => (row.zoneText ?? "") === to);
+}
+
+/** Rename a technician-only zone. Configured rows keep their frozen heading, so a zone that holds one is left alone,
+ *  and a name another zone already uses is refused (it would silently merge the two). */
 export function renameTechnicianZone(responses: FireRatedRollerShutterResponses, from: string, to: string): FireRatedRollerShutterResponses {
-  if (from === to || responses.rows.some((row) => row.source === "configured" && (row.zoneText ?? "") === from)) return responses;
+  if (from === to || zoneNameTaken(responses, from, to) || responses.rows.some((row) => row.source === "configured" && (row.zoneText ?? "") === from)) return responses;
   return { ...responses, rows: responses.rows.map((row) => row.source === "technician" && (row.zoneText ?? "") === from ? { ...row, zoneText: to } : row) };
 }
 

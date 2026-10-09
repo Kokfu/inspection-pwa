@@ -70,6 +70,23 @@ test("a configured row's zone heading must equal the frozen configuration", () =
   assert.ok(submitIssues(zonedInspection, tampered, []).some((issue) => issue.includes("zone does not match the frozen configuration")));
 });
 
+test("a schema-1 draft against a zoned preset is judged by the legacy reading, not stranded by the new labels", () => {
+  const legacy = (): FireRatedRollerShutterResponses => ({ schemaVersion: 1, dateTested: "2026-10-09", zone: "", inspectedBy: "A", rows: [{
+    rowUuid, source: "configured", configuredLocationId: locationId, configuredRowOrdinal: 1, zoneSnapshot: null,
+    locationSnapshot: { id: locationId, displayName: "General" }, assetReference: "", locationText: "General",
+    autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: 1
+  }], comments: "" });
+  assert.deepEqual(submitIssues(zonedInspection, legacy(), []), []);
+  const named = legacy(); named.rows[0]!.locationText = "Lobby"; named.rows[0]!.assetReference = "RS-01";
+  assert.ok(submitIssues(zonedInspection, named, []).some((issue) => issue.includes("does not match the frozen configuration")));
+});
+
+test("the web and API zone heading limits are the same number", async () => {
+  const { maxZoneTextLength: apiLimit } = await import("../../api/src/inspections/locationConfiguration");
+  const { maxZoneTextLength: webLimit } = await import("../src/fireRatedRollerShutter/fireRatedRollerShutterSetup");
+  assert.equal(webLimit, apiLimit);
+});
+
 test("schema 1 keeps its exact row key set and never carries zoneText", () => {
   const legacy = response(); (legacy.rows[0] as { zoneText?: string }).zoneText = "Zone 1";
   assert.ok(submitIssues(inspection, legacy, []).some((issue) => issue.includes("Shutter row shape is invalid")));

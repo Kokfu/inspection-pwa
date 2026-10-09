@@ -315,6 +315,14 @@ function commentsBlock(context: BuildContext, head: BlockHead, field: unknown): 
 
 type StructuredResult = { blocks: ReportBlock[]; remarks: Array<{ text: string; result: ReportResult }>; parts: Map<string, number>; comments: string[] };
 
+/** Roller Shutter schema 2 keeps its zones on the rows and leaves the header Zone blank; show the distinct
+ *  zone headings there so the page does not read as missing data. The stored response is never changed. */
+function displayResponse(systemKey: string, response: RecordValue): RecordValue {
+  if (systemKey !== "fire_rated_roller_shutter" || response.schemaVersion !== 2 || nonEmpty(response.zone) !== null || !Array.isArray(response.rows)) return response;
+  const zones = [...new Set(response.rows.filter(isRecord).map((row) => nonEmpty(row.zoneText)).filter((zone): zone is string => zone !== null))];
+  return zones.length > 0 ? { ...response, zone: zones.join(", ") } : response;
+}
+
 function structuredBlocks(section: FinalReportSection): StructuredResult | undefined {
   const source = section.source;
   const snapshot = source?.snapshot;
@@ -323,7 +331,7 @@ function structuredBlocks(section: FinalReportSection): StructuredResult | undef
     || !isRecord(source.response)) return undefined;
   const lookup = v7DisplayLabelLookup(section.systemKey, snapshot, source.frozenSystem)?.display;
   const context: BuildContext = {
-    systemKey: section.systemKey, response: source.response,
+    systemKey: section.systemKey, response: displayResponse(section.systemKey, source.response),
     label: (key, fallback) => lookup?.get(key) ?? fallback,
     located: 0, remarks: [], parts: new Map(), comments: new Map()
   };

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { pool } from "../db/pool.js";
 import type { PoolClient } from "pg";
 import { isV7EvidenceFinding, parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256, v7EvidenceManifestFailureMessage } from "../inspections/evidence/v7EvidenceContracts.js";
+import { maxZoneTextLength } from "../inspections/locationConfiguration.js";
 import { configuredFireRatedRollerShutterRowsMatch, expectedConfiguredFireRatedRollerShutterRows } from "./fireRatedRollerShutterInspectionSync.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 
@@ -72,7 +73,7 @@ function validResponses(responses: Value, rows: Map<string, Set<string>>) {
       || row.sortOrder !== index + 1 || row.zoneSnapshot !== null
       || typeof row.assetReference !== "string" || row.assetReference.length > 200
       || typeof row.locationText !== "string" || !row.locationText.trim() || row.locationText.length > 300
-      || (schemaVersion === 2 && (typeof row.zoneText !== "string" || row.zoneText.length > 200))
+      || (schemaVersion === 2 && (typeof row.zoneText !== "string" || row.zoneText.length > maxZoneTextLength))
       || typeof row.remarks !== "string" || row.remarks.length > 2000
       || !record(row.fieldRemarks)
       || Object.keys(row.fieldRemarks).some((key) => !rowColumns.some(([responseKey]) => responseKey === key))
@@ -166,7 +167,7 @@ export async function acceptFireRatedRollerShutterV7Inspection(item: SyncItem, a
     const contractSha256 = definition?.rows[0] ? v7EvidenceContractSha256(definition.rows[0].definition) : "";
     const adapter = definition?.rows[0] ? resolveV7EvidenceContract({ systemKey: "fire_rated_roller_shutter", templateId: payload.masterTemplate.id, templateVersion: 7, definition: definition.rows[0].definition, contractSha256 }) : undefined;
     const manifest = adapter ? parseV7EvidenceManifest(payload.evidenceManifest, adapter, payload.responses) : undefined;
-    const expectedRows = record(system) ? expectedConfiguredFireRatedRollerShutterRows(system) : undefined;
+    const expectedRows = record(system) ? expectedConfiguredFireRatedRollerShutterRows(system, payload.responses.schemaVersion) : undefined;
     if (!job || !configuration || !template || !record(system) || definition?.rowCount !== 1 || definition.rows[0]!.definition_status !== "confirmed" || !adapter
       || job.master_template_version_id !== payload.masterTemplate.id || job.customer_configuration_revision_id !== payload.configuration.revisionId
       || template.id !== payload.masterTemplate.id || template.code !== "MFE-FSSR" || template.version !== 7

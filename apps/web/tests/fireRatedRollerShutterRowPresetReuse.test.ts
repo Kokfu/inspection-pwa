@@ -48,7 +48,10 @@ test("a saved zoned layout pre-fills each row's zone heading for schema 2 and om
   ] });
   assert.deepEqual(configuredFireRatedRollerShutterRows(zoned).map((row) => [row.locationText, row.zoneText]), [["Lobby", "Zone 1"], ["Dock", "Zone 1"], ["Roof", "Zone 2"]]);
   assert.deepEqual(configuredFireRatedRollerShutterRows(zoned, 2).map((row) => row.zoneText), ["Zone 1", "Zone 1", "Zone 2"]);
-  assert.ok(configuredFireRatedRollerShutterRows(zoned, 1).every((row) => !("zoneText" in row)), "schema-1 rows carry no zoneText key");
+  const legacyRows = configuredFireRatedRollerShutterRows(zoned, 1);
+  assert.ok(legacyRows.every((row) => !("zoneText" in row)), "schema-1 rows carry no zoneText key");
+  assert.deepEqual(legacyRows.map((row) => [row.assetReference, row.locationText]), [["", "General"], ["", "General"], ["", "General"]],
+    "a schema-1 record reads a zoned preset the way a pre-zone client did: default labels");
 });
 
 test("a legacy two-field layout gives schema-2 rows a blank zone heading, and malformed zone data fails closed", () => {

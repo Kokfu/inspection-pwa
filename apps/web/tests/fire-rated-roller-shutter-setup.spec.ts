@@ -205,3 +205,40 @@ test("the zoned form fits phone and desktop widths", async ({ page }) => {
     expect((await page.getByRole("button", { name: "Add Zone" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
 });
+
+test("per-zone location overrides survive editing the default or the zone count", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("3");
+  await page.getByLabel("Locations in each zone").fill("2");
+  await page.getByText("Different number of locations in some zones?").click();
+  await page.getByLabel("Zone 2 locations").fill("5");
+  await page.getByLabel("Locations in each zone").fill("3");
+  await page.getByLabel("Number of zones").fill("4");
+  await expect(page.getByLabel("Zone 2 locations")).toHaveValue("5");
+  await start(page);
+  await expect(groupOf(page, "Zone 1").locator(".hose-row-card")).toHaveCount(3);
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card")).toHaveCount(5);
+  await expect(groupOf(page, "Zone 4").locator(".hose-row-card")).toHaveCount(3);
+});
+
+test("a zone cannot be renamed onto another zone's name; the zones stay separate and focus is kept", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("2");
+  await start(page);
+  const first = groupOf(page, "Zone 1").getByLabel("Zone name");
+  await first.fill("Zone 2");
+  await expect(page.getByText('Another zone is already named "Zone 2". Choose a different name.')).toBeVisible();
+  await expect(first).toHaveValue("Zone 1");
+  await expect(page.locator(".location-group")).toHaveCount(2);
+  await first.fill("North");
+  await expect(groupOf(page, "North")).toHaveCount(1);
+  await expect(page.getByText("Another zone is already named")).toHaveCount(0);
+});
+
+test("Add Zone on a single unnamed zone names it Zone 1 and creates Zone 2", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await start(page);
+  await page.getByRole("button", { name: "Add Zone" }).click();
+  await expect(groupOf(page, "Zone 1").locator(".hose-row-card")).toHaveCount(1);
+  await expect(groupOf(page, "Zone 2").locator(".hose-row-card")).toHaveCount(1);
+});

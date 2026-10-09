@@ -233,7 +233,8 @@ const formatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
 const optionalFormatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
   fire_rated_roller_shutter: ["zoneText"]
 };
-const maxZoneTextLength = 200;
+/** Longest Roller Shutter zone heading, everywhere it is validated (proposals, acceptance, accepted detail). */
+export const maxZoneTextLength = 200;
 
 /** Fire Alarm's two pseudo-locations (see `zoneFreeLocationKeysBySystem`) carry different row shapes:
  *  `general-primary` rows mirror `FireAlarmPrimaryDeviceRow`'s identity columns (assetReference,

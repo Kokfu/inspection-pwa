@@ -91,7 +91,8 @@ test("roller shutter V7 schema 2 carries zone headings, enforces the frozen conf
 
     const configuredRows = (schemaVersion: 1 | 2) => preset.map((row, index) => ({
       rowUuid: id(), source: "configured", configuredLocationId: location, configuredRowOrdinal: index + 1, zoneSnapshot: null, locationSnapshot: { id: location, displayName: "General" },
-      assetReference: row.assetReference, locationText: row.locationText, ...(schemaVersion === 2 ? { zoneText: row.zoneText } : {}),
+      // Schema 1 is what a pre-zone client builds: it cannot read zoned rows, so every row falls back to default labels.
+      assetReference: schemaVersion === 2 ? row.assetReference : "", locationText: schemaVersion === 2 ? row.locationText : "General", ...(schemaVersion === 2 ? { zoneText: row.zoneText } : {}),
       autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: index + 1
     }));
     const technicianRow = (zoneText: string) => ({ rowUuid: id(), source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText: "Loading bay", zoneText, autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: 4 });
@@ -136,8 +137,11 @@ test("roller shutter V7 schema 2 carries zone headings, enforces the frozen conf
     assert.equal(futureVersion.result.failed[0]?.code, "VALIDATION_ERROR");
 
     const legacy = await submit(() => undefined, 1);
-    assert.equal(legacy.result.acceptedIds.length, 1, "an older client's schema 1 record stays valid against a zoned frozen layout");
+    assert.equal(legacy.result.acceptedIds.length, 1, "an older client's schema 1 record is not stranded by a zoned frozen layout");
     assert.equal(legacy.stored?.response_schema_version, 1);
+
+    const legacyWithPresetNames = await submit((rows) => { rows.forEach((row, index) => { row.assetReference = preset[index]!.assetReference; row.locationText = preset[index]!.locationText; }); }, 1);
+    assert.equal(legacyWithPresetNames.result.failed[0]?.code, "VALIDATION_ERROR", "schema 1 is judged only against the legacy reading, never the zoned names");
 
     const legacyWithZone = await submit((rows) => { rows[0]!.zoneText = "Zone 1"; }, 1);
     assert.equal(legacyWithZone.result.failed[0]?.code, "VALIDATION_ERROR", "schema 1 keeps its exact key set");

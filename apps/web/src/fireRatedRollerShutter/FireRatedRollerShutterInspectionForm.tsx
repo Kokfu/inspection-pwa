@@ -10,7 +10,7 @@ import {
 } from "../jobs/technicianLocationProposalDraft";
 import { configuredFireRatedRollerShutterRows, submitIssues } from "./fireRatedRollerShutterRepository";
 import { FireRatedRollerShutterSetupPrompt } from "./FireRatedRollerShutterSetupPrompt";
-import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
+import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows, maxZoneTextLength, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, zoneNameTaken, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterInspectionRecord, type FireRatedRollerShutterResponses, type FireRatedRollerShutterResult } from "./fireRatedRollerShutterTypes";
 import { isFireRatedRollerShutterV7EvidenceFinding, listFireRatedRollerShutterV7Photos, resolveFireRatedRollerShutterRowResultDefinitions, type FireRatedRollerShutterV7FieldPath } from "./fireRatedRollerShutterV7Evidence";
 
@@ -22,11 +22,12 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
   const [formatError, setFormatError] = useState("");
   const [formatCorrections, setFormatCorrections] = useState<ShutterLayoutCorrections>({});
   const [layoutNote, setLayoutNote] = useState("");
+  const [zoneNameNote, setZoneNameNote] = useState("");
   // The pre-form step is decided once per record from its persisted content, then only ever cleared:
   // removing rows or editing while filling the form must never bring the prompt back.
   const [setup, setSetup] = useState<{ uuid: string; step: RollerShutterSetupStep | null }>(() => ({ uuid: record.clientUuid, step: record.syncStatus === "Draft" ? rollerShutterSetupStep(record.responses) : null }));
   const setupStep = setup.uuid === record.clientUuid ? setup.step : record.syncStatus === "Draft" ? rollerShutterSetupStep(record.responses) : null;
-  const savedLayout = useMemo<ShutterLayoutRow[]>(() => configuredFireRatedRollerShutterRows(record.inspectionSnapshot.system).map((row) => ({ assetReference: row.assetReference, locationText: row.locationText, zoneText: row.zoneText ?? "" })), [record.inspectionSnapshot.system]);
+  const savedLayout = useMemo<ShutterLayoutRow[]>(() => configuredFireRatedRollerShutterRows(record.inspectionSnapshot.system, record.responses.schemaVersion).map((row) => ({ assetReference: row.assetReference, locationText: row.locationText, zoneText: row.zoneText ?? "" })), [record.inspectionSnapshot.system, record.responses.schemaVersion]);
   const rowDefinitions = resolveFireRatedRollerShutterRowResultDefinitions(record.inspectionSnapshot.system.definition);
   useEffect(() => setResponses(record.responses), [record]);
   const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: onSaveDraft, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
@@ -124,12 +125,18 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       <label>Inspected By<input maxLength={200} value={responses.inspectedBy} onChange={(event) => setResponses((current) => ({ ...current, inspectedBy: event.target.value }))} /></label>
     </fieldset>
     <fieldset disabled={readOnly}><legend>Roller Shutter Schedule</legend>
+      {zoneNameNote ? <p className="form-message" role="status">{zoneNameNote}</p> : null}
       {groups.map((group) => {
         const name = group.zoneText;
         return <section className="location-group" key={group.rows[0]!.rowUuid} aria-label={showZoneHeadings ? `Zone ${name || "(unnamed)"}` : undefined}>
           {showZoneHeadings ? <h3>{name || "Unnamed zone"}</h3> : null}
           {showZoneHeadings && !group.hasConfigured && !readOnly
-            ? <label>Zone name<input maxLength={200} value={name} onChange={(event) => setResponses((current) => renameTechnicianZone(current, name, event.target.value))} /></label> : null}
+            ? <label>Zone name<input maxLength={maxZoneTextLength} value={name} onChange={(event) => {
+              const next = event.target.value;
+              if (zoneNameTaken(responses, name, next)) { setZoneNameNote(`Another zone is already named "${next}". Choose a different name.`); return; }
+              setZoneNameNote("");
+              setResponses((current) => renameTechnicianZone(current, name, next));
+            }} /></label> : null}
           {group.rows.map((row, index) => renderRow(row, index + 1))}
           {!readOnly && zoned ? <button type="button" className="secondary-command" disabled={atRowLimit} onClick={() => setResponses((current) => addRowToZone(current, name))}>{showZoneHeadings ? `Add shutter to ${name || "this zone"}` : "Add Row"}</button> : null}
         </section>;
@@ -139,7 +146,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       {!readOnly && configuredRows.length > 0 ? <section className="report-summary" aria-label="Correct format for next visit"><h3>Correct format for next visit</h3><p>These changes are proposed for future visits. The inspection keeps its frozen row labels.</p>{configuredRows.map((row, index) => <div key={row.rowUuid}>
         <label>Shutter {index + 1} format reference<input maxLength={200} value={formatCorrections[row.rowUuid]?.assetReference ?? row.assetReference} onChange={(event) => setCorrection(row.rowUuid, { assetReference: event.target.value })} /></label>
         <label>Shutter {index + 1} format location<input maxLength={300} value={formatCorrections[row.rowUuid]?.locationText ?? row.locationText} onChange={(event) => setCorrection(row.rowUuid, { locationText: event.target.value })} /></label>
-        {zoned ? <label>Shutter {index + 1} format zone<input maxLength={200} value={formatCorrections[row.rowUuid]?.zoneText ?? row.zoneText ?? ""} onChange={(event) => setCorrection(row.rowUuid, { zoneText: event.target.value })} /></label> : null}
+        {zoned ? <label>Shutter {index + 1} format zone<input maxLength={maxZoneTextLength} value={formatCorrections[row.rowUuid]?.zoneText ?? row.zoneText ?? ""} onChange={(event) => setCorrection(row.rowUuid, { zoneText: event.target.value })} /></label> : null}
       </div>)}</section> : null}
       {!readOnly ? <div className="inline-actions"><button type="button" className="secondary-command" disabled={formatStatus === "saving"} onClick={() => void saveAsFormat()}>{formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}</button>{formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}{formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}{formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}</div> : null}
     </fieldset>

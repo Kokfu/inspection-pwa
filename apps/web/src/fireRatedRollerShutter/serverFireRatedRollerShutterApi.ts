@@ -1,3 +1,4 @@
+import { maxZoneTextLength } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterResponses, type FireRatedRollerShutterRow } from "./fireRatedRollerShutterTypes";
 
 type R = Record<string, unknown>;
@@ -39,7 +40,7 @@ function parseRows(value: unknown, schemaVersion: 1 | 2) {
   let technicianRowsStarted = false;
   for (let index = 0; index < value.length; index += 1) {
     const row = value[index];
-    if (!rec(row) || !exact(row, schemaVersion === 2 ? rowKeysV2 : rowKeysV1) || (schemaVersion === 2 && !text(row.zoneText, 200, false)) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || seen.has(row.rowUuid)
+    if (!rec(row) || !exact(row, schemaVersion === 2 ? rowKeysV2 : rowKeysV1) || (schemaVersion === 2 && !text(row.zoneText, maxZoneTextLength, false)) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || seen.has(row.rowUuid)
       || row.sortOrder !== index + 1 || row.zoneSnapshot !== null || !text(row.assetReference, 200, false) || !text(row.locationText, 300) || !text(row.remarks, 2000, false)
       || !resultValues.includes(String(row.autoAlarmModeResult)) || !resultValues.includes(String(row.manualModeResult))
       || !rec(row.fieldRemarks) || Object.keys(row.fieldRemarks).some((key) => !fireRatedRollerShutterRowColumns.some(([responseKey]) => responseKey === key))

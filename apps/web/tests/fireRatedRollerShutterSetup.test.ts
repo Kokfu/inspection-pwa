@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
-  newTechnicianShutterRow, parseShutterCount, parseZonePlan, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, type ZonePlan
+  newTechnicianShutterRow, parseShutterCount, parseZonePlan, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, zoneNameTaken, type ZonePlan
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
 
@@ -167,6 +167,16 @@ test("only technician-only zones can be renamed", () => {
   const renamed = renameTechnicianZone(start, "B", "North");
   assert.deepEqual(renamed.rows.map((row) => row.zoneText), ["A", "A", "North", "North"]);
   assert.equal(renameTechnicianZone(start, "B", "B"), start);
+});
+
+test("a technician zone cannot be renamed onto another zone's name, which would silently merge them", () => {
+  const start = zonedResponses([zonedRow(1, "A"), zonedRow(2, "B")]);
+  assert.equal(zoneNameTaken(start, "A", "B"), true);
+  assert.equal(zoneNameTaken(start, "A", "A"), false, "keeping the same name is not a clash");
+  assert.equal(zoneNameTaken(start, "A", "C"), false);
+  assert.equal(renameTechnicianZone(start, "A", "B"), start);
+  const withUnnamed = zonedResponses([zonedRow(1, "A"), zonedRow(2, "")]);
+  assert.equal(renameTechnicianZone(withUnnamed, "A", ""), withUnnamed, "clearing a name onto an existing unnamed zone is refused too");
 });
 
 test("a zoned layout lists rows grouped by zone, and an unzoned or schema-1 layout stays two-field", () => {

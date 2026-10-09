@@ -1,3 +1,4 @@
+import { maxZoneTextLength } from "../inspections/locationConfiguration.js";
 import {
   configuredSingleInstanceRowsMatch,
   expectedConfiguredSingleInstanceRows,
@@ -15,21 +16,28 @@ const rec = (value: unknown): value is R => typeof value === "object" && value !
 export type ExpectedConfiguredFireRatedRollerShutterRow = ExpectedConfiguredPresetRow & { locationText: string; zoneText: string };
 
 /** A saved row is `{assetReference, locationText}` (legacy, no zone) or `{assetReference, locationText,
- *  zoneText}` (zone headings). `zoneText` is a free-text label, not a customer_system_zones row. */
-function rowPresets(location: R): Array<{ assetReference: string; locationText: string; zoneText?: string }> | undefined {
+ *  zoneText}` (zone headings). `zoneText` is a free-text label, not a customer_system_zones row.
+ *
+ *  `legacy` reproduces what a pre-zone (schema-1) client built from the same preset: it only understood
+ *  two-field rows, so a location holding any zoned row fell back wholesale to default row labels. A
+ *  schema-1 record is therefore judged against that reading, never stranded by a newer layout. */
+function rowPresets(location: R, legacy: boolean): Array<{ assetReference: string; locationText: string; zoneText?: string }> | undefined {
   if (!rec(location.rowPreset) || !Array.isArray(location.rowPreset.rows)
     || location.rowPreset.rows.length !== location.presetRowCount) return undefined;
   const rows = location.rowPreset.rows;
-  if (!rows.every((row) => rec(row) && (Object.keys(row).length === 2 || (Object.keys(row).length === 3 && typeof row.zoneText === "string" && row.zoneText.length <= 200))
+  if (legacy && rows.some((row) => rec(row) && Object.hasOwn(row, "zoneText"))) return undefined;
+  if (!rows.every((row) => rec(row) && (Object.keys(row).length === 2 || (Object.keys(row).length === 3 && typeof row.zoneText === "string" && row.zoneText.length <= maxZoneTextLength))
     && typeof row.assetReference === "string" && row.assetReference.length <= 200
     && typeof row.locationText === "string" && row.locationText.trim().length > 0 && row.locationText.length <= 300)) return undefined;
   return rows as Array<{ assetReference: string; locationText: string; zoneText?: string }>;
 }
 
-export function expectedConfiguredFireRatedRollerShutterRows(system: R): ExpectedConfiguredFireRatedRollerShutterRow[] | undefined {
+/** `schemaVersion` is the submitted response's: 1 is judged against the legacy (pre-zone) reading of the preset. */
+export function expectedConfiguredFireRatedRollerShutterRows(system: R, schemaVersion?: unknown): ExpectedConfiguredFireRatedRollerShutterRow[] | undefined {
   const base = expectedConfiguredSingleInstanceRows(system);
   if (!base || !Array.isArray(system.locations)) return undefined;
-  const byId = new Map(system.locations.filter(rec).map((location) => [location.id, rowPresets(location)]));
+  const legacy = schemaVersion === 1;
+  const byId = new Map(system.locations.filter(rec).map((location) => [location.id, rowPresets(location, legacy)]));
   return base.map((row) => {
     const preset = byId.get(row.locationId)?.[row.ordinal - 1];
     return { ...row, assetReference: preset?.assetReference ?? row.assetReference,

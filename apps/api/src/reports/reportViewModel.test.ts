@@ -424,3 +424,18 @@ test("Roller Shutter V7 schema 2 prints each row's zone heading with its locatio
   const legacyRegister = blockOf(legacyModel, "register", "roller_shutter_schedule_rows");
   assert.equal((legacyRegister.rows[0]!.cells[0] as { text: string | null }).text, "Lobby");
 });
+
+test("Roller Shutter V7 schema 2 header Zone lists the row zones when the header zone was left blank; stored response is untouched", () => {
+  const row = (n: number, zoneText: string) => ({
+    rowUuid: uuid(830 + n), source: "technician", configuredLocationId: null, configuredRowOrdinal: null,
+    zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText: `Loc ${n}`, zoneText,
+    autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: n
+  });
+  const response = { schemaVersion: 2, dateTested: "2026-10-09", zone: "", inspectedBy: "Inspector A", rows: [row(1, "Zone 1"), row(2, "Zone 1"), row(3, "Zone 2"), row(4, "")], comments: "" };
+  const header = (value: unknown) => blockOf(buildReportViewModel(reportOf([v7Section("fire_rated_roller_shutter", "Fire Rated Roller Shutter", value as never)])), "checklist", "inspection_header_fields").rows.map((entry) => entry.reading);
+  assert.deepEqual(header(response), ["2026-10-09", "Zone 1, Zone 2", "Inspector A"]);
+  assert.equal(response.zone, "", "the stored response is not modified");
+  assert.deepEqual(header({ ...response, zone: "North wing" }), ["2026-10-09", "North wing", "Inspector A"], "an explicit header zone wins");
+  assert.deepEqual(header({ ...response, rows: [row(1, "")] }), ["2026-10-09", null, "Inspector A"], "no zones leaves the header blank");
+  assert.deepEqual(header({ ...response, schemaVersion: 1, rows: response.rows.map(({ zoneText: _zoneText, ...legacy }) => legacy) }), ["2026-10-09", null, "Inspector A"], "schema 1 is unchanged");
+});

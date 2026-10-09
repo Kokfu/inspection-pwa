@@ -1,5 +1,6 @@
 /** Browser-side shape check shared by queued technician drafts and Supervisor review responses.
  * The API remains authoritative and performs the bounded server validation. */
+import { maxZoneTextLength } from "../fireRatedRollerShutter/fireRatedRollerShutterSetup";
 const zoneFreeKeys: Readonly<Record<string, readonly string[]>> = {
   fire_rated_roller_shutter: ["general"], hose_reel: ["general"],
   fire_alarm_detector: ["general-primary", "general-secondary"],
@@ -32,7 +33,7 @@ export function validLocationProposalPatch(value: unknown, systemKey: string): b
   const fields = systemKey === "fire_rated_roller_shutter" && value.rows.every((row) => object(row) && "zoneText" in row)
     ? [...baseFields, "zoneText"] : baseFields;
   return value.rows.every((row) => object(row) && Object.keys(row).length === fields.length
-    && fields.every((name) => typeof row[name] === "string" && row[name].length <= (name === "assetReference" || name === "zoneText" ? 200 : 300))
+    && fields.every((name) => typeof row[name] === "string" && row[name].length <= (name === "assetReference" ? 200 : name === "zoneText" ? maxZoneTextLength : 300))
     && (!("locationText" in row) || Boolean(String(row.locationText).trim()))
     && (!("drumType" in row) || row.drumType === "" || row.drumType === "swing" || row.drumType === "fixed"));
 }

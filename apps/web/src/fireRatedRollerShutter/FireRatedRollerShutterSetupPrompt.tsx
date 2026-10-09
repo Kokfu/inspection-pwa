@@ -34,11 +34,11 @@ function CountPrompt({ onStart }: { onStart: (start: RollerShutterStart) => void
     <p>Enter how many zones this customer has and how many locations (roller shutters) are in each. The form then opens ready to fill in. The names you type are remembered for the next visit once a Supervisor approves them.</p>
     <label>Number of zones
       <input type="number" inputMode="numeric" min={1} max={maxZones} value={zones}
-        onChange={(event) => { setZones(event.target.value); setOverrides({}); setError(""); }} />
+        onChange={(event) => { setZones(event.target.value); setError(""); }} />
     </label>
     <label>Locations in each zone
       <input type="number" inputMode="numeric" min={1} max={maxShutterRows} value={perZone}
-        onChange={(event) => { setPerZone(event.target.value); setOverrides({}); setError(""); }} />
+        onChange={(event) => { setPerZone(event.target.value); setError(""); }} />
     </label>
     {zoneCount > 1 ? <details>
       <summary>Different number of locations in some zones?</summary>

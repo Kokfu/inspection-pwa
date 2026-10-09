@@ -11,6 +11,7 @@ import type {
   FireRatedRollerShutterRow
 } from "./fireRatedRollerShutterTypes";
 import { fireRatedRollerShutterRowColumns } from "./fireRatedRollerShutterTypes";
+import { maxZoneTextLength } from "./fireRatedRollerShutterSetup";
 import { listFireRatedRollerShutterV7Photos, v7FireRatedRollerShutterEvidenceOutbox, v7FireRatedRollerShutterManifest, v7FireRatedRollerShutterSubmissionIssues } from "./fireRatedRollerShutterV7Evidence";
 
 const key = "fire_rated_roller_shutter" as const;
@@ -35,27 +36,30 @@ const rowKeysV2 = [...rowKeysV1, "zoneText"] as const;
  * order of `system.locations`, so this must sort too - otherwise a snapshot
  * that happens to arrive out of order builds a Draft the server refuses
  * non-retryably. */
-function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string; zoneText?: string }> | undefined {
+function rowPresets(location: JobSystemSnapshot["locations"][number], legacy: boolean): Array<{ assetReference: string; locationText: string; zoneText?: string }> | undefined {
   const preset = location.rowPreset;
   if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
   const rows: unknown = (preset as Record<string, unknown>).rows;
   if (!Array.isArray(rows)
     || rows.length !== location.presetRowCount) return undefined;
+  // A schema-1 record is read the way a pre-zone client read it: any zoned row makes the whole location
+  // fall back to default labels (the server's `expectedConfiguredFireRatedRollerShutterRows(.., 1)` does the same).
+  if (legacy && rows.some((row: unknown) => !!row && typeof row === "object" && Object.hasOwn(row, "zoneText"))) return undefined;
   if (!rows.every((row: unknown) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) return false;
     const value = row as Record<string, unknown>;
-    return (Object.keys(value).length === 2 || (Object.keys(value).length === 3 && typeof value.zoneText === "string" && value.zoneText.length <= 200))
+    return (Object.keys(value).length === 2 || (Object.keys(value).length === 3 && typeof value.zoneText === "string" && value.zoneText.length <= maxZoneTextLength))
       && typeof value.assetReference === "string" && value.assetReference.length <= 200
       && typeof value.locationText === "string" && value.locationText.trim().length > 0 && value.locationText.length <= 300;
   })) return undefined;
   return rows as Array<{ assetReference: string; locationText: string; zoneText?: string }>;
 }
 
-function expectedConfiguredRows(system: JobSystemSnapshot) {
+function expectedConfiguredRows(system: JobSystemSnapshot, schemaVersion: 1 | 2) {
   const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string; locationText: string; zoneText: string }> = [];
   for (const location of [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder)) {
     const assetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
-    const presets = rowPresets(location);
+    const presets = rowPresets(location, schemaVersion === 1);
     for (let ordinal = 1; ordinal <= location.presetRowCount; ordinal += 1) {
       expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1,
         assetReference: presets?.[ordinal - 1]?.assetReference ?? assetReference,
@@ -69,7 +73,7 @@ function expectedConfiguredRows(system: JobSystemSnapshot) {
 
 /** `schemaVersion` 2 (the default for new records) carries each row's frozen zone heading; schema 1 does not. */
 export function configuredFireRatedRollerShutterRows(system: JobSystemSnapshot, schemaVersion: 1 | 2 = 2): FireRatedRollerShutterRow[] {
-  return expectedConfiguredRows(system).map((expected) => ({
+  return expectedConfiguredRows(system, schemaVersion).map((expected) => ({
     rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: expected.locationId, configuredRowOrdinal: expected.ordinal,
     zoneSnapshot: null,
     locationSnapshot: { id: expected.locationId, displayName: expected.displayName },
@@ -112,7 +116,7 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
   // rejected non-retryably server-side.
   if (!exactKeys(responses, responseEnvelopeKeys) || (responses.schemaVersion !== 1 && responses.schemaVersion !== 2)) issues.push("Fire Rated Roller Shutter response envelope shape is invalid");
   if (responses.dateTested.length > 200 || responses.zone.length > 200 || responses.inspectedBy.length > 200) issues.push("Inspection details are too long");
-  const expected = expectedConfiguredRows(record.inspectionSnapshot.system);
+  const expected = expectedConfiguredRows(record.inspectionSnapshot.system, responses.schemaVersion === 1 ? 1 : 2);
   const expectedByIdentity = new Map(expected.map((row) => [`${row.locationId}:${row.ordinal}`, row]));
   const seen = new Set<string>();
   const rowUuids = new Set<string>();
@@ -129,7 +133,7 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
     // property strands the record behind a non-retryable acceptance.
     if (!exactKeys(row, responses.schemaVersion === 2 ? rowKeysV2 : rowKeysV1)) issues.push("Shutter row shape is invalid");
     if (responses.schemaVersion === 2) {
-      if (typeof row.zoneText !== "string" || row.zoneText.length > 200) issues.push("Shutter zone heading is invalid");
+      if (typeof row.zoneText !== "string" || row.zoneText.length > maxZoneTextLength) issues.push("Shutter zone heading is invalid");
       else if (row.source === "configured") {
         const frozen = expectedByIdentity.get(`${row.configuredLocationId}:${row.configuredRowOrdinal}`);
         if (frozen && row.zoneText !== frozen.zoneText) issues.push("Configured Shutter zone does not match the frozen configuration");

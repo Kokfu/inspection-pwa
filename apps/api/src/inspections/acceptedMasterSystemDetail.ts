@@ -6,6 +6,7 @@ import { validateCo2Responses } from "../sync/co2FormInstanceSync.js";
 import { validateFm200Responses } from "../sync/fm200FormInstanceSync.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "./evidence/v7EvidenceContracts.js";
 import { parseDryWetRiserSystemConfiguration } from "./dryWetRiserConfiguration.js";
+import { maxZoneTextLength } from "./locationConfiguration.js";
 
 type R = Record<string, unknown>;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -549,7 +550,7 @@ export function validateAcceptedFireRatedRollerShutterV7Detail(row: R) {
       || item.sortOrder !== index + 1 || item.zoneSnapshot !== null
       || typeof item.assetReference !== "string" || item.assetReference.length > 200
       || typeof item.locationText !== "string" || !item.locationText.trim() || item.locationText.length > 300
-      || (response.schemaVersion === 2 && (typeof item.zoneText !== "string" || item.zoneText.length > 200))
+      || (response.schemaVersion === 2 && (typeof item.zoneText !== "string" || item.zoneText.length > maxZoneTextLength))
       || typeof item.remarks !== "string" || item.remarks.length > 2000 || !rec(item.fieldRemarks)
       || Object.keys(item.fieldRemarks).some((key) => !rowResultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
     if (item.source === "configured") {
