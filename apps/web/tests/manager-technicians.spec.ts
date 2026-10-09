@@ -195,3 +195,99 @@ test("malformed assignment list fails closed", async ({ page }) => {
   await page.goto("/tests/manager-technicians.html");
   await expect(page.locator("#failure")).toContainText("unavailable");
 });
+
+test.describe("admin sets a new password for a technician or supervisor", () => {
+  const rows = [
+    { id: 12, username: "field-tech", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] as number[] },
+    { id: 13, username: "review-lead", displayName: null, role: "supervisor", isActive: true, createdAt: "2026-09-12T00:00:00.000Z", supervisorIds: [] as number[] }
+  ];
+  const newPassword = "replacement-pass-1";
+
+  test("mismatch blocks submit; success sends only the body, clears the fields and storage never sees it", async ({ page }) => {
+    const resets: Array<{ url: string; method: string; body: unknown }> = [];
+    const urls: string[] = [];
+    page.on("request", (request) => urls.push(request.url()));
+    await page.route("**/api/manager/technicians**", async (route) => {
+      const request = route.request();
+      if (request.url().endsWith("/password")) { resets.push({ url: request.url(), method: request.method(), body: request.postDataJSON() }); await route.fulfill({ json: { ok: true } }); }
+      else await route.fulfill({ json: { technicians: rows } });
+    });
+    await page.goto("/tests/manager-technicians.html");
+    const row = page.locator("li").filter({ has: page.locator("strong", { hasText: /^field-tech$/ }) });
+    await row.getByRole("button", { name: "Set new password", exact: true }).click();
+    const form = page.getByRole("form", { name: "Set new password for field-tech" });
+    const submit = form.getByRole("button", { name: "Set password", exact: true });
+    await expect(submit).toBeDisabled();
+    await form.getByLabel("New password", { exact: true }).fill("too-short");
+    await form.getByLabel("Confirm new password").fill("too-short");
+    await expect(submit).toBeDisabled();
+    await form.getByLabel("New password", { exact: true }).fill(newPassword);
+    await form.getByLabel("Confirm new password").fill("different-pass-12");
+    await expect(form.getByText("Passwords do not match.")).toBeVisible();
+    await expect(submit).toBeDisabled();
+    await expect(form.getByLabel("New password", { exact: true })).toHaveAttribute("autocomplete", "new-password");
+    await expect(form.getByLabel("New password", { exact: true })).toHaveAttribute("type", "password");
+    await form.getByLabel("Confirm new password").fill(newPassword);
+    await expect(submit).toBeEnabled();
+    expect(resets).toEqual([]);
+    await submit.click();
+    await expect(page.getByRole("status").filter({ hasText: "New password set for field-tech. They were signed out of existing sessions." })).toBeVisible();
+    expect(resets).toHaveLength(1);
+    expect(resets[0]).toEqual({ url: expect.stringMatching(/\/api\/manager\/technicians\/12\/password$/), method: "POST", body: { password: newPassword } });
+    expect(urls.filter((url) => url.includes("/api/")).some((url) => url.includes(newPassword) || url.includes("?"))).toBe(false);
+    expect(urls.some((url) => url.includes(newPassword))).toBe(false);
+    await expect(form).toHaveCount(0);
+    // Reopening starts empty; nothing was persisted in the page or its storage.
+    await row.getByRole("button", { name: "Set new password", exact: true }).click();
+    await expect(page.getByLabel("New password", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Confirm new password")).toHaveValue("");
+    const persisted = await page.evaluate(async () => {
+      const dumps: string[] = [JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage }), document.cookie, location.href];
+      const databases = indexedDB.databases ? await indexedDB.databases() : [];
+      return { dumps, databases: databases.length };
+    });
+    expect(persisted.dumps.join("\n")).not.toContain(newPassword);
+    expect(persisted.databases).toBe(0);
+  });
+
+  test("cancel clears both fields, sends nothing, and supervisors get the action too", async ({ page }) => {
+    let resets = 0;
+    await page.route("**/api/manager/technicians**", async (route) => {
+      if (route.request().url().endsWith("/password")) { resets++; await route.fulfill({ json: { ok: true } }); }
+      else await route.fulfill({ json: { technicians: rows } });
+    });
+    await page.goto("/tests/manager-technicians.html");
+    const row = page.locator("li").filter({ has: page.locator("strong", { hasText: /^review-lead$/ }) });
+    await row.getByRole("button", { name: "Set new password", exact: true }).click();
+    await page.getByLabel("New password", { exact: true }).fill(newPassword);
+    await page.getByLabel("Confirm new password").fill(newPassword);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("form", { name: /Set new password/ })).toHaveCount(0);
+    await row.getByRole("button", { name: "Set new password", exact: true }).click();
+    await expect(page.getByLabel("New password", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Confirm new password")).toHaveValue("");
+    expect(resets).toBe(0);
+  });
+
+  test("a server refusal is announced inside the form, the fields stay empty, and 375px has no horizontal scroll", async ({ page }) => {
+    await page.route("**/api/manager/technicians**", async (route) => {
+      if (route.request().url().endsWith("/password")) await route.fulfill({ status: 404, json: { error: "TECHNICIAN_NOT_FOUND", message: "Technician was not found." } });
+      else await route.fulfill({ json: { technicians: rows } });
+    });
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/tests/manager-technicians.html");
+    await page.locator("li").filter({ has: page.locator("strong", { hasText: /^field-tech$/ }) }).getByRole("button", { name: "Set new password", exact: true }).click();
+    const form = page.getByRole("form", { name: "Set new password for field-tech" });
+    await form.getByLabel("New password", { exact: true }).fill(newPassword);
+    await form.getByLabel("Confirm new password").fill(newPassword);
+    for (const control of [form.getByLabel("New password", { exact: true }), form.getByLabel("Confirm new password"), form.getByRole("button", { name: "Set password" }), form.getByRole("button", { name: "Cancel" })]) {
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await form.getByRole("button", { name: "Set password" }).click();
+    await expect(form.getByRole("alert")).toHaveText("Technician was not found.");
+    await expect(form.getByLabel("New password", { exact: true })).toHaveValue("");
+    await expect(form.getByLabel("Confirm new password")).toHaveValue("");
+    await expect(form.getByRole("button", { name: "Set password" })).toBeDisabled();
+  });
+});

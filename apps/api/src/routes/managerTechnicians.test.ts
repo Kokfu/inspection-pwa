@@ -88,3 +88,28 @@ test("technician transaction conflict, missing row and audit failure roll back a
     });
   }
 });
+
+test("password reset route rejects unauthorized actors and malformed input before any DB access", async () => {
+  let touched = false;
+  // The audited guard records supervisor refusals through query(); no write transaction (connect) may ever open.
+  await harness({ query: async () => ({ rows: [] }), connect() { touched = true; throw Error(); } }, async (request) => {
+    for (const role of ["", "inspector", "supervisor"]) assert.equal((await request("/manager/technicians/2/password", "POST", { password: "valid-password-1" }, role)).status, role ? 403 : 401);
+    for (const id of ["uuid", "0", "-1", "1.5", "999999999999999999999"]) assert.equal((await request(`/manager/technicians/${id}/password`, "POST", { password: "valid-password-1" })).status, 400);
+    for (const body of [{}, [], { password: "short" }, { password: "x".repeat(1025) }, { password: 123456789012 }, { password: null }, { password: "valid-password-1", role: "admin" }]) {
+      assert.equal((await request("/manager/technicians/2/password", "POST", body)).status, 400, JSON.stringify(body)?.slice(0, 40));
+    }
+    assert.equal(touched, false);
+  });
+});
+
+test("password reset on a missing or ineligible target rolls back, releases and never writes sessions or audit", async () => {
+  const queries: string[] = []; let released = false;
+  const client = { async query(sql: string) { queries.push(sql); return { rows: [] }; }, release() { released = true; } };
+  await harness({ connect: async () => client }, async (request) => {
+    assert.equal((await request("/manager/technicians/2/password", "POST", { password: "valid-password-1" })).status, 404);
+    assert.ok(queries.includes("ROLLBACK")); assert.ok(!queries.includes("COMMIT")); assert.equal(released, true);
+    assert.ok(!queries.some((sql) => sql.includes("user_sessions") || sql.includes("audit_events")));
+    assert.ok(queries.some((sql) => /role IN \('inspector','supervisor'\) AND hidden_at IS NULL/.test(sql)));
+    assert.ok(!queries.some((sql) => sql.includes("is_active")), "a reset never changes is_active");
+  });
+});

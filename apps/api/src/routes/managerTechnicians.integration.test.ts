@@ -92,6 +92,77 @@ test("cold migration, technician lifecycle, concurrent uniqueness and real sessi
       assert.equal((await request(`/manager/technicians/${concurrentId}`, "DELETE", { username: "aaa-concurrent" }, managerCookie)).status, 500);
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM users WHERE id=$1", [concurrentId])).rows[0].n, 1, "audit failure rolls back account deletion");
       await pool.query("DROP TRIGGER reject_delete_audit ON audit_events; DROP FUNCTION reject_delete_audit();");
+      // --- Admin sets a new password for a technician/supervisor (POST /manager/technicians/:id/password) ---
+      const oldPw = "original-password-1"; const newPw = "replacement-password-2";
+      const addUser = async (username: string, role: string, active = true, hidden = false) => Number((await pool.query<{ id: string }>(
+        `INSERT INTO users(username,password_hash,role,is_active,hidden_at) VALUES($1,$2,$3,$4,${hidden ? "now()" : "NULL"}) RETURNING id`, [username, await hashPassword(oldPw), role, active])).rows[0]!.id);
+      const loginCookie = async (username: string, password = oldPw) => { const r = await request("/auth/login", "POST", { username, password }); assert.equal(r.status, 200, username); return r.headers.get("set-cookie")!.split(";")[0]!; };
+      const pwTech = await addUser("pw-tech", "inspector"); const pwSup = await addUser("pw-sup", "supervisor"); const pwInactive = await addUser("pw-inactive", "inspector", false);
+      const pwHidden = await addUser("pw-hidden", "inspector", true, true); const pwBystander = await addUser("pw-bystander", "inspector"); await addUser("pw-caller-sup", "supervisor");
+      const techSession = await loginCookie("pw-tech"); const supSession = await loginCookie("pw-sup"); const bystanderSession = await loginCookie("pw-bystander"); const callerSupSession = await loginCookie("pw-caller-sup");
+      const pwPath = (id: number | string) => `/manager/technicians/${id}/password`;
+      const hashOf = async (id: number) => (await pool.query<{ password_hash: string; is_active: boolean }>("SELECT password_hash, is_active FROM users WHERE id=$1", [id])).rows[0]!;
+      const openSessions = async (id: number) => (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM user_sessions WHERE user_id=$1 AND revoked_at IS NULL", [id])).rows[0]!.n;
+      const resetsBefore = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM audit_events WHERE action='manager_technician_password_reset'")).rows[0]!.n;
+      const before = await hashOf(pwTech);
+      // Authorization: unauthenticated 401; technician and supervisor callers 403.
+      assert.equal((await request(pwPath(pwTech), "POST", { password: newPw })).status, 401);
+      assert.equal((await request(pwPath(pwTech), "POST", { password: newPw }, techSession)).status, 403);
+      assert.equal((await request(pwPath(pwTech), "POST", { password: newPw }, callerSupSession)).status, 403);
+      // Strict body validation.
+      for (const body of [undefined, {}, [], { password: "short-11-ch" }, { password: "x".repeat(1025) }, { password: 123456789012 }, { password: null }, { password: newPw, extra: true }, { pass: newPw }]) {
+        assert.equal((await request(pwPath(pwTech), "POST", body, managerCookie)).status, 400, JSON.stringify(body)?.slice(0, 40));
+      }
+      assert.equal((await request(pwPath("abc"), "POST", { password: newPw }, managerCookie)).status, 400);
+      assert.equal((await request(pwPath(0), "POST", { password: newPw }, managerCookie)).status, 400);
+      // Boundaries accepted: exactly 12 and exactly 1024 characters.
+      assert.equal((await request(pwPath(pwBystander), "POST", { password: "y".repeat(1024) }, managerCookie)).status, 200);
+      assert.equal((await request(pwPath(pwBystander), "POST", { password: "z".repeat(12) }, managerCookie)).status, 200);
+      assert.ok(await verifyPassword((await hashOf(pwBystander)).password_hash, "z".repeat(12)));
+      const bystanderRelogin = await loginCookie("pw-bystander", "z".repeat(12));
+      // Not resettable here: admins, hidden accounts, unknown ids.
+      for (const id of [admin.id, pwHidden, 999999]) assert.equal((await request(pwPath(id), "POST", { password: newPw }, managerCookie)).status, 404, String(id));
+      assert.equal((await hashOf(pwTech)).password_hash, before.password_hash, "refused calls change nothing");
+      assert.equal((await request("/auth/me", "GET", undefined, techSession)).status, 200);
+      // Technician reset: old password fails, new works, own sessions are revoked, others untouched.
+      const techReset = await request(pwPath(pwTech), "POST", { password: newPw }, managerCookie);
+      assert.equal(techReset.status, 200); assert.equal(techReset.headers.get("cache-control"), "private, no-store");
+      const resetBody = await techReset.text(); assert.deepEqual(JSON.parse(resetBody), { ok: true });
+      assert.equal((await request("/auth/login", "POST", { username: "pw-tech", password: oldPw })).status, 401);
+      const newLogin = await request("/auth/login", "POST", { username: "pw-tech", password: newPw }); assert.equal(newLogin.status, 200);
+      assert.equal((await request("/auth/me", "GET", undefined, techSession)).status, 401, "target's existing session is revoked");
+      assert.equal((await request("/auth/me", "GET", undefined, newLogin.headers.get("set-cookie")!.split(";")[0]!)).status, 200);
+      assert.equal((await request("/auth/me", "GET", undefined, supSession)).status, 200, "other users' sessions are untouched");
+      assert.equal((await request("/auth/me", "GET", undefined, bystanderRelogin)).status, 200);
+      assert.equal((await request("/auth/me", "GET", undefined, managerCookie)).status, 200, "the acting admin's session is untouched");
+      // Supervisor reset.
+      assert.equal((await request(pwPath(pwSup), "POST", { password: newPw }, managerCookie)).status, 200);
+      assert.equal((await request("/auth/login", "POST", { username: "pw-sup", password: oldPw })).status, 401);
+      assert.equal((await request("/auth/me", "GET", undefined, supSession)).status, 401);
+      assert.equal((await request("/auth/login", "POST", { username: "pw-sup", password: newPw })).status, 200);
+      // A deactivated account stays deactivated; its new password still cannot log in.
+      assert.equal((await request(pwPath(pwInactive), "POST", { password: newPw }, managerCookie)).status, 200);
+      assert.equal((await hashOf(pwInactive)).is_active, false);
+      assert.ok(await verifyPassword((await hashOf(pwInactive)).password_hash, newPw));
+      assert.equal((await request("/auth/login", "POST", { username: "pw-inactive", password: newPw })).status, 401);
+      // Audit trail: one row per reset, role recorded, no secret anywhere.
+      const resets = (await pool.query<{ entity_type: string; entity_id: string; reason: string; actor_user_id: string; result: string }>(
+        "SELECT entity_type, entity_id, reason, actor_user_id, result FROM audit_events WHERE action='manager_technician_password_reset' ORDER BY id")).rows;
+      assert.equal(resets.length - resetsBefore, 5); // two boundary resets (bystander), technician, supervisor, inactive account
+      assert.deepEqual(resets.slice(-3).map((row) => [row.entity_type, row.entity_id, row.reason, row.actor_user_id, row.result]),
+        [["user", String(pwTech), "role=inspector", String(admin.id), "success"], ["user", String(pwSup), "role=supervisor", String(admin.id), "success"], ["user", String(pwInactive), "role=inspector", String(admin.id), "success"]]);
+      const auditText = (await pool.query<{ t: string }>("SELECT audit_events::text AS t FROM audit_events")).rows.map((row) => row.t).join("\n");
+      const hashes = (await pool.query<{ password_hash: string }>("SELECT password_hash FROM users")).rows.map((row) => row.password_hash);
+      for (const secret of [oldPw, newPw, "y".repeat(1024), "z".repeat(12), "argon2", ...hashes]) assert.equal(auditText.includes(secret) || resetBody.includes(secret), false);
+      // Rollback: a failing audit write leaves the password and the sessions unchanged.
+      const rollbackSession = await loginCookie("pw-bystander", "z".repeat(12));
+      const rollbackBefore = await hashOf(pwBystander); const sessionsBefore = await openSessions(pwBystander);
+      await pool.query(`CREATE FUNCTION reject_reset_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='manager_technician_password_reset' THEN RAISE EXCEPTION 'test reset audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_reset_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_reset_audit();`);
+      try { assert.equal((await request(pwPath(pwBystander), "POST", { password: newPw }, managerCookie)).status, 500); }
+      finally { await pool.query("DROP TRIGGER reject_reset_audit ON audit_events; DROP FUNCTION reject_reset_audit();"); }
+      assert.equal((await hashOf(pwBystander)).password_hash, rollbackBefore.password_hash, "audit failure rolls back the password change");
+      assert.equal(await openSessions(pwBystander), sessionsBefore, "audit failure rolls back the session revocation");
+      assert.equal((await request("/auth/me", "GET", undefined, rollbackSession)).status, 200);
       // An audit storage failure must roll back the user mutation too.
       await pool.query(`CREATE FUNCTION reject_technician_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='manager_technician_created' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_technician_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_technician_audit();`);
       assert.equal((await request("/manager/technicians", "POST", { username: "rolled-back", password: "technician-test-password" }, managerCookie)).status, 500);

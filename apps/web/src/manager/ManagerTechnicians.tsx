@@ -1,5 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
+import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, resetManagerTechnicianPassword, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
+
+const passwordMin = 12;
+const passwordMax = 1024;
+
+/** Owns the typed passwords so they exist only while this form is mounted; cleared on submit, cancel and unmount. */
+function PasswordResetForm({ technician, busy, message, onSubmit, onCancel }: { technician: ManagerTechnician; busy: boolean; message: string; onSubmit: (password: string) => void; onCancel: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const mismatch = confirm.length > 0 && confirm !== password;
+  const valid = password.length >= passwordMin && password.length <= passwordMax && password === confirm;
+  const idBase = `password-reset-${technician.id}`;
+  return <form className="manager-inline-form" aria-labelledby={`${idBase}-title`} onSubmit={(event) => {
+    event.preventDefault();
+    if (!valid || busy) return;
+    const submitted = password;
+    setPassword(""); setConfirm("");
+    onSubmit(submitted);
+  }}>
+    <h3 id={`${idBase}-title`}>Set new password for {technician.username}</h3>
+    <p id={`${idBase}-help`}>At least {passwordMin} characters. They will be signed out of any device they are logged in on.</p>
+    <label htmlFor={`${idBase}-new`}>New password</label>
+    <input id={`${idBase}-new`} type="password" required minLength={passwordMin} maxLength={passwordMax} autoComplete="new-password" aria-describedby={`${idBase}-help`} value={password} onChange={(event) => setPassword(event.target.value)} />
+    <label htmlFor={`${idBase}-confirm`}>Confirm new password</label>
+    <input id={`${idBase}-confirm`} type="password" required maxLength={passwordMax} autoComplete="new-password" aria-describedby={`${idBase}-match`} aria-invalid={mismatch} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
+    <p id={`${idBase}-match`} aria-live="polite" className="form-message">{mismatch ? "Passwords do not match." : ""}</p>
+    {message && <p role="alert" className="form-message">{message}</p>}
+    <button type="submit" disabled={busy || !valid}>Set password</button>
+    <button type="button" className="secondary-command" disabled={busy} onClick={onCancel}>Cancel</button>
+  </form>;
+}
 
 export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthorityFailure: (error: unknown) => void; onOpen?: (technician: ManagerTechnician) => void }) {
   const [technicians, setTechnicians] = useState<AssignedManagerTechnician[]>([]);
@@ -8,6 +38,8 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const [newDisplayName, setNewDisplayName] = useState("");
   const [role, setRole] = useState<"inspector" | "supervisor">("inspector");
   const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
+  const [passwordTargetId, setPasswordTargetId] = useState<number | null>(null);
   const [busy, setBusy] = useState(true);
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [query, setQuery] = useState("");
@@ -21,7 +53,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
     return () => { mounted.current = false; controller.abort(); };
   }, []);
   async function mutate(action: () => Promise<unknown>) {
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(""); setNotice("");
     try { await action(); if (!mounted.current) return; const rows = await loadManagerTechnicians(); if (mounted.current) setTechnicians(rows); }
     catch (error) {
       if (!mounted.current) return;
@@ -50,7 +82,8 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       </select></label>
       <button disabled={busy} type="submit">{role === "supervisor" ? "Add Supervisor" : "Add Technician"}</button>
     </form>
-    {message && <p role="alert" className="form-message">{message}</p>}
+    {message && passwordTargetId === null && <p role="alert" className="form-message">{message}</p>}
+    {notice && <p role="status" className="form-message">{notice}</p>}
     {busy && <p role="status">Updating technicians…</p>}
     {deactivatedCount > 0 && <label className="manager-show-archived">
       <input type="checkbox" checked={showDeactivated} onChange={(event) => setShowDeactivated(event.target.checked)} />
@@ -81,6 +114,14 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
         <label>Person’s name<input name="displayName" maxLength={160} defaultValue={technician.displayName ?? ""} key={`${technician.id}:${technician.displayName}`} /></label>
         <button type="submit" className="secondary-command" disabled={busy}>Save name</button>
       </form>
+      {passwordTargetId === technician.id
+        ? <PasswordResetForm technician={technician} busy={busy} message={message} onCancel={() => { setPasswordTargetId(null); setMessage(""); }}
+          onSubmit={(newPassword) => void mutate(async () => {
+            await resetManagerTechnicianPassword(technician.id, newPassword);
+            setPasswordTargetId(null);
+            setNotice(`New password set for ${technician.username}. They were signed out of existing sessions.`);
+          })} />
+        : <button type="button" className="secondary-command" disabled={busy} onClick={() => { setMessage(""); setNotice(""); setPasswordTargetId(technician.id); }}>Set new password</button>}
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "supervisor" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}

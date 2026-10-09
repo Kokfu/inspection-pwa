@@ -226,6 +226,11 @@ export async function deleteManagerTechnician(id: number, username: string): Pro
   if (result.removedId !== id || (result.disposition !== "deleted" && result.disposition !== "hidden")) unavailable();
   return result.disposition;
 }
+/** Admin sets a new password; the server signs the account out everywhere. The password is sent in the body only and is never stored or logged. */
+export async function resetManagerTechnicianPassword(id: number, password: string): Promise<void> {
+  const result = await managerRequest<Record<string, unknown>>(`/api/manager/technicians/${id}/password`, "POST", null, { password });
+  if (result.ok !== true) unavailable();
+}
 export async function saveCustomerNextServiceDueDate(id: string, nextServiceDueDate: string | null): Promise<ManagerCustomer> {
   const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/next-service-due-date`, "PUT", "customer", { nextServiceDueDate });
   if (!isManagerCustomer(result) || result.customer.id !== id || result.customer.nextServiceDueDate !== nextServiceDueDate) unavailable();

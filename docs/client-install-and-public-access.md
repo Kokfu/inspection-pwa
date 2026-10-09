@@ -78,7 +78,35 @@ route existed.
 
 `docker compose up -d --build` installs the API and web npm dependencies inside image builds using their lockfiles, obtains PostgreSQL and Caddy images, and starts the services. It does **not** install Docker Desktop/WSL, register a domain, configure a router, create an admin user, arrange backups, or prove internet reachability. API startup runs migrations; inspect the logs for errors. The localhost health check only proves local proxy/API reachability.
 
-An operator must create the first admin account with the existing `apps/api/src/cli/createAdmin.ts` command, supplying `ADMIN_USERNAME` and a strong `ADMIN_PASSWORD` of at least 12 characters via temporary environment variables. Do not put credentials in Git, `.env.example`, a shared command transcript, or a screenshot. Log in through the public hostname and create individual accounts as required.
+An operator must create the first admin account with the `create-admin` command (see **Admin recovery** below). Do not put credentials in Git, `.env.example`, a shared command transcript, or a screenshot. Log in through the public hostname and create individual accounts as required.
+
+## Admin recovery
+
+These commands are for the operator only. They run inside the API container on the client PC, work offline, and are never exposed over HTTP. Run them in PowerShell from the project folder while the stack is up. `docker compose exec` allocates a terminal by default, which the hidden password prompt needs: **do not add `-T`**.
+
+Reset a forgotten password for an **existing admin**. The command asks for the new password twice (nothing is shown as you type; 12–1024 characters), then sets it, makes sure the account is active, and signs that admin out everywhere:
+
+```powershell
+docker compose exec api node dist/cli/resetAdminPassword.js admin-username
+```
+
+Create an additional **new admin** (it refuses a username that already exists, and never changes an existing account):
+
+```powershell
+docker compose exec api node dist/cli/createAdmin.js new-admin-username
+```
+
+If nobody remembers the admin username, or no admin is left, list the admin accounts (use the `POSTGRES_USER` and `POSTGRES_DB` values from the PC's private `.env`), then run the reset command with the username shown:
+
+```powershell
+docker compose exec postgres psql -U <db user> -d <db name> -c "SELECT username, is_active FROM users WHERE role='admin';"
+```
+
+Notes:
+
+- `resetAdminPassword` only changes users whose role is admin. A technician or supervisor username is refused and nothing changes; reset those from the web app's **Technician List** (**Set new password**).
+- Every run, successful or refused, is recorded in the audit log (`admin_create_cli` / `admin_password_reset_cli`) without the password.
+- Without a terminal (automation), the password is read from the `ADMIN_PASSWORD` environment variable instead of prompting; never leave it in a shared transcript or in `.env`.
 
 Before inviting external users, test `https://app.example.com/` and `https://app.example.com/api/health` from a device **outside the client's Wi-Fi**. Check login and authorization, photo upload, a real phone's PWA installation/offline save/reconnect, backup and restore, and that only ports 80/443 reach the proxy. Verify Windows reboot recovery. A local `https://localhost/` success is insufficient evidence of public access.
 

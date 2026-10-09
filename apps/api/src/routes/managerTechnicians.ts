@@ -200,6 +200,35 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
     finally { client?.release(); }
   });
+  // Admin sets a new password for a technician/supervisor. Admin accounts are recovered offline (see cli/resetAdminPassword.ts).
+  router.post("/manager/technicians/:technicianId/password", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const id = numericUserId(request.params.technicianId, "INVALID_TECHNICIAN_ID");
+      const body: unknown = request.body;
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 1 || !Object.hasOwn(body, "password")) {
+        throw new ManagerTechnicianError("INVALID_REQUEST", "Request body is invalid.");
+      }
+      const { password } = body as { password: unknown };
+      if (typeof password !== "string" || password.length < 12 || password.length > 1024) {
+        throw new ManagerTechnicianError("INVALID_PASSWORD", "Password must contain 12–1024 characters.");
+      }
+      const passwordHash = await hashPassword(password);
+      client = await database.connect();
+      await client.query("BEGIN");
+      // is_active is deliberately untouched: a reset must not silently reactivate a deactivated account.
+      const target = (await client.query<{ role: ManagedRole }>(
+        "UPDATE users SET password_hash=$2, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL RETURNING role", [id, passwordHash]
+      )).rows[0];
+      if (!target) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
+      await client.query("UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [id]);
+      await audit(client, request.currentUser!.id, "manager_technician_password_reset", "user", String(id), `role=${target.role}`);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ ok: true });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
   router.delete("/manager/technicians/:technicianId", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {

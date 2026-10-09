@@ -36,6 +36,8 @@
     "validate-legacy-orphan-fire-alarm-recovery": "node dist/cli/validateLegacyOrphanFireAlarmRecovery.js",
     "start": "node dist/server.js",
     "create-admin": "node dist/cli/createAdmin.js",
+    "reset-admin-password": "node dist/cli/resetAdminPassword.js",
+    "test:admin-cli-integration": "tsx --test src/cli/adminCli.integration.test.ts",
     "validate-photo-evidence": "node dist/cli/validatePhotoEvidence.js",
     "validate-dry-wet-riser": "node dist/cli/validateDryWetRiser.js",
     "validate-hose-reel": "node dist/cli/validateHoseReel.js",

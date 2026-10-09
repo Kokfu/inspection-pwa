@@ -3,7 +3,18 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-09 — **I-31, I-32, L-5 fixed; client user guide verified against the real UI.**
+**Last updated:** 2026-10-09 — **Admin recovery CLI + admin web password reset (uncommitted; stop before staging).**
+Part A: `create-admin` now creates a NEW admin only (existing username → exit 1); new `reset-admin-password`
+([adminCli.ts](apps/api/src/cli/adminCli.ts), [resetAdminPassword.ts](apps/api/src/cli/resetAdminPassword.ts)) updates an
+EXISTING admin only, reactivates it and revokes its sessions in one transaction with an `admin_*_cli` audit row; hidden
+TTY prompt (twice) or `ADMIN_PASSWORD` when not a TTY, 12–1024 chars. Part B: `POST /manager/technicians/:id/password`
+(admin only; technician/supervisor targets, not hidden; revokes target sessions, never reactivates, audited) and a
+**Set new password** action on the Technician List. No schema/migration change. Operator commands:
+[Admin recovery](docs/client-install-and-public-access.md). The user guide's old password workaround was replaced.
+Tests: `npm run test:admin-cli-integration`, `managerTechnicians.integration.test.ts`/`.test.ts`, Playwright
+`manager-technicians.spec.ts`. Not done: phone/real-PWA check; live-app walkthrough of the new screen.
+
+**Earlier checkpoint:** 2026-10-09 — **I-31, I-32, L-5 fixed; client user guide verified against the real UI.**
 Web/proxy rebuilt as `build-20261008T155132Z` (`docker compose build proxy`, `up -d --no-deps proxy`; API and
 PostgreSQL untouched, health ok). Fixes, each with a regression test that failed first: **I-31** proposal screen no
 longer keeps another job's system (derived per job, fail-closed message, `key` by job id); **L-5** header summary now
