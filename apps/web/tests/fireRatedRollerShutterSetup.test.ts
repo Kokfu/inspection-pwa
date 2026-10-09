@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
-  newTechnicianShutterRow, parseShutterCount, parseZonePlan, defaultCollapsedKeys, describeShutterEvidencePath, renameTechnicianZone, rollerShutterSetupStep, shutterRowComplete, shutterRowLabels, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type ZonePlan
+  newTechnicianShutterRow, parseShutterCount, parseZonePlan, defaultCollapsedKeys, describeShutterEvidencePath, groupSubmitIssues, renameTechnicianZone, rollerShutterSetupStep, shutterRowComplete, shutterRowLabels, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type ZonePlan
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
 
@@ -253,4 +253,30 @@ test("an evidence field path is described by shutter and column, and anything el
   const unknown = path("11111111-1111-4111-8111-111111111111", "auto_alarm_mode");
   assert.equal(describeShutterEvidencePath(input, unknown), unknown, "a path for a row that is not on the form is not guessed");
   assert.equal(describeShutterEvidencePath(input, "something.else"), "something.else");
+});
+
+// ---- I-39: short Submit summary ---------------------------------------------------------------------
+
+test("Submit messages are grouped by the zone their shutter is in; other messages stay general", () => {
+  const input = zonedResponses([zonedRow(1, "A"), zonedRow(2, "B"), zonedRow(3, "A"), zonedRow(4, "")]);
+  const issues = [
+    "A, Shutter 1 Auto Alarm Mode result is required", "B, Shutter 1 needs a Location", "A, Shutter 2 Manual Mode requires its own Photo",
+    "Unnamed zone, Shutter 1 Auto Alarm Mode result is required", "Comments exceed 4000 characters", "two findings share the same photo"
+  ];
+  const grouped = groupSubmitIssues(input, issues);
+  assert.deepEqual(grouped.zones.map((entry) => [entry.zone, entry.issues.length]), [["A", 2], ["B", 1], ["Unnamed zone", 1]], "zones keep the order the form shows them");
+  assert.deepEqual(grouped.general, ["Comments exceed 4000 characters", "two findings share the same photo"]);
+});
+
+test("a label never captures a longer shutter number, and zones with no messages are left out", () => {
+  const rows = Array.from({ length: 11 }, (_, index) => zonedRow(index + 1, "A"));
+  const grouped = groupSubmitIssues(zonedResponses([...rows, zonedRow(12, "B")]), ["A, Shutter 10 needs a Location", "A, Shutter 1 needs a Location"]);
+  assert.deepEqual(grouped.zones, [{ zone: "A", issues: ["A, Shutter 10 needs a Location", "A, Shutter 1 needs a Location"] }]);
+  assert.equal(grouped.general.length, 0);
+});
+
+test("a one-zone or schema-1 form is not grouped", () => {
+  const flat = ["Shutter row 1 needs a Location", "Shutter row 2 Auto Alarm Mode result is required"];
+  assert.deepEqual(groupSubmitIssues(zonedResponses([zonedRow(1, ""), zonedRow(2, "")]), flat), { general: flat, zones: [] });
+  assert.deepEqual(groupSubmitIssues({ ...zonedResponses([zonedRow(1, "A"), zonedRow(2, "B")]), schemaVersion: 1 }, flat), { general: flat, zones: [] });
 });

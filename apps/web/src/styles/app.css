@@ -615,8 +615,22 @@ dd {
 }
 
 .validation-summary h3,
+.validation-summary p,
 .validation-summary ul {
   margin: 0;
+}
+
+/* Scrolled to after a failed Submit: stop below the sticky autosave chip instead of under it. */
+.validation-summary {
+  scroll-margin-top: calc(var(--space-8) + var(--space-2));
+}
+
+.validation-summary summary {
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .validation-summary ul {

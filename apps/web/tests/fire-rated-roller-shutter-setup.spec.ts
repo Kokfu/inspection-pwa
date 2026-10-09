@@ -361,3 +361,39 @@ test("Submit errors name the zone and the shutter number shown on the cards", as
   // the card the message points at exists under that zone with that number
   await expect(groupOf(page, "Zone 3").locator(".hose-row-card").nth(1).getByRole("heading", { name: "Shutter 2" })).toBeVisible();
 });
+
+test("a failed Submit scrolls to a short per-zone summary; the detail is behind a control", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("3");
+  await page.getByLabel("Locations in each zone").fill("2");
+  await start(page);
+  // a technician taps Submit from the bottom of a long form, so the summary at the top starts off screen
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const summary = page.locator(".validation-summary");
+  await page.getByRole("button", { name: "Submit Inspection" }).click();
+  await expect(summary).toBeInViewport();
+  await expect(summary).toContainText("18 things to fix in 3 zones.");
+  for (const zone of ["Zone 1", "Zone 2", "Zone 3"]) await expect(summary.getByText(`${zone}: 6 things to fix`)).toBeVisible();
+  await expect(summary.getByText("Zone 2, Shutter 1 needs a Location")).toBeHidden();
+  await summary.getByText("Zone 2: 6 things to fix").click();
+  await expect(summary.getByText("Zone 2, Shutter 1 needs a Location")).toBeVisible();
+  await expect(summary.getByText("Zone 3, Shutter 1 needs a Location")).toBeHidden();
+  expect((await summary.locator("summary").first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await summary.evaluate((element) => parseFloat(getComputedStyle(element).scrollMarginTop))).toBeGreaterThanOrEqual(40);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await summary.boundingBox())!.height).toBeLessThan(700);
+});
+
+test("a one-zone form shows its first messages and the rest behind Show all", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Locations in each zone").fill("5");
+  await start(page);
+  await page.getByRole("button", { name: "Submit Inspection" }).click();
+  const summary = page.locator(".validation-summary");
+  await expect(summary).toContainText("15 things to fix.");
+  await expect(summary.locator("ul").first().locator("li")).toHaveCount(8);
+  await expect(summary.getByText("Shutter row 5 Manual Mode result is required")).toBeHidden();
+  await summary.getByText("Show all 15").click();
+  await expect(summary.getByText("Shutter row 5 Manual Mode result is required")).toBeVisible();
+});

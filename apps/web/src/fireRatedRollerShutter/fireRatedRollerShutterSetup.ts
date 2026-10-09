@@ -114,6 +114,27 @@ export function shutterRowLabels(responses: FireRatedRollerShutterResponses): st
   return responses.rows.map((row, index) => position.get(row.rowUuid) ?? `Shutter row ${index + 1}`);
 }
 
+/** Submit messages split for a short summary. With zone headings in use, every message that begins with a shutter's
+ *  label belongs to that shutter's zone; everything else (and every message of a one-zone / schema-1 form) is `general`. */
+export function groupSubmitIssues(responses: FireRatedRollerShutterResponses, issues: readonly string[]): { general: string[]; zones: Array<{ zone: string; issues: string[] }> } {
+  const groups = zoneGroups(responses.rows);
+  const byZone = responses.schemaVersion === 2 && (groups.length > 1 || (groups[0]?.zoneText ?? "") !== "");
+  if (!byZone) return { general: [...issues], zones: [] };
+  const labels = shutterRowLabels(responses);
+  const zoneOfLabel = new Map<string, string>();
+  responses.rows.forEach((row, index) => zoneOfLabel.set(labels[index]!, row.zoneText || "Unnamed zone"));
+  const zones = new Map<string, string[]>();
+  const general: string[] = [];
+  for (const issue of issues) {
+    // A label is followed by a space, as in "Zone 2, Shutter 1 needs a Location", so "Shutter 1" never captures "Shutter 10".
+    const label = [...zoneOfLabel.keys()].find((candidate) => issue.startsWith(`${candidate} `));
+    if (label === undefined) { general.push(issue); continue; }
+    const zone = zoneOfLabel.get(label)!;
+    zones.set(zone, [...(zones.get(zone) ?? []), issue]);
+  }
+  return { general, zones: groups.map((group) => group.zoneText || "Unnamed zone").filter((zone, index, all) => all.indexOf(zone) === index && zones.has(zone)).map((zone) => ({ zone, issues: zones.get(zone)! })) };
+}
+
 /** A readable name for an evidence field path ("Zone 2, Shutter 3 Auto Alarm Mode"), or the path itself if it is not one of this form's rows. */
 export function describeShutterEvidencePath(responses: FireRatedRollerShutterResponses, fieldPath: string): string {
   const match = /\.rows\.([0-9a-f-]{36})\.(auto_alarm_mode|manual_mode)$/i.exec(fieldPath);
