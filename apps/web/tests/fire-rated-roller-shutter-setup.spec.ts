@@ -103,5 +103,8 @@ test("the setup prompt fits phone, tablet and desktop widths with 44px controls"
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const box = await page.getByRole("button", { name: "Start Inspection" }).boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
+    const input = page.getByLabel("Number of shutters");
+    expect((await input.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await input.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
   }
 });

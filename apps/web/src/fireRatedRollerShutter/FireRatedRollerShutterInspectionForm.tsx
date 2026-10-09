@@ -10,7 +10,7 @@ import {
 } from "../jobs/technicianLocationProposalDraft";
 import { configuredFireRatedRollerShutterRows, submitIssues } from "./fireRatedRollerShutterRepository";
 import { FireRatedRollerShutterSetupPrompt } from "./FireRatedRollerShutterSetupPrompt";
-import { addTechnicianShutterRows, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, newTechnicianShutterRow, rollerShutterSetupStep, type RollerShutterSetupStep, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
+import { addTechnicianShutterRows, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, newTechnicianShutterRow, rollerShutterSetupStep, type RollerShutterSetupStep, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterInspectionRecord, type FireRatedRollerShutterResponses, type FireRatedRollerShutterResult } from "./fireRatedRollerShutterTypes";
 import { isFireRatedRollerShutterV7EvidenceFinding, listFireRatedRollerShutterV7Photos, resolveFireRatedRollerShutterRowResultDefinitions, type FireRatedRollerShutterV7FieldPath } from "./fireRatedRollerShutterV7Evidence";
 
@@ -76,10 +76,10 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
     try {
       const rows = layoutRowsFromResponses(submitted, formatCorrections);
       if (!layoutDiffersFrom(savedLayout, rows)) return;
-      const issue = layoutIssue(rows);
-      if (issue) { setLayoutNote(`Inspection submitted. The shutter layout was not saved for next visit: ${issue}`); return; }
       const existing = await loadTechnicianLocationProposalDraft(jobId, record.systemKey, layoutKey);
-      if (existing && existing.status !== "Draft") { setLayoutNote("Inspection submitted. A shutter layout for this visit was already sent for review."); return; }
+      const decision = decideLayoutProposal(savedLayout, rows, existing?.status);
+      if (decision.action === "note") { setLayoutNote(decision.note); return; }
+      if (decision.action === "skip") return;
       const outcome = await sendLayout(rows);
       setLayoutNote(outcome === "synced" ? "Shutter layout sent to a Supervisor for approval. Once approved, it is pre-filled on the next visit."
         : outcome === "pending" ? "Shutter layout saved on this device. It will be sent to a Supervisor for approval when online."

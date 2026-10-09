@@ -64,6 +64,25 @@ export function layoutDiffersFrom(saved: readonly ShutterLayoutRow[], proposed: 
     row.assetReference !== saved[index]!.assetReference || row.locationText !== saved[index]!.locationText);
 }
 
+export type LayoutProposalDecision =
+  | { action: "skip" }
+  | { action: "note"; note: string }
+  | { action: "send" };
+
+/** What the submit-time layout save should do. `existingStatus` is the local proposal draft already
+ *  stored for this job + system (a second proposal would overwrite its draft row and strand its outbox item). */
+export function decideLayoutProposal(
+  saved: readonly ShutterLayoutRow[], proposed: readonly ShutterLayoutRow[], existingStatus: string | undefined
+): LayoutProposalDecision {
+  if (!layoutDiffersFrom(saved, proposed)) return { action: "skip" };
+  const issue = layoutIssue(proposed);
+  if (issue) return { action: "note", note: `Inspection submitted. The shutter layout was not saved for next visit: ${issue}` };
+  if (existingStatus !== undefined && existingStatus !== "Draft") {
+    return { action: "note", note: "Inspection submitted. A shutter layout for this visit was already sent for review." };
+  }
+  return { action: "send" };
+}
+
 /** Why this layout cannot be proposed, or undefined when it can. Mirrors the server's row bounds. */
 export function layoutIssue(rows: readonly ShutterLayoutRow[]): string | undefined {
   if (!rows.length || rows.length > maxShutterRows || rows.some((row) => !row.locationText.trim())) {

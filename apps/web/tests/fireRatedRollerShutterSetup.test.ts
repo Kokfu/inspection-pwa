@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  addTechnicianShutterRows, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
+  addTechnicianShutterRows, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
   newTechnicianShutterRow, parseShutterCount, rollerShutterSetupStep
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
@@ -73,6 +73,22 @@ test("only a changed layout differs from the saved one", () => {
   assert.equal(layoutDiffersFrom(saved, [...saved, { assetReference: "", locationText: "C" }]), true);
   assert.equal(layoutDiffersFrom(saved, [saved[0]!, { assetReference: "RS-02", locationText: "b" }]), true);
   assert.equal(layoutDiffersFrom([], [{ assetReference: "", locationText: "First" }]), true);
+});
+
+test("the submit-time layout save skips, notes, or sends exactly as designed", () => {
+  const saved = [{ assetReference: "RS-01", locationText: "A" }];
+  const changed = [...saved, { assetReference: "", locationText: "B" }];
+  assert.deepEqual(decideLayoutProposal(saved, saved, undefined), { action: "skip" });
+  assert.deepEqual(decideLayoutProposal(saved, changed, undefined), { action: "send" });
+  assert.deepEqual(decideLayoutProposal(saved, changed, "Draft"), { action: "send" });
+  for (const status of ["Pending", "Failed", "Synced"]) {
+    const decision = decideLayoutProposal(saved, changed, status);
+    assert.equal(decision.action, "note", status);
+  }
+  const blank = decideLayoutProposal(saved, [...saved, { assetReference: "", locationText: " " }], undefined);
+  assert.equal(blank.action, "note");
+  assert.match((blank as { note: string }).note, /not saved for next visit/);
+  assert.equal(decideLayoutProposal(saved, saved, "Synced").action, "skip", "unchanged layout stays silent even with an existing proposal");
 });
 
 test("a layout is proposable only with 1..250 rows that each have a location", () => {
