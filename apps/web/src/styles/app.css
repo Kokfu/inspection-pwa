@@ -371,6 +371,23 @@ dd {
   padding-top: 14px;
 }
 
+/* Supervisor proposal review: each saved row is a small block, one labelled value per line. */
+.proposal-row-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proposal-row-list li {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
 /* Roller Shutter zone group: heading + progress + show/hide, then the rows (collapsible). */
 .zone-header {
   display: flex;

@@ -107,7 +107,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
         <p>Zone: {selected.payload.newZone ? `${selected.payload.newZone.displayName} (new)` : selected.payload.zoneKey}</p>
       </> : <>
         <h4>Updated format for "{selected.payload.locationKey}"</h4>
-        <ul className="manager-locations-location-list">
+        <ul className="proposal-row-list">
           {selected.payload.rows.map((row, index) => (
             <li key={index}><strong>Row {index + 1}</strong>
               {"assetReference" in row ? <span>Asset: {row.assetReference || "(no reference)"}</span> : null}
