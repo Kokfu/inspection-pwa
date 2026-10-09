@@ -60,3 +60,19 @@ test("Supervisor inbox rejects an unknown system instead of treating it as CO2",
   }
   finally { globalThis.fetch = oldFetch; }
 });
+
+test("Supervisor inbox reads a zoned Roller Shutter format and rejects mixed, oversized or foreign zoneText", async () => {
+  const oldFetch = globalThis.fetch;
+  const withRows = (systemKey: string, rows: Array<Record<string, string>>) => ({ ...proposal(systemKey, "general", {}), payload: { kind: "update-format", locationKey: "general", rows } });
+  const zoned = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" }, { assetReference: "", locationText: "Dock", zoneText: "Zone 2" }]);
+  const unzoned = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby" }]);
+  const mixed = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" }, { assetReference: "", locationText: "Dock" }]);
+  const tooLong = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "z".repeat(201) }]);
+  const foreign = withRows("smoke_ventilation", [{ assetReference: "Fan 01", zoneText: "Zone 1" }]);
+  globalThis.fetch = async () => new Response(JSON.stringify({ proposals: [zoned, unzoned, mixed, tooLong, foreign] }), { status: 200 });
+  try {
+    const result = await loadLocationProposals("pending");
+    assert.deepEqual(result.proposals.map((entry) => entry.id), [zoned.id, unzoned.id]);
+    assert.equal(result.unreadable.length, 3);
+  } finally { globalThis.fetch = oldFetch; }
+});

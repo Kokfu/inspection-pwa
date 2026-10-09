@@ -6,7 +6,9 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 // historical detail shape to keep alongside this one.
 const detailKeys = ["clientUuid", "serverFormInstanceId", "jobId", "jobReference", "jobTitle", "customerName", "systemKey", "systemLabel", "instanceKey", "zoneId", "locationId", "displaySequence", "status", "performedAt", "receivedAt", "template", "configuration", "responses", "displayControls", "deviceReportedCreatorUsername", "verifiedOriginalCreatorUsername", "syncedByUsername"];
 const responseKeys = ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"];
-const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"];
+const rowKeysV1 = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"];
+// Schema 2 adds a free-text zone heading to every row.
+const rowKeysV2 = [...rowKeysV1, "zoneText"];
 const resultValues = ["good", "not_good", "complete_repair", "na"];
 const rec = (value: unknown): value is R => typeof value === "object" && value !== null && !Array.isArray(value);
 const exact = (value: R, keys: string[]) => Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
@@ -29,7 +31,7 @@ function snapshot(value: unknown, expectedId?: string): value is { id: string; d
     && text(value.displayName, 300);
 }
 
-function parseRows(value: unknown) {
+function parseRows(value: unknown, schemaVersion: 1 | 2) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 250) return undefined;
   const seen = new Set<string>();
   const configuredIdentities = new Set<string>();
@@ -37,7 +39,7 @@ function parseRows(value: unknown) {
   let technicianRowsStarted = false;
   for (let index = 0; index < value.length; index += 1) {
     const row = value[index];
-    if (!rec(row) || !exact(row, rowKeys) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || seen.has(row.rowUuid)
+    if (!rec(row) || !exact(row, schemaVersion === 2 ? rowKeysV2 : rowKeysV1) || (schemaVersion === 2 && !text(row.zoneText, 200, false)) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || seen.has(row.rowUuid)
       || row.sortOrder !== index + 1 || row.zoneSnapshot !== null || !text(row.assetReference, 200, false) || !text(row.locationText, 300) || !text(row.remarks, 2000, false)
       || !resultValues.includes(String(row.autoAlarmModeResult)) || !resultValues.includes(String(row.manualModeResult))
       || !rec(row.fieldRemarks) || Object.keys(row.fieldRemarks).some((key) => !fireRatedRollerShutterRowColumns.some(([responseKey]) => responseKey === key))
@@ -59,11 +61,11 @@ function parseRows(value: unknown) {
 }
 
 function parseResponses(value: unknown): FireRatedRollerShutterResponses | undefined {
-  if (!rec(value) || !exact(value, responseKeys) || value.schemaVersion !== 1
+  if (!rec(value) || !exact(value, responseKeys) || (value.schemaVersion !== 1 && value.schemaVersion !== 2)
     || !text(value.dateTested, 200, false) || !text(value.zone, 200, false) || !text(value.inspectedBy, 200, false)
     || !text(value.comments, 4000, false)) return undefined;
-  const rows = parseRows(value.rows);
-  return rows ? { schemaVersion: 1, dateTested: value.dateTested, zone: value.zone, inspectedBy: value.inspectedBy, rows, comments: value.comments } : undefined;
+  const rows = parseRows(value.rows, value.schemaVersion);
+  return rows ? { schemaVersion: value.schemaVersion, dateTested: value.dateTested, zone: value.zone, inspectedBy: value.inspectedBy, rows, comments: value.comments } : undefined;
 }
 
 export type ServerFireRatedRollerShutterDetail = {

@@ -535,8 +535,9 @@ export function validateAcceptedFireRatedRollerShutterV7Detail(row: R) {
     || typeof snapshot.contractSha256 !== "string" || !/^[0-9a-f]{64}$/.test(snapshot.contractSha256)) return undefined;
   const response = row.responses;
   const rowResultKeys = ["autoAlarmModeResult", "manualModeResult"];
-  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", ...rowResultKeys, "remarks", "fieldRemarks", "sortOrder"];
-  if (!exact(response, ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"]) || response.schemaVersion !== 1
+  // Schema 1 predates zone headings; schema 2 adds a free-text `zoneText` to every row.
+  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", ...(response.schemaVersion === 2 ? ["zoneText"] : []), ...rowResultKeys, "remarks", "fieldRemarks", "sortOrder"];
+  if (!exact(response, ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"]) || (response.schemaVersion !== 1 && response.schemaVersion !== 2)
     || typeof response.dateTested !== "string" || response.dateTested.length > 200
     || typeof response.zone !== "string" || response.zone.length > 200
     || typeof response.inspectedBy !== "string" || response.inspectedBy.length > 200
@@ -548,6 +549,7 @@ export function validateAcceptedFireRatedRollerShutterV7Detail(row: R) {
       || item.sortOrder !== index + 1 || item.zoneSnapshot !== null
       || typeof item.assetReference !== "string" || item.assetReference.length > 200
       || typeof item.locationText !== "string" || !item.locationText.trim() || item.locationText.length > 300
+      || (response.schemaVersion === 2 && (typeof item.zoneText !== "string" || item.zoneText.length > 200))
       || typeof item.remarks !== "string" || item.remarks.length > 2000 || !rec(item.fieldRemarks)
       || Object.keys(item.fieldRemarks).some((key) => !rowResultKeys.includes(key)) || Object.values(item.fieldRemarks).some((value) => typeof value !== "string" || value.length > 2000)) return undefined;
     if (item.source === "configured") {

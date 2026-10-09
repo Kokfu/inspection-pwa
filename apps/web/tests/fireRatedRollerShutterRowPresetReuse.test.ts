@@ -39,3 +39,28 @@ test("a partial Roller Shutter preset does not produce a mixed configured layout
     { assetReference: "", locationText: "General" }, { assetReference: "", locationText: "General" }
   ]);
 });
+
+test("a saved zoned layout pre-fills each row's zone heading for schema 2 and omits it for schema 1", () => {
+  const zoned = system(3, { rows: [
+    { assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" },
+    { assetReference: "RS-02", locationText: "Dock", zoneText: "Zone 1" },
+    { assetReference: "RS-03", locationText: "Roof", zoneText: "Zone 2" }
+  ] });
+  assert.deepEqual(configuredFireRatedRollerShutterRows(zoned).map((row) => [row.locationText, row.zoneText]), [["Lobby", "Zone 1"], ["Dock", "Zone 1"], ["Roof", "Zone 2"]]);
+  assert.deepEqual(configuredFireRatedRollerShutterRows(zoned, 2).map((row) => row.zoneText), ["Zone 1", "Zone 1", "Zone 2"]);
+  assert.ok(configuredFireRatedRollerShutterRows(zoned, 1).every((row) => !("zoneText" in row)), "schema-1 rows carry no zoneText key");
+});
+
+test("a legacy two-field layout gives schema-2 rows a blank zone heading, and malformed zone data fails closed", () => {
+  const legacy = system(1, { rows: [{ assetReference: "RS-01", locationText: "Lobby" }] });
+  assert.equal(configuredFireRatedRollerShutterRows(legacy)[0]?.zoneText, "");
+  for (const rows of [
+    [{ assetReference: "RS-01", locationText: "Lobby", zoneText: 7 }],
+    [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "z".repeat(201) }],
+    [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1", extra: "bad" }]
+  ]) {
+    const row = configuredFireRatedRollerShutterRows(system(1, { rows }))[0]!;
+    assert.equal(row.locationText, "General", "malformed presets fall back to the safe default");
+    assert.equal(row.zoneText, "");
+  }
+});

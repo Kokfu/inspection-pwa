@@ -23,7 +23,7 @@ export function ServerFireRatedRollerShutterView({ inspection, onBack }: { inspe
     <p className="success-message">Submitted {formatClientDateTime(inspection.performedAt)} · Synced by {inspection.syncedByUsername}</p>
     <section><h3>Inspection Details</h3><p>Date Tested: {inspection.responses.dateTested || "Not recorded"}</p><p>Zone: {inspection.responses.zone || "Not recorded"}</p><p>Inspected By: {inspection.responses.inspectedBy || "Not recorded"}</p></section>
     <section><h3>Roller Shutter Schedule</h3>{inspection.responses.rows.map((row, index) => <article className="accepted-location-row" key={row.rowUuid}>
-      <div className="accepted-location-heading"><strong>No. {index + 1}</strong><span><small>Location</small><br />{row.locationText}</span></div>
+      <div className="accepted-location-heading"><strong>No. {index + 1}</strong>{row.zoneText ? <span><small>Zone</small><br />{row.zoneText}</span> : null}<span><small>Location</small><br />{row.locationText}</span></div>
       <div className="accepted-results" aria-label={`Inspection results for Shutter ${index + 1}`}>{fireRatedRollerShutterRowColumns.map(([key, wire, name]) => {
         const finding = isFinding(row[key]);
         const photo = evidence.find((item) => item.fieldPath === `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wire}`);

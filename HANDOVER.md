@@ -3,7 +3,26 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-09 — **Admin recovery CLI + admin web password reset (uncommitted; stop before staging).**
+**Last updated:** 2026-10-09 — **Roller Shutter zones x locations setup + auto-saved layout (Phases 1-2; Phase 2 uncommitted; stop before staging).**
+Phase 1 (committed `626c21f`, review fixes `0d15a57`): a fresh Roller Shutter visit asks how many shutters before the form, a
+visit with a saved layout shows "Same shutters as last time", and submitting a new or changed layout queues the existing
+`update-format` proposal automatically (no button; Supervisor approval kept). Phase 2: **zone headings inside the one form**.
+First visit asks **Number of zones** and **Locations in each zone** (per-zone override), the form groups rows under zone
+headings (rename a technician zone, **Add shutter to** a zone, **Add Zone**), and the approved layout pre-fills every zone next
+visit. Design: no migration, no `customer_system_zones` rows - `zoneText` is a free-text label on each saved preset row
+(`{assetReference, locationText, zoneText}`, all rows or none) inside the existing zone-free General location, and a **response
+schemaVersion 2** adds `zoneText` to every row (schema 1 stays valid and byte-identical; configured rows must equal the frozen
+zone; `master_system_form_instances.response_schema_version` already allows 1/2). Files: `fireRatedRollerShutter*` (web),
+`fireRatedRollerShutterV7Acceptance.ts` / `fireRatedRollerShutterInspectionSync.ts` / `locationConfiguration.ts` /
+`acceptedMasterSystemDetail.ts` / `reportViewModel.ts` (API; the report prints "Zone - Location", the frozen V7 definition is
+unchanged). Tests: web Node + Playwright (`fire-rated-roller-shutter-setup.spec.ts`), API unit, and disposable-Postgres
+integration (schema 2 accept, frozen-zone tamper, schema-1 retained, zoned proposal approval, Final Report + PDF text).
+**Known P2, deferred:** a second proposal for the same customer/system while one is pending returns 409 and shows "Sync
+needs attention" until a Supervisor decides; the layout-save outcome note is not persisted after reload.
+Not done: phone / installed-PWA / force-close check; Manager desktop editor for Roller Shutter zones (none exists; layouts
+come from technician proposals).
+
+**Earlier checkpoint:** 2026-10-09 — **Admin recovery CLI + admin web password reset (committed `94bdc19`).**
 Part A: `create-admin` now creates a NEW admin only (existing username → exit 1); new `reset-admin-password`
 ([adminCli.ts](apps/api/src/cli/adminCli.ts), [resetAdminPassword.ts](apps/api/src/cli/resetAdminPassword.ts)) updates an
 EXISTING admin only, reactivates it and revokes its sessions in one transaction with an `admin_*_cli` audit row; hidden

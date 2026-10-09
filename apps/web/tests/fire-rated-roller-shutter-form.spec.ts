@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 test("roller shutter fields and buttons save a local draft then queue a complete inspection", async ({ page }) => {
   await page.goto("/tests/fire-rated-roller-shutter-form.html");
   await expect(page.getByRole("heading", { name: "Fire Rated Roller Shutter System" })).toBeVisible();
-  await page.getByLabel("Number of shutters").fill("1");
   await page.getByRole("button", { name: "Start Inspection" }).click();
   await expect(page.getByLabel("Date Tested")).toBeVisible();
   await expect(page.getByLabel("Zone", { exact: true })).toBeVisible();

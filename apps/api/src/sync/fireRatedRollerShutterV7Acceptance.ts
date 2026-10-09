@@ -55,8 +55,11 @@ function rowValues(definition: unknown) {
 
 /** The V7 adapter owns finding evidence. This keeps the rest of the response strict. */
 function validResponses(responses: Value, rows: Map<string, Set<string>>) {
-  const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"];
-  if (!exact(responses, ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"]) || responses.schemaVersion !== 1
+  // Schema 1 predates zone headings; schema 2 adds a free-text `zoneText` to every row (frozen, forward-only).
+  const schemaVersion = responses.schemaVersion;
+  const baseRowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"];
+  const rowKeys = schemaVersion === 2 ? [...baseRowKeys, "zoneText"] : baseRowKeys;
+  if (!exact(responses, ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"]) || (schemaVersion !== 1 && schemaVersion !== 2)
     || typeof responses.dateTested !== "string" || responses.dateTested.length > 200
     || typeof responses.zone !== "string" || responses.zone.length > 200
     || typeof responses.inspectedBy !== "string" || responses.inspectedBy.length > 200
@@ -69,6 +72,7 @@ function validResponses(responses: Value, rows: Map<string, Set<string>>) {
       || row.sortOrder !== index + 1 || row.zoneSnapshot !== null
       || typeof row.assetReference !== "string" || row.assetReference.length > 200
       || typeof row.locationText !== "string" || !row.locationText.trim() || row.locationText.length > 300
+      || (schemaVersion === 2 && (typeof row.zoneText !== "string" || row.zoneText.length > 200))
       || typeof row.remarks !== "string" || row.remarks.length > 2000
       || !record(row.fieldRemarks)
       || Object.keys(row.fieldRemarks).some((key) => !rowColumns.some(([responseKey]) => responseKey === key))
@@ -200,8 +204,8 @@ export async function acceptFireRatedRollerShutterV7Inspection(item: SyncItem, a
     const snapshot = { schemaVersion: 2, acceptedAt: new Date().toISOString(), ...authority, system: { ...system, key: "fire_rated_roller_shutter", definition: definition.rows[0]!.definition, repetitionMode: "single_with_repeatable_rows" }, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null }, evidenceManifest: manifest };
     const formId = randomUUID();
     await client.query(
-      "INSERT INTO master_system_form_instances(id,inspection_group_id,client_uuid,instance_key,zone_id,location_id,zone_snapshot,location_snapshot,display_sequence,master_template_version_id,customer_configuration_revision_id,snapshot_schema_version,inspection_snapshot,response_schema_version,response_payload,request_fingerprint,status,performed_at,original_creator_snapshot,synced_by_user_id) VALUES($1,$2,$3,'primary',NULL,NULL,NULL,NULL,1,$4,$5,2,$6,1,$7,$8,'submitted',$9,$10,$11)",
-      [formId, group.rows[0]!.id, payload.clientUuid, payload.masterTemplate.id, payload.configuration.revisionId, snapshot, payload.responses, fingerprint, payload.performedAt, payload.originalCreatorSnapshot, actorUserId]
+      "INSERT INTO master_system_form_instances(id,inspection_group_id,client_uuid,instance_key,zone_id,location_id,zone_snapshot,location_snapshot,display_sequence,master_template_version_id,customer_configuration_revision_id,snapshot_schema_version,inspection_snapshot,response_schema_version,response_payload,request_fingerprint,status,performed_at,original_creator_snapshot,synced_by_user_id) VALUES($1,$2,$3,'primary',NULL,NULL,NULL,NULL,1,$4,$5,2,$6,$12,$7,$8,'submitted',$9,$10,$11)",
+      [formId, group.rows[0]!.id, payload.clientUuid, payload.masterTemplate.id, payload.configuration.revisionId, snapshot, payload.responses, fingerprint, payload.performedAt, payload.originalCreatorSnapshot, actorUserId, payload.responses.schemaVersion]
     );
     await client.query("UPDATE staged_inspection_evidence SET status='accepted',form_instance_id=$1,accepted_at=now() WHERE inspection_client_uuid=$2 AND status='staged'", [formId, payload.clientUuid]);
     await client.query("COMMIT");

@@ -23,6 +23,8 @@ export type FireRatedRollerShutterRow = {
   locationSnapshot: { id: string; displayName: string } | null;
   assetReference: string;
   locationText: string;
+  /** Free-text zone heading. Present on schema-2 rows only (schema 1 predates zone headings). */
+  zoneText?: string;
   autoAlarmModeResult: FireRatedRollerShutterResult | null;
   manualModeResult: FireRatedRollerShutterResult | null;
   remarks: string;
@@ -30,7 +32,7 @@ export type FireRatedRollerShutterRow = {
   sortOrder: number;
 };
 export type FireRatedRollerShutterResponses = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   dateTested: string;
   zone: string;
   inspectedBy: string;

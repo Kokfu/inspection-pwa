@@ -36,3 +36,43 @@ test("each roller shutter finding needs its own remark and distinct photo", () =
   assert.ok(submitIssues(inspection, draft, paths.map((path) => photo(path, "a".repeat(64)))).some((issue) => issue.includes("same photo")));
   assert.deepEqual(submitIssues(inspection, draft, [photo(paths[0]!, "a".repeat(64)), photo(paths[1]!, "b".repeat(64))]), []);
 });
+
+// ---- Phase 2: schema-2 zone headings must match the server's validResponses / configured-row match -------------
+
+const locationId = "00000000-0000-4000-8000-000000000c01";
+const zonedInspection = { inspectionSnapshot: { system: { enabledSystemId: "00000000-0000-4000-8000-000000000c02", definition, locations: [{
+  id: locationId, enabledSystemId: "00000000-0000-4000-8000-000000000c02", zoneId: null, key: "general", displayName: "General", presetRowCount: 1,
+  rowPreset: { rows: [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" }] }, sortOrder: 1
+}] } } } as unknown as FireRatedRollerShutterInspectionRecord;
+const zonedResponse = (): FireRatedRollerShutterResponses => ({ schemaVersion: 2, dateTested: "2026-10-09", zone: "", inspectedBy: "Inspector A", rows: [{
+  rowUuid, source: "configured", configuredLocationId: locationId, configuredRowOrdinal: 1, zoneSnapshot: null,
+  locationSnapshot: { id: locationId, displayName: "General" }, assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1",
+  autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: 1
+}, {
+  rowUuid: "00000000-0000-4000-8000-000000000b02", source: "technician", configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null,
+  locationSnapshot: null, assetReference: "", locationText: "Roof", zoneText: "Zone 3", autoAlarmModeResult: "good", manualModeResult: "na",
+  remarks: "", fieldRemarks: {}, sortOrder: 2
+}], comments: "" });
+
+test("schema-2 roller shutter rows with a frozen zone heading pass local submission", () => {
+  assert.deepEqual(submitIssues(zonedInspection, zonedResponse(), []), []);
+});
+
+test("schema 2 requires zoneText on every row and keeps it bounded", () => {
+  const missing = zonedResponse(); delete (missing.rows[1] as { zoneText?: string }).zoneText;
+  assert.ok(submitIssues(zonedInspection, missing, []).some((issue) => issue.includes("Shutter row shape is invalid")));
+  const long = zonedResponse(); long.rows[1]!.zoneText = "z".repeat(201);
+  assert.ok(submitIssues(zonedInspection, long, []).some((issue) => issue.includes("zone heading is invalid")));
+});
+
+test("a configured row's zone heading must equal the frozen configuration", () => {
+  const tampered = zonedResponse(); tampered.rows[0]!.zoneText = "Zone 9";
+  assert.ok(submitIssues(zonedInspection, tampered, []).some((issue) => issue.includes("zone does not match the frozen configuration")));
+});
+
+test("schema 1 keeps its exact row key set and never carries zoneText", () => {
+  const legacy = response(); (legacy.rows[0] as { zoneText?: string }).zoneText = "Zone 1";
+  assert.ok(submitIssues(inspection, legacy, []).some((issue) => issue.includes("Shutter row shape is invalid")));
+  const future = response() as unknown as { schemaVersion: number }; future.schemaVersion = 3;
+  assert.ok(submitIssues(inspection, future as unknown as FireRatedRollerShutterResponses, []).some((issue) => issue.includes("envelope shape is invalid")));
+});

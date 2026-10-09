@@ -25,7 +25,9 @@ const exactKeys = (value: object, keys: readonly string[]) => Object.keys(value)
  * Kept as literals here so a drift from the server shows up as a failing parity
  * test rather than a stranded Pending record. */
 const responseEnvelopeKeys = ["schemaVersion", "dateTested", "zone", "inspectedBy", "rows", "comments"] as const;
-const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"] as const;
+const rowKeysV1 = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdinal", "zoneSnapshot", "locationSnapshot", "assetReference", "locationText", "autoAlarmModeResult", "manualModeResult", "remarks", "fieldRemarks", "sortOrder"] as const;
+/** Schema 2 adds a free-text `zoneText` heading to every row (server: `fireRatedRollerShutterV7Acceptance.ts`). */
+const rowKeysV2 = [...rowKeysV1, "zoneText"] as const;
 
 /** Mirrors `expectedConfiguredFireRatedRollerShutterRows` in
  * `apps/api/src/sync/fireRatedRollerShutterInspectionSync.ts` exactly. The server derives
@@ -33,7 +35,7 @@ const rowKeys = ["rowUuid", "source", "configuredLocationId", "configuredRowOrdi
  * order of `system.locations`, so this must sort too - otherwise a snapshot
  * that happens to arrive out of order builds a Draft the server refuses
  * non-retryably. */
-function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string }> | undefined {
+function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string; zoneText?: string }> | undefined {
   const preset = location.rowPreset;
   if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
   const rows: unknown = (preset as Record<string, unknown>).rows;
@@ -42,15 +44,15 @@ function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ a
   if (!rows.every((row: unknown) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) return false;
     const value = row as Record<string, unknown>;
-    return Object.keys(value).length === 2
+    return (Object.keys(value).length === 2 || (Object.keys(value).length === 3 && typeof value.zoneText === "string" && value.zoneText.length <= 200))
       && typeof value.assetReference === "string" && value.assetReference.length <= 200
       && typeof value.locationText === "string" && value.locationText.trim().length > 0 && value.locationText.length <= 300;
   })) return undefined;
-  return rows as Array<{ assetReference: string; locationText: string }>;
+  return rows as Array<{ assetReference: string; locationText: string; zoneText?: string }>;
 }
 
 function expectedConfiguredRows(system: JobSystemSnapshot) {
-  const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string; locationText: string }> = [];
+  const expected: Array<{ locationId: string; ordinal: number; sortOrder: number; assetReference: string; displayName: string; locationText: string; zoneText: string }> = [];
   for (const location of [...system.locations].sort((left, right) => left.sortOrder - right.sortOrder)) {
     const assetReference = typeof location.rowPreset === "object" && location.rowPreset && "assetReference" in location.rowPreset && typeof location.rowPreset.assetReference === "string" ? location.rowPreset.assetReference : "";
     const presets = rowPresets(location);
@@ -58,19 +60,22 @@ function expectedConfiguredRows(system: JobSystemSnapshot) {
       expected.push({ locationId: location.id, ordinal, sortOrder: expected.length + 1,
         assetReference: presets?.[ordinal - 1]?.assetReference ?? assetReference,
         locationText: presets?.[ordinal - 1]?.locationText ?? location.displayName,
+        zoneText: presets?.[ordinal - 1]?.zoneText ?? "",
         displayName: location.displayName });
     }
   }
   return expected;
 }
 
-export function configuredFireRatedRollerShutterRows(system: JobSystemSnapshot): FireRatedRollerShutterRow[] {
+/** `schemaVersion` 2 (the default for new records) carries each row's frozen zone heading; schema 1 does not. */
+export function configuredFireRatedRollerShutterRows(system: JobSystemSnapshot, schemaVersion: 1 | 2 = 2): FireRatedRollerShutterRow[] {
   return expectedConfiguredRows(system).map((expected) => ({
     rowUuid: crypto.randomUUID(), source: "configured" as const, configuredLocationId: expected.locationId, configuredRowOrdinal: expected.ordinal,
     zoneSnapshot: null,
     locationSnapshot: { id: expected.locationId, displayName: expected.displayName },
     assetReference: expected.assetReference,
-    locationText: expected.locationText, autoAlarmModeResult: null, manualModeResult: null,
+    locationText: expected.locationText, ...(schemaVersion === 2 ? { zoneText: expected.zoneText } : {}),
+    autoAlarmModeResult: null, manualModeResult: null,
     remarks: "", fieldRemarks: {}, sortOrder: expected.sortOrder
   }));
 }
@@ -87,7 +92,7 @@ export async function getOrCreateFireRatedRollerShutterInspection(job: Inspectio
     originalCreatorSnapshot: creator ? { source: "device_reported", userId: creator.id, username: creator.username, role: creator.role, capturedAt: timestamp } as DeviceReportedCreator : null,
     masterTemplate: { id: job.configurationSnapshot.template.id, code: "MFE-FSSR", version: 7 }, configuration: job.configurationSnapshot.configuration,
     inspectionSnapshot: { schemaVersion: 1, capturedAt: timestamp, job: { id: job.id, reference: job.reference, title: job.title }, customer: job.configurationSnapshot.customer, configuration: job.configurationSnapshot.configuration, template: job.configurationSnapshot.template, system: { ...system, definition, repetitionMode: "single_with_repeatable_rows" } },
-    responses: { schemaVersion: 1, dateTested: "", zone: "", inspectedBy: "", rows: configuredFireRatedRollerShutterRows(system), comments: "" },
+    responses: { schemaVersion: 2, dateTested: "", zone: "", inspectedBy: "", rows: configuredFireRatedRollerShutterRows(system, 2), comments: "" },
     performedAt: timestamp, localCreatedAt: timestamp, localUpdatedAt: timestamp, syncStatus: "Draft"
   };
   await localDatabase.masterSystemInspections.add(record);
@@ -105,7 +110,7 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
   // Envelope parity with the server's `validResponses()`: exactly
   // schemaVersion / rows / comments. An extra or unknown top-level key is
   // rejected non-retryably server-side.
-  if (!exactKeys(responses, responseEnvelopeKeys)) issues.push("Fire Rated Roller Shutter response envelope shape is invalid");
+  if (!exactKeys(responses, responseEnvelopeKeys) || (responses.schemaVersion !== 1 && responses.schemaVersion !== 2)) issues.push("Fire Rated Roller Shutter response envelope shape is invalid");
   if (responses.dateTested.length > 200 || responses.zone.length > 200 || responses.inspectedBy.length > 200) issues.push("Inspection details are too long");
   const expected = expectedConfiguredRows(record.inspectionSnapshot.system);
   const expectedByIdentity = new Map(expected.map((row) => [`${row.locationId}:${row.ordinal}`, row]));
@@ -122,7 +127,14 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
     if (row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.locationText.length > 300 || !row.locationText.trim() || row.remarks.length > 2000) issues.push("Shutter row is invalid");
     // Exact row-key parity with the server (`exact(row, rowKeys)`): an extra own
     // property strands the record behind a non-retryable acceptance.
-    if (!exactKeys(row, rowKeys)) issues.push("Shutter row shape is invalid");
+    if (!exactKeys(row, responses.schemaVersion === 2 ? rowKeysV2 : rowKeysV1)) issues.push("Shutter row shape is invalid");
+    if (responses.schemaVersion === 2) {
+      if (typeof row.zoneText !== "string" || row.zoneText.length > 200) issues.push("Shutter zone heading is invalid");
+      else if (row.source === "configured") {
+        const frozen = expectedByIdentity.get(`${row.configuredLocationId}:${row.configuredRowOrdinal}`);
+        if (frozen && row.zoneText !== frozen.zoneText) issues.push("Configured Shutter zone does not match the frozen configuration");
+      }
+    }
     // The server requires every Fire Rated Roller Shutter row's `zoneSnapshot` to be null.
     if ((row as unknown as Record<string, unknown>).zoneSnapshot !== null) issues.push("Shutter row zone snapshot must be null");
     if (Object.values(row.fieldRemarks ?? {}).some((value) => typeof value !== "string" || value.length > 2000)

@@ -214,6 +214,22 @@ test("location proposal patches: add-location + update-format, independent pendi
       assert.equal(secondShutterApproval.status, 201, await secondShutterApproval.clone().text());
       assert.deepEqual(await storedShutter(), [{ key: "general", zoneId: null, count: 1, preset: { rows: nextRows } }]);
 
+      // Zone headings: rows may carry a free-text zoneText (all rows or none). It rides inside the same
+      // zone-free General layout (no customer_system_zones rows), so the approval path is unchanged.
+      const zonedRows = [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" },
+        { assetReference: "RS-02", locationText: "Dock", zoneText: "Zone 1" }, { assetReference: "", locationText: "Roof", zoneText: "Zone 2" }];
+      const mixedZone = await call(shutterPath, "inspector", "POST", { id: id(), jobId: shutterJob,
+        patch: { kind: "update-format", locationKey: "general", rows: [zonedRows[0], { assetReference: "", locationText: "Dock" }] } });
+      assert.equal(mixedZone.status, 400, "a proposal mixing rows with and without zoneText is rejected");
+      const longZone = await call(shutterPath, "inspector", "POST", { id: id(), jobId: shutterJob,
+        patch: { kind: "update-format", locationKey: "general", rows: [{ ...zonedRows[0], zoneText: "z".repeat(201) }] } });
+      assert.equal(longZone.status, 400, "an oversized zone heading is rejected");
+      const zonedShutter = await call(shutterPath, "inspector", "POST", { id: id(), jobId: shutterJob, patch: { kind: "update-format", locationKey: "general", rows: zonedRows } });
+      assert.equal(zonedShutter.status, 201, await zonedShutter.clone().text());
+      const zonedShutterId = (await zonedShutter.json() as { proposal: { id: string } }).proposal.id;
+      assert.equal((await decide(zonedShutterId, "supervisor", { requestId: id(), decision: "approved" })).status, 201);
+      assert.deepEqual(await storedShutter(), [{ key: "general", zoneId: null, count: 3, preset: { rows: zonedRows } }]);
+
       const hoseJob = id();
       const hoseSnapshot = { ...co2Snapshot, enabledSystems: [{ ...co2Snapshot.enabledSystems[0],
         enabledSystemId: id(), systemKey: "hose_reel", displayName: "Hose Reel" }] };

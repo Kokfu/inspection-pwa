@@ -256,13 +256,20 @@ function registerBlock(context: BuildContext, head: BlockHead, blockKey: string,
     const no = index + 1;
     const fieldRemarks = isRecord(row.fieldRemarks) ? row.fieldRemarks : {};
     const locationColumn = columns.findIndex((column) => column.key === "location" || column.key === "locationText");
-    const location = locationColumn >= 0 ? nonEmpty(row[responseKey(row, columns[locationColumn]!) ?? ""]) : null;
+    // Roller Shutter schema 2 rows carry a free-text zone heading; the frozen V7 definition has no zone
+    // column (changing it would change the contract hash), so the zone is shown with the location.
+    const zoneText = context.systemKey === "fire_rated_roller_shutter" ? nonEmpty(row.zoneText) : null;
+    const rawLocation = locationColumn >= 0 ? nonEmpty(row[responseKey(row, columns[locationColumn]!) ?? ""]) : null;
+    const location = rawLocation !== null && zoneText !== null ? `${zoneText} — ${rawLocation}` : rawLocation;
     const rowLabel = `No. ${no}${location ? ` (${location})` : ""}`;
     const cells = columns.map((column): RegisterCell => {
       const key = responseKey(row, column);
       const value = key === undefined ? undefined : row[key];
       if (column.kind === "remarks") return { kind: "remarks", text: nonEmpty(value) };
-      if (column.kind === "text") return { kind: "text", text: textReading("text", value) };
+      if (column.kind === "text") {
+        const reading = textReading("text", value);
+        return { kind: "text", text: zoneText !== null && reading !== null && (column.key === "location" || column.key === "locationText") ? `${zoneText} — ${reading}` : reading };
+      }
       if (column.kind === "nti") {
         const states = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
         return { kind: "nti", state: states && states.every((state) => state === "normal" || state === "test" || state === "isolation")

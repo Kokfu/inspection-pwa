@@ -22,14 +22,17 @@ export function validLocationProposalPatch(value: unknown, systemKey: string): b
   if (value.kind !== "update-format" || typeof value.locationKey !== "string"
     || (!zonedSystems.has(systemKey) && !allowedZoneFreeKeys!.includes(value.locationKey))
     || !Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > (zonedSystems.has(systemKey) ? 500 : 250)) return false;
-  const fields = systemKey === "fire_alarm_detector"
+  const baseFields = systemKey === "fire_alarm_detector"
     ? (value.locationKey === "general-primary" ? ["assetReference", "alarmZone", "location"] : ["assetReference", "location"])
     : systemKey === "smoke_ventilation" || systemKey === "fire_intercom" ? ["assetReference"]
     : systemKey === "hose_reel" ? ["assetReference", "locationText", "drumType"]
     : systemKey === "fire_rated_roller_shutter" || systemKey === "hydrant" || systemKey === "dry_wet_riser" ? ["assetReference", "locationText"]
     : ["alarmZone", "location"];
+  // Roller Shutter rows may add a free-text zone heading: every row carries `zoneText`, or none does.
+  const fields = systemKey === "fire_rated_roller_shutter" && value.rows.every((row) => object(row) && "zoneText" in row)
+    ? [...baseFields, "zoneText"] : baseFields;
   return value.rows.every((row) => object(row) && Object.keys(row).length === fields.length
-    && fields.every((name) => typeof row[name] === "string" && row[name].length <= (name === "assetReference" ? 200 : 300))
+    && fields.every((name) => typeof row[name] === "string" && row[name].length <= (name === "assetReference" || name === "zoneText" ? 200 : 300))
     && (!("locationText" in row) || Boolean(String(row.locationText).trim()))
     && (!("drumType" in row) || row.drumType === "" || row.drumType === "swing" || row.drumType === "fixed"));
 }

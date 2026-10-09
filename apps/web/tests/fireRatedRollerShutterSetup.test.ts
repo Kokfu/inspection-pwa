@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  addTechnicianShutterRows, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
-  newTechnicianShutterRow, parseShutterCount, rollerShutterSetupStep
+  addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
+  newTechnicianShutterRow, parseShutterCount, parseZonePlan, renameTechnicianZone, rollerShutterSetupStep, zoneGroups, type ZonePlan
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
 
@@ -12,7 +12,7 @@ const configuredRow = (n: number, change: Partial<FireRatedRollerShutterRow> = {
   assetReference: `RS-0${n}`, locationText: `Place ${n}`, ...change
 });
 const responses = (rows: FireRatedRollerShutterRow[], change: Partial<FireRatedRollerShutterResponses> = {}): FireRatedRollerShutterResponses =>
-  ({ schemaVersion: 1, dateTested: "", zone: "", inspectedBy: "", rows, comments: "", ...change });
+  ({ schemaVersion: 2, dateTested: "", zone: "", inspectedBy: "", rows, comments: "", ...change });
 
 test("a fresh Draft with no rows asks how many shutters; untouched configured rows ask for confirmation", () => {
   assert.equal(rollerShutterSetupStep(responses([])), "count");
@@ -98,4 +98,94 @@ test("a layout is proposable only with 1..250 rows that each have a location", (
   assert.ok(layoutIssue([]));
   assert.ok(layoutIssue(Array(maxShutterRows + 1).fill(row)));
   assert.ok(layoutIssue([row, { assetReference: "RS-02", locationText: "   " }]));
+});
+
+// ---- Phase 2: zone headings (schema 2) -------------------------------------------------------------
+
+const zonedRow = (n: number, zoneText: string, source: "configured" | "technician" = "technician", locationText = `Loc ${n}`): FireRatedRollerShutterRow =>
+  source === "configured"
+    ? { ...configuredRow(n), zoneText, locationText }
+    : { ...newTechnicianShutterRow(n, zoneText), locationText };
+const zonedResponses = (rows: FireRatedRollerShutterRow[]): FireRatedRollerShutterResponses => ({ ...responses(rows), schemaVersion: 2 });
+
+test("schema-1 drafts never get a setup step", () => {
+  assert.equal(rollerShutterSetupStep({ ...responses([]), schemaVersion: 1 }), null);
+  assert.equal(rollerShutterSetupStep(zonedResponses([])), "count");
+});
+
+test("a zones x locations plan validates its bounds and the 250-row total", () => {
+  assert.deepEqual(parseZonePlan("5", "4"), { plan: [0, 1, 2, 3, 4].map((index) => ({ name: `Zone ${index + 1}`, count: 4 })) });
+  assert.deepEqual(parseZonePlan("1", "3"), { plan: [{ name: "", count: 3 }] }, "a single zone is unnamed");
+  assert.deepEqual(parseZonePlan("3", "2", { 1: "5" }), { plan: [{ name: "Zone 1", count: 2 }, { name: "Zone 2", count: 5 }, { name: "Zone 3", count: 2 }] });
+  assert.deepEqual(parseZonePlan("2", "2", { 0: "  " }), { plan: [{ name: "Zone 1", count: 2 }, { name: "Zone 2", count: 2 }] }, "a blank override uses the default");
+  for (const [zones, per] of [["0", "1"], ["51", "1"], ["x", "1"], ["2", "0"], ["2", ""], ["2", "251"]]) assert.ok("error" in parseZonePlan(zones!, per!), `${zones}x${per}`);
+  assert.ok("error" in parseZonePlan("2", "2", { 1: "0" }));
+  assert.match((parseZonePlan("2", "200") as { error: string }).error, /400 shutters/);
+  assert.ok("plan" in parseZonePlan("1", "250"));
+  assert.ok("plan" in parseZonePlan("50", "5"));
+});
+
+test("planned zone rows are blank technician rows grouped by zone with contiguous sortOrder", () => {
+  const parsed = parseZonePlan("2", "2", { 1: "3" }) as { plan: ZonePlan[] };
+  const next = addPlannedZoneRows(zonedResponses([]), parsed.plan);
+  assert.deepEqual(next.rows.map((row) => [row.zoneText, row.sortOrder, row.source, row.locationText]), [
+    ["Zone 1", 1, "technician", ""], ["Zone 1", 2, "technician", ""], ["Zone 2", 3, "technician", ""], ["Zone 2", 4, "technician", ""], ["Zone 2", 5, "technician", ""]
+  ]);
+});
+
+test("zone groups keep first-appearance order and flag groups that hold a configured row", () => {
+  const groups = zoneGroups([zonedRow(1, "A", "configured"), zonedRow(2, "B"), zonedRow(3, "A"), zonedRow(4, "")]);
+  assert.deepEqual(groups.map((group) => [group.zoneText, group.rows.length, group.hasConfigured]), [["A", 2, true], ["B", 1, false], ["", 1, false]]);
+});
+
+test("a shutter added to a zone sits after that zone's last technician row and never ahead of configured rows", () => {
+  const start = zonedResponses([zonedRow(1, "A", "configured"), zonedRow(2, "B", "configured"), zonedRow(3, "A"), zonedRow(4, "B")]);
+  const addedToA = addRowToZone(start, "A");
+  assert.deepEqual(addedToA.rows.map((row) => [row.source, row.zoneText]), [["configured", "A"], ["configured", "B"], ["technician", "A"], ["technician", "A"], ["technician", "B"]]);
+  assert.deepEqual(addedToA.rows.map((row) => row.sortOrder), [1, 2, 3, 4, 5]);
+  const toConfiguredOnly = addRowToZone(zonedResponses([zonedRow(1, "A", "configured"), zonedRow(2, "B", "configured")]), "B");
+  assert.deepEqual(toConfiguredOnly.rows.map((row) => [row.source, row.zoneText]), [["configured", "A"], ["configured", "B"], ["technician", "B"]]);
+  assert.equal(addedToA.rows[3]!.locationText, "");
+  assert.equal(addedToA.rows[3]!.zoneText, "A");
+  assert.equal(start.rows.length, 4, "input is not mutated");
+});
+
+test("adding a zone names the lone unnamed zone Zone 1 and picks the next free name", () => {
+  const first = addZone(zonedResponses([zonedRow(1, "")]));
+  assert.deepEqual(first.rows.map((row) => row.zoneText), ["Zone 1", "Zone 2"]);
+  const third = addZone(first);
+  assert.deepEqual(third.rows.map((row) => row.zoneText), ["Zone 1", "Zone 2", "Zone 3"]);
+  const skipping = addZone(zonedResponses([zonedRow(1, "Zone 2"), zonedRow(2, "North")]));
+  assert.deepEqual(skipping.rows.map((row) => row.zoneText), ["Zone 2", "North", "Zone 3"]);
+  const configuredUnnamed = addZone(zonedResponses([zonedRow(1, "", "configured")]));
+  assert.deepEqual(configuredUnnamed.rows.map((row) => row.zoneText), ["", "Zone 2"], "a frozen zone is never renamed");
+});
+
+test("only technician-only zones can be renamed", () => {
+  const start = zonedResponses([zonedRow(1, "A", "configured"), zonedRow(2, "A"), zonedRow(3, "B"), zonedRow(4, "B")]);
+  assert.equal(renameTechnicianZone(start, "A", "Z"), start, "a zone with a configured row keeps its frozen heading");
+  const renamed = renameTechnicianZone(start, "B", "North");
+  assert.deepEqual(renamed.rows.map((row) => row.zoneText), ["A", "A", "North", "North"]);
+  assert.equal(renameTechnicianZone(start, "B", "B"), start);
+});
+
+test("a zoned layout lists rows grouped by zone, and an unzoned or schema-1 layout stays two-field", () => {
+  const input = zonedResponses([zonedRow(1, "A", "configured", "L1"), zonedRow(2, "B", "configured", "L2"), zonedRow(3, "A", "technician", "L3")]);
+  assert.deepEqual(layoutRowsFromResponses(input, {}), [
+    { assetReference: "RS-01", locationText: "L1", zoneText: "A" }, { assetReference: "", locationText: "L3", zoneText: "A" }, { assetReference: "RS-02", locationText: "L2", zoneText: "B" }
+  ]);
+  const corrected = layoutRowsFromResponses(input, { [input.rows[1]!.rowUuid]: { zoneText: "Z" } });
+  assert.deepEqual(corrected.map((row) => [row.locationText, row.zoneText]), [["L1", "A"], ["L3", "A"], ["L2", "Z"]]);
+  const unzoned = zonedResponses([zonedRow(1, ""), zonedRow(2, "")]);
+  assert.ok(layoutRowsFromResponses(unzoned, {}).every((row) => !("zoneText" in row)));
+  const legacy = { ...responses([configuredRow(1)]), schemaVersion: 1 as const };
+  assert.ok(layoutRowsFromResponses(legacy, {}).every((row) => !("zoneText" in row)));
+});
+
+test("a zone-only change makes the layout differ; a missing heading equals a blank one", () => {
+  const saved = [{ assetReference: "A", locationText: "L", zoneText: "Zone 1" }];
+  assert.equal(layoutDiffersFrom(saved, [{ assetReference: "A", locationText: "L", zoneText: "Zone 1" }]), false);
+  assert.equal(layoutDiffersFrom(saved, [{ assetReference: "A", locationText: "L", zoneText: "Zone 2" }]), true);
+  assert.equal(layoutDiffersFrom(saved, [{ assetReference: "A", locationText: "L" }]), true);
+  assert.equal(layoutDiffersFrom([{ assetReference: "A", locationText: "L" }], [{ assetReference: "A", locationText: "L", zoneText: "" }]), false);
 });

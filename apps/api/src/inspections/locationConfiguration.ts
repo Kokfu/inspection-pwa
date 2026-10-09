@@ -57,7 +57,7 @@ const maxKeyLength = 128;
 const maxDisplayNameLength = 300;
 const maxPresetRowCount = 500;
 const maxRowPresetSerialized = 4000;
-const maxShutterRowPresetSerialized = 150_000;
+const maxShutterRowPresetSerialized = 200_000;
 
 /** One normalised zone in a submitted zone/location payload. `key` is the zone's
  *  stable identity within the submission — a submitted `location.zoneId`
@@ -228,6 +228,13 @@ const formatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
   fire_intercom: ["assetReference"]
 };
 
+/** Row fields a saved format MAY add on top of `formatRowFieldsBySystem`. Roller Shutter rows may carry a
+ *  free-text `zoneText` heading (all rows of one proposal agree: every row has it, or none does). */
+const optionalFormatRowFieldsBySystem: Readonly<Record<string, readonly string[]>> = {
+  fire_rated_roller_shutter: ["zoneText"]
+};
+const maxZoneTextLength = 200;
+
 /** Fire Alarm's two pseudo-locations (see `zoneFreeLocationKeysBySystem`) carry different row shapes:
  *  `general-primary` rows mirror `FireAlarmPrimaryDeviceRow`'s identity columns (assetReference,
  *  alarmZone, location); `general-secondary` rows mirror `FireAlarmSecondaryAlarmDeviceRow`'s
@@ -287,14 +294,16 @@ function parseAddPatch(value: Record<string, unknown>): LocationProposalAddPatch
   return { kind: "add-location", locationKey, displayName, zoneKey: null, newZone: { key: zoneKey, displayName: zoneDisplayName } };
 }
 
-function parseRow(value: unknown, systemKey: string | undefined, locationKey: string): LocationProposalRowPreset | undefined {
+function parseRow(value: unknown, systemKey: string | undefined, locationKey: string, withOptional: boolean): LocationProposalRowPreset | undefined {
   if (!object(value)) return undefined;
-  const fields = formatRowFields(systemKey, locationKey);
-  if (!fields || Object.keys(value).length !== fields.length
+  const required = formatRowFields(systemKey, locationKey);
+  if (!required) return undefined;
+  const fields = withOptional ? [...required, ...(optionalFormatRowFieldsBySystem[systemKey ?? ""] ?? [])] : required;
+  if (Object.keys(value).length !== fields.length
     || Object.keys(value).some((key) => !fields.includes(key))) return undefined;
   const parsed: LocationProposalRowPreset = {};
   for (const field of fields) {
-    const text = boundedTextAllowEmpty(value[field], field === "assetReference" ? 200 : maxDisplayNameLength);
+    const text = boundedTextAllowEmpty(value[field], field === "assetReference" ? 200 : field === "zoneText" ? maxZoneTextLength : maxDisplayNameLength);
     if (text === undefined || (field === "locationText" && !text.trim())
       || (field === "drumType" && text !== "" && text !== "swing" && text !== "fixed")) return undefined;
     parsed[field] = text;
@@ -313,8 +322,11 @@ function parseFormatPatch(value: Record<string, unknown>, systemKey?: string): L
   if (!Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > maxPresetRowCount) return undefined;
   if (capped250 && value.rows.length > 250) return undefined;
   const rows: LocationProposalRowPreset[] = [];
+  // Every row of a proposal agrees on whether it carries the optional zone heading.
+  const optional = optionalFormatRowFieldsBySystem[systemKey ?? ""];
+  const withOptional = !!optional && value.rows.every((raw) => object(raw) && optional.every((field) => Object.hasOwn(raw, field)));
   for (const raw of value.rows) {
-    const row = parseRow(raw, systemKey, locationKey);
+    const row = parseRow(raw, systemKey, locationKey, withOptional);
     if (!row) return undefined;
     rows.push(row);
   }

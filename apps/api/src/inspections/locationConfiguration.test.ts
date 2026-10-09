@@ -225,3 +225,24 @@ test("applyLocationProposalPatch add-location: works against an empty (not-yet-e
   assert.equal(merged.zones.length, 1);
   assert.equal(merged.locations.length, 1);
 });
+
+test("Roller Shutter format accepts an optional zoneText heading, all rows or none, and stores it in the preset rows", () => {
+  const zoned = { kind: "update-format" as const, locationKey: "general", rows: [
+    { assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" },
+    { assetReference: "", locationText: "Dock", zoneText: "Zone 2" }
+  ] };
+  assert.deepEqual(parseLocationProposalPatch(zoned, "fire_rated_roller_shutter"), zoned);
+  assert.ok(parseLocationProposalPatch({ ...zoned, rows: [{ ...zoned.rows[0], zoneText: "" }, { ...zoned.rows[1], zoneText: "" }] }, "fire_rated_roller_shutter"), "blank headings are allowed");
+  assert.equal(parseLocationProposalPatch({ ...zoned, rows: [zoned.rows[0], { assetReference: "", locationText: "Dock" }] }, "fire_rated_roller_shutter"), undefined, "mixing rows with and without zoneText is rejected");
+  assert.equal(parseLocationProposalPatch({ ...zoned, rows: [{ ...zoned.rows[0], zoneText: "z".repeat(201) }] }, "fire_rated_roller_shutter"), undefined);
+  assert.equal(parseLocationProposalPatch({ ...zoned, rows: [{ ...zoned.rows[0], zoneText: 3 }] }, "fire_rated_roller_shutter"), undefined);
+  assert.equal(parseLocationProposalPatch({ ...zoned, rows: [{ ...zoned.rows[0], extra: "x" }] }, "fire_rated_roller_shutter"), undefined, "unknown keys still fail closed");
+  assert.equal(parseLocationProposalPatch(zoned, "smoke_ventilation"), undefined, "other systems never accept zoneText");
+  const hose = { kind: "update-format" as const, locationKey: "general", rows: [{ assetReference: "H1", locationText: "Lobby", drumType: "", zoneText: "Zone 1" }] };
+  assert.equal(parseLocationProposalPatch(hose, "hose_reel"), undefined);
+  const created = applyLocationProposalPatch({ zones: [], locations: [] }, zoned, "fire_rated_roller_shutter")!;
+  assert.deepEqual(created.locations[0]?.rowPreset, { rows: zoned.rows });
+  assert.equal(created.locations[0]?.presetRowCount, 2);
+  const submitted = { zones: [], locations: created.locations.map(({ sortOrder: _sortOrder, ...location }) => location) };
+  assert.deepEqual(parseLocationConfigurationInput(submitted, "fire_rated_roller_shutter"), created, "the saved zoned layout re-parses");
+});

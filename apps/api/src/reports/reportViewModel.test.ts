@@ -402,3 +402,25 @@ test("summary Main Finding prioritizes worst severity in definition order and co
   const clean = buildReportViewModel(reportOf([{systemKey:"legacy",label:"Legacy",fields:[{label:"Check",value:"Good",depth:0}],evidence:[]}]));
   assert.equal(clean.summary[0].mainFinding,"—");
 });
+
+test("Roller Shutter V7 schema 2 prints each row's zone heading with its location; schema 1 is unchanged", () => {
+  const row = (n: number, locationText: string, zoneText?: string) => ({
+    rowUuid: uuid(810 + n), source: "technician", configuredLocationId: null, configuredRowOrdinal: null,
+    zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText, ...(zoneText === undefined ? {} : { zoneText }),
+    autoAlarmModeResult: "good", manualModeResult: n === 2 ? "not_good" : "good", remarks: "",
+    fieldRemarks: n === 2 ? { manualModeResult: "Sticks half way" } : {}, sortOrder: n
+  });
+  const zoned = { schemaVersion: 2, dateTested: "2026-10-09", zone: "", inspectedBy: "Inspector A", rows: [row(1, "Lobby", "Zone 1"), row(2, "Dock", "Zone 2"), row(3, "Roof", "")], comments: "" };
+  const model = buildReportViewModel(reportOf([v7Section("fire_rated_roller_shutter", "Fire Rated Roller Shutter", zoned)]));
+  const register = blockOf(model, "register", "roller_shutter_schedule_rows");
+  const location = (index: number) => (register.rows[index]!.cells[0] as { kind: string; text: string | null }).text;
+  assert.equal(location(0), "Zone 1 — Lobby");
+  assert.equal(location(1), "Zone 2 — Dock");
+  assert.equal(location(2), "Roof", "a blank heading prints the plain location");
+  assert.ok(model.systemPages[0]!.remarks.some((line) => line.text.includes("Zone 2 — Dock")), "findings name the zone and the location");
+
+  const legacy = { ...zoned, schemaVersion: 1, rows: [row(1, "Lobby")] };
+  const legacyModel = buildReportViewModel(reportOf([v7Section("fire_rated_roller_shutter", "Fire Rated Roller Shutter", legacy)]));
+  const legacyRegister = blockOf(legacyModel, "register", "roller_shutter_schedule_rows");
+  assert.equal((legacyRegister.rows[0]!.cells[0] as { text: string | null }).text, "Lobby");
+});
