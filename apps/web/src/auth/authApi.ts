@@ -91,6 +91,12 @@ export async function login(username: string, password: string) {
   }
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const seconds = Number(response.headers.get("Retry-After"));
+      const wait = Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 600
+        ? ` Try again in ${seconds} seconds.` : " Please wait before trying again.";
+      throw new Error(`Too many login attempts.${wait}`);
+    }
     throw new Error("Invalid username or password");
   }
 

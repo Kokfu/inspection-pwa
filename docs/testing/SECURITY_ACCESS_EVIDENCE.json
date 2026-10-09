@@ -1,0 +1,3351 @@
+{
+  "assessedAt": "2026-10-09T15:00:57.398Z",
+  "routes": [
+    {
+      "method": "POST",
+      "pattern": "/auth/login",
+      "source": "apps/api/src/routes/auth.ts",
+      "line": 19,
+      "guarded": false,
+      "publicRoute": true
+    },
+    {
+      "method": "GET",
+      "pattern": "/auth/me",
+      "source": "apps/api/src/routes/auth.ts",
+      "line": 96,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/auth/logout",
+      "source": "apps/api/src/routes/auth.ts",
+      "line": 100,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/health",
+      "source": "apps/api/src/routes/health.ts",
+      "line": 5,
+      "guarded": false,
+      "publicRoute": true
+    },
+    {
+      "method": "POST",
+      "pattern": "/inspection-attachments",
+      "source": "apps/api/src/routes/inspectionAttachments.ts",
+      "line": 332,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-attachments",
+      "source": "apps/api/src/routes/inspectionAttachments.ts",
+      "line": 662,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-attachments/:photoUuid/content",
+      "source": "apps/api/src/routes/inspectionAttachments.ts",
+      "line": 702,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-jobs",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 96,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/inspection-jobs/service-visits",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 300,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-jobs/:jobId/final-report",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 306,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-jobs/:jobId/final-report.pdf",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 313,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-jobs/:jobId/completion",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 320,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/inspection-jobs/:jobId/close",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 345,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "DELETE",
+      "pattern": "/inspection-jobs/:jobId",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 403,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/inspection-jobs/:jobId/archive",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 456,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-jobs/:jobId",
+      "source": "apps/api/src/routes/inspectionJobs.ts",
+      "line": 492,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspection-catalog",
+      "source": "apps/api/src/routes/inspectionReference.ts",
+      "line": 166,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/customers",
+      "source": "apps/api/src/routes/inspectionReference.ts",
+      "line": 205,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/customers/:id/sites",
+      "source": "apps/api/src/routes/inspectionReference.ts",
+      "line": 227,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/customers/upcoming-service",
+      "source": "apps/api/src/routes/inspectionReference.ts",
+      "line": 246,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/customers/:id/configuration",
+      "source": "apps/api/src/routes/inspectionReference.ts",
+      "line": 272,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspections",
+      "source": "apps/api/src/routes/inspections.ts",
+      "line": 15,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/technician/customers/:customerId/systems/:systemKey/location-proposals",
+      "source": "apps/api/src/routes/locationProposals.ts",
+      "line": 149,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/location-proposals",
+      "source": "apps/api/src/routes/locationProposals.ts",
+      "line": 219,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/location-proposals/:id",
+      "source": "apps/api/src/routes/locationProposals.ts",
+      "line": 235,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/location-proposals/:id/decision",
+      "source": "apps/api/src/routes/locationProposals.ts",
+      "line": 246,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/company-profile",
+      "source": "apps/api/src/routes/managerCompanyProfile.ts",
+      "line": 35,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/company-profile",
+      "source": "apps/api/src/routes/managerCompanyProfile.ts",
+      "line": 42,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/company-profile/logo",
+      "source": "apps/api/src/routes/managerCompanyProfile.ts",
+      "line": 59,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/company-profile/logo",
+      "source": "apps/api/src/routes/managerCompanyProfile.ts",
+      "line": 68,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/company-profile/logo/reset",
+      "source": "apps/api/src/routes/managerCompanyProfile.ts",
+      "line": 79,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/compliance-reminders",
+      "source": "apps/api/src/routes/managerComplianceReminders.ts",
+      "line": 49,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/inspections/:clientUuid/corrections",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 126,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/inspections/:clientUuid/review",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 150,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/inspections/:clientUuid/corrections",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 194,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId/accepted-records",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 263,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId/corrections",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 307,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/inspections/:clientUuid/corrections",
+      "source": "apps/api/src/routes/managerCorrections.ts",
+      "line": 336,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/customers/service-format-options",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 716,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-catalog",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 731,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/customers",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 741,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 752,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/upcoming-service",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 761,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/archived",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 771,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/next-service-due-date",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 774,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/contact-details",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 815,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 846,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId/configuration",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 855,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/customers",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 864,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/customers/:customerId/sites",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 890,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/sites/:siteId/address",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 908,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/customers/:customerId/configuration-revisions",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 924,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/label-overrides",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1011,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/label-overrides",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1029,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/system-configuration",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1093,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/system-configuration",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1107,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/evidence-policy",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1187,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/evidence-policy",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1202,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/locations",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1282,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/systems/:systemKey/locations",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1291,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/archive",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1323,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/customers/:customerId/restore",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1338,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/service-catalog/:systemKey/retire",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1371,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/service-catalog/:systemKey/restore",
+      "source": "apps/api/src/routes/managerCustomers.ts",
+      "line": 1391,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/dashboard/clients",
+      "source": "apps/api/src/routes/managerDashboard.ts",
+      "line": 39,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/dashboard/inspections-per-day",
+      "source": "apps/api/src/routes/managerDashboard.ts",
+      "line": 49,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/dashboard/inspection-status",
+      "source": "apps/api/src/routes/managerDashboard.ts",
+      "line": 68,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/reminders/settings",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 29,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/reminders/settings",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 36,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/reminders/staff/:staffId/email",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 67,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/reminders/staff",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 84,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/reminders/plans/:customerId",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 90,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/reminders/plans/:customerId",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 106,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/reminders/recurrence/:customerId",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 136,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/reminders/recurrence/:customerId",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 147,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/reminders/status",
+      "source": "apps/api/src/routes/managerReminders.ts",
+      "line": 181,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 518,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId/final-report",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 541,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId/final-report.pdf",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 547,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/service-visits/:jobId/archive",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 561,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/service-visits/:jobId/restore",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 579,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "DELETE",
+      "pattern": "/manager/service-visits/:jobId",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 598,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId",
+      "source": "apps/api/src/routes/managerServiceVisits.ts",
+      "line": 653,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/technicians",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 50,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/technicians/:technicianId/assignments",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 66,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "DELETE",
+      "pattern": "/manager/technicians/:technicianId/assignments/:supervisorId",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 102,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/technicians",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 123,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/manager/technicians/:technicianId/display-name",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 159,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/technicians/:technicianId/deactivate",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 182,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/technicians/:technicianId/password",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 204,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "DELETE",
+      "pattern": "/manager/technicians/:technicianId",
+      "source": "apps/api/src/routes/managerTechnicians.ts",
+      "line": 232,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/hose-reel-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 127,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/co2-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 145,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/fm200-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 162,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/wet-chemical-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 174,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/fire-alarm-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 186,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/dry-wet-riser-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 204,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/master-system-inspections",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 284,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/master-system-inspections/:clientUuid",
+      "source": "apps/api/src/routes/masterSystemInspections.ts",
+      "line": 497,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/manager/service-visits/:jobId/report-approval",
+      "source": "apps/api/src/routes/reportApprovals.ts",
+      "line": 69,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/manager/service-visits/:jobId/report-approval",
+      "source": "apps/api/src/routes/reportApprovals.ts",
+      "line": 84,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/service-common-remarks",
+      "source": "apps/api/src/routes/serviceCommonRemarks.ts",
+      "line": 35,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/service-common-remarks",
+      "source": "apps/api/src/routes/serviceCommonRemarks.ts",
+      "line": 38,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "PUT",
+      "pattern": "/service-common-remarks/:id",
+      "source": "apps/api/src/routes/serviceCommonRemarks.ts",
+      "line": 60,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "DELETE",
+      "pattern": "/service-common-remarks/:id",
+      "source": "apps/api/src/routes/serviceCommonRemarks.ts",
+      "line": 72,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/v6-evidence/stage",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 16,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/v7-evidence/stage",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 29,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/v6-evidence/accepted",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 44,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/v6-evidence/accepted/:photoUuid/content",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 61,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/v7-evidence/accepted",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 88,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/v7-evidence/accepted/:photoUuid/content",
+      "source": "apps/api/src/routes/stagedEvidence.ts",
+      "line": 105,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "POST",
+      "pattern": "/sync",
+      "source": "apps/api/src/routes/sync.ts",
+      "line": 24,
+      "guarded": true,
+      "publicRoute": false
+    },
+    {
+      "method": "GET",
+      "pattern": "/test-records",
+      "source": "apps/api/src/routes/testRecords.ts",
+      "line": 14,
+      "guarded": true,
+      "publicRoute": false
+    }
+  ],
+  "live": [
+    {
+      "label": "public shell",
+      "method": "GET",
+      "path": "/",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 617,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "HTTP transport",
+      "method": "GET",
+      "path": "/",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 477,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "minimal health",
+      "method": "GET",
+      "path": "/api/health",
+      "status": 200,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 63,
+      "elapsedMs": 478,
+      "responseKeys": [
+        "status",
+        "service",
+        "phase"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 73,
+      "elapsedMs": 532,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-attachments",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 509,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-attachments/00000000-0000-4000-8000-000000000000/content",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 479,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-jobs",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 491,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-jobs/00000000-0000-4000-8000-000000000000/final-report",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 541,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-jobs/00000000-0000-4000-8000-000000000000/final-report.pdf",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 517,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "BYPASS",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-jobs/00000000-0000-4000-8000-000000000000/completion",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 485,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-jobs/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 464,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspection-catalog",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 507,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/customers",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 484,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/customers/00000000-0000-4000-8000-000000000000/sites",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 342,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/customers/upcoming-service",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 509,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/customers/00000000-0000-4000-8000-000000000000/configuration",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 532,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspections",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 507,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/location-proposals",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 485,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/location-proposals/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 514,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/company-profile",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 453,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/company-profile/logo",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 496,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/compliance-reminders",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 526,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/inspections/00000000-0000-4000-8000-000000000000/corrections",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 507,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000/accepted-records",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 574,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000/corrections",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 606,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/inspections/00000000-0000-4000-8000-000000000000/corrections",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 545,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/customers/service-format-options",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 511,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-catalog",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 491,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 457,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/upcoming-service",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 481,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/archived",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 473,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 522,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/configuration",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 511,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/systems/fire_alarm_detector/label-overrides",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 483,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/systems/fire_alarm_detector/system-configuration",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 506,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/systems/fire_alarm_detector/evidence-policy",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 449,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/systems/fire_alarm_detector/locations",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 510,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/dashboard/clients",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 488,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/dashboard/inspections-per-day",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 455,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/dashboard/inspection-status",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 496,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/reminders/settings",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 505,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/reminders/staff",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 484,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/reminders/plans/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 484,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/reminders/recurrence/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 475,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/reminders/status",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 459,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 499,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000/final-report",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 494,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000/final-report.pdf",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 464,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "BYPASS",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 523,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/technicians",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 520,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/hose-reel-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 477,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/co2-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 460,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/fm200-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 470,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/wet-chemical-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 492,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/fire-alarm-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 500,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/dry-wet-riser-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 472,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/master-system-inspections",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 498,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/master-system-inspections/00000000-0000-4000-8000-000000000000",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 512,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/manager/service-visits/00000000-0000-4000-8000-000000000000/report-approval",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 537,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/service-common-remarks",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 507,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/v6-evidence/accepted",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 435,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/v6-evidence/accepted/00000000-0000-4000-8000-000000000000/content",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 481,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/v7-evidence/accepted",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 480,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/v7-evidence/accepted/00000000-0000-4000-8000-000000000000/content",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 490,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "protected read",
+      "method": "GET",
+      "path": "/api/test-records",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 436,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/sync",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 463,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 73,
+      "elapsedMs": 449,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/v7-evidence/stage",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 528,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/v6-evidence/stage",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 447,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/inspection-attachments",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 472,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/manager/technicians",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 462,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "PUT",
+      "path": "/api/manager/customers/00000000-0000-4000-8000-000000000000/contact-details",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 494,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "empty unauthenticated write",
+      "method": "POST",
+      "path": "/api/manager/technicians/999999999/password",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 488,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "forged session",
+      "method": "GET",
+      "path": "/api/manager/customers",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 535,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "forged identity headers",
+      "method": "GET",
+      "path": "/api/manager/customers",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 475,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "cross-origin read",
+      "method": "GET",
+      "path": "/api/manager/customers",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 54,
+      "elapsedMs": 469,
+      "errorCode": "AUTH_REQUIRED",
+      "responseKeys": [
+        "error",
+        "message"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "malformed cookie",
+      "method": "GET",
+      "path": "/api/manager/customers",
+      "status": 500,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 33,
+      "elapsedMs": 531,
+      "errorCode": "INTERNAL_SERVER_ERROR",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "CORS preflight",
+      "method": "OPTIONS",
+      "path": "/api/manager/customers",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 13,
+      "elapsedMs": 488,
+      "responseKeys": [],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "invalid login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 400,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 25,
+      "elapsedMs": 491,
+      "errorCode": "INVALID_LOGIN",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "invalid login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 400,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 24,
+      "elapsedMs": 529,
+      "errorCode": "INVALID_JSON",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "invalid login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 31,
+      "elapsedMs": 774,
+      "errorCode": "INVALID_CREDENTIALS",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "invalid login",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 401,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 31,
+      "elapsedMs": 524,
+      "errorCode": "INVALID_CREDENTIALS",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/.env",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 512,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/.git/config",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 502,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/docker-compose.yml",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 538,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/uploads/",
+      "status": 200,
+      "contentType": "text/html; charset=utf-8",
+      "bytes": 588,
+      "elapsedMs": 527,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": true
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/api/uploads/",
+      "status": 404,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 21,
+      "elapsedMs": 484,
+      "errorCode": "NOT_FOUND",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/api/not-a-real-route",
+      "status": 404,
+      "contentType": "application/json; charset=utf-8",
+      "bytes": 21,
+      "elapsedMs": 504,
+      "errorCode": "NOT_FOUND",
+      "responseKeys": [
+        "error"
+      ],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "public exposure",
+      "method": "GET",
+      "path": "/sw.js",
+      "status": 200,
+      "contentType": "text/javascript; charset=utf-8",
+      "bytes": 1446,
+      "elapsedMs": 473,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "max-age=14400",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "REVALIDATED",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "public build JS",
+      "method": "GET",
+      "path": "/assets/index-BRqwGdZ3.js",
+      "status": 200,
+      "contentType": "text/javascript; charset=utf-8",
+      "bytes": 1293702,
+      "elapsedMs": 608,
+      "responseKeys": [],
+      "headers": {
+        "cache-control": "public, max-age=31536000, immutable",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "HIT",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    },
+    {
+      "label": "JS source map",
+      "method": "GET",
+      "path": "/assets/index-BRqwGdZ3.js.map",
+      "status": 404,
+      "contentType": "text/plain; charset=utf-8",
+      "bytes": 13,
+      "elapsedMs": 515,
+      "responseKeys": [],
+      "headers": {
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(self), gyroscope=(self), magnetometer=(self)",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "strict-transport-security": "max-age=86400",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "cf-cache-status": "DYNAMIC",
+        "server": "cloudflare"
+      },
+      "setsCookie": false,
+      "redirectToHttps": false,
+      "isAppShell": false
+    }
+  ],
+  "summary": {
+    "routeCount": 113,
+    "staticGuardGaps": 0,
+    "protectedChecks": 73,
+    "authRequiredCount": 73,
+    "unexpected": [],
+    "totalRequests": 91
+  },
+  "supplementalChecks": [
+    {
+      "protocol": "http:",
+      "setsCookie": false,
+      "status": 400,
+      "errorCode": "INVALID_LOGIN",
+      "payload": "{}",
+      "method": "POST",
+      "label": "HTTP login transport",
+      "path": "/api/auth/login",
+      "assessedAt": "2026-10-09T15:02:55Z",
+      "redirectToHttps": false
+    }
+  ]
+}

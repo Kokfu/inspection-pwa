@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Response } from "express";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
+import type { PoolClient } from "pg";
 
 export function createRawSessionToken() {
   return randomBytes(32).toString("base64url");
@@ -11,7 +12,7 @@ export function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export async function createSession(userId: number) {
+export async function createSession(userId: number, database: Pick<PoolClient, "query"> = pool) {
   const config = loadConfig();
   const token = createRawSessionToken();
   const tokenHash = hashSessionToken(token);
@@ -19,7 +20,7 @@ export async function createSession(userId: number) {
     Date.now() + config.sessionDurationHours * 60 * 60 * 1000
   );
 
-  await pool.query(
+  await database.query(
     `
       INSERT INTO user_sessions (user_id, token_hash, expires_at)
       VALUES ($1, $2, $3);

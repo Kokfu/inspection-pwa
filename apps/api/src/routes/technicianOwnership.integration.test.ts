@@ -15,6 +15,9 @@ import { inspectionsRouter } from "./inspections.js";
 import { pool } from "../db/pool.js";
 import { attachmentMaxBytes } from "../attachments/attachmentStorage.js";
 import { masterServiceReportV7 } from "../inspections/templates/masterServiceReportV7.js";
+import { createSession } from "../auth/sessionTokens.js";
+import { currentUser } from "../middleware/currentUser.js";
+import { loadConfig } from "../config/env.js";
 
 const id = randomUUID;
 const missing = "ffffffff-ffff-4fff-8fff-ffffffffffff";
@@ -26,18 +29,19 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
   await database.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   await runMigrations(database);
   const users = (await database.query("INSERT INTO users(username,password_hash,role) VALUES ('ownership-a','x','inspector'),('ownership-b','x','inspector'),('ownership-admin','x','admin') RETURNING id,username,role")).rows;
+  const cookies = await Promise.all(users.map(async user => `${loadConfig().sessionCookieName}=${(await createSession(Number(user.id))).token}`));
   const app = express(); app.use(express.json());
-  app.use((req, _res, next) => { const actor = users[Number(req.header("x-actor") ?? 0)]; if (actor) req.currentUser = { ...actor, id: Number(actor.id) }; next(); });
+  app.use(currentUser);
   app.use(inspectionJobsRouter); app.use(masterSystemInspectionsRouter); app.use(stagedEvidenceRouter);
   app.use(inspectionAttachmentsRouter); app.use(syncRouter); app.use(inspectionsRouter);
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const request = (path: string, actor = 0, body?: unknown) => fetch(origin + path, {
-    method: body === undefined ? "GET" : "POST", headers: { "x-actor": String(actor), ...(body instanceof FormData ? {} : { "content-type": "application/json" }) },
+    method: body === undefined ? "GET" : "POST", headers: { cookie: cookies[actor]!, "x-actor": "2", "x-role": "admin", ...(body instanceof FormData ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body)
   });
   const removeVisit = (jobId: string, actor = 0) => fetch(origin + `/inspection-jobs/${jobId}`, {
-    method: "DELETE", headers: { "x-actor": String(actor) }
+    method: "DELETE", headers: { cookie: cookies[actor]!, "x-actor": "2" }
   });
   const visit = async (actor: number) => {
     const result = await request("/inspection-jobs/service-visits", actor, { requestId: id(), customerId: "00000000-0000-4000-8000-000000000750", siteId: "00000000-0000-4000-8000-000000000755", systemKeys: ["portable_fire_extinguisher"] });
@@ -159,7 +163,7 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
     await t.test("oversized Content-Length is rejected before any body bytes arrive", async () => {
       for (const [route, overhead, status] of [["inspection-attachments",32,413],["v6-evidence/stage",64,400],["v7-evidence/stage",64,400]] as const) {
         const result = await new Promise<{status: number; body: string}>((resolve,reject) => {
-          const req = httpRequest(origin + "/" + route, {method:"POST", headers:{"x-actor":"0","content-type":"multipart/form-data; boundary=test", "content-length":String(attachmentMaxBytes + overhead * 1024 + 1)}}, response => {
+          const req = httpRequest(origin + "/" + route, {method:"POST", headers:{cookie:cookies[0]!,"x-actor":"2","content-type":"multipart/form-data; boundary=test", "content-length":String(attachmentMaxBytes + overhead * 1024 + 1)}}, response => {
             let body=""; response.on("data", chunk=>body+=chunk); response.on("end",()=>{resolve({status:response.statusCode!,body});req.destroy();});
           });
           req.on("error",reject); req.setTimeout(3000,()=>{req.destroy(new Error("server waited for oversized body"));});
@@ -170,7 +174,7 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
     });
     await t.test("oversized chunked attachment retains 413", async () => {
       const result = await new Promise<number>((resolve,reject) => {
-        const req=httpRequest(origin+"/inspection-attachments",{method:"POST",headers:{"x-actor":"0","content-type":"multipart/form-data; boundary=test"}},response=>{response.resume();response.on("end",()=>resolve(response.statusCode!));});
+        const req=httpRequest(origin+"/inspection-attachments",{method:"POST",headers:{cookie:cookies[0]!,"x-actor":"2","content-type":"multipart/form-data; boundary=test"}},response=>{response.resume();response.on("end",()=>resolve(response.statusCode!));});
         req.on("error",reject); req.write(Buffer.alloc(attachmentMaxBytes+32*1024+1));req.end();
       });
       assert.equal(result,413);
@@ -199,7 +203,7 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
     await t.test("a request whose session no longer matches the queued work's owner is refused", async () => {
       const users0 = String(users[0].id), users1 = String(users[1].id);
       const post = (path: string, expected: string, body: unknown) => fetch(origin + path, { method: "POST",
-        headers: { "x-actor": "1", "x-expected-user-id": expected, ...(body instanceof FormData ? {} : { "content-type": "application/json" }) },
+        headers: { cookie: cookies[1]!, "x-actor": "2", "x-expected-user-id": expected, ...(body instanceof FormData ? {} : { "content-type": "application/json" }) },
         body: body instanceof FormData ? body : JSON.stringify(body) });
       for (const path of ["/sync", "/v6-evidence/stage", "/v7-evidence/stage", "/inspection-attachments"]) {
         const body = path === "/sync" ? { items: [] } : new FormData();
@@ -216,7 +220,7 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
       }
     });
     await t.test("T14 technician archive: own open job succeeds and drops off the list; foreign is 404; an already-archived or genuinely closed job is 409; admin can archive any open job", async () => {
-      const put = (path: string, actor = 0) => fetch(origin + path, { method: "PUT", headers: { "x-actor": String(actor) } });
+      const put = (path: string, actor = 0) => fetch(origin + path, { method: "PUT", headers: { cookie: cookies[actor]!, "x-actor": "2" } });
       const c = await visit(0);
       const foreign = await put(`/inspection-jobs/${c}/archive`, 1);
       assert.equal(foreign.status, 404, await foreign.clone().text());

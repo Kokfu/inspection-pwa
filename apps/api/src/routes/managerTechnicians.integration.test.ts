@@ -57,7 +57,7 @@ test("cold migration, technician lifecycle, concurrent uniqueness and real sessi
       }
       assert.equal((await request("/auth/me", "GET", undefined, techCookie)).status, 401, "existing session is rejected by currentUser's active-user join");
       assert.equal((await request("/auth/login", "POST", { username: "field-tech", password: "technician-test-password" })).status, 401);
-      assert.equal((await pool.query("SELECT count(*)::int AS n FROM user_sessions WHERE user_id=$1 AND revoked_at IS NULL", [technician.id])).rows[0].n, 1, "deactivation needs no session revocation writes");
+      assert.equal((await pool.query("SELECT count(*)::int AS n FROM user_sessions WHERE user_id=$1 AND revoked_at IS NULL", [technician.id])).rows[0].n, 0, "deactivation permanently revokes existing sessions");
       const deletePath = `/manager/technicians/${technician.id}`;
       assert.equal((await request(deletePath, "DELETE", { username: "field-tech" })).status, 401);
       assert.equal((await request(deletePath, "DELETE", { username: "field-tech" }, techCookie)).status, 401);

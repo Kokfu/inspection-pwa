@@ -54,12 +54,12 @@
     "@fontsource/noto-sans": "^5.3.0",
     "argon2": "^0.44.0",
     "busboy": "^1.6.0",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "pdf-lib": "^1.17.1",
     "pdfkit": "^0.17.2",
     "pg": "^8.13.1",
     "puppeteer-core": "^25.11.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/busboy": "^1.5.4",

@@ -6,6 +6,7 @@ import { reconcileAttachmentStorage } from "./attachments/attachmentStorage.js";
 import { loadConfig, provisionServiceDueEmailEncryptionKey } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import { currentUser } from "./middleware/currentUser.js";
+import { requestSecurity } from "./middleware/requestSecurity.js";
 import { authRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { inspectionsRouter } from "./routes/inspections.js";
@@ -32,6 +33,7 @@ const config = loadConfig();
 const app = express();
 
 app.disable("x-powered-by");
+app.use(requestSecurity);
 app.use(express.json({ limit: "1mb" }));
 
 app.use(healthRouter);

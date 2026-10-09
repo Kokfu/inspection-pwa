@@ -3,7 +3,48 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-09 — **Roller Shutter zones x locations setup + auto-saved layout (Phases 1-2; Phase 2 uncommitted; stop before staging).**
+**Last updated:** 2026-10-10 — **Security review remediation: local re-review complete; no deployment.**
+The origin guard now requires HTTPS as well as the incoming Host, without enabling proxy trust. New disposable tests
+prove both login/reset/deactivation race orderings, deactivation rollback, and actual child-process termination/replacement
+without refunding durable attempts. Historical audit cleanup is coalesced to once per minute per process under normal
+operation; counters remain PostgreSQL-owned. The dependency report's PWA-plugin baseline was corrected. Focused units
+5/5 and expanded security integration 10/10 pass. The full cold-start regression wrapper, final focused cleanup/crash
+suite, typechecks/builds and four dependency audits pass with no skips. Local security P0/P1: 0/0; deployed A-02 remains P1.
+No schema, historical template, infrastructure, environment or production-data changes. Owner deployment and physical-phone
+acceptance remain separate checkpoints; security sign-off is withheld. The security changes are ready for the owner's
+manual Git checkpoint; unrelated working-tree changes require their own review. Stop before staging. Details:
+[SECURITY_REMEDIATION_IMPLEMENTATION](docs/testing/SECURITY_REMEDIATION_IMPLEMENTATION.md).
+
+**Earlier checkpoint:** 2026-10-09 — **Security remediation Tasks 1–4 implemented locally; owner code review/deployment acceptance pending.**
+Durable PostgreSQL-backed login budgets (8 account failures/10 min, 120 socket-peer attempts/10 min,
+300 global/min, four concurrent verifications); forwarding headers remain untrusted and Caddy shares one peer budget.
+Malformed/duplicate session cookies fail closed; no-store and browser-write origin checks added; deactivation permanently
+revokes sessions. API proxy-addr/Express/qs/body-parser/sharp and compatible frontend dependencies patched; full and
+production-only local audits report zero advisories. Focused auth/ownership/role/session, historical/evidence/image/PDF,
+offline-authority and browser cooldown regressions pass. No production access, infrastructure/schema changes or Git mutations.
+Always Use HTTPS and previous targeted redirect evidence preserved. **Local code P0/P1: 0/0; deployed A-02 remains P1
+until owner deployment and acceptance. No security sign-off.** Exact files, thresholds/proxy limitations, PASS/NOT RUN
+checklist, dependency evidence, P2 items and cold disposable-DB commands:
+[SECURITY_REMEDIATION_IMPLEMENTATION](docs/testing/SECURITY_REMEDIATION_IMPLEMENTATION.md).
+Stop before staging. Task 5 (edge rule, origin isolation, reviewed image deployment, installed versions and physical-phone
+HTTPS/offline/reconnect acceptance) belongs to the owner.
+
+**Earlier checkpoint:** 2026-10-09 — **Security next-task brief; HTTPS redirects verified after owner enabled Always Use HTTPS.**
+Targeted live recheck at 23:17 MYT: HTTP app GET and empty HTTP login POST both redirect with 301 to HTTPS;
+HTTPS `/api/auth/me` still rejects anonymous access with 401. A-01's tested transport behavior is corrected;
+fresh-browser/phone acceptance remains. Application login throttling (A-02, P1), dependency review/patches and
+malformed-cookie handling remain open. Implementation scope, acceptance checks and owner deployment steps:
+[SECURITY_REMEDIATION_TASK_BRIEF](docs/testing/SECURITY_REMEDIATION_TASK_BRIEF.md). No product code or deployment changes by this task.
+
+**Earlier checkpoint:** 2026-10-09 — **Public unauthenticated security assessment; security sign-off withheld.**
+Non-destructive source/live assessment: 73/73 protected checks rejected with `401 AUTH_REQUIRED`; no anonymous business
+data access observed. **Two open P1 findings:** public HTTP serves the app and processes login requests without HTTPS
+redirection; application login has no throttling (Cloudflare edge controls not verified). P2: dependency advisories in
+deployed API packages require patch/reachability review, and malformed cookie encoding returns a safe but incorrect 500.
+No live remediation, database changes, credentials used, or Git mutation. Evidence, limitations and next security checkpoint:
+[SECURITY_ACCESS_ASSESSMENT](docs/testing/SECURITY_ACCESS_ASSESSMENT.md). This is a bounded assessment, not release acceptance.
+
+**Earlier checkpoint:** 2026-10-09 — **Roller Shutter zones x locations setup + auto-saved layout (Phases 1-2; Phase 2 uncommitted; stop before staging).**
 Phase 1 (committed `626c21f`, review fixes `0d15a57`): a fresh Roller Shutter visit asks how many shutters before the form, a
 visit with a saved layout shows "Same shutters as last time", and submitting a new or changed layout queues the existing
 `update-format` proposal automatically (no button; Supervisor approval kept). Phase 2: **zone headings inside the one form**.

@@ -5,17 +5,20 @@ import { hashSessionToken } from "../auth/sessionTokens.js";
 import type { UserRole } from "../auth/authTypes.js";
 import "../auth/authTypes.js";
 
-function parseCookies(header: string | undefined) {
-  const cookies = new Map<string, string>();
-  if (!header) return cookies;
-
+export function sessionCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  let token: string | undefined;
+  let seen = false;
   for (const part of header.split(";")) {
     const [rawName, ...rawValue] = part.trim().split("=");
-    if (!rawName || rawValue.length === 0) continue;
-    cookies.set(rawName, decodeURIComponent(rawValue.join("=")));
+    if (rawName !== name) continue;
+    // Ambiguous duplicates fail closed, including identical duplicates.
+    if (seen || rawValue.length === 0) return undefined;
+    seen = true;
+    try { token = decodeURIComponent(rawValue.join("=")); } catch { return undefined; }
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
   }
-
-  return cookies;
+  return token;
 }
 
 export async function currentUser(
@@ -25,9 +28,8 @@ export async function currentUser(
 ) {
   try {
     const config = loadConfig();
-    const token = parseCookies(request.headers.cookie).get(
-      config.sessionCookieName
-    );
+    _response.setHeader("Cache-Control", "private, no-store");
+    const token = sessionCookie(request.headers.cookie, config.sessionCookieName);
 
     if (!token) {
       next();

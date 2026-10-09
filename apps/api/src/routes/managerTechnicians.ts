@@ -194,6 +194,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       const result = await client.query(`UPDATE users SET is_active=false, updated_at=now() WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL RETURNING ${technicianColumns}`, [id]);
       const technician = result.rows[0];
       if (!technician) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
+      await client.query("UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [id]);
       await audit(client, request.currentUser!.id, "manager_technician_deactivated", "user", String(technician.id), `role=${technician.role}`);
       await client.query("COMMIT");
       response.json({ technician });
