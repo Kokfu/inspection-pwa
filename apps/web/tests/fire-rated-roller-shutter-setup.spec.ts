@@ -376,8 +376,15 @@ test("a failed Submit scrolls to a short per-zone summary; the detail is behind 
   await expect(summary).toContainText("18 things to fix in 3 zones.");
   for (const zone of ["Zone 1", "Zone 2", "Zone 3"]) await expect(summary.getByText(`${zone}: 6 things to fix`)).toBeVisible();
   await expect(summary.getByText("Zone 2, Shutter 1 needs a Location")).toBeHidden();
+  // each zone line shows an arrow (a shape, not just bold text) that turns when it is open
+  const zone2 = summary.locator("summary", { hasText: "Zone 2:" });
+  const arrow = (locator: typeof zone2) => locator.evaluate((element) => ({ content: getComputedStyle(element, "::before").content, transform: getComputedStyle(element, "::before").transform }));
+  expect((await arrow(zone2)).content).toContain("▸");
+  expect((await arrow(zone2)).transform).toBe("none");
   await summary.getByText("Zone 2: 6 things to fix").click();
   await expect(summary.getByText("Zone 2, Shutter 1 needs a Location")).toBeVisible();
+  expect((await arrow(zone2)).transform).not.toBe("none");
+  expect((await arrow(summary.locator("summary", { hasText: "Zone 3:" }))).transform).toBe("none");
   await expect(summary.getByText("Zone 3, Shutter 1 needs a Location")).toBeHidden();
   expect((await summary.locator("summary").first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await summary.evaluate((element) => parseFloat(getComputedStyle(element).scrollMarginTop))).toBeGreaterThanOrEqual(40);

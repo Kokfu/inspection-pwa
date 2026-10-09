@@ -629,8 +629,25 @@ dd {
   min-height: var(--tap);
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   cursor: pointer;
   font-weight: 700;
+}
+
+/* display:flex removes the browser's disclosure triangle, so draw one: a shape, not colour, says "this opens". */
+.validation-summary summary::before {
+  content: "\25B8";
+  flex: none;
+}
+
+.validation-summary details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .validation-summary summary::before {
+    transition: transform 0.15s ease;
+  }
 }
 
 .validation-summary ul {
