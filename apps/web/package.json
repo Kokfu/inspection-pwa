@@ -19,7 +19,7 @@
     "test:location-proposal-list": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/locationProposalList.test.ts tests/locationProposalReviewShape.test.ts && playwright test tests/location-proposals-unreadable.spec.ts tests/supervisor-location-proposals.spec.ts --workers=1",
     "test:attachment-retention": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/attachmentRetention.test.ts && playwright test tests/attachment-retention.spec.ts --workers=1",
     "test:auth-probe-gateway": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/authProbeGateway.test.ts",
-    "test:header-status": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/headerStatus.test.ts",
+    "test:header-status": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/headerStatus.test.ts tests/headerSyncSummary.test.ts && playwright test tests/header-proposal-sync-summary.spec.ts --workers=1",
     "test:offline-start": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/offlineStartRule.test.ts",
     "test:wet-chemical-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/wetChemicalAcceptedDetailParser.test.ts",
     "test:label-overrides-parity": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/labelOverridesParity.test.ts",

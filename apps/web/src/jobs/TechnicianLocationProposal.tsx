@@ -22,8 +22,15 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
   onBack: () => void;
 }) {
   const eligibleSystems = job.configurationSnapshot.enabledSystems.filter((system) => locationConfigurableSystemKeys.has(system.systemKey));
-  const [systemKey, setSystemKey] = useState<string | undefined>(eligibleSystems.length === 1 ? eligibleSystems[0]!.systemKey : undefined);
-  const [draft, setDraft] = useState<TechnicianLocationProposalDraft>();
+  // The picked system is only a request: it counts only while THIS job still offers it. Route changes between
+  // jobs reuse this component instance, so a system chosen for the previous job must never survive the switch.
+  const [pickedSystemKey, setPickedSystemKey] = useState<string | undefined>();
+  const systemKey = pickedSystemKey && eligibleSystems.some((system) => system.systemKey === pickedSystemKey)
+    ? pickedSystemKey
+    : eligibleSystems.length === 1 ? eligibleSystems[0]!.systemKey : undefined;
+  const [loadedDraft, setDraft] = useState<TechnicianLocationProposalDraft>();
+  // A draft loaded for another job/system (one render behind a route change) is not this screen's draft.
+  const draft = loadedDraft && loadedDraft.jobId === job.id && loadedDraft.systemKey === systemKey ? loadedDraft : undefined;
   const [zoneChoice, setZoneChoice] = useState<"existing" | "new">("existing");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -35,7 +42,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
   useEffect(() => {
     if (!systemKey) return;
     let active = true;
-    setDraft(undefined); setError(""); setSaved(false);
+    setDraft(undefined); setError(""); setSaved(false); setZoneChoice("existing");
     const zoneKeys = eligibleSystems.find((system) => system.systemKey === systemKey)?.zones.map((zone) => zone.key) ?? [];
     void loadLatestAddLocationProposalDraft(job.id, systemKey).then((loaded) => {
       if (!active) return;
@@ -119,13 +126,14 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
     {eligibleSystems.length === 0 ? (
       <p className="empty-state">This service visit has no zone/location-configurable systems (CO2, Wet Chemical, or FM200).</p>
     ) : <>
-      <label>System<select value={systemKey ?? ""} onChange={(event) => setSystemKey(event.target.value || undefined)}>
+      <label>System<select value={systemKey ?? ""} onChange={(event) => setPickedSystemKey(event.target.value || undefined)}>
         <option value="">Select a system…</option>
         {eligibleSystems.map((system) => <option key={system.systemKey} value={system.systemKey}>{system.displayName}</option>)}
       </select></label>
       {error ? <p className="form-message" role="alert">{error}</p> : null}
       {saved && !error ? <p role="status">Location draft saved on this device.</p> : null}
-      {!systemKey ? null : !draft || !patch ? <p role="status">Loading…</p> : <>
+      {!systemKey ? null : !selectedSystem ? <p className="form-message" role="alert">This proposal cannot be opened: the selected system is not part of this service visit. Go back to the service visit and try again.</p>
+      : !draft || !patch ? <p role="status">Loading…</p> : <>
         {draft.status === "Pending" || draft.status === "Failed" ? (
           <div className="report-summary" role="status">
             <p>{draft.status === "Pending" ? "New location saved on this device, pending sync." : `Sync needs attention: ${draft.lastError ?? "Retry the original request."}`}</p>
@@ -145,13 +153,13 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
             value={patch.displayName} onChange={(event) => updatePatch({ displayName: event.target.value })} /></label>
           <fieldset>
             <legend>Zone</legend>
-            <label><input type="radio" name="zone-choice" checked={zoneChoice === "existing"} disabled={locked || saving || selectedSystem!.zones.length === 0}
-              onChange={() => { setZoneChoice("existing"); updatePatch({ zoneKey: selectedSystem!.zones[0]?.key ?? null, newZone: null }); }} /> Existing zone</label>
+            <label><input type="radio" name="zone-choice" checked={zoneChoice === "existing"} disabled={locked || saving || selectedSystem.zones.length === 0}
+              onChange={() => { setZoneChoice("existing"); updatePatch({ zoneKey: selectedSystem.zones[0]?.key ?? null, newZone: null }); }} /> Existing zone</label>
             {zoneChoice === "existing" ? (
-              selectedSystem!.zones.length === 0
+              selectedSystem.zones.length === 0
                 ? <p className="empty-state">This system has no existing zones yet — name a new one below.</p>
                 : <select disabled={locked || saving} value={patch.zoneKey ?? ""} onChange={(event) => updatePatch({ zoneKey: event.target.value, newZone: null })}>
-                    {selectedSystem!.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}
+                    {selectedSystem.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}
                   </select>
             ) : null}
             <label><input type="radio" name="zone-choice" checked={zoneChoice === "new"} disabled={locked || saving}

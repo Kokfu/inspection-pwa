@@ -1,0 +1,48 @@
+<!doctype html><html><body>
+<button id="run">Run header proposal sync summary checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { useLocationProposalOutboxStatuses } from "/src/sync/useLocationProposalOutboxStatuses.ts";
+import { headerSyncSummary } from "/src/sync/headerSyncSummary.ts";
+import { announceSyncFinished } from "/src/sync/syncEvents.ts";
+
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { try { const v = fn(); if (v) return v; } catch {} await wait(25); } return undefined; }
+
+function Header() {
+  const proposalStatuses = useLocationProposalOutboxStatuses(9005);
+  const { text, needsAttention } = headerSyncSummary({ inspectionStatuses: [], attachmentStatuses: [], proposalStatuses });
+  return React.createElement("span", { className: needsAttention ? "sync-summary sync-summary--attention" : "sync-summary" }, text);
+}
+const summary = () => document.querySelector(".sync-summary");
+const item = (operationId, status) => ({ operationId, entityType: "technicianLocationProposal", entityId: operationId, action: "create", payload: {}, createdAt: new Date().toISOString(), attempts: 0, status });
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9005);
+    await localDatabase.syncOutbox.clear();
+    createRoot(document.querySelector("#view")).render(React.createElement(Header));
+    check("no proposals: All submitted changes synced", await until(() => summary()?.textContent === "All submitted changes synced"));
+
+    await localDatabase.syncOutbox.put(item("6d000000-0000-4000-8000-000000000001", "Pending")); announceSyncFinished();
+    check("one Pending proposal: waiting, not all synced", await until(() => summary()?.textContent === "1 location proposal waiting to sync"));
+
+    await localDatabase.syncOutbox.update("6d000000-0000-4000-8000-000000000001", { status: "Failed", lastError: "boom" }); announceSyncFinished();
+    check("a Failed proposal: Sync needs attention with the attention style", await until(() => summary()?.textContent === "Sync needs attention" && summary().className.includes("sync-summary--attention")));
+
+    await localDatabase.syncOutbox.update("6d000000-0000-4000-8000-000000000001", { status: "Completed" }); announceSyncFinished();
+    check("server-confirmed (Completed) proposal: back to all synced", await until(() => summary()?.textContent === "All submitted changes synced"));
+
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error), checks });
+  }
+};
+</script></body></html>

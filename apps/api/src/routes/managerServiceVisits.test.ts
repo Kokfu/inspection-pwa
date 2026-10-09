@@ -19,6 +19,7 @@ const closedId = "71000000-0000-4000-8000-000000000002";
 const sampleId = "71000000-0000-4000-8000-000000000003";
 /** T5: when true the fake reports corrections on the visit, so the PDF routes must refuse it. */
 let visitCorrected = false;
+let approvalsPresent = true;
 
 const snapshot = (customer: string) => ({
   schemaVersion: 1,
@@ -45,6 +46,12 @@ class RouteDatabase {
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
     // T5: the PDF routes ask whether the visit was corrected after submission.
+    // Report approval (visitReportApproval): the visit's own status, then its approval events (none here).
+    if (sql.includes("SELECT status FROM inspection_jobs WHERE id=$1 AND is_sample=false")) { const id = values?.[0]; return { rows: id === sampleId ? [] : [{ status: id === closedId ? "closed" : "open" }] }; }
+    if (sql.includes("FROM report_approvals")) {
+      // Every report this fake can load (open for the technician, closed for the manager) carries an approval, so the approved-report PDF gate opens.
+      return { rows: approvalsPresent && (id === closedId || id === openId) ? [{ id: "approval-1", decision: "approved", note: null, decidedBy: "approver", decidedByRole: "supervisor", decidedAt: "2026-08-21T00:00:00.000Z", sequence: 1, requestId: "request-1", requestFingerprint: "fingerprint-1" }] : [] };
+    }
     if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
@@ -114,6 +121,13 @@ test("actual Manager and report routes enforce the admin/technician visibility m
     assert.equal((await get(`/inspection-jobs/${openId}/final-report.pdf`, "inspector")).status, 200);
     assert.equal((await get(`/inspection-jobs/${sampleId}/final-report.pdf`, "admin")).status, 404);
     assert.deepEqual(reportAccesses.filter((call) => call.jobId === closedId).map((call) => call.access), ["technician", "manager", "manager", "technician"]);
+    // T6: without an approval event the same report is refused its PDF (the gate this fixture previously predated).
+    approvalsPresent = false;
+    try {
+      const unapproved = await get(`/manager/service-visits/${closedId}/final-report.pdf`, "admin");
+      assert.equal(unapproved.status, 409);
+      assert.equal((await unapproved.json() as { error: string }).error, "REPORT_NOT_APPROVED");
+    } finally { approvalsPresent = true; }
     // T5: a visit corrected after submission serves no PDF until the report renders the corrections.
     visitCorrected = true;
     try {
@@ -155,6 +169,9 @@ class OperationalDatabase {
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
     // T5: the PDF routes ask whether the visit was corrected after submission.
+    // Report approval (visitReportApproval): the visit's own status, then its approval events (none here).
+    if (sql.includes("SELECT status FROM inspection_jobs WHERE id=$1 AND is_sample=false")) { const id = values?.[0]; return { rows: id === sampleId ? [] : [{ status: id === closedId ? "closed" : "open" }] }; }
+    if (sql.includes("FROM report_approvals")) return { rows: [] };
     if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
@@ -378,6 +395,9 @@ class FilterableServiceVisitDatabase {
     }
     if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
     // T5: the PDF routes ask whether the visit was corrected after submission.
+    // Report approval (visitReportApproval): the visit's own status, then its approval events (none here).
+    if (sql.includes("SELECT status FROM inspection_jobs WHERE id=$1 AND is_sample=false")) { const id = values?.[0]; const row = this.rows.find((candidate) => candidate.id === id); return { rows: row ? [{ status: row.status }] : [] }; }
+    if (sql.includes("FROM report_approvals")) return { rows: [] };
     if (sql.includes("inspection_corrections")) return { rows: [{ hasCorrections: visitCorrected }] };
     throw new Error(`Unexpected query: ${sql}`);
   }
@@ -620,6 +640,10 @@ test("PUT /manager/service-visits/:jobId/archive sets archived_at (audit-logged,
         return { rows: [{ id: jobId, status: "closed", configuration_snapshot: { schemaVersion: 1, customer: { displayName: "Archive Test Customer" }, enabledSystems: [] }, completed_at: "2026-08-20T10:00:00.000Z", completed_by_user_id: 1, completed_by_username: "admin", completed_by_display_name: "Admin" }] };
       }
       if (sql.includes("FROM master_system_form_instances")) return { rows: [] };
+      // Report approval summary on the returned visit (visitReportApproval): status, approval events, latest correction.
+      if (sql.includes("SELECT status FROM inspection_jobs WHERE id=$1 AND is_sample=false")) return { rows: [{ status: "closed" }] };
+      if (sql.includes("FROM report_approvals")) return { rows: [] };
+      if (sql.includes("inspection_corrections")) return { rows: [{ latestCorrectionAt: null }] };
       throw new Error(`Unexpected query ${sql}`);
     },
     release() {}

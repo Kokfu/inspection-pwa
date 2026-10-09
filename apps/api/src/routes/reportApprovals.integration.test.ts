@@ -65,8 +65,9 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       const openRefusal = await post("supervisor", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" });
       assert.equal((await openRefusal.json() as { error: string }).error, "REPORT_NOT_READY");
 
-      // Close the visit (direct SQL, mirroring the corrections integration test's precedent).
-      await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='ra' WHERE id=$1", [job, inspector]);
+      // Close the visit (direct SQL, mirroring the corrections integration test's precedent). Migration 034 requires a
+      // report number and team snapshot on the open->closed transition.
+      await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='ra',report_number='TEST/' || id::text,technician_team_snapshot='[]'::jsonb WHERE id=$1", [job, inspector]);
 
       // No events yet: awaiting_approval.
       const initial = await (await get("supervisor")).json() as { reportApproval: { status: string }; events: unknown[] };

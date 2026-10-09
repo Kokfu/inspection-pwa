@@ -44,6 +44,8 @@ test("corrections: append-only, frozen-contract checked, concurrency-safe, audit
     const inspector = await user("corr-tech", "inspector"), supervisor = await user("corr-review", "supervisor"), admin = await user("corr-admin", "admin");
     const foreign = await user("corr-other-tech", "inspector");
     await pool.query("UPDATE inspection_jobs SET created_by_user_id=$1 WHERE id=$2", [inspector, job]);
+    // A supervisor reads a visit only through an active technician-supervisor assignment (migration 042).
+    await pool.query("INSERT INTO technician_supervisor_assignments(technician_id,supervisor_id,created_by_user_id) VALUES($1,$2,$3)", [inspector, supervisor, admin]);
     assert.deepEqual((await syncCo2FormInstances([item], inspector)).acceptedIds, [client]);
     const acceptedHash = async () => createHash("sha256").update(JSON.stringify((await pool.query("SELECT response_payload, inspection_snapshot, updated_at FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0])).digest("hex");
     const before = await acceptedHash();

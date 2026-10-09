@@ -231,7 +231,7 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
       assert.equal(again.status, 409, await again.clone().text());
       assert.deepEqual(await again.json(), { error: "JOB_NOT_OPEN", message: "Only an in-progress job that has not yet been submitted can be deleted this way" });
       const d = await visit(0);
-      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$1 WHERE id=$2", [users[0].id, d]);
+      await database.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$1, report_number='OWNERSHIP-ARCHIVE-' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$2", [users[0].id, d]);
       const closed = await put(`/inspection-jobs/${d}/archive`, 0);
       assert.equal(closed.status, 409, await closed.clone().text());
       assert.deepEqual(await closed.json(), { error: "JOB_NOT_OPEN", message: "Only an in-progress job that has not yet been submitted can be deleted this way" });

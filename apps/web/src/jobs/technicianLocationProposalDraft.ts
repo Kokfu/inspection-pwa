@@ -1,6 +1,7 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
 import { validLocationProposalPatch } from "./locationProposalShape";
+import { announceSyncFinished } from "../sync/syncEvents";
 
 /**
  * Technician-proposed customer location patch, reviewed by a Supervisor/Admin before it's merged into
@@ -137,6 +138,7 @@ export async function queueTechnicianLocationProposal(draft: TechnicianLocationP
     await localDatabase.drafts.put({ id: key, entityType: "technicianLocationProposal", payload: { ...draft, status: "Pending" }, updatedAt: at });
     await localDatabase.syncOutbox.put(operation);
   });
+  announceSyncFinished();
   return { ...draft, status: "Pending" };
 }
 
@@ -199,6 +201,6 @@ export function syncPendingLocationProposals(actorUserId: number): Promise<void>
         });
       }
     }
-  })().finally(() => { syncing = undefined; });
+  })().finally(() => { syncing = undefined; announceSyncFinished(); });
   return syncing;
 }

@@ -1,0 +1,68 @@
+<!doctype html><html><body>
+<button id="run">Run technician location proposal job switch checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { TechnicianLocationProposal } from "/src/jobs/TechnicianLocationProposal.tsx";
+
+const id = (n) => `6c000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { try { const v = fn(); if (v) return v; } catch {} await wait(25); } return undefined; }
+
+const system = (systemKey, displayName, zones) => ({ systemKey, displayName, zones, locations: [] });
+const job = (jobId, systems) => ({ id: jobId, configurationSnapshot: { customer: { id: id(2), displayName: "Job Switch Customer" }, enabledSystems: systems } });
+const co2Job = job(id(10), [system("co2_fire_extinguisher", "CO2 Fire Extinguisher System", [{ id: id(20), key: "z1", displayName: "Ground Floor" }])]);
+const riserJob = job(id(11), [system("dry_wet_riser", "Dry / Wet Riser System", [])]);
+const noEligibleJob = job(id(12), [system("hose_reel", "Hose Reel System", [])]);
+
+// ONE root for the whole run: changing the `job` prop is exactly the route-to-route navigation, with no unmount.
+const root = createRoot(document.querySelector("#view"));
+const render = (jobValue) => root.render(React.createElement(TechnicianLocationProposal, { job: jobValue, actorUserId: 9004, canUseServer: false, onBack() {} }));
+let pageError = "";
+window.addEventListener("error", (event) => { pageError = event.message; });
+const nameInput = () => document.querySelector('input[maxlength="300"]');
+const button = (label) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
+function type(input, value) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9004);
+    await localDatabase.drafts.clear();
+    await localDatabase.syncOutbox.clear();
+
+    render(co2Job);
+    await until(() => nameInput());
+    type(nameInput(), "Annex Room");
+    check("CO2 job: Submit is enabled with a name and the default zone", await until(() => !button("Submit for Review").disabled));
+
+    // I-31: same mounted component, different job whose only eligible system is zoneless.
+    render(riserJob);
+    check("I-31: switching to a zoneless job renders its form without an error", await until(() => nameInput() && !nameInput().value && document.body.textContent.includes("Dry / Wet Riser")));
+    check("I-31: no page error was raised", !pageError);
+    check("I-31: the previous job's typed name is not carried over", nameInput()?.value === "");
+    type(nameInput(), "Riser Room");
+    const zoneInput = await until(() => document.querySelector('input[placeholder="Zone name"]'));
+    check("I-31: the zoneless system offers a new zone name", Boolean(zoneInput));
+
+    // And back again, and onto a job with nothing eligible.
+    render(co2Job);
+    check("switching back shows the CO2 job's own saved draft", await until(() => nameInput()?.value === "Annex Room" || nameInput()?.value === ""));
+    render(noEligibleJob);
+    check("a job with no location-configurable system shows the empty state", await until(() => document.body.textContent.includes("no zone/location-configurable systems")));
+    check("no page error after all switches", !pageError);
+
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks, pageError });
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error), checks, pageError });
+  }
+};
+</script></body></html>

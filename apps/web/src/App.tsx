@@ -204,6 +204,8 @@ import {
 import { AUTO_SYNC_INTERVAL_MS, AutoSyncCoordinator } from "./sync/autoSync";
 import { runAttachmentCleanupIfDue } from "./attachments/attachmentRetention";
 import { announceSyncFinished } from "./sync/syncEvents";
+import { headerSyncSummary } from "./sync/headerSyncSummary";
+import { useLocationProposalOutboxStatuses } from "./sync/useLocationProposalOutboxStatuses";
 import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
 import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
 import { offlineReadinessLabel, useOfflineReadiness } from "./pwa/offlineReadiness";
@@ -2266,18 +2268,12 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
     ...masterSystemInspections.map((record) => record.syncStatus),
     ...masterSystemFormInstances.map((record) => record.syncStatus)
   ];
-  const waitingToSyncCount = inspectionStatuses.filter((status) => status === "Pending").length;
-  const syncIsRunning = inspectionStatuses.some((status) => status === "Syncing")
-    || inspectionAttachments.some((attachment) => attachment.syncStatus === "Uploading");
-  const syncNeedsAttention = inspectionStatuses.some((status) => status === "Failed" || status === "Conflict")
-    || inspectionAttachments.some((attachment) => attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict");
-  const syncSummary = syncNeedsAttention
-    ? "Sync needs attention"
-    : syncIsRunning
-      ? "Syncing\u2026"
-      : waitingToSyncCount > 0
-        ? `${waitingToSyncCount} ${waitingToSyncCount === 1 ? "inspection" : "inspections"} waiting to sync`
-        : "All submitted changes synced";
+  const proposalStatuses = useLocationProposalOutboxStatuses(headerUser?.id);
+  const { text: syncSummary, needsAttention: syncNeedsAttention } = headerSyncSummary({
+    inspectionStatuses,
+    attachmentStatuses: inspectionAttachments.map((attachment) => attachment.syncStatus),
+    proposalStatuses
+  });
   const safeToUpdate = isSafeForAppUpdate(route);
 
   return (
@@ -2572,7 +2568,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             (() => {
               const cachedJob = jobs.find((candidate) => candidate.id === route.jobId);
               return cachedJob
-                ? <TechnicianLocationProposal job={cachedJob} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: route.jobId })} />
+                ? <TechnicianLocationProposal key={cachedJob.id} job={cachedJob} actorUserId={currentUser!.id} canUseServer={canUseServer} onBack={() => navigate({ name: "job", jobId: route.jobId })} />
                 : <section className="workspace"><h2>Service visit unavailable</h2><p>Reconnect and refresh My Service Jobs to open this service visit.</p><button type="button" className="secondary-command" onClick={() => navigate({ name: "jobs" })}>Back to My Jobs</button></section>;
             })()
           ) : route.name === "technician-upcoming-services" ? (
