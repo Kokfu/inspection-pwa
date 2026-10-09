@@ -85,7 +85,8 @@ PASS means executed locally or verified in the stated source scope. NOT RUN is n
 | Clean lockfile installs | PASS | Fresh temporary npm ci for API/web; no existing node_modules reused |
 | API/web typechecks/builds | PASS | Final checks below |
 | Auth/image/thumbnail/logo/PDF regressions | PASS | Final checks below |
-| Candidate/deployed installed versions match | NOT RUN | No candidate image build/deployment authorized |
+| Candidate installed security versions match | PASS | Committed f208352 Linux API image; see SECURITY_DEPLOYMENT_CHECKPOINT.md |
+| Deployed installed versions match | NOT RUN | No production replacement performed |
 | Missing/fake/expired/revoked sessions rejected | PASS | Real-cookie authSecurity HTTP |
 | Invalid session percent encoding controlled | PASS | 401, not 500 |
 | Broken unrelated cookie preserves valid session | PASS | Real-cookie HTTP |
@@ -153,6 +154,8 @@ try {
 ```
 
 ## Remaining findings and next checkpoint
+
+Subsequent authorized Git/candidate checkpoint: the owner explicitly authorized committing and continuing. Security scope was committed as `f208352`; unrelated changes were excluded. Candidate image build/version/native checks now pass; see [SECURITY_DEPLOYMENT_CHECKPOINT.md](SECURITY_DEPLOYMENT_CHECKPOINT.md). Statements below about no Git mutation describe the preceding review/remediation phase. No production access or deployment has been performed in the subsequent phase either.
 
 Review remediation on 2026-10-10: the new scheme-validation defect is corrected without proxy trust or infrastructure changes; login/reset/deactivation concurrency and rollback proofs were added; actual child-process termination/replacement now proves durable unfinished reservations and release of all four leases; historical DELETE cleanup is coalesced rather than repeated for every denied attempt. The PWA-plugin before-version was corrected against current HEAD, and React/React DOM runtime deltas are explicit. Re-review found no remaining actionable local P0/P1 defect or new defect in this security remediation. The individual historical-table cleanup cost remains a documented P2 deployment-capacity limitation.
 

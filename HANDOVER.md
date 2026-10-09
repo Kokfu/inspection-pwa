@@ -3,7 +3,14 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **Security review remediation: local re-review complete; no deployment.**
+**Last updated:** 2026-10-10 — **Security committed; local candidate images verified; no deployment.**
+Owner authorized commit `f208352` and continuation. API and web/Caddy candidates built from that committed archive,
+excluding unrelated changes. Candidate API versions match the reviewed lockfile; production audit is clean; Linux
+Argon2/Sharp/application Chromium PDF smoke checks and Caddy/PWA asset validation pass. Production replacement,
+edge/proxy-chain verification and physical-phone acceptance remain outstanding; security sign-off is withheld.
+Details: [SECURITY_DEPLOYMENT_CHECKPOINT](docs/testing/SECURITY_DEPLOYMENT_CHECKPOINT.md).
+
+**Earlier local review checkpoint:**
 The origin guard now requires HTTPS as well as the incoming Host, without enabling proxy trust. New disposable tests
 prove both login/reset/deactivation race orderings, deactivation rollback, and actual child-process termination/replacement
 without refunding durable attempts. Historical audit cleanup is coalesced to once per minute per process under normal
