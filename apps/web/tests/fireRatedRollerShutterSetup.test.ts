@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows,
-  newTechnicianShutterRow, parseShutterCount, parseZonePlan, defaultCollapsedKeys, renameTechnicianZone, rollerShutterSetupStep, shutterRowComplete, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type ZonePlan
+  newTechnicianShutterRow, parseShutterCount, parseZonePlan, defaultCollapsedKeys, describeShutterEvidencePath, renameTechnicianZone, rollerShutterSetupStep, shutterRowComplete, shutterRowLabels, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type ZonePlan
 } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup";
 import type { FireRatedRollerShutterResponses, FireRatedRollerShutterRow } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
 
@@ -232,4 +232,25 @@ test("with two or more zones all but the first start collapsed; one zone has not
   assert.equal(defaultCollapsedKeys(zoneGroups([zonedRow(1, "A")])).size, 0);
   assert.equal(defaultCollapsedKeys([]).size, 0);
   assert.equal(zoneGroupKey(several[0]!), several[0]!.rows[0]!.rowUuid, "a group is identified by its first row, so renaming keeps it");
+});
+
+// ---- I-38: shutter labels in messages ---------------------------------------------------------------
+
+test("shutter labels follow the zone groups the form shows, restart per zone, and fall back to positions otherwise", () => {
+  const zoned = zonedResponses([zonedRow(1, "A"), zonedRow(2, "B"), zonedRow(3, "A"), zonedRow(4, "")]);
+  assert.deepEqual(shutterRowLabels(zoned), ["A, Shutter 1", "B, Shutter 1", "A, Shutter 2", "Unnamed zone, Shutter 1"]);
+  assert.deepEqual(shutterRowLabels(zonedResponses([zonedRow(1, ""), zonedRow(2, "")])), ["Shutter row 1", "Shutter row 2"], "one unnamed zone shows no headings");
+  assert.deepEqual(shutterRowLabels(zonedResponses([zonedRow(1, "North"), zonedRow(2, "North")])), ["North, Shutter 1", "North, Shutter 2"], "a single named zone is shown with its heading");
+  assert.deepEqual(shutterRowLabels({ ...zonedResponses([zonedRow(1, "A"), zonedRow(2, "B")]), schemaVersion: 1 }), ["Shutter row 1", "Shutter row 2"], "schema 1 never shows zones");
+  assert.deepEqual(shutterRowLabels(zonedResponses([])), []);
+});
+
+test("an evidence field path is described by shutter and column, and anything else is left as it is", () => {
+  const input = zonedResponses([zonedRow(1, "A"), zonedRow(2, "B")]);
+  const path = (uuid: string, wire: string) => `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${uuid}.${wire}`;
+  assert.equal(describeShutterEvidencePath(input, path(input.rows[1]!.rowUuid, "auto_alarm_mode")), "B, Shutter 1 Auto Alarm Mode");
+  assert.equal(describeShutterEvidencePath(input, path(input.rows[0]!.rowUuid, "manual_mode")), "A, Shutter 1 Manual Mode");
+  const unknown = path("11111111-1111-4111-8111-111111111111", "auto_alarm_mode");
+  assert.equal(describeShutterEvidencePath(input, unknown), unknown, "a path for a row that is not on the form is not guessed");
+  assert.equal(describeShutterEvidencePath(input, "something.else"), "something.else");
 });

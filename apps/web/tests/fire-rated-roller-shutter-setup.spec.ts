@@ -347,3 +347,17 @@ test("the zone collapse controls fit phone, tablet and desktop widths with 44px 
     }
   }
 });
+
+test("Submit errors name the zone and the shutter number shown on the cards", async ({ page }) => {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("3");
+  await page.getByLabel("Locations in each zone").fill("2");
+  await start(page);
+  await page.getByRole("button", { name: "Submit Inspection" }).click();
+  const summary = page.locator(".validation-summary");
+  await expect(summary).toContainText("Zone 2, Shutter 1 needs a Location");
+  await expect(summary).toContainText("Zone 3, Shutter 2 Auto Alarm Mode result is required");
+  await expect(summary).not.toContainText("Shutter row");
+  // the card the message points at exists under that zone with that number
+  await expect(groupOf(page, "Zone 3").locator(".hose-row-card").nth(1).getByRole("heading", { name: "Shutter 2" })).toBeVisible();
+});

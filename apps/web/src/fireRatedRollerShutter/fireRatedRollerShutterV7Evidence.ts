@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { describeShutterEvidencePath, shutterRowLabels } from "./fireRatedRollerShutterSetup";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { ResultControlDefinition } from "../inspectionControls/definitionTypes";
@@ -84,17 +85,18 @@ export function v7FireRatedRollerShutterSubmissionIssues(record: FireRatedRoller
   // requires a definite result for each of the two shutter operation modes.
   const issues: string[] = [];
   if (!responses.rows.length) issues.push("At least one Shutter row is required");
+  const labels = shutterRowLabels(responses);
   for (const [rowIndex, row] of responses.rows.entries()) {
-    if (!isRecord(row.fieldRemarks)) issues.push(`Shutter row ${rowIndex + 1} field remarks are invalid`);
+    if (!isRecord(row.fieldRemarks)) issues.push(`${labels[rowIndex]} field remarks are invalid`);
     for (const [responseKey, , label] of fireRatedRollerShutterRowColumns) {
       const value = row[responseKey];
-      if (!rowDefinitions[responseKey].options.some((option) => option.value === value)) issues.push(`Shutter row ${rowIndex + 1} ${label} result is required`);
-      if (isFireRatedRollerShutterV7EvidenceFinding(value) && (!isRecord(row.fieldRemarks) || typeof row.fieldRemarks[responseKey] !== "string" || !row.fieldRemarks[responseKey]!.trim())) issues.push(`Shutter row ${rowIndex + 1} ${label} requires its own Remark`);
+      if (!rowDefinitions[responseKey].options.some((option) => option.value === value)) issues.push(`${labels[rowIndex]} ${label} result is required`);
+      if (isFireRatedRollerShutterV7EvidenceFinding(value) && (!isRecord(row.fieldRemarks) || typeof row.fieldRemarks[responseKey] !== "string" || !row.fieldRemarks[responseKey]!.trim())) issues.push(`${labels[rowIndex]} ${label} requires its own Remark`);
     }
   }
   const required = v7RequiredFireRatedRollerShutterFieldPaths(responses);
   const attachedFields = new Set(attachments.filter((item) => item.systemKey === "fire_rated_roller_shutter" && item.protocolVersion === 7).map((item) => item.fieldPath));
-  for (const fieldPath of required) if (!attachedFields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
+  for (const fieldPath of required) if (!attachedFields.has(fieldPath)) issues.push(`${describeShutterEvidencePath(responses, fieldPath)} requires its own Photo`);
   issues.push(...duplicateFireRatedRollerShutterV7PhotoIssues(attachments, required));
   issues.push(...submittedPhotoIssues(attachments, required));
   return issues;

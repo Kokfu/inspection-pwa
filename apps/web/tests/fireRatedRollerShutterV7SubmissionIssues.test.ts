@@ -22,7 +22,7 @@ test("roller shutter clean row passes local submission", () => {
 test("roller shutter requires both result boxes and a location", () => {
   const draft = response(); draft.rows[0]!.manualModeResult = null; draft.rows[0]!.locationText = "";
   const issues = submitIssues(inspection, draft, []);
-  assert.ok(issues.some((issue) => issue.includes("Shutter row is invalid")));
+  assert.ok(issues.includes("Shutter row 1 needs a Location"));
   assert.ok(issues.some((issue) => issue.includes("Manual Mode result is required")));
 });
 
@@ -92,4 +92,25 @@ test("schema 1 keeps its exact row key set and never carries zoneText", () => {
   assert.ok(submitIssues(inspection, legacy, []).some((issue) => issue.includes("Shutter row shape is invalid")));
   const future = response() as unknown as { schemaVersion: number }; future.schemaVersion = 3;
   assert.ok(submitIssues(inspection, future as unknown as FireRatedRollerShutterResponses, []).some((issue) => issue.includes("envelope shape is invalid")));
+});
+
+// ---- I-38: messages name a shutter the way the form shows it -------------------------------------------
+
+test("a blank location is reported by name, with the shutter named as the form shows it", () => {
+  const draft = response(); draft.rows[0]!.locationText = "";
+  assert.ok(submitIssues(inspection, draft, []).includes("Shutter row 1 needs a Location"));
+  assert.ok(!submitIssues(inspection, draft, []).some((issue) => issue === "Shutter row is invalid"), "no nameless 'row is invalid' message remains");
+});
+
+test("with zone headings, every Submit message names the zone and the in-zone shutter number", () => {
+  const draft = zonedResponse();
+  draft.rows[0]!.zoneText = "Zone 1"; draft.rows[1]!.zoneText = "Zone 2";
+  draft.rows[1]!.locationText = ""; draft.rows[1]!.autoAlarmModeResult = null; draft.rows[1]!.manualModeResult = "not_good";
+  const issues = submitIssues(zonedInspection, draft, []);
+  assert.ok(issues.includes("Zone 2, Shutter 1 needs a Location"), issues.join(" | "));
+  assert.ok(issues.includes("Zone 2, Shutter 1 Auto Alarm Mode result is required"));
+  assert.ok(issues.includes("Zone 2, Shutter 1 Manual Mode requires its own Remark"));
+  assert.ok(issues.includes("Zone 2, Shutter 1 Manual Mode requires its own Photo"), "the photo message is readable, not a raw field path");
+  assert.ok(!issues.some((issue) => /roller_shutter_schedule\./.test(issue)), "no raw field path is shown to the technician");
+  assert.ok(!issues.some((issue) => /^Shutter row \d/.test(issue)), "flat 'Shutter row N' wording is not used when zones are shown");
 });

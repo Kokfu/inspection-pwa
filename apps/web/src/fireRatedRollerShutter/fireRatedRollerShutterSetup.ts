@@ -102,6 +102,26 @@ export function zoneGroups(rows: readonly FireRatedRollerShutterRow[]): ShutterZ
   return groups;
 }
 
+/** How each shutter is named in messages, matching what the form shows. With zone headings in use the form
+ *  numbers shutters from 1 inside each zone, so a row is "Zone 2, Shutter 3"; otherwise (one unnamed zone, or a
+ *  schema-1 record) the rows are "Shutter row N" by position. Index-aligned with `responses.rows`. */
+export function shutterRowLabels(responses: FireRatedRollerShutterResponses): string[] {
+  const groups = zoneGroups(responses.rows);
+  const byZone = responses.schemaVersion === 2 && (groups.length > 1 || (groups[0]?.zoneText ?? "") !== "");
+  if (!byZone) return responses.rows.map((_row, index) => `Shutter row ${index + 1}`);
+  const position = new Map<string, string>();
+  for (const group of groups) group.rows.forEach((row, index) => position.set(row.rowUuid, `${group.zoneText || "Unnamed zone"}, Shutter ${index + 1}`));
+  return responses.rows.map((row, index) => position.get(row.rowUuid) ?? `Shutter row ${index + 1}`);
+}
+
+/** A readable name for an evidence field path ("Zone 2, Shutter 3 Auto Alarm Mode"), or the path itself if it is not one of this form's rows. */
+export function describeShutterEvidencePath(responses: FireRatedRollerShutterResponses, fieldPath: string): string {
+  const match = /\.rows\.([0-9a-f-]{36})\.(auto_alarm_mode|manual_mode)$/i.exec(fieldPath);
+  const index = match ? responses.rows.findIndex((row) => row.rowUuid === match[1]) : -1;
+  const column = match ? fireRatedRollerShutterRowColumns.find(([, wireKey]) => wireKey === match[2]) : undefined;
+  return index < 0 || !column ? fieldPath : `${shutterRowLabels(responses)[index]} ${column[2]}`;
+}
+
 /** Stable identity of a zone group on screen: its first row. Renaming a zone does not change it. */
 export const zoneGroupKey = (group: ShutterZoneGroup) => group.rows[0]!.rowUuid;
 

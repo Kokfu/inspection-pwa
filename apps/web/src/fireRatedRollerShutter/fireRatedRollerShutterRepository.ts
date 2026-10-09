@@ -11,7 +11,7 @@ import type {
   FireRatedRollerShutterRow
 } from "./fireRatedRollerShutterTypes";
 import { fireRatedRollerShutterRowColumns } from "./fireRatedRollerShutterTypes";
-import { maxZoneTextLength } from "./fireRatedRollerShutterSetup";
+import { maxZoneTextLength, shutterRowLabels } from "./fireRatedRollerShutterSetup";
 import { listFireRatedRollerShutterV7Photos, v7FireRatedRollerShutterEvidenceOutbox, v7FireRatedRollerShutterManifest, v7FireRatedRollerShutterSubmissionIssues } from "./fireRatedRollerShutterV7Evidence";
 
 const key = "fire_rated_roller_shutter" as const;
@@ -125,10 +125,13 @@ function structuralSubmitIssues(record: FireRatedRollerShutterInspectionRecord, 
   // The server caps the table at 250 rows (`validResponses`); refuse the 251st
   // here rather than queueing a record it will reject.
   if (responses.rows.length > 250) issues.push("A Fire Rated Roller Shutter inspection cannot have more than 250 Shutter rows");
+  const labels = shutterRowLabels(responses);
   responses.rows.forEach((row, index) => {
     if (!row.rowUuid || !uuid.test(row.rowUuid) || rowUuids.has(row.rowUuid)) issues.push("Shutter row identity is invalid");
     rowUuids.add(row.rowUuid);
-    if (row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.locationText.length > 300 || !row.locationText.trim() || row.remarks.length > 2000) issues.push("Shutter row is invalid");
+    // A blank Location is the usual reason, so say so and name the shutter as the form does.
+    if (!row.locationText.trim()) issues.push(`${labels[index]} needs a Location`);
+    if (row.sortOrder !== index + 1 || row.assetReference.length > 200 || row.locationText.length > 300 || row.remarks.length > 2000) issues.push(`${labels[index]} is invalid`);
     // Exact row-key parity with the server (`exact(row, rowKeys)`): an extra own
     // property strands the record behind a non-retryable acceptance.
     if (!exactKeys(row, responses.schemaVersion === 2 ? rowKeysV2 : rowKeysV1)) issues.push("Shutter row shape is invalid");
