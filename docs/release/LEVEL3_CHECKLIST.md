@@ -24,18 +24,18 @@ HTTP inside) → web assets + `/api` → API → PostgreSQL on the private netwo
 
 ## Local verification checkpoint — 2026-10-08 (development stack only)
 
-Build `build-20261008T150537Z`, release `sha256-e66944cf3f89e348`, source HEAD `7c4c092`
-plus uncommitted changes. **Client handover: NOT YET.** These ticks describe the local pass;
+Build `build-20261008T155132Z` (rebuilt 2026-10-09 with the I-31/L-5 fixes; web/proxy only, API and PostgreSQL untouched), source HEAD `8753839`
+plus uncommitted changes. (The 8 October pass was build `150537Z`, release `sha256-e66944cf3f89e348`.) **Client handover: NOT YET.** These ticks describe the local pass;
 the production gates below remain open. The physical WebAPK uses USB `http://localhost:8081`,
 not the production HTTPS hostname. [Full evidence and reproduction](../testing/RELEASE_LOCATION_VERIFICATION.md).
 
 | Local check | Status | Evidence / limit |
 |-------------|--------|------------------|
 | Web/API typecheck and both builds | ☑ | Host builds and final Docker proxy build pass. |
-| Full configured Playwright; web Node; rejection script | ☑ | 188/188; 371/371; 5/5. Separate live accepted-detail gate 2/2. Zero skips. |
-| Full API/Node regression against disposable PostgreSQL | ⛔ | 519 total, 507 pass, 12 fail, zero skips; four pre-existing fixture failures reproduced fresh/sequentially (I-32). |
+| Full configured Playwright; web Node | ☑ | 2026-10-09: Playwright 190/190, web Node 377/377 (+3 `.tsx` = 400), zero skips. 8 October: rejection script 5/5 and live accepted-detail gate 2/2 (not repeated). |
+| Full API/Node regression against disposable PostgreSQL | ☑ | 2026-10-09: 519 total, **519 pass, 0 fail**, zero skips, 101 files run one process each. The four stale fixtures (I-32) were repaired; they also failed before the location work. |
 | Historical baseline exception inspected | ☑ | Only two V6 uploader type/comparison lines from `10f3bbb`; owner reconciliation pending. Other protected historical paths unchanged. |
-| Web/proxy-only deployment and build identity | ☑ | Current index/SW assets and phone agree on `150537Z`; API source hashes match host build. |
+| Web/proxy-only deployment and build identity | ☑ | 2026-10-09: `docker compose build proxy` + `up -d --no-deps proxy`; served `index-C9GpWWKB.js` contains `build-20261008T155132Z`; `/api/health` ok; API/PostgreSQL not restarted. The phone was not re-updated to this build. |
 | Local health and security headers | ☑ | Health-Check.ps1 and check-security-headers.mjs pass on local HTTPS. No production certificate/HSTS claim. |
 | API/PostgreSQL unchanged; data survives proxy recreation | ☑ | Container IDs/start times/restart counts unchanged; customer/job/proposal/decision counts unchanged across deployment. No API/PG restart rehearsal. |
 | Physical phone L-1/L-2 and offline round trip | ☑ | Draft reload/navigation/force-close; Pending offline reload/force-close; reconnect confirms exactly one server row for submitted UUID. Failed after 503 + reload; Synced after re-entry. |
@@ -45,8 +45,7 @@ not the production HTTPS hostname. [Full evidence and reproduction](../testing/R
 | git diff --check | ☑ | Pass; no staging or Git mutation. |
 | Production phone HTTPS, camera, API/PG restart, backup/restore and PC reboot | ☐ | Not performed in this pass; use production checklist below. |
 
-Still open: I-31 pre-existing direct cross-job proposal-route crash; I-32 API fixture gate;
-L-5–L-8 and E-1 deferred checks; E-2 email retry acknowledgement. Owner decisions remain:
+Still open: L-6–L-8 and E-1 deferred checks; E-2 email retry acknowledgement. Fixed on 2026-10-09: I-31 (cross-job proposal-route crash), I-32 (API fixtures), L-5 (header ignored location proposals). Owner decisions remain:
 corrected-visit PDF support (currently blocked), Supervisor correction rights (currently both
 Admin and Supervisor), no password-reset feature/recovery procedure, and historical V6 baseline exception.
 No P0/P1 introduced by the verified location changes was identified.

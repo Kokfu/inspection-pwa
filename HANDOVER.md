@@ -3,21 +3,28 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-08 — **Local release verification and owner-selected L-4 warning.**
-Deployed web/proxy build `build-20261008T150537Z`, release `sha256-e66944cf3f89e348`;
-API/PostgreSQL containers were unchanged. Physical installed-PWA checks closed L-1/L-2/L-3:
-draft recovery, offline Pending recovery through force-close, exactly-one-UUID sync, admin
-validation/refusal placement, and readable proposal approval/rejection. L-4 now warns about
-duplicate display names without blocking; tests failed before and pass after implementation.
-Both typechecks/builds, 188 Playwright, 2 live accepted-detail specs, 371 web Node tests and
-5 rejection-script tests pass. Full API run is **507 pass / 12 fail / 519**, zero skips:
-four pre-existing fixture failures reproduced against fresh disposable PostgreSQL (I-32).
-Pre-existing direct cross-job proposal-route crash I-31 is documented, not fixed.
-**Client handover: NOT YET** — regression gate, I-31 and production/owner acceptance remain open.
-See [complete evidence, cleanup and commit/ignore inventory](docs/testing/RELEASE_LOCATION_VERIFICATION.md),
-[phone register](docs/testing/PHONE_TESTING_STATUS.md) and
+**Last updated:** 2026-10-09 — **I-31, I-32, L-5 fixed; client user guide verified against the real UI.**
+Web/proxy rebuilt as `build-20261008T155132Z` (`docker compose build proxy`, `up -d --no-deps proxy`; API and
+PostgreSQL untouched, health ok). Fixes, each with a regression test that failed first: **I-31** proposal screen no
+longer keeps another job's system (derived per job, fail-closed message, `key` by job id); **L-5** header summary now
+counts location-proposal outbox items (Pending → "waiting to sync", Failed/Conflict → "Sync needs attention", only
+server-confirmed Completed clears it); **I-32** four stale API fixtures repaired (all four also failed before the
+location work; fixture drift only, no product bug). Gates: both typechecks, **Playwright 190/190, web Node 377/377,
+API 519/519**, `git diff --check` clean. [USER_GUIDE](docs/client/USER_GUIDE.md) and
+[EVIDENCE_POLICY](docs/client/EVIDENCE_POLICY.md) were corrected from a live walkthrough (admin, supervisor,
+technician; browser at desktop width + 360 px menu check; **no phone**) and now include a Known limits section.
+Test data left behind (cannot be deleted by design): accepted visit SV-20261008-79 (accepted records), two rejected
+proposals with their immutable decisions ("GuideWalk Test Room", "L5 Header Probe Room"), archived customer
+"ZZ Guide Walk Customer" (with one extra configuration version), a Reviewed-by-Supervisor mark on SV-79. Removed or
+reversed: the test technician account, the extra visit, the reminder routine/date.
+**Client handover: NOT YET** — production HTTPS/install, client-PC operations, physical-phone re-check of L-5/I-31 and the
+owner policy decisions remain (Level 3 acceptance is the owner's separate checkpoint). No staging or Git mutation.
+See [phone register](docs/testing/PHONE_TESTING_STATUS.md) and
 [production checklist/local verification](docs/release/LEVEL3_CHECKLIST.md).
-No client-document edits, staging or other Git mutations in this pass.
+
+**Earlier checkpoint:** 2026-10-08 — **Local release verification and owner-selected L-4 warning** (build
+`150537Z`; then 188 Playwright, 371 web Node, API 507/519 with the four fixtures later repaired as I-32).
+Evidence: [complete pass report](docs/testing/RELEASE_LOCATION_VERIFICATION.md).
 
 **Earlier checkpoint:** 2026-10-08 — **Prompt B: legacy proposal disposition and client documentation.**
 Owner confirmed proposal `678f1e17-34b2-42f5-9674-2bd8d0392524` is demo debris and authorized rejection only.

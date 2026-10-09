@@ -1,17 +1,17 @@
 # Inspection evidence policy
 
-Checked against the application on 8 October 2026. This describes the current behavior; older visits keep their original form and requirements.
+Checked against the application on 8 and 9 October 2026 (the 9 October check used the live CO2 form: a Not Good finding with its own remark and photo was submitted and synced). This describes the current behavior; older visits keep their original form and requirements.
 
 ## Results and required evidence
 
-Use the result labels on the visit you are completing. The current form (V7) has four choices:
+Use the result labels on the visit you are completing. The current form (V7) has four choices (these are the buttons on the form):
 
 | Result | What to enter |
 |---|---|
 | Good | The check passed. No finding photo is required. |
 | Not Good | Explain the problem in that check's own remark and attach one photo to that check. |
 | Complete Repair | Explain the repair in that check's own remark and attach one photo to that check. |
-| N.A. | The check does not apply. No finding photo is required. |
+| No Need Checking / N.A. | The check does not apply. No finding photo is required. (The accepted-record correction editor shortens this label to **N.A.**) |
 
 Older forms may say **Good / Poor / Not Relevant**. On the older Fire Alarm evidence form (V6), each Poor check requires its own remark and photo. Not Relevant means the check does not apply. Earlier forms do not automatically acquire the newer photo requirement. Follow the requirements displayed on that particular visit.
 
