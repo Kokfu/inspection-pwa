@@ -1,6 +1,6 @@
 # CR-06 — result option "jumps to the top"
 
-Status 2026-10-10: **fixed for the reproduced cause (scroll continuity); phone retest pending. One design decision left to the owner (below).**
+Status 2026-10-10: **fixed for the reproduced cause (scroll continuity); verified on the physical phone. One design decision left to the owner (below).**
 
 ## Reproduction (real `App`, 360×800, touch emulation, healthy mock server)
 
@@ -50,7 +50,24 @@ Regression proof: the hand-over test fails on pristine HEAD (11/11, scroll moved
   the authority tests re-baselined.
 - Not proven: that a phone's tap on Not Good coincides with a network hand-over. The jump needs a connectivity event.
 
-## Phone retest
+## Phone retest (physical device, 2026-10-10)
+
+Device `CPH2375` (adb `182449ec`), Chrome, deployed build `build-20261010T092129Z`. That build already contains the fix (the served
+bundle `index-BC4OAy4R.js` has the `scrollTo({top:…,behavior:"instant"})` restore and the `hashchange` drop; the proxy container
+was created 17:22, after `formScrollContinuity.ts` was written at 15:28), so this is an "after" test, not a before/after pair.
+Hydrant Draft in test visit SV-20261010-86 with 4 added rows (page height 7663), real adb swipes/taps, real `svc wifi disable/enable`.
+
+| Step | Observed |
+|---|---|
+| Real tap on Not Good (Diffuser Nozzle), scrollY 2551 | `aria-pressed` set, scrollY unchanged |
+| Wi-Fi off -> on (events logged on the phone) | `offline` event, form removed (page height 7663 -> 845, scrollY clamped to 180), form back about 0.4 s later, **scrollY restored to 2551**; same again on `online` |
+| Second hand-over after swiping to scrollY 3533 | restored to **3533** (not the earlier position) |
+
+This also confirms the mechanism on hardware: Android fires `offline`/`online` on a Wi-Fi toggle and the form really is removed
+for about 0.4 s. Not tested on the phone: airplane mode, a hand-over while typing (keyboard still closes), other forms.
+The test rows and the Not Good answer were left in that Draft (test visit, demo customer).
+
+## Phone retest steps
 
 1. Open any inspection form, scroll to the middle, tap Not Good on a field (note which form).
 2. Quickly toggle Wi-Fi off and on (or switch Wi-Fi ↔ mobile data) while still scrolled down.
