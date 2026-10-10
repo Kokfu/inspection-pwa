@@ -48,7 +48,11 @@ attachment lifecycle). Read those sections too.
 2. `Normal` / `Test` / `Isolation` are a separate detector-state control. They
    are NOT Good/Poor controls and their semantics must never be changed or
    folded into the Good/Poor model.
-3. Only a `poor` value carries evidence. `good` and `not_relevant` carry none.
+3. Only a finding carries REQUIRED evidence (legacy `poor`; V7 `not_good` / `complete_repair`).
+   CR-01: a V7 `good` or `na` result may carry ONE OPTIONAL photo (never a remark). The
+   optional photo is never required, a missing one never blocks Submit or acceptance, and
+   it uses the same capture pipeline and size/format limits as a finding photo. Legacy
+   `not_relevant` (V1-V6) carries none. A finding keeps its own remark + own photo, unchanged.
 4. Some real customer paper forms use a fourth state ("Complete Repair" /
    "N.A. — no need checking"). That is a future phase (result-model
    refinement). Do not add states in an evidence phase.
@@ -81,9 +85,10 @@ To add a system (mirror `co2Adapter` / `wetChemicalAdapter`):
    (e.g. `fire_alarm_detector`).
 2. Add an adapter via the `adapter(systemKey, fields)` helper with the exact
    canonical `fieldPath -> caption` map for that system's Poor-capable fields.
-3. Implement / inherit: `isCanonicalFieldPath`, `derivePoorFieldPaths`
-   (from the CURRENT response — see Frozen Manifest), `ownPoorRemark`,
-   `acceptedEvidenceCaption`.
+3. Implement / inherit: `isCanonicalFieldPath`, `derivePhotoFieldPaths`
+   (from the CURRENT response — see Frozen Manifest; returns `{ required, optional }`:
+   findings, and good / na fields that MAY hold one photo), `derivePoorFieldPaths`
+   (the findings-only wrapper over it), `ownPoorRemark`, `acceptedEvidenceCaption`.
 4. Register the adapter in the adapter map.
 5. The DB `CHECK` constraints in migration `018_v7_shared_staged_evidence.sql`
    already permit `fire_alarm_detector`, `co2_fire_extinguisher`,
@@ -108,20 +113,31 @@ to. Manifest entry shape (see `co2FormInstanceSync.ts` `manifestKeys`):
 `{ photoUuid, fieldPath, sourceSha256 }`.
 
 1. On first Submit Local, freeze the manifest by DERIVING it from the CURRENT
-   Poor set of the response — the set of fields whose value is `poor` right
-   now. Never build it by enumerating every V7 attachment Blob in IndexedDB.
-2. If a field was Poor with a photo and is then changed to `good` or
-   `not_relevant` before freeze, that photo is stale: it must NOT enter the
-   frozen manifest, must NOT create an evidence outbox item, and must NOT
-   block acceptance. The Blob may remain in IndexedDB but is not authoritative.
-3. Two Poor fields A and B, then A becomes `good` -> the manifest contains
-   only B's evidence.
+   response: every finding's required photo, plus the photo held by each
+   good / na field (CR-01). Never build it by enumerating every V7 attachment
+   Blob in IndexedDB — a photo whose path is neither a finding nor a good / na
+   field of the current response (unknown path, a row the response does not
+   contain) is never in the manifest.
+2. CR-01 (pilot: CO2 + Wet Chemical web; the server contract covers all 11 V7
+   systems): if a field was Poor with a photo and is then changed to `good` or
+   `na` before freeze, the photo is KEPT as that field's optional photo — it
+   stays in the frozen manifest, is staged, and appears in Accepted Detail and
+   the Final Report. The technician's "Remove" deletes it (Draft only). Systems
+   whose web form has not been migrated yet still drop such a photo from their
+   own manifest; the server accepts both shapes.
+3. Two findings A and B, then A becomes `good` -> A's photo is A's optional
+   photo, B's stays required; the manifest holds both unless A's is removed.
 4. Once a Pending record is frozen, later Draft edits must not mutate the
    frozen response or the frozen manifest. A server-rejected parent may return
    to correction Draft and reuse the same parent/photo outbox operation IDs,
    but the evidence set cannot change (repository transactions forbid it).
 5. The server rejects an acceptance whose staged evidence does not match the
-   frozen manifest exactly (no missing, no extra).
+   frozen manifest exactly (no missing, no extra). The manifest itself must
+   satisfy `required ⊆ manifest ⊆ required ∪ optional` for the CURRENT response
+   (`parseV7EvidenceManifest`), with unique path / photoUuid / sourceSha256 and
+   exactly 3 keys per entry; its size bound is the response's result-field
+   count (there is no fixed cap). The express JSON limit stays 1 MB: the
+   worst case (Hydrant, 250 rows x 7 fields) is well inside it.
 
 ---
 
@@ -211,7 +227,10 @@ evidence, the mutable current template, or the IndexedDB draft.
 Accepted Detail returns the frozen response plus the bound evidence for
 viewing. A Poor field's accepted photo is served from its bound stored file.
 The PDF embeds the accepted photo bytes (assert the image is actually present
-in the generated PDF, not just referenced).
+in the generated PDF, not just referenced). Accepted evidence rows must satisfy
+`required ⊆ rows ⊆ required ∪ optional` of the accepted response (CR-01); every
+integrity check (hash, jpeg, dimensions, path traversal) is unchanged, and
+optional photos flow into the Photo Evidence block.
 
 ---
 
@@ -235,8 +254,13 @@ in the generated PDF, not just referenced).
   Job/Draft/Pending/Accepted to a new version.
 - Do not build the frozen manifest by enumerating all attachments; derive it
   from the current Poor set.
-- Do not let a stale photo (field flipped Poor -> Good / Not Relevant) enter
-  the manifest or the outbox.
+- Do not let a photo enter the manifest or the outbox unless its path is a
+  finding or a good / na field of the CURRENT response (CR-01 supersedes the old
+  "drop a flipped Poor photo" rule for the migrated systems: it is kept as the
+  optional photo).
+- Do not make the optional Good / N.A. photo required, and never let a missing
+  one create a submit issue or fail acceptance.
+- Do not put a fixed cap on the manifest size; bound it by the response.
 - Do not make evidence uniqueness global or historical; scope it to
   `jobId + systemKey`.
 - Do not return `JOB_CLOSED` for an exact idempotent retry of an already
@@ -256,11 +280,16 @@ Fire Alarm V7):
 1. Good / Poor / Not Relevant all persist; Normal/Test/Isolation unchanged.
 2. Poor field: own remark + own photo captured offline; saved to IndexedDB.
 3. Save Draft -> reload (IndexedDB) -> values and photo intact.
-4. Poor + photo -> change field to Good, then to Not Relevant -> Save Draft ->
-   reload -> Submit -> the new value is kept and the stale photo does not
-   enter the frozen manifest, creates no outbox item, and does not block
-   acceptance.
-5. Two Poor (A, B) -> A becomes Good -> manifest contains only B's evidence.
+4. Poor + photo -> change field to Good, then to N.A. -> Save Draft -> reload ->
+   Submit -> the new value is kept and the photo is KEPT as the optional photo
+   (frozen manifest + one evidence outbox item, staged, accepted, shown in
+   Accepted Detail and the Final Report). "Remove" before Submit drops it:
+   nothing stale, nothing blocking. A Good / N.A. field with NO photo submits
+   and is accepted; a finding without its own photo is still refused.
+5. Two findings (A, B) -> A becomes Good -> the manifest holds B's required
+   photo and A's kept optional photo; a forged extra path, a photo on a row the
+   response does not contain, a duplicate path / photoUuid / hash, and a missing
+   required photo are all refused (`parseV7EvidenceManifest`, all 11 adapters).
 6. Offline Submit -> reconnect -> evidence stages first (per-part success) ->
    parent acceptance is atomic.
 7. Exact retry after Job closure -> same Accepted authority, not JOB_CLOSED.

@@ -105,13 +105,25 @@ test("the capture-time guard refuses the same bytes and names the other location
   assert.equal(crossInstanceV7PhotoClash("other-bytes", siblings), undefined);
 });
 
-test("a sibling photo left on a field that is no longer a finding does not block", async () => {
-  // Location A's cylinder was reverted to good: the photo is stale, is excluded
-  // from A's manifest by v7EvidenceManifest and is never staged for acceptance.
-  const staleA = record({ clientUuid: "a", groupKey: CO2_GROUP, displaySequence: 1, locationName: "CO2 Room A" });
-  assert.deepEqual(v7RequiredFieldPaths(staleA.responses), [MAIN_SUPPLY]);
+test("CR-01: a sibling photo kept on a Good field is that sibling's optional photo, so it DOES clash with a finding photo of the same bytes", async () => {
+  // Location A's cylinder is Good but still holds a photo.  Before CR-01 that photo was stale and was
+  // excluded from A's manifest; now it is A's optional photo, is staged, and the server holds its bytes
+  // against this Job+system - so B's finding photo with the same bytes must be refused before it is queued.
+  const keptA = record({ clientUuid: "a", groupKey: CO2_GROUP, displaySequence: 1, locationName: "CO2 Room A" });
+  assert.deepEqual(v7RequiredFieldPaths(keptA.responses), [MAIN_SUPPLY]);
   const attachments = [attachment("a", CYLINDER, "same-bytes"), attachment("b", MAIN_SUPPLY, "same-bytes")];
-  const siblings = await collectV7SiblingEvidence(locationB, source([staleA, locationB], attachments));
+  const siblings = await collectV7SiblingEvidence(locationB, source([keptA, locationB], attachments));
+  const issues = v7SubmissionIssues(locationB, locationB.responses, [attachments[1]], siblings);
+  assert.equal(issues.length, 1, JSON.stringify(issues));
+  assert.match(issues[0]!, /use the same photo; remove or replace one of them/);
+  assert.ok(issues[0]!.includes("CO2 Room A"), "the other location is named");
+  assert.deepEqual(crossInstanceV7PhotoClash("same-bytes", siblings), { locationLabel: "CO2 Room A", fieldPath: CYLINDER, sha256: "same-bytes" }, "the capture-time guard sees it too");
+});
+
+test("a sibling photo on a field that is neither required nor Good / N.A. (not in its responses) still does not block", async () => {
+  const strayA = record({ clientUuid: "a", groupKey: CO2_GROUP, displaySequence: 1, locationName: "CO2 Room A" });
+  const attachments = [attachment("a", "main_function_key.function_checks.not_a_field", "same-bytes"), attachment("b", MAIN_SUPPLY, "same-bytes")];
+  const siblings = await collectV7SiblingEvidence(locationB, source([strayA, locationB], attachments));
   assert.deepEqual(v7SubmissionIssues(locationB, locationB.responses, [attachments[1]], siblings), []);
 });
 

@@ -1605,3 +1605,12 @@ a, button, summary, input, select, textarea, label, [role="button"], [role="tab"
 .photo-thumbnail img, .photo-full-view img, .accepted-evidence-photo { height: auto; }
 /* (8) The technician Add Customer form wraps its fields in a bare fieldset inside the card: no second border. */
 .customer-form-card > fieldset:not(.manager-service-picker) { display: grid; gap: var(--space-5); min-width: 0; margin: 0; padding: 0; border: 0; }
+
+/* CR-01: optional photo slot under a Good / N.A. result. One appended block; tokens only; phone first. */
+.optional-photo-slot { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.optional-photo-slot__title { font-size: var(--text-sm); }
+.optional-photo-slot .photo-evidence-field { margin: 0; }
+.optional-photo-slot__remove { width: 100%; min-height: var(--tap); }
+@media (min-width: 521px) {
+  .optional-photo-slot__remove { width: auto; justify-self: start; }
+}

@@ -3,7 +3,13 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **CR-06 form "jumps to top" reproduced and fixed (scroll continuity); verified on the phone.**
+**Last updated:** 2026-10-10 — **CR-01 Phase 0+1: optional photo on Good / N.A. — server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical).**
+Server: each V7 adapter now derives `{ required, optional }` photo paths; the manifest must satisfy `required ⊆ manifest ⊆ required ∪ optional` with a response-derived
+size bound (the fixed 250 cap is gone); the Final Report accepts `required ⊆ rows ⊆ required ∪ optional`. No migration, no Dexie change, no new template version.
+Web: Good / N.A. rows of CO2 and Wet Chemical show "Photo (optional)" (capture, replace, Remove while Draft); a Poor photo flipped to Good / N.A. is kept; Submit never needs one.
+Other systems' web forms are **pending** (the server already accepts them). Committed. Details: [tracker CR-01](docs/client-format-request/CLIENT_CHANGE_REQUESTS_2026-10.md).
+
+**Earlier checkpoint:** 2026-10-10 — **CR-06 form "jumps to top" reproduced and fixed (scroll continuity); verified on the phone.**
 Cause: a network hand-over re-verifies the session and hides the open form (by design), collapsing the page to the top.
 The form now returns at the same scroll position. Hand-over test fails on HEAD (11/11) and passes (11/11); taps/autosave never moved the page.
 Owner decision left: keep Drafts mounted during re-verification (Level 2). See [CR06_FORM_SCROLL_JUMP](docs/testing/CR06_FORM_SCROLL_JUMP.md).

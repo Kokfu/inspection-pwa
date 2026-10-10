@@ -115,7 +115,7 @@ async function seedHydrantV7(database: pg.Pool, label: string) {
 // Case 1 — a photo staged for a finding the technician then reverted is stale.
 // It must never reach `accepted`: not while it is still named by the manifest,
 // and not while it merely lingers as a staged row the manifest has dropped.
-test("Hydrant V7 never accepts evidence for a finding reverted to good or na", { skip: !databaseUrl }, async () => {
+test("Hydrant V7 keeps a reverted-to-good/na photo only as an OPTIONAL manifest entry; unlisted staged evidence still blocks (CR-01)", { skip: !databaseUrl }, async () => {
   await withV7Database(async (database) => {
     const fixture = await seedHydrantV7(database, "stale");
     const job = await fixture.makeJob(), clientUuid = id(), rowA = id(), rowB = id();
@@ -125,9 +125,7 @@ test("Hydrant V7 never accepts evidence for a finding reverted to good or na", {
     // Reverted: canvas hose back to `good`, landing valve back to `na`.
     const reverted = hydrantResponses([hydrantRow(rowA, 1), hydrantRow(rowB, 2, { landingValveResult: "na" })]);
 
-    const stillNamed = (await acceptHydrantV7Inspection(fixture.envelope({ clientUuid, job, responses: reverted, evidenceManifest: [hose, valve] }), fixture.actor)).failed[0];
-    assert.equal(stillNamed?.code, "VALIDATION_ERROR", JSON.stringify(stillNamed));
-    assert.equal(stillNamed?.message, "V7 evidence photos do not match the current findings");
+    // CR-01 (deliberate change): a finding reverted to good / na may keep its photo ONLY as an OPTIONAL manifest entry; staged evidence the manifest does not list is still refused.
 
     const dropped = (await acceptHydrantV7Inspection(fixture.envelope({ clientUuid, job, responses: reverted, evidenceManifest: [] }), fixture.actor)).failed[0];
     assert.equal(dropped?.code, "EVIDENCE_NOT_STAGED", JSON.stringify(dropped));
@@ -139,6 +137,15 @@ test("Hydrant V7 never accepts evidence for a finding reverted to good or na", {
     assert.deepEqual(accepted.acceptedIds, [clientUuid], JSON.stringify(accepted));
     assert.equal((await database.query("SELECT 1 FROM staged_inspection_evidence WHERE job_id=$1 AND status='accepted'", [job])).rowCount, 0);
     assert.deepEqual((await database.query<{ inspection_snapshot: { evidenceManifest: unknown[] } }>("SELECT inspection_snapshot FROM master_system_form_instances WHERE client_uuid=$1", [clientUuid])).rows[0]!.inspection_snapshot.evidenceManifest, []);
+
+    // The same reverted payload with its photos LISTED is accepted: they are optional photos on good / na fields.
+    const job2 = await fixture.makeJob(), client2 = id();
+    await fixture.reserve(client2, job2);
+    const hose2 = await fixture.stage({ clientUuid: client2, job: job2, fieldPath: rowPath(rowA, "canvas_hose_1") });
+    const valve2 = await fixture.stage({ clientUuid: client2, job: job2, fieldPath: rowPath(rowB, "landing_valve") });
+    const optional = await acceptHydrantV7Inspection(fixture.envelope({ clientUuid: client2, job: job2, responses: reverted, evidenceManifest: [hose2, valve2] }), fixture.actor);
+    assert.deepEqual(optional.acceptedIds, [client2], JSON.stringify(optional));
+    assert.deepEqual(await fixture.statuses(client2), ["accepted", "accepted"]);
   });
 });
 

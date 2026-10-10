@@ -87,12 +87,16 @@ document.querySelector("#run").onclick=async()=>{try{
  await photo(b,"b".repeat(64));
  check("a distinct photo on the second location is accepted",(await evidenceIssues(b)).length===0,await evidenceIssues(b));
 
- // A sibling photo on a field that is no longer a finding must not block.
+ // A distinct photo kept on a sibling Good field raises no issue (see the CR-01 check below for the same bytes).
  await photo(a,"c".repeat(64),"physical_outlook.physical_outlook_checks.co2_cylinder");
  const staleFree=await evidenceIssues(b);
  await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(b.clientUuid).delete();
  await localDatabase.inspectionAttachments.put({...(await listV7SuppressionPhotos(a.clientUuid)).find(p=>p.sha256==="c".repeat(64)),photoUuid:crypto.randomUUID(),inspectionClientUuid:b.clientUuid,fieldPath:MAIN,systemKey:b.systemKey});
- check("a stale sibling photo (field reverted to good) does not block",staleFree.length===0&&(await evidenceIssues(b)).length===0,await evidenceIssues(b));
+ // CR-01 (deliberate change): a photo kept on a Good field is that sibling's OPTIONAL photo. It is in the
+ // sibling's manifest, so the server holds its bytes against this Job+system and it now DOES block.
+ const optionalClash=await evidenceIssues(b);
+ check("CR-01: a sibling's optional (Good-field) photo blocks a finding photo with the same bytes, and names the sibling",
+  staleFree.length===0&&optionalClash.length===1&&/use the same photo; remove or replace one of them/.test(optionalClash[0])&&optionalClash[0].includes("CO2 Room A"),{staleFree,optionalClash});
  await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(b.clientUuid).delete();
  await photo(b,"b".repeat(64));
 

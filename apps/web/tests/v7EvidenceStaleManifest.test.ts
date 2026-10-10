@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { v7EvidenceManifest, v7EvidenceOutbox, v7RequiredFieldPaths } from "../src/co2/v7Evidence.ts";
+import { v7EvidenceManifest, v7EvidenceOutbox, v7OptionalFieldPaths, v7RequiredFieldPaths } from "../src/co2/v7Evidence.ts";
 import { v7FireAlarmEvidenceOutbox, v7FireAlarmManifest, v7RequiredFireAlarmFieldPaths } from "../src/fireAlarm/fireAlarmV7Evidence.ts";
 
 const hash = (char: string) => char.repeat(64);
@@ -8,16 +8,22 @@ const attachment = (fieldPath: string, suffix: string) => ({ photoUuid: `0000000
 const suppressionResponses = (resultA: "not_good" | "good" | "complete_repair" | "na", cylinder: string): any => ({ chargerAndBatteries: { main_supply: { result: resultA, remarks: "A" }, battery: { result: "good", remarks: "" }, charger: { result: "good", remarks: "" } }, physicalOutlook: { [cylinder]: { result: "complete_repair", remarks: "B" } }, mainFunctionKeys: { lamp_test: { result: "good", remarks: "" } } });
 const fireResponses = (resultA: "not_good" | "good" | "complete_repair" | "na"): any => ({ chargerAndBatteries: { main_supply: { result: resultA, remarks: "A" }, battery: { result: "good", remarks: "" }, charger: { result: "good", remarks: "" } }, mainFunctionKeys: { main_alarm_reset: { result: "good", remarks: "" } }, secondaryAlarmDeviceRows: [{ rowUuid: "00000000-0000-4000-8000-000000000099", alarmBell: "not_good", manualCallPoint: "good", fieldRemarks: { alarmBell: "B" } }] });
 
-test("V7 stale-draft evidence matrix keeps only current Poor fields and freezes Pending authority", () => {
+test("V7 stale-draft evidence matrix: a flipped Poor photo is kept as the optional photo (CR-01); Fire Alarm is unchanged; Pending authority is frozen", () => {
   for (const [system, cylinder] of [["CO2", "co2_cylinder"], ["Wet Chemical", "wet_chemical_cylinder"]] as const) {
     const fieldB = `physical_outlook.physical_outlook_checks.${cylinder}`;
     const photos = [attachment("charger_batteries.charger_battery_checks.main_supply", system === "CO2" ? "01" : "11"), attachment(fieldB, system === "CO2" ? "02" : "12")];
     for (const next of ["good", "na"] as const) {
       const responses = suppressionResponses(next, cylinder);
       const manifest = v7EvidenceManifest(photos as never, responses);
-      assert.deepEqual(manifest.map((item) => item.fieldPath), [fieldB], `${system} Poor→${next} excludes stale photo from frozen manifest/outbox`);
-      assert.deepEqual(v7RequiredFieldPaths(responses), [fieldB]);
-      assert.deepEqual(manifest.map((item) => v7EvidenceOutbox(photos.find((photo) => photo.photoUuid === item.photoUuid)! as never).entityId), [photos[1]!.photoUuid], `${system} submits/stages no stale-evidence outbox item`);
+      // CR-01 (deliberate change): a Poor field flipped to Good / N.A. KEEPS its photo as that field's
+      // OPTIONAL photo, so it now stays in the frozen manifest and is staged.  Only a still-required
+      // field is *required*; the kept photo is not.
+      assert.deepEqual(manifest.map((item) => item.fieldPath), [photos[0]!.fieldPath, fieldB].sort(), `${system} Poor→${next} keeps the photo as the optional photo in the frozen manifest`);
+      assert.deepEqual(v7RequiredFieldPaths(responses), [fieldB], `${system} Poor→${next}: only the still-Poor field is required`);
+      assert.deepEqual(v7OptionalFieldPaths(responses).includes(photos[0]!.fieldPath as never), true, `${system} Poor→${next}: the flipped field is now photo-eligible`);
+      assert.deepEqual(manifest.map((item) => v7EvidenceOutbox(photos.find((photo) => photo.photoUuid === item.photoUuid)! as never).entityId).sort(), photos.map((photo) => photo.photoUuid).sort(), `${system} stages the kept optional photo too`);
+      // Removing the kept photo (the owner's "Remove") leaves exactly the old behaviour: nothing stale, nothing blocking.
+      assert.deepEqual(v7EvidenceManifest([photos[1]!] as never, responses).map((item) => item.fieldPath), [fieldB], `${system} Poor→${next} after Remove: only the required photo`);
     }
     const pending = structuredClone({ responses: suppressionResponses("not_good", cylinder), evidenceManifest: v7EvidenceManifest(photos as never, suppressionResponses("not_good", cylinder)) });
     assert.equal(pending.responses.chargerAndBatteries.main_supply.result, "not_good", `${system} frozen Pending response is immutable under later Draft edits`);

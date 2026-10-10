@@ -38,6 +38,7 @@
     "test:fire-alarm-dispatch": "playwright test tests/fire-alarm-client-dispatch.spec.ts",
     "test:v6-draft-browser": "playwright test tests/fire-alarm-v6-draft-reload.spec.ts",
     "test:v7-stale-evidence": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/v7EvidenceStaleManifest.test.ts",
+    "test:optional-good-photo": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/optionalGoodPhoto.test.ts tests/co2V7CrossInstanceEvidence.test.ts tests/v7EvidenceStaleManifest.test.ts && playwright test tests/optional-good-photo-pilot.spec.ts tests/co2-v7-cross-instance.spec.ts --workers=1",
     "test:repeatable-rows": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/repeatableRows.test.ts",
     "test:job-progress": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/jobProgress.test.ts",
     "test:historical-draft": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/historicalDraftCompatibility.test.ts",

@@ -82,17 +82,23 @@ test("Automatic Sprinkler V7 accepts checklist, test-run, and measurement eviden
   });
 });
 
-test("Automatic Sprinkler V7 never accepts evidence for a finding reverted to good or na", { skip: !databaseUrl }, async () => {
+test("Automatic Sprinkler V7 keeps a reverted-to-good/na photo only as an OPTIONAL manifest entry; unlisted staged evidence still blocks (CR-01)", { skip: !databaseUrl }, async () => {
   await withDatabase(async (database) => {
     const f = await seed(database, "stale"), job = await f.job(), client = id();
     await f.reserve(client, job);
     const check = await f.stage(client, job, checkPath("water_level")), gauge = await f.stage(client, job, measurementPath("installation_gauge"));
     const body = responses();
-    assert.equal((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [check, gauge])], f.actor)).failed[0]?.code, "VALIDATION_ERROR");
+    // CR-01 (deliberate change): a finding reverted to good / na may keep its photo ONLY as an OPTIONAL manifest entry; staged evidence the manifest does not list is still refused.
     assert.equal((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [])], f.actor)).failed[0]?.code, "EVIDENCE_NOT_STAGED");
     assert.deepEqual(await f.statuses(client), ["staged", "staged"]);
     await database.query("DELETE FROM staged_inspection_evidence WHERE inspection_client_uuid=$1", [client]);
     assert.deepEqual((await syncAutomaticSprinklerInspections([f.envelope(client, job, body, [])], f.actor)).acceptedIds, [client]);
+    // The same reverted payload with its photos LISTED is accepted: they are optional photos on good / na fields.
+    const job2 = await f.job(), client2 = id();
+    await f.reserve(client2, job2);
+    const check2 = await f.stage(client2, job2, checkPath("water_level")), gauge2 = await f.stage(client2, job2, measurementPath("installation_gauge"));
+    assert.deepEqual((await syncAutomaticSprinklerInspections([f.envelope(client2, job2, body, [check2, gauge2])], f.actor)).acceptedIds, [client2]);
+    assert.deepEqual(await f.statuses(client2), ["accepted", "accepted"]);
   });
 });
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { masterServiceReportV7 } from "../templates/masterServiceReportV7.js";
-import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256 } from "./v7EvidenceContracts.js";
+import { parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256, type V7EvidenceSystemKey } from "./v7EvidenceContracts.js";
 
 const system = (key: "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fire_rated_roller_shutter") => masterServiceReportV7.systems.find((candidate) => candidate.key === key)!;
 const response = (key: "co2_fire_extinguisher" | "wet_chemical", result: "good" | "not_good" | "complete_repair" | "na", remarks = "") => {
@@ -326,4 +326,166 @@ test("V7 roller shutter tracks Auto Alarm and Manual findings independently", ()
   assert.deepEqual(adapter.derivePoorFieldPaths(stale), [`${prefix}.manual_mode`]);
   const missingRemark = structuredClone(response); missingRemark.rows[0]!.fieldRemarks.manualModeResult = "";
   assert.equal(adapter.derivePoorFieldPaths(missingRemark), undefined);
+});
+
+// ---------------------------------------------------------------------------
+// CR-01: ONE optional photo on a good / N.A. result, for ALL 11 V7 adapters.
+// A finding (not_good / complete_repair) keeps its required own remark + photo.
+// ---------------------------------------------------------------------------
+type Cell = { result: string; remarks: string };
+type Take = () => Cell;
+type Builder = (take: Take, rowIds: readonly string[]) => unknown;
+const makeTake = (pick: (index: number) => string): Take => {
+  let index = 0;
+  return () => { const result = pick(index); index += 1; return { result, remarks: result === "not_good" || result === "complete_repair" ? `Own remark ${index}` : "" }; };
+};
+const rowIdOf = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const defaultRowIds = [rowIdOf(1), rowIdOf(2)];
+const uuidInPath = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
+const systemOf = (key: V7EvidenceSystemKey) => masterServiceReportV7.systems.find((candidate) => (candidate.key as string) === key)!;
+const itemKeys = (key: V7EvidenceSystemKey, sectionKey: string, blockKey: string) =>
+  ((systemOf(key).sections.find((section) => section.key === sectionKey)!.blocks.find((block) => block.key === blockKey)!) as unknown as { items: Array<{ key: string }> }).items.map((item) => item.key);
+const cells = (keys: readonly string[], take: Take) => Object.fromEntries(keys.map((key) => [key, take()]));
+const rowsOf = (rowIds: readonly string[], take: Take, columns: readonly string[]) => rowIds.map((rowUuid) => {
+  const row: Record<string, unknown> = { rowUuid, fieldRemarks: {} as Record<string, string> };
+  for (const column of columns) { const cell = take(); row[column] = cell.result; if (cell.remarks) (row.fieldRemarks as Record<string, string>)[column] = cell.remarks; }
+  return row;
+});
+const suppression = (key: "co2_fire_extinguisher" | "wet_chemical" | "fm200_fire_suppression"): Builder => (take) => ({
+  chargerAndBatteries: cells(itemKeys(key, "charger_batteries", "charger_battery_checks"), take),
+  physicalOutlook: cells(itemKeys(key, "physical_outlook", "physical_outlook_checks"), take),
+  mainFunctionKeys: cells(itemKeys(key, "main_function_key", "function_checks"), take)
+});
+const sprinklerChecklist = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions", "breaching_inlet", "alarm_gong", "flow_meter_valve_positions", "trfp_jockey_pump", "trfp_duty_pump", "trfp_standby_pump"];
+const riserChecklist = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
+const builders: Record<V7EvidenceSystemKey, Builder> = {
+  co2_fire_extinguisher: suppression("co2_fire_extinguisher"),
+  wet_chemical: suppression("wet_chemical"),
+  fm200_fire_suppression: suppression("fm200_fire_suppression"),
+  fire_alarm_detector: (take, rowIds) => ({
+    chargerAndBatteries: cells(["main_supply", "battery", "charger"], take),
+    mainFunctionKeys: cells(["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "spka_system", "alarm_lift_trip", "signal_gas_discharge"], take),
+    secondaryAlarmDeviceRows: rowsOf(rowIds, take, ["alarmBell", "manualCallPoint"])
+  }),
+  hydrant: (take, rowIds) => ({ rows: rowsOf(rowIds, take, ["canvasHose1Result", "canvasHose2Result", "diffuserNozzleResult", "landingValveResult", "landingValveHandleResult", "hoseCabinetResult", "keyLockResult"]) }),
+  hose_reel: (take, rowIds) => ({
+    checklist: cells(["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "standby_pump_service_items", "charger_power_failure_alarm", "battery_serviceable", "pump_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions", "trfp_duty_pump", "trfp_standby_pump"], take),
+    measurements: cells(["jockey_pump_pressure", "standby_pump_cut_in"], take),
+    rows: rowsOf(rowIds, take, ["drumResult", "hoseResult", "nozzleResult", "valveResult", "nozzleBoxResult"])
+  }),
+  automatic_sprinkler: (take) => ({ checklist: cells(sprinklerChecklist, take), measurements: cells(["jockey_pump_pressure", "duty_pump_cut_in", "standby_pump_cut_in", "water_supply_gauge", "installation_gauge"], take) }),
+  dry_wet_riser: (take, rowIds) => ({
+    checklist: cells(riserChecklist, take), measurements: cells(["jockey_psi", "duty_psi", "standby_psi"], take),
+    riserOutlets: rowsOf(rowIds, take, ["canvasHoseAt2Result", "diffuserNozzleResult", "landingValveResult", "crandleResult", "doorResult"])
+  }),
+  smoke_ventilation: (take, rowIds) => ({
+    checklist: cells(["main_power_supply_ac", "secondary_essential_supply_dc", "cb_battery", "cb_charger", "mfk_main_alarm_reset", "mfk_lamp_test", "mfk_evacuate", "mfk_signal_alarm_to_mfap"], take),
+    rows: rowsOf(rowIds, take, ["autoResult", "manualResult"])
+  }),
+  fire_intercom: (take, rowIds) => ({ rows: rowsOf(rowIds, take, ["conditionResult"]) }),
+  fire_rated_roller_shutter: (take, rowIds) => ({ rows: rowsOf(rowIds, take, ["autoAlarmModeResult", "manualModeResult"]) })
+};
+const adapterFor = (key: V7EvidenceSystemKey) => {
+  const definition = systemOf(key);
+  const adapter = resolveV7EvidenceContract({ systemKey: key, templateId: masterServiceReportV7.id, templateVersion: 7, definition, contractSha256: v7EvidenceContractSha256(definition) });
+  assert.ok(adapter, `${key} adapter resolves`);
+  return adapter;
+};
+const photoEntry = (index: number, fieldPath: string) => ({
+  photoUuid: `00000000-0000-4000-8000-${String(910000000000 + index)}`, fieldPath, sourceSha256: `${index.toString(16).padStart(4, "0")}${"b".repeat(60)}`
+});
+const shape = (parsed: ReturnType<typeof parseV7EvidenceManifest>) => parsed?.map((entry) => entry.fieldPath);
+
+test("the builders cover exactly the eleven registered V7 systems", () => {
+  assert.deepEqual(Object.keys(builders).sort(), ["automatic_sprinkler", "co2_fire_extinguisher", "dry_wet_riser", "fire_alarm_detector", "fire_intercom", "fire_rated_roller_shutter", "fm200_fire_suppression", "hose_reel", "hydrant", "smoke_ventilation", "wet_chemical"]);
+});
+
+for (const key of Object.keys(builders) as V7EvidenceSystemKey[]) {
+  test(`CR-01 ${key}: good / N.A. may carry one optional photo; a finding still requires its own`, () => {
+    const adapter = adapterFor(key); const build = builders[key];
+    const everyField = (result: string) => build(makeTake(() => result), defaultRowIds);
+    const good = everyField("good"); const na = everyField("na"); const notGood = everyField("not_good"); const repair = everyField("complete_repair");
+
+    const goodPaths = adapter.derivePhotoFieldPaths(good)!;
+    const all = [...goodPaths.optional];
+    assert.deepEqual(goodPaths.required, [], "nothing is a finding");
+    assert.ok(all.length >= 2, "there are result fields to attach an optional photo to");
+    assert.deepEqual(all, [...all].sort(), "paths are sorted");
+    assert.equal(new Set(all).size, all.length);
+    assert.ok(all.every((fieldPath) => adapter.isCanonicalFieldPath(fieldPath) && adapter.acceptedEvidenceCaption(fieldPath)), "every optional path is canonical and has an accepted caption");
+    assert.deepEqual(adapter.derivePhotoFieldPaths(na), goodPaths, "N.A. is photo-eligible exactly like Good");
+    assert.deepEqual(adapter.derivePhotoFieldPaths(notGood), { required: all, optional: [] }, "a finding is required, never optional");
+    assert.deepEqual(adapter.derivePhotoFieldPaths(repair), { required: all, optional: [] });
+    assert.deepEqual(adapter.derivePoorFieldPaths(good), [], "derivePoorFieldPaths is still the findings-only view");
+    assert.deepEqual(adapter.derivePoorFieldPaths(notGood), all);
+
+    for (const [label, response] of [["good", good], ["na", na]] as const) {
+      assert.deepEqual(parseV7EvidenceManifest([], adapter, response), [], `${label}: a missing optional photo is never a failure`);
+      assert.deepEqual(shape(parseV7EvidenceManifest([photoEntry(1, all[0]!)], adapter, response)), [all[0]], `${label} + one photo is accepted`);
+      assert.equal(parseV7EvidenceManifest(all.map((fieldPath, index) => photoEntry(index + 1, fieldPath)), adapter, response)?.length, all.length, `${label} + a photo on every field is accepted`);
+    }
+
+    // not_good needs its photo; the optional ones ride beside it.
+    assert.equal(parseV7EvidenceManifest(all.map((fieldPath, index) => photoEntry(index + 1, fieldPath)), adapter, notGood)?.length, all.length);
+    assert.equal(parseV7EvidenceManifest(all.slice(1).map((fieldPath, index) => photoEntry(index + 1, fieldPath)), adapter, notGood), undefined, "a finding without its photo is refused");
+    assert.equal(parseV7EvidenceManifest([], adapter, repair), undefined);
+
+    const mixed = build(makeTake((index) => index === 0 ? "not_good" : index === 1 ? "na" : "good"), defaultRowIds);
+    const derived = adapter.derivePhotoFieldPaths(mixed)!;
+    assert.equal(derived.required.length, 1); assert.equal(derived.optional.length, all.length - 1);
+    const [finding] = derived.required; const [optional] = derived.optional;
+    assert.deepEqual(shape(parseV7EvidenceManifest([photoEntry(1, finding!)], adapter, mixed)), [finding], "a findings-only manifest is unchanged");
+    assert.deepEqual(parseV7EvidenceManifest([photoEntry(2, optional!), photoEntry(1, finding!)], adapter, mixed)?.map((entry) => entry.fieldPath), [finding!, optional!].sort(), "the finding's photo plus an optional photo");
+    assert.equal(parseV7EvidenceManifest([photoEntry(2, optional!)], adapter, mixed), undefined, "an optional photo cannot stand in for the finding's");
+    assert.equal(parseV7EvidenceManifest([], adapter, mixed), undefined);
+
+    // Poor -> Good flip that kept its photo: the finding becomes an optional field and the same photo stays valid.
+    assert.deepEqual(shape(parseV7EvidenceManifest([photoEntry(1, finding!)], adapter, good)), [finding]);
+  });
+
+  test(`CR-01 ${key}: forged, duplicate and oversized manifests fail closed`, () => {
+    const adapter = adapterFor(key); const build = builders[key];
+    const good = build(makeTake(() => "good"), defaultRowIds);
+    const all = adapter.derivePhotoFieldPaths(good)!.optional;
+    const [first, second] = all as [string, string];
+
+    assert.equal(adapter.isCanonicalFieldPath("not.a.canonical.path"), false);
+    assert.equal(parseV7EvidenceManifest([photoEntry(1, "not.a.canonical.path")], adapter, good), undefined, "an unknown path is rejected");
+    assert.equal(parseV7EvidenceManifest([{ ...photoEntry(1, first), fieldPath: undefined }], adapter, good), undefined);
+    assert.equal(parseV7EvidenceManifest([{ ...photoEntry(1, first), extra: true }], adapter, good), undefined, "exactly three keys per entry");
+    assert.equal(parseV7EvidenceManifest("not-an-array", adapter, good), undefined);
+
+    const rowPath = all.find((fieldPath) => uuidInPath.test(fieldPath));
+    if (rowPath) {
+      const phantom = rowPath.replace(uuidInPath, rowIdOf(999));
+      assert.equal(adapter.isCanonicalFieldPath(phantom), true, "the forged path is well-formed");
+      assert.equal(parseV7EvidenceManifest([photoEntry(1, phantom)], adapter, good), undefined, "a photo on a row the response does not contain is rejected");
+    } else {
+      assert.ok(all.every((fieldPath) => !uuidInPath.test(fieldPath)), "single-instance systems have no row paths to forge");
+    }
+
+    assert.equal(parseV7EvidenceManifest([photoEntry(1, first), photoEntry(2, first)], adapter, good), undefined, "duplicate field path");
+    assert.equal(parseV7EvidenceManifest([photoEntry(1, first), { ...photoEntry(2, second), photoUuid: photoEntry(1, first).photoUuid }], adapter, good), undefined, "duplicate photoUuid");
+    assert.equal(parseV7EvidenceManifest([photoEntry(1, first), { ...photoEntry(2, second), sourceSha256: photoEntry(1, first).sourceSha256 }], adapter, good), undefined, "duplicate source hash");
+
+    const full = all.map((fieldPath, index) => photoEntry(index + 1, fieldPath));
+    assert.equal(parseV7EvidenceManifest(full, adapter, good)?.length, all.length, "exactly the number of result fields is accepted");
+    assert.equal(parseV7EvidenceManifest([...full, photoEntry(all.length + 1, "not.a.canonical.path")], adapter, good), undefined, "one more than the number of result fields is refused");
+    assert.equal(parseV7EvidenceManifest([...full, photoEntry(all.length + 1, first)], adapter, good), undefined);
+  });
+}
+
+test("CR-01 the manifest bound follows the response, not the old fixed 250 cap", () => {
+  const bigRows = Array.from({ length: 250 }, (_, index) => rowIdOf(index + 1));
+  for (const [key, expected] of [["hydrant", 1750], ["fire_rated_roller_shutter", 500]] as const) {
+    const adapter = adapterFor(key);
+    const response = builders[key](makeTake(() => "good"), bigRows);
+    const all = adapter.derivePhotoFieldPaths(response)!.optional;
+    assert.equal(all.length, expected);
+    const manifest = all.map((fieldPath, index) => photoEntry(index + 1, fieldPath));
+    assert.equal(parseV7EvidenceManifest(manifest, adapter, response)?.length, expected, `${key}: more than 250 photos accepted when the response has that many result fields`);
+    assert.equal(parseV7EvidenceManifest([...manifest, photoEntry(expected + 1, "not.a.canonical.path")], adapter, response), undefined);
+    // express.json({ limit: "1mb" }) (server.ts) must still cover the worst case: manifest + the response it rides with.
+    assert.ok(Buffer.byteLength(JSON.stringify({ evidenceManifest: manifest, responses: response })) < 700_000, `${key}: worst-case manifest + response stays well inside the 1 MB JSON limit`);
+  }
 });

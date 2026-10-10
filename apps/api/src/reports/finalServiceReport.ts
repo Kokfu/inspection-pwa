@@ -763,10 +763,13 @@ async function validatedV7SuppressionEvidence(database: Queryable, row: ReportIn
   if (!isRecord(snapshot) || !isRecord(snapshot.template) || !isRecord(snapshot.system) || !isRecord(snapshot.system.definition)
     || (snapshot.system.key !== "co2_fire_extinguisher" && snapshot.system.key !== "wet_chemical" && snapshot.system.key !== "fire_alarm_detector" && snapshot.system.key !== "hydrant" && snapshot.system.key !== "hose_reel" && snapshot.system.key !== "automatic_sprinkler" && snapshot.system.key !== "smoke_ventilation" && snapshot.system.key !== "fire_intercom" && snapshot.system.key !== "fire_rated_roller_shutter" && snapshot.system.key !== "fm200_fire_suppression")) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence authority is invalid.");
   const adapter = resolveV7EvidenceContract({ systemKey: snapshot.system.key, templateId: snapshot.template.id, templateVersion: snapshot.template.version, definition: snapshot.system.definition, contractSha256: createHash("sha256").update(canonical(snapshot.system.definition)).digest("hex") });
-  const required = adapter?.derivePoorFieldPaths(row.response_payload);
-  if (!adapter || !required) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
+  const photoPaths = adapter?.derivePhotoFieldPaths(row.response_payload);
+  if (!adapter || !photoPaths) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence requirements are invalid.");
   const rows = (await database.query<{ field_path: string; stored_sha256: string; storage_relative_path: string; width: number; height: number }>(`SELECT field_path,stored_sha256,storage_relative_path,width,height FROM staged_inspection_evidence WHERE form_instance_id=$1 AND master_template_version=7 AND status='accepted' ORDER BY field_path,photo_uuid`, [row.form_instance_id])).rows;
-  if (rows.length !== required.length || rows.some((item, index) => item.field_path !== required[index])) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is incomplete or mismatched.");
+  // CR-01: every finding keeps its required photo; a good / N.A. field of the accepted response may add one optional photo.
+  const bound = new Set(rows.map((item) => item.field_path)); const optionalPaths = new Set(photoPaths.optional); const requiredPaths = new Set(photoPaths.required);
+  if (bound.size !== rows.length || photoPaths.required.some((fieldPath) => !bound.has(fieldPath))
+    || rows.some((item) => !requiredPaths.has(item.field_path) && !optionalPaths.has(item.field_path))) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is incomplete or mismatched.");
   const uploadsRoot = path.resolve(loadConfig().uploadsPath); const evidence: FinalReportEvidence[] = [];
   for (const item of rows) {
     const caption = adapter.acceptedEvidenceCaption(item.field_path); const relative = item.storage_relative_path;

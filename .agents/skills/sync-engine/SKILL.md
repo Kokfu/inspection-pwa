@@ -87,9 +87,11 @@ plus the following. See `v7-evidence-acceptance` for the full contract.
    change the frozen response or manifest. A rejected parent may return to
    correction Draft and reuse the same parent/photo outbox operation IDs, but
    the evidence set cannot change.
-4. Stale evidence. If a field was Poor with a photo and is changed to Good or
-   Not Relevant before freeze, that photo must not enter the manifest, must
-   not create an outbox item, and must not block acceptance.
+4. Stale evidence. A photo whose path is not a finding or a Good / N.A. field of
+   the CURRENT response must not enter the manifest, create an outbox item or
+   block acceptance. CR-01: a Poor photo on a field flipped to Good / N.A. is
+   KEPT as that field's optional photo (migrated systems; see
+   `v7-evidence-acceptance`), and a missing optional photo never blocks.
 5. Staging is idempotent on `photoUuid` + a canonical request fingerprint over
    the immutable identity. Re-staging identical bytes = duplicate success;
    different bytes for the same `photoUuid` = conflict.

@@ -5,6 +5,9 @@ import { isCompatibleSystemContract } from "../templates/systemContractCompatibi
 type RecordValue = Record<string, unknown>;
 export type V7EvidenceSystemKey = "co2_fire_extinguisher" | "wet_chemical" | "fire_alarm_detector" | "hydrant" | "hose_reel" | "automatic_sprinkler" | "dry_wet_riser" | "smoke_ventilation" | "fire_intercom" | "fm200_fire_suppression" | "fire_rated_roller_shutter";
 export type V7EvidenceFieldPath = string;
+/** Result-bearing paths of the CURRENT response.  `required` are findings (own remark + own photo);
+ * `optional` are good / N.A. fields, each of which MAY hold exactly one photo. */
+export type V7PhotoFieldPaths = { readonly required: readonly V7EvidenceFieldPath[]; readonly optional: readonly V7EvidenceFieldPath[] };
 
 export type V7EvidenceContractAdapter = {
   readonly systemKey: V7EvidenceSystemKey;
@@ -12,6 +15,7 @@ export type V7EvidenceContractAdapter = {
   readonly templateVersion: 7;
   isCanonicalFieldPath(fieldPath: unknown): fieldPath is V7EvidenceFieldPath;
   derivePoorFieldPaths(response: unknown): readonly V7EvidenceFieldPath[] | undefined;
+  derivePhotoFieldPaths(response: unknown): V7PhotoFieldPaths | undefined;
   ownPoorRemark(response: unknown, fieldPath: V7EvidenceFieldPath): string | undefined;
   acceptedEvidenceCaption(fieldPath: V7EvidenceFieldPath): string | undefined;
 };
@@ -19,6 +23,14 @@ export type V7EvidenceContractAdapter = {
 /** A finding needs its own remark and photo.  The other two result states do
  * not; validation of every result token remains definition-driven below. */
 export const isV7EvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
+/** CR-01: a good / N.A. result may carry ONE optional photo; it never blocks Submit. */
+export const isV7OptionalPhotoResult = (value: unknown) => value === "good" || value === "na";
+const sortedPhotoPaths = (required: string[], optional: string[]): V7PhotoFieldPaths => ({ required: required.sort(), optional: optional.sort() });
+/** `derivePoorFieldPaths` stays the findings-only view of `derivePhotoFieldPaths`. */
+const photoPathMethods = (derive: (response: unknown) => V7PhotoFieldPaths | undefined) => ({
+  derivePhotoFieldPaths: derive,
+  derivePoorFieldPaths: (response: unknown) => derive(response)?.required
+});
 
 const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -79,18 +91,18 @@ const adapter = (systemKey: V7EvidenceSystemKey, fields: Readonly<Record<string,
     templateId: masterServiceReportV7.id,
     templateVersion: 7,
     isCanonicalFieldPath: (fieldPath: unknown): fieldPath is string => typeof fieldPath === "string" && fieldPaths.has(fieldPath),
-    derivePoorFieldPaths(response: unknown) {
-      const poor: string[] = [];
+    ...photoPathMethods((response: unknown) => {
+      const poor: string[] = []; const optional: string[] = [];
       for (const path of fieldPaths.keys()) {
         const value = responseValue(response, path);
         if (!value || !valuesByPath.get(path)?.has(value.result)) return undefined;
         if (isV7EvidenceFinding(value.result)) {
           if (!value.remarks.trim()) return undefined;
           poor.push(path);
-        }
+        } else if (isV7OptionalPhotoResult(value.result)) optional.push(path);
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       const value = responseValue(response, fieldPath);
       return value && isV7EvidenceFinding(value.result) && value.remarks.trim() ? value.remarks.trim() : undefined;
@@ -150,13 +162,13 @@ const fireAlarmAdapter = (definition: unknown): V7EvidenceContractAdapter | unde
   return {
   systemKey: "fire_alarm_detector", templateId: masterServiceReportV7.id, templateVersion: 7,
   isCanonicalFieldPath(fieldPath: unknown): fieldPath is string { return typeof fieldPath === "string" && (fireAlarmStaticPaths.has(fieldPath) || fireAlarmRowPath.test(fieldPath)); },
-  derivePoorFieldPaths(response: unknown) {
+  ...photoPathMethods((response: unknown) => {
     if (!isRecord(response) || !Array.isArray(response.secondaryAlarmDeviceRows)) return undefined;
-    const poor: string[] = [];
+    const poor: string[] = []; const optional: string[] = [];
     for (const [path, target] of fireAlarmStaticPaths) {
       const group = response[target.group]; const value = isRecord(group) ? group[target.field] : undefined;
       if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !staticValues.get(path)?.has(value.result)) return undefined;
-      if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(path); }
+      if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(path); } else if (isV7OptionalPhotoResult(value.result)) optional.push(path);
     }
     const rowIds = new Set<string>();
     for (const row of response.secondaryAlarmDeviceRows) {
@@ -165,11 +177,11 @@ const fireAlarmAdapter = (definition: unknown): V7EvidenceContractAdapter | unde
       for (const [key, wire] of [["alarmBell", "alarm_bell"], ["manualCallPoint", "manual_call_point"]] as const) {
         if (!rowValues.get(key)?.has(String(row[key]))) return undefined;
         const remark = row.fieldRemarks[key];
-        if (isV7EvidenceFinding(row[key])) { if (typeof remark !== "string" || !remark.trim()) return undefined; poor.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${wire}`); }
+        if (isV7EvidenceFinding(row[key])) { if (typeof remark !== "string" || !remark.trim()) return undefined; poor.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${wire}`); } else if (isV7OptionalPhotoResult(row[key])) optional.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.${wire}`);
       }
     }
-    return poor.sort();
-  },
+    return sortedPhotoPaths(poor, optional);
+  }),
   ownPoorRemark(response: unknown, fieldPath: string) {
     if (!isRecord(response)) return undefined;
     const staticTarget = fireAlarmStaticPaths.get(fieldPath);
@@ -217,9 +229,9 @@ const repeatableRowAdapter = (definition: unknown): V7EvidenceContractAdapter | 
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && hydrantRowPath.test(fieldPath);
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
-      const poor: string[] = []; const rowIds = new Set<string>();
+      const poor: string[] = []; const optional: string[] = []; const rowIds = new Set<string>();
       for (const row of response.rows) {
         if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
         rowIds.add(row.rowUuid);
@@ -230,11 +242,11 @@ const repeatableRowAdapter = (definition: unknown): V7EvidenceContractAdapter | 
             const remark = row.fieldRemarks[responseKey];
             if (typeof remark !== "string" || !remark.trim()) return undefined;
             poor.push(`hydrant_set.hydrant_rows.rows.${row.rowUuid}.${columnKey}`);
-          }
+          } else if (isV7OptionalPhotoResult(result)) optional.push(`hydrant_set.hydrant_rows.rows.${row.rowUuid}.${columnKey}`);
         }
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       const target = rowForPath(response, fieldPath);
       if (!target || !isV7EvidenceFinding(target.row[target.responseKey]) || !isRecord(target.row.fieldRemarks)) return undefined;
@@ -314,19 +326,19 @@ const hoseReelAdapter = (definition: unknown): V7EvidenceContractAdapter | undef
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && (checklistPaths.has(fieldPath) || measurementValues.has(fieldPath.replace("hose_reel_measurements.", "")) && fieldPath.startsWith("hose_reel_measurements.") || hoseRowPath.test(fieldPath));
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !isRecord(response.checklist) || !Array.isArray(response.rows)) return undefined;
-      const poor: string[] = [];
+      const poor: string[] = []; const optional: string[] = [];
       for (const [, , key] of hoseChecklistFields) {
         const value = response.checklist[key];
         if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !checklistValues.get(key)?.has(value.result)) return undefined;
-        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_checks.${key}`); }
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_checks.${key}`); } else if (isV7OptionalPhotoResult(value.result)) optional.push(`hose_reel_checks.${key}`);
       }
       if (!isRecord(response.measurements)) return undefined;
       for (const [key] of hoseMeasurementFields) {
         const value = response.measurements[key];
         if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !measurementValues.get(key)?.has(value.result)) return undefined;
-        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_measurements.${key}`); }
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`hose_reel_measurements.${key}`); } else if (isV7OptionalPhotoResult(value.result)) optional.push(`hose_reel_measurements.${key}`);
       }
       const rowIds = new Set<string>();
       for (const row of response.rows) {
@@ -339,11 +351,11 @@ const hoseReelAdapter = (definition: unknown): V7EvidenceContractAdapter | undef
             const remark = row.fieldRemarks[responseKey];
             if (typeof remark !== "string" || !remark.trim()) return undefined;
             poor.push(`hose_reel_drum.hose_reel_rows.rows.${row.rowUuid}.${columnKey}`);
-          }
+          } else if (isV7OptionalPhotoResult(result)) optional.push(`hose_reel_drum.hose_reel_rows.rows.${row.rowUuid}.${columnKey}`);
         }
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       if (!isRecord(response)) return undefined;
       const checklistKey = fieldPath.startsWith("hose_reel_checks.") ? fieldPath.slice("hose_reel_checks.".length) : undefined;
@@ -444,9 +456,9 @@ const automaticSprinklerAdapter = (definition: unknown): V7EvidenceContractAdapt
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && captions.has(fieldPath);
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !isRecord(response.checklist) || !isRecord(response.measurements)) return undefined;
-      const poor: string[] = [];
+      const poor: string[] = []; const optional: string[] = [];
       for (const [values, prefix] of [[checklistValues, sprinklerChecklistPrefix], [measurementValues, sprinklerMeasurementPrefix]] as const) {
         const source = prefix === sprinklerChecklistPrefix ? response.checklist : response.measurements;
         for (const key of values.keys()) {
@@ -455,11 +467,11 @@ const automaticSprinklerAdapter = (definition: unknown): V7EvidenceContractAdapt
           if (isV7EvidenceFinding(value.result)) {
             if (!value.remarks.trim()) return undefined;
             poor.push(`${prefix}${key}`);
-          }
+          } else if (isV7OptionalPhotoResult(value.result)) optional.push(`${prefix}${key}`);
         }
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       const value = entry(response, fieldPath);
       return isRecord(value) && isV7EvidenceFinding(value.result) && typeof value.remarks === "string" && value.remarks.trim() ? value.remarks.trim() : undefined;
@@ -543,14 +555,14 @@ const dryWetRiserAdapter = (definition: unknown): V7EvidenceContractAdapter | un
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && (captions.has(fieldPath) || riserRowPath.test(fieldPath));
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !isRecord(response.checklist) || !isRecord(response.measurements) || !Array.isArray(response.riserOutlets)) return undefined;
-      const poor: string[] = [];
+      const poor: string[] = []; const optional: string[] = [];
       for (const [values, prefix, source] of [[checklistValues, riserChecklistPrefix, response.checklist], [measurementValues, riserMeasurementPrefix, response.measurements]] as const) {
         for (const key of values.keys()) {
           const value = (source as RecordValue)[key];
           if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !values.get(key)!.has(value.result)) return undefined;
-          if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${prefix}${key}`); }
+          if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${prefix}${key}`); } else if (isV7OptionalPhotoResult(value.result)) optional.push(`${prefix}${key}`);
         }
       }
       const rowIds = new Set<string>();
@@ -564,11 +576,11 @@ const dryWetRiserAdapter = (definition: unknown): V7EvidenceContractAdapter | un
             const remark = row.fieldRemarks[responseKey];
             if (typeof remark !== "string" || !remark.trim()) return undefined;
             poor.push(`riser_outlet.riser_outlet_rows.rows.${row.rowUuid}.${responseKey}`);
-          }
+          } else if (isV7OptionalPhotoResult(result)) optional.push(`riser_outlet.riser_outlet_rows.rows.${row.rowUuid}.${responseKey}`);
         }
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       if (!isRecord(response)) return undefined;
       const checklistKey = fieldPath.startsWith(riserChecklistPrefix) ? fieldPath.slice(riserChecklistPrefix.length) : undefined;
@@ -640,13 +652,13 @@ const smokeVentilationAdapter = (definition: unknown): V7EvidenceContractAdapter
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && (captions.has(fieldPath) || smokeVentilationRowPath.test(fieldPath));
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !isRecord(response.checklist) || !Array.isArray(response.rows)) return undefined;
-      const poor: string[] = [];
+      const poor: string[] = []; const optional: string[] = [];
       for (const [, , key] of smokeVentilationChecklistFields) {
         const value = response.checklist[key];
         if (!isRecord(value) || typeof value.result !== "string" || typeof value.remarks !== "string" || !checklistValues.get(key)?.has(value.result)) return undefined;
-        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${smokeVentilationChecklistPrefix}${key}`); }
+        if (isV7EvidenceFinding(value.result)) { if (!value.remarks.trim()) return undefined; poor.push(`${smokeVentilationChecklistPrefix}${key}`); } else if (isV7OptionalPhotoResult(value.result)) optional.push(`${smokeVentilationChecklistPrefix}${key}`);
       }
       const rowIds = new Set<string>();
       for (const row of response.rows) {
@@ -659,11 +671,11 @@ const smokeVentilationAdapter = (definition: unknown): V7EvidenceContractAdapter
             const remark = row.fieldRemarks[responseKey];
             if (typeof remark !== "string" || !remark.trim()) return undefined;
             poor.push(`fan_schedule.fan_schedule_rows.rows.${row.rowUuid}.${columnKey}`);
-          }
+          } else if (isV7OptionalPhotoResult(result)) optional.push(`fan_schedule.fan_schedule_rows.rows.${row.rowUuid}.${columnKey}`);
         }
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       if (!isRecord(response)) return undefined;
       const checklistKey = fieldPath.startsWith(smokeVentilationChecklistPrefix) ? fieldPath.slice(smokeVentilationChecklistPrefix.length) : undefined;
@@ -704,9 +716,9 @@ const fireIntercomAdapter = (definition: unknown): V7EvidenceContractAdapter | u
     isCanonicalFieldPath(fieldPath: unknown): fieldPath is string {
       return typeof fieldPath === "string" && fireIntercomRowPath.test(fieldPath);
     },
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
-      const poor: string[] = [];
+      const poor: string[] = []; const optional: string[] = [];
       const rowIds = new Set<string>();
       for (const row of response.rows) {
         if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || rowIds.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
@@ -717,10 +729,10 @@ const fireIntercomAdapter = (definition: unknown): V7EvidenceContractAdapter | u
           const remark = row.fieldRemarks.conditionResult;
           if (typeof remark !== "string" || !remark.trim()) return undefined;
           poor.push(`station_schedule.station_schedule_rows.rows.${row.rowUuid}.condition`);
-        }
+        } else if (isV7OptionalPhotoResult(result)) optional.push(`station_schedule.station_schedule_rows.rows.${row.rowUuid}.condition`);
       }
-      return poor.sort();
-    },
+      return sortedPhotoPaths(poor, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       const row = rowTarget(response, fieldPath);
       if (!row || !isV7EvidenceFinding(row.conditionResult) || !isRecord(row.fieldRemarks)) return undefined;
@@ -749,9 +761,9 @@ const rollerShutterAdapter = (definition: unknown): V7EvidenceContractAdapter | 
   return {
     systemKey: "fire_rated_roller_shutter", templateId: masterServiceReportV7.id, templateVersion: 7,
     isCanonicalFieldPath: (fieldPath: unknown): fieldPath is string => typeof fieldPath === "string" && rollerShutterRowPath.test(fieldPath),
-    derivePoorFieldPaths(response: unknown) {
+    ...photoPathMethods((response: unknown) => {
       if (!isRecord(response) || !Array.isArray(response.rows)) return undefined;
-      const paths: string[] = [];
+      const paths: string[] = []; const optional: string[] = [];
       const ids = new Set<string>();
       for (const row of response.rows) {
         if (!isRecord(row) || typeof row.rowUuid !== "string" || !uuid.test(row.rowUuid) || ids.has(row.rowUuid) || !isRecord(row.fieldRemarks)) return undefined;
@@ -763,11 +775,11 @@ const rollerShutterAdapter = (definition: unknown): V7EvidenceContractAdapter | 
             const remark = row.fieldRemarks[key];
             if (typeof remark !== "string" || !remark.trim()) return undefined;
             paths.push(`roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wire}`);
-          }
+          } else if (isV7OptionalPhotoResult(result)) optional.push(`roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wire}`);
         }
       }
-      return paths.sort();
-    },
+      return sortedPhotoPaths(paths, optional);
+    }),
     ownPoorRemark(response: unknown, fieldPath: string) {
       const found = target(response, fieldPath);
       if (!found || !isV7EvidenceFinding(found.row[found.column[0]]) || !isRecord(found.row.fieldRemarks)) return undefined;
@@ -815,18 +827,24 @@ export function v7EvidenceManifestFailureMessage(value: unknown, fallback: strin
 }
 
 export function parseV7EvidenceManifest(value: unknown, adapter: V7EvidenceContractAdapter, response: unknown) {
-  if (!Array.isArray(value) || value.length > 250) return undefined;
-  const required = adapter.derivePoorFieldPaths(response);
-  if (!required) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  const derived = adapter.derivePhotoFieldPaths(response);
+  if (!derived) return undefined;
+  // CR-01: a finding must have its photo; a good / N.A. field of the CURRENT
+  // response may have one.  No field can carry two, so the response's own
+  // result-field count bounds the manifest (there is no fixed cap to outgrow).
+  const required = new Set(derived.required); const optional = new Set(derived.optional);
+  if (value.length > required.size + optional.size) return undefined;
   const paths = new Set<string>(); const photos = new Set<string>(); const sources = new Set<string>();
   const parsed: Array<{ photoUuid: string; fieldPath: string; sourceSha256: string }> = [];
   for (const entry of value) {
     if (!isRecord(entry) || Object.keys(entry).length !== 3 || typeof entry.photoUuid !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.photoUuid)
       || !adapter.isCanonicalFieldPath(entry.fieldPath) || typeof entry.sourceSha256 !== "string" || !/^[0-9a-f]{64}$/.test(entry.sourceSha256)
-      || paths.has(entry.fieldPath) || photos.has(entry.photoUuid) || sources.has(entry.sourceSha256)) return undefined;
+      || paths.has(entry.fieldPath) || photos.has(entry.photoUuid) || sources.has(entry.sourceSha256)
+      || !(required.has(entry.fieldPath) || optional.has(entry.fieldPath))) return undefined;
     paths.add(entry.fieldPath); photos.add(entry.photoUuid); sources.add(entry.sourceSha256);
     parsed.push({ photoUuid: entry.photoUuid, fieldPath: entry.fieldPath, sourceSha256: entry.sourceSha256 });
   }
-  if (paths.size !== required.length || required.some((fieldPath) => !paths.has(fieldPath))) return undefined;
+  if ([...required].some((fieldPath) => !paths.has(fieldPath))) return undefined;
   return parsed.sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
 }

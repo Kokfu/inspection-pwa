@@ -20,6 +20,7 @@
     "test:automatic-sprinkler-definition": "tsx --test src/inspections/templates/automaticSprinklerDefinitionControls.test.ts src/routes/masterSystemInspectionsAutomaticSprinklerV7.test.ts",
     "test:wet-chemical-sync": "tsx --test src/sync/wetChemicalFormInstanceSync.test.ts",
     "test:wet-chemical-v7-integration": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/sync/wetChemicalV7.integration.test.ts",
+    "test:optional-good-photo-integration": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/sync/optionalGoodPhoto.integration.test.ts",
     "test:fire-alarm-v7-integration": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/sync/fireAlarmV7.integration.test.ts",
     "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
     "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",

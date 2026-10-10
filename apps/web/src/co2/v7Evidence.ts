@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { Co2Responses, MasterSystemFormInstanceRecord } from "./co2Types";
@@ -25,6 +26,17 @@ export function v7RequiredFieldPaths(responses: Co2Responses) {
   for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) if (isEvidenceFinding(value.result)) paths.push(`${prefix}.${key}` as V7SuppressionFieldPath);
   return paths.sort();
 }
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalFieldPaths(responses: Co2Responses) {
+  const paths: V7SuppressionFieldPath[] = [];
+  for (const [group, prefix] of groups) for (const [key, value] of Object.entries(responses[group])) if (isOptionalPhotoResult(value.result)) paths.push(`${prefix}.${key}` as V7SuppressionFieldPath);
+  return paths.sort();
+}
+/** The Good / N.A. fields that currently hold a V7 photo: these ride in the manifest beside the required ones. */
+const optionalFieldsWithPhoto = (responses: Co2Responses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>) => {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return v7OptionalFieldPaths(responses).filter((fieldPath) => held.has(fieldPath));
+};
 export function v7SubmissionIssues(record: MasterSystemFormInstanceRecord, responses: Co2Responses, attachments: InspectionAttachmentRecord[], siblings: readonly V7SiblingEvidence[] = []) {
   if (record.masterTemplate.version !== 7) return [];
   const issues: string[] = [];
@@ -34,20 +46,26 @@ export function v7SubmissionIssues(record: MasterSystemFormInstanceRecord, respo
   const required = v7RequiredFieldPaths(responses);
   const fields = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
   for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
-  issues.push(...duplicateV7PhotoIssues(attachments, required));
-  issues.push(...crossInstanceV7PhotoIssues(attachments, required, siblings));
-  issues.push(...submittedPhotoIssues(attachments, required));
+  // A missing optional photo is never an issue; one that IS attached is evidence like any other.
+  const optional = optionalFieldsWithPhoto(responses, attachments);
+  const evidence = [...required, ...optional];
+  issues.push(...duplicateV7PhotoIssues(attachments, evidence, optional));
+  issues.push(...crossInstanceV7PhotoIssues(attachments, evidence, siblings, optional));
+  issues.push(...submittedPhotoIssues(attachments, evidence));
   return issues;
 }
 /** See the Fire Alarm twin: the server refuses one image reused across two
  * findings, so the submit gate has to refuse it first or offline work strands
  * in the outbox (G7). */
-export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
+export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[], optionalFieldPaths: readonly string[] = []) {
   const required = new Set<string>(requiredFieldPaths);
+  const optional = new Set<string>(optionalFieldPaths);
   const issues: string[] = []; const firstUse = new Map<string, string>();
   for (const attachment of attachments.filter((item) => item.protocolVersion === 7 && required.has(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const earlier = firstUse.get(attachment.sha256);
-    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    if (earlier) issues.push(optional.has(earlier) || optional.has(attachment.fieldPath)
+      ? `${earlier} and ${attachment.fieldPath} use the same photo; remove or replace one of them`
+      : `${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
     else firstUse.set(attachment.sha256, attachment.fieldPath);
   }
   return issues;
@@ -59,18 +77,21 @@ export type V7SiblingEvidence = {
   clientUuid: string;
   locationLabel: string;
   requiredFieldPaths: readonly string[];
+  /** CR-01: the sibling's Good / N.A. fields.  A photo kept on one of them is in that sibling's manifest, so it can clash too. */
+  optionalFieldPaths?: readonly string[];
   attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "sha256"> & { protocolVersion?: 6 | 7 }>;
 };
 
 const siblingFindingPhotos = (siblings: readonly V7SiblingEvidence[]) =>
   siblings.flatMap((sibling) => {
-    // Only a sibling's *currently required* paths are staged for acceptance; a
-    // photo left on a field reverted to good/na is stale, excluded from that
-    // sibling's manifest, and must not block this location (G9).
+    // A sibling stages its currently required photos AND any photo kept on a
+    // Good / N.A. field (CR-01: that is its optional photo, so it is in its
+    // manifest and the server holds it against this Job+system as well).
     const required = new Set(sibling.requiredFieldPaths);
+    const optional = new Set(sibling.optionalFieldPaths ?? []);
     return sibling.attachments
-      .filter((item) => item.protocolVersion === 7 && required.has(item.fieldPath))
-      .map((item) => ({ locationLabel: sibling.locationLabel, fieldPath: item.fieldPath, sha256: item.sha256 }));
+      .filter((item) => item.protocolVersion === 7 && (required.has(item.fieldPath) || optional.has(item.fieldPath)))
+      .map((item) => ({ locationLabel: sibling.locationLabel, fieldPath: item.fieldPath, sha256: item.sha256, optional: !required.has(item.fieldPath) }));
   });
 
 /** G9: server evidence uniqueness is `jobId + systemKey`, but one Job can hold
@@ -81,9 +102,11 @@ const siblingFindingPhotos = (siblings: readonly V7SiblingEvidence[]) =>
 export function crossInstanceV7PhotoIssues(
   attachments: readonly (Pick<InspectionAttachmentRecord, "fieldPath" | "sha256"> & { protocolVersion?: 6 | 7 })[],
   requiredFieldPaths: readonly string[],
-  siblings: readonly V7SiblingEvidence[]
+  siblings: readonly V7SiblingEvidence[],
+  optionalFieldPaths: readonly string[] = []
 ) {
   const required = new Set<string>(requiredFieldPaths);
+  const optional = new Set<string>(optionalFieldPaths);
   const elsewhere = siblingFindingPhotos(siblings);
   const issues: string[] = [];
   for (const attachment of attachments
@@ -91,14 +114,17 @@ export function crossInstanceV7PhotoIssues(
     .slice()
     .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const clash = elsewhere.find((item) => item.sha256 === attachment.sha256);
-    if (clash) issues.push(`${attachment.fieldPath} and ${clash.fieldPath} at ${clash.locationLabel} use the same photo; each finding needs its own photo`);
+    if (clash) issues.push(optional.has(attachment.fieldPath) || clash.optional
+      ? `${attachment.fieldPath} and ${clash.fieldPath} at ${clash.locationLabel} use the same photo; remove or replace one of them`
+      : `${attachment.fieldPath} and ${clash.fieldPath} at ${clash.locationLabel} use the same photo; each finding needs its own photo`);
   }
   return issues;
 }
 
 /** Capture-time twin of the above: refuse the photo before it is stored. */
 export function crossInstanceV7PhotoClash(sha256: string, siblings: readonly V7SiblingEvidence[]) {
-  return siblingFindingPhotos(siblings).find((item) => item.sha256 === sha256);
+  const clash = siblingFindingPhotos(siblings).find((item) => item.sha256 === sha256);
+  return clash && { locationLabel: clash.locationLabel, fieldPath: clash.fieldPath, sha256: clash.sha256 };
 }
 
 export function v7InstanceLocationLabel(record: Pick<MasterSystemFormInstanceRecord, "inspectionSnapshot" | "displaySequence">) {
@@ -125,11 +151,16 @@ export async function collectV7SiblingEvidence(record: Pick<MasterSystemFormInst
     .sort((left, right) => left.displaySequence - right.displaySequence);
   const collected: V7SiblingEvidence[] = [];
   for (const sibling of siblings) {
+    const photos = (await source.inspectionAttachments.where("inspectionClientUuid").equals(sibling.clientUuid).toArray()).filter((item) => item.protocolVersion === 7);
+    // A sibling that has already left Draft froze its manifest then, so a photo still sitting in Draft on one of
+    // its Good / N.A. fields was never staged (left behind, or it predates CR-01) and cannot clash.
+    const frozen = sibling.syncStatus !== "Draft";
     collected.push({
       clientUuid: sibling.clientUuid,
       locationLabel: v7InstanceLocationLabel(sibling),
       requiredFieldPaths: v7RequiredFieldPaths(sibling.responses),
-      attachments: (await source.inspectionAttachments.where("inspectionClientUuid").equals(sibling.clientUuid).toArray()).filter((item) => item.protocolVersion === 7)
+      optionalFieldPaths: v7OptionalFieldPaths(sibling.responses).filter((fieldPath) => !frozen || photos.some((item) => item.fieldPath === fieldPath && item.syncStatus !== "Draft")),
+      attachments: photos
     });
   }
   return collected;
@@ -155,5 +186,6 @@ export async function saveV7SuppressionPhoto(values: { record: MasterSystemFormI
     await localDatabase.inspectionAttachments.put({ photoUuid: existing?.photoUuid ?? crypto.randomUUID(), inspectionClientUuid: live.clientUuid, systemKey: live.systemKey, fieldPath: values.fieldPath, evidencePolicyId: "v7-shared-evidence", evidencePolicyVersion: 7, captureSource: values.captureSource, blob: values.blob, mimeType: values.mimeType, sizeBytes: values.sizeBytes, width: values.width, height: values.height, sha256: values.sha256, capturedAt: values.capturedAt ?? timestamp, localCreatedAt: existing?.localCreatedAt ?? timestamp, localUpdatedAt: timestamp, syncStatus: "Draft", protocolVersion: 7, masterTemplateId: live.masterTemplate.id, contractSha256 });
   });
 }
-export function v7EvidenceManifest(attachments: InspectionAttachmentRecord[], responses: Co2Responses) { const currentPoor = new Set(v7RequiredFieldPaths(responses)); return attachments.filter((item) => item.protocolVersion === 7 && currentPoor.has(item.fieldPath as V7SuppressionFieldPath)).map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)); }
+/** Required (findings) plus the Good / N.A. fields that currently hold a photo (CR-01).  A photo left on a field that is now Good / N.A. stays in as that field's optional photo. */
+export function v7EvidenceManifest(attachments: InspectionAttachmentRecord[], responses: Co2Responses) { const currentPoor = new Set<string>([...v7RequiredFieldPaths(responses), ...optionalFieldsWithPhoto(responses, attachments)]); return attachments.filter((item) => item.protocolVersion === 7 && currentPoor.has(item.fieldPath)).map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 })).sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)); }
 export function v7EvidenceOutbox(attachment: InspectionAttachmentRecord): SyncOutboxItem { return { operationId: crypto.randomUUID(), entityType: "v7StagedEvidence", entityId: attachment.photoUuid, action: "create", payload: { inspectionClientUuid: attachment.inspectionClientUuid, systemKey: attachment.systemKey, fieldPath: attachment.fieldPath, protocolVersion: 7 }, createdAt: attachment.localCreatedAt, attempts: 0, status: "Pending", activeKey: `v7StagedEvidence:create:${attachment.photoUuid}` }; }

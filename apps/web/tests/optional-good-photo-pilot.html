@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CR-01 optional Good photo - pilot form</title></head>
+<body>
+<div id="form"></div>
+<pre id="result">Ready</pre>
+<script type="module">
+// CR-01 Phase 1 pilot harness: the REAL Co2InspectionForm (CO2 + Wet Chemical), the REAL
+// repository (saveCo2Draft / submitLocalCo2), real IndexedDB, real app.css.  No network is used.
+import "/src/styles/app.css";
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { initializeCo2InspectionGroup, saveCo2Draft, submitLocalCo2 } from "/src/co2/co2Repository.ts";
+import { Co2InspectionForm } from "/src/co2/Co2InspectionForm.tsx";
+import { removeDraftEvidencePhoto } from "/src/attachments/optionalGoodPhoto.ts";
+
+const id = (n) => `79100000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const field = (key, label, sortOrder, control = "good_poor", allowedValues = ["good", "not_good", "complete_repair", "na"]) => ({ key, label, sortOrder, control, required: false, allowedValues, remarksPolicy: "optional" });
+const definition = (systemKey, systemName, cylinderKey, wet) => ({ key: systemKey, displayName: `${systemName} System`, sortOrder: 4, definitionStatus: "confirmed", configuration: { supportsZones: true, supportsLocations: true, supportsPresetRows: true }, sections: [
+  { key: "control_panel", title: `${systemName} Control Panel`, sortOrder: 1, blocks: [
+    { key: "control_panel_location", title: "Control Panel Location", type: "checklist", sortOrder: 1, items: [field("control_panel_location", "Control Panel Location", 1, "text", [])] },
+    { key: "detector_rows", title: "Zone and Detector Rows", type: "repeatable_table", sortOrder: 2, columns: [field("alarm_zone", "Alarm Zone", 1, "text", []), field("location", "Location", 2, "text", []), field("heat_detector", "Heat Detector", 3, "normal_test_isolation", ["normal", "test", "isolation"]), field(wet ? "unconfirmed_second_heat_detector" : "smoke_detector", wet ? "Second Heat Detector" : "Smoke Detector", 4, "normal_test_isolation", ["normal", "test", "isolation"]), field("remarks", "Remarks", 5, "remarks", [])] }] },
+  { key: "charger_batteries", title: "Charger & Batteries", sortOrder: 2, blocks: [{ key: "charger_battery_checks", title: "Charger", type: "checklist", sortOrder: 1, items: [field("main_supply", "Main Supply", 1), field("battery", "Battery", 2), field("charger", "Charger", 3)] }] },
+  { key: "physical_outlook", title: "Physical Outlook Checking", sortOrder: 3, blocks: [{ key: "physical_outlook_checks", title: "Physical", type: "checklist", sortOrder: 1, items: [field(cylinderKey, "Cylinder", 1), field("electric_actuator", "Electric Actuator", 2)] }] },
+  { key: "main_function_key", title: "Main Function Key", sortOrder: 4, blocks: [
+    { key: "function_checks", title: "Functions", type: "checklist", sortOrder: 1, items: [field("main_alarm_reset", "Main Alarm Reset", 1), field("lamp_test", "Lamp Test", 2), field("evacuate", "Evacuate", 3), field("ac_supply", "A/C Supply", 4), field("dc_supply", "D/C Supply", 5), field("signal_alarm_to_mfap", "Signal Alarm to MFAP", 6)] },
+    { key: "comments", title: "Comments", type: "comments", sortOrder: 2, field: field("comments", "Comments", 1, "remarks", []) }] }] });
+const fixture = (jobId, systemKey, locations) => {
+  const wet = systemKey === "wet_chemical", systemName = wet ? "Wet Chemical" : "CO2", cylinderKey = wet ? "wet_chemical_cylinder" : "co2_cylinder";
+  const templateId = "00000000-0000-4000-8000-000000000807";
+  const system = { enabledSystemId: id(wet ? 41 : 40), systemKey, displayName: `${systemName} System`, sortOrder: 4, definitionStatus: "confirmed", zones: [{ id: id(5), key: "z", displayName: "Zone A", sortOrder: 1 }], locations: locations.map((name, index) => ({ id: id(600 + index), zoneId: id(5), key: `unit-${index}`, displayName: name, sortOrder: index + 1 })) };
+  const template = { id: templateId, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: systemKey, displayName: system.displayName, sortOrder: 4, definitionStatus: "confirmed", definition: definition(systemKey, systemName, cylinderKey, wet) }] };
+  const job = { id: jobId, reference: `CR01-${systemName}`, title: `${systemName} optional photo`, status: "open", createdAt: new Date().toISOString(), configurationSnapshot: { schemaVersion: 1, customer: { id: id(2), code: "CR01", displayName: "CR-01 Customer" }, configuration: { revisionId: id(3), revisionNumber: 1 }, template: { id: templateId, code: "MFE-FSSR", name: template.name, version: 7 }, enabledSystems: [system] } };
+  return { job, system, catalog: { template: { ...template, id: id(20), version: 1, systems: [] }, templates: [template] } };
+};
+const complete = (record, locationName, withFinding) => {
+  const x = structuredClone(record.responses); x.controlPanelLocation = locationName;
+  Object.assign(x.detectorRows[0], { alarmZone: "Zone A", location: locationName, heatDetectorStatus: ["normal"], smokeDetectorStatus: ["normal"] });
+  for (const group of [x.chargerAndBatteries, x.physicalOutlook, x.mainFunctionKeys]) for (const value of Object.values(group)) Object.assign(value, { result: "good", remarks: "" });
+  if (withFinding) x.chargerAndBatteries.main_supply = { result: "not_good", remarks: `Main supply low at ${locationName}` };
+  return x;
+};
+const out = document.querySelector("#result");
+let root;
+function Host({ initial }) {
+  const [record, setRecord] = React.useState(initial);
+  return React.createElement(Co2InspectionForm, {
+    record, actorUserId: 1, canUseServer: false, onBack: () => {},
+    onSaveDraft: async (responses) => { setRecord(await saveCo2Draft(record, responses)); },
+    onSubmitLocal: async (responses) => { setRecord(await submitLocalCo2(record, responses)); },
+    onEditFailed: async () => {}, onStartCorrectedCopy: async () => {}
+  });
+}
+window.pilot = {
+  async start(systemKey) {
+    await localDatabase.open();
+    const jobId = id(systemKey === "wet_chemical" ? 902 : 901);
+    for (const row of await localDatabase.masterSystemFormInstances.where("jobId").equals(jobId).toArray()) await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(row.clientUuid).delete();
+    await localDatabase.masterSystemFormInstances.where("jobId").equals(jobId).delete();
+    await localDatabase.masterSystemInspectionGroups.where("jobId").equals(jobId).delete();
+    await localDatabase.syncOutbox.clear();
+    const names = ["Room A", "Room B", "Room C", "Room D"];
+    const f = fixture(jobId, systemKey, names);
+    const { instances } = await initializeCo2InspectionGroup(f.job, f.system, f.catalog, { id: 1, username: "browser-tech", role: "inspector" });
+    const findings = [true, false, true, false];
+    const saved = [];
+    for (const [index, instance] of instances.entries()) saved.push(await saveCo2Draft(instance, complete(instance, names[index], findings[index])));
+    return saved.map((record) => record.clientUuid);
+  },
+  async show(clientUuid) {
+    await localDatabase.open();
+    const record = await localDatabase.masterSystemFormInstances.get(clientUuid);
+    root?.unmount();
+    root = ReactDomClient.createRoot(document.querySelector("#form"));
+    root.render(React.createElement(Host, { initial: record, key: clientUuid }));
+    return record.syncStatus;
+  },
+  async snapshot(clientUuid) {
+    await localDatabase.open();
+    const record = await localDatabase.masterSystemFormInstances.get(clientUuid);
+    const photos = (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(clientUuid).toArray()).map((photo) => ({ photoUuid: photo.photoUuid, fieldPath: photo.fieldPath, syncStatus: photo.syncStatus, bytes: photo.blob?.size ?? 0, type: photo.blob?.type }));
+    const outbox = (await localDatabase.syncOutbox.toArray()).filter((item) => item.entityId === clientUuid || photos.some((photo) => photo.photoUuid === item.entityId));
+    const parent = outbox.find((item) => item.entityType === "masterSystemFormInstance");
+    return { status: record.syncStatus, responses: record.responses, photos, evidenceOutbox: outbox.filter((item) => item.entityType === "v7StagedEvidence").map((item) => ({ entityId: item.entityId, status: item.status })), manifest: parent?.payload?.evidenceManifest ?? null, parentOutbox: parent ? parent.status : null };
+  },
+  async removePhoto(photoUuid, clientUuid) {
+    try { await removeDraftEvidencePhoto(photoUuid, clientUuid); return { ok: true }; } catch (error) { return { ok: false, message: String(error?.message ?? error) }; }
+  }
+};
+out.textContent = "READY";
+</script>
+</body>
+</html>
