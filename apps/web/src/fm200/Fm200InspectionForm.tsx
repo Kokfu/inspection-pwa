@@ -21,6 +21,8 @@ import type {
 } from "./fm200Types";
 import { collectV7SiblingEvidence, isEvidenceFinding, listV7SuppressionPhotos, v7SubmissionIssues, type V7Fm200FieldPath, type V7SiblingEvidence } from "./fm200Evidence";
 import { Fm200EvidenceField } from "./Fm200EvidenceField";
+import { OptionalPhotoSlot } from "../attachments/OptionalPhotoSlot";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { MultiResultSelector } from "../inspectionControls/MultiResultSelector";
 
 type Props = {
@@ -147,6 +149,10 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
       <legend>{title}</legend>
       {definitions.map((definition) => {
         const shownLabel = labelAt(`${group}.${definition.key}`, definition.label);
+        const evidencePath = `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`;
+        const evidenceAttachment = photos.find((photo) => photo.fieldPath === evidencePath);
+        const resultValue = responses[group][definition.key]?.result;
+        const refreshEvidence = async () => { setPhotos(await listV7SuppressionPhotos(record.clientUuid)); setSiblings(await collectV7SiblingEvidence(record)); };
         return (
         <section className={`hose-check-row ${invalidTargets.has(`fm200-check-${definition.key}`) ? "field-invalid" : ""}`} id={`fm200-check-${definition.key}`} key={definition.key}>
           <strong>{shownLabel}</strong>
@@ -164,7 +170,9 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
             readOnly={readOnly}
             onChange={(remarks) => updateChecklist(group, definition.key, { remarks })}
           />
-          {record.masterTemplate.version === 7 && isEvidenceFinding(responses[group][definition.key]?.result) ? <Fm200EvidenceField record={record} fieldPath={`${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}` as V7Fm200FieldPath} attachment={photos.find((photo) => photo.fieldPath === `${group === "chargerAndBatteries" ? "charger_batteries.charger_battery_checks" : group === "physicalOutlook" ? "physical_outlook.physical_outlook_checks" : "main_function_key.function_checks"}.${definition.key}`)} onChanged={async () => { setPhotos(await listV7SuppressionPhotos(record.clientUuid)); setSiblings(await collectV7SiblingEvidence(record)); }} /> : null}
+          {record.masterTemplate.version === 7 && isEvidenceFinding(resultValue) ? <Fm200EvidenceField record={record} fieldPath={evidencePath as V7Fm200FieldPath} attachment={evidenceAttachment} onChanged={refreshEvidence} /> : null}
+          {/* CR-01: a Good / N.A. result may carry ONE optional photo. It is never required and never blocks Submit. */}
+          {record.masterTemplate.version === 7 && isOptionalPhotoResult(resultValue) && (!readOnly || evidenceAttachment) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceAttachment} editable={!readOnly} onChanged={refreshEvidence}><Fm200EvidenceField record={record} fieldPath={evidencePath as V7Fm200FieldPath} attachment={evidenceAttachment} onChanged={refreshEvidence} /></OptionalPhotoSlot> : null}
         </section>
       );
       })}

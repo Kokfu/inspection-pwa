@@ -5,7 +5,7 @@ import { resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../../api/s
 import { submitIssues } from "../src/hydrant/hydrantRepository";
 import type { HydrantInspectionRecord, HydrantResponses } from "../src/hydrant/hydrantTypes";
 import { hydrantResultColumns } from "../src/hydrant/hydrantTypes";
-import { historicalHydrantResultDefinition, resolveHydrantV7ResultDefinitions, v7HydrantSubmissionIssues, v7RequiredHydrantFieldPaths } from "../src/hydrant/hydrantV7Evidence";
+import { historicalHydrantResultDefinition, resolveHydrantV7ResultDefinitions, v7HydrantManifest, v7HydrantSubmissionIssues, v7OptionalHydrantFieldPaths, v7RequiredHydrantFieldPaths } from "../src/hydrant/hydrantV7Evidence";
 
 const uuid = "00000000-0000-4000-8000-000000000099";
 const hash = (char: string) => char.repeat(64);
@@ -51,13 +51,19 @@ test("one photo reused across two Hydrant findings is refused before it can be q
   assert.ok(issues.some((issue) => /use the same photo; each finding needs its own photo/.test(issue)), `expected duplicate-photo issue, got ${JSON.stringify(issues)}`);
 });
 
-test("a stale Hydrant V7 finding reverted to good or na is excluded", () => {
+test("CR-01: a Hydrant V7 finding reverted to good or na keeps its photo as the optional photo", () => {
   for (const value of ["good", "na"] as const) {
     const draft = withFindings(); draft.rows[0]!.canvasHose1Result = value;
-    const issues = v7HydrantSubmissionIssues(v7Record, draft, [
+    const distinct = v7HydrantSubmissionIssues(v7Record, draft, [
+      attachment(fieldPath("canvas_hose_1"), hash("a")), attachment(fieldPath("landing_valve"), hash("b"))
+    ]);
+    assert.deepEqual(distinct, [], `${value}: the kept photo is optional and raises no issue`);
+    const same = v7HydrantSubmissionIssues(v7Record, draft, [
       attachment(fieldPath("canvas_hose_1"), hash("a")), attachment(fieldPath("landing_valve"), hash("a"))
     ]);
-    assert.deepEqual(issues, [], `${value} must exclude stale Canvas Hose evidence`);
+    assert.equal(same.length, 1, JSON.stringify(same));
+    assert.match(same[0]!, /use the same photo; remove or replace one of them/);
+    assert.deepEqual(v7HydrantSubmissionIssues(v7Record, draft, [attachment(fieldPath("landing_valve"), hash("b"))]), [], `${value}: a missing optional photo never blocks`);
   }
 });
 
@@ -66,6 +72,13 @@ test("web Hydrant field paths exactly equal the server adapter's canonical paths
   assert.ok(adapter, "Hydrant V7 server adapter must resolve");
   const draft = withFindings();
   assert.deepEqual(v7RequiredHydrantFieldPaths(draft), adapter.derivePoorFieldPaths(draft));
+  // CR-01: the optional (Good / N.A.) paths agree with the server adapter, and a photo kept on one rides in the manifest.
+  const server = adapter.derivePhotoFieldPaths(draft)!;
+  assert.deepEqual(v7OptionalHydrantFieldPaths(draft), server.optional);
+  assert.ok(server.optional.length > 0, "the draft has Good / N.A. fields");
+  const kept = server.optional[0]!;
+  assert.deepEqual(v7HydrantManifest([attachment(kept, hash("e"))] as never, draft).map((entry) => entry.fieldPath), [kept]);
+  assert.deepEqual(v7HydrantManifest([], draft), []);
   for (const path of v7RequiredHydrantFieldPaths(draft)) assert.equal(adapter.isCanonicalFieldPath(path), true, path);
 });
 

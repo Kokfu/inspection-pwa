@@ -21,7 +21,7 @@
 | CR-09 | Remove Repair + Repair List | **Phase A done, committed** (Complete Repair hidden, recoverable). Phases B/C/D **planned, not built** | `d0c371a` (A) | — | Needs plan answers (§0.2) then 3 build phases. Migration **051** |
 | CR-07 | Per-section free-text remarks | **Planned, not built** — plan approved | — | — | **NEXT TO BUILD**: Phase 1 (Automatic Sprinkler pilot). Migration **049** |
 | CR-02 | Manual site + Admin approval | **Planned, not built** — defaults D1–D7 accepted | — | — | After CR-07. Migration **050**. Commit the I-47 batch first (same file) |
-| CR-01 | Optional photo on Good / N.A. | **Phase 0+1 done, committed**: server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical). Other systems' web forms **pending** | — | not yet | No migration. Next: roll the web slot out system by system (same `OptionalPhotoSlot`); P0-FR1 (Dry/Wet Riser evidence missing from the Final Report) still open |
+| CR-01 | Optional photo on Good / N.A. | **Phase 0+1 done, committed** (`31f18f4`): server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical). Web rollout (committed 2026-10-11, real-stack browser check passed; phone retest pending) to Fire Alarm, Hydrant, Hose Reel, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter, FM200 done 2026-10-11; **Automatic Sprinkler web form pending** (after the CR-07 commit) | `31f18f4` | **verified on phone 2026-10-10** (CO2: required + Good + N.A. photos offline -> sync -> Accepted Detail -> Final Report + PDF; Wet Chemical not retested on the phone) | No migration. Next: roll the web slot out system by system (same `OptionalPhotoSlot`); P0-FR1 (Dry/Wet Riser evidence missing from the Final Report) **fixed 2026-10-10** (committed) and verified on the phone (the riser's report lists its photo) |
 | CR-10 | Repair-only PDF | **Not planned yet** | — | — | After CR-09 Phase C. Plan-only prompt ready |
 
 ### 0.1 Order from here
@@ -79,8 +79,8 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
 ## 3. Items
 
 ### CR-01 — Good → optional photo upload
-- [ ] Done — Result: Phase 0+1 built (server contract, all 11 V7 systems; web pilot CO2 + Wet Chemical). Remaining web rollout: Fire Alarm, Hydrant, Hose Reel,
-  Automatic Sprinkler, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter, FM200.
+- [ ] Done — Result: Phase 0+1 built (server contract, all 11 V7 systems; web pilot CO2 + Wet Chemical), then the web rollout to Fire Alarm, Hydrant, Hose Reel,
+  Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter and FM200. Remaining: Automatic Sprinkler web form (CR-07 touches the same form), then phone retest of the rollout.
 - **Client wording:** "Good -> Optional Upload Photo."
 - **Tidied requirement:** When a checklist item is set to **Good**, let the technician *optionally* attach a photo.
   A photo stays optional (never blocks Submit). Existing rules for Poor / Not Good (remark + photo) do not change.

@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { describeShutterEvidencePath, shutterRowLabels } from "./fireRatedRollerShutterSetup";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
@@ -49,6 +50,19 @@ export function v7RequiredFireRatedRollerShutterFieldPaths(responses: FireRatedR
   }
   return paths.sort();
 }
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalFireRatedRollerShutterFieldPaths(responses: FireRatedRollerShutterResponses): FireRatedRollerShutterV7FieldPath[] {
+  const paths: FireRatedRollerShutterV7FieldPath[] = [];
+  for (const row of responses.rows) for (const [responseKey, wireKey] of fireRatedRollerShutterRowColumns) {
+    if (isOptionalPhotoResult(row[responseKey])) paths.push(`roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wireKey}`);
+  }
+  return paths.sort();
+}
+/** CR-01: required (findings) plus the Good / N.A. fields that currently hold a photo: the paths a manifest may contain. */
+export function v7FireRatedRollerShutterEvidencePaths(responses: FireRatedRollerShutterResponses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>): string[] {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return [...v7RequiredFireRatedRollerShutterFieldPaths(responses), ...v7OptionalFireRatedRollerShutterFieldPaths(responses).filter((fieldPath) => held.has(fieldPath))];
+}
 
 export async function listFireRatedRollerShutterV7Photos(inspectionClientUuid: string) {
   return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray())
@@ -56,7 +70,7 @@ export async function listFireRatedRollerShutterV7Photos(inspectionClientUuid: s
 }
 
 export function v7FireRatedRollerShutterManifest(attachments: InspectionAttachmentRecord[], responses: FireRatedRollerShutterResponses) {
-  const required = new Set(v7RequiredFireRatedRollerShutterFieldPaths(responses));
+  const required = new Set<string>(v7FireRatedRollerShutterEvidencePaths(responses, attachments));
   return attachments.filter((item) => item.systemKey === "fire_rated_roller_shutter" && item.protocolVersion === 7 && required.has(item.fieldPath as FireRatedRollerShutterV7FieldPath))
     .map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 }))
     .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
@@ -68,11 +82,13 @@ export function v7FireRatedRollerShutterEvidenceOutbox(attachment: InspectionAtt
 
 /** The server rejects source-hash reuse inside a job+system. Refuse it before
  * a local Pending record can be stranded behind an impossible acceptance. */
-export function duplicateFireRatedRollerShutterV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
-  const required = new Set(requiredFieldPaths); const issues: string[] = []; const firstUse = new Map<string, string>();
+export function duplicateFireRatedRollerShutterV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[], optionalFieldPaths: readonly string[] = []) {
+  const required = new Set(requiredFieldPaths); const optional = new Set(optionalFieldPaths); const issues: string[] = []; const firstUse = new Map<string, string>();
   for (const attachment of attachments.filter((item) => item.systemKey === "fire_rated_roller_shutter" && item.protocolVersion === 7 && required.has(item.fieldPath)).slice().sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const earlier = firstUse.get(attachment.sha256);
-    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    if (earlier) issues.push(optional.has(earlier) || optional.has(attachment.fieldPath)
+      ? `${earlier} and ${attachment.fieldPath} use the same photo; remove or replace one of them`
+      : `${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
     else firstUse.set(attachment.sha256, attachment.fieldPath);
   }
   return issues;
@@ -95,10 +111,12 @@ export function v7FireRatedRollerShutterSubmissionIssues(record: FireRatedRoller
     }
   }
   const required = v7RequiredFireRatedRollerShutterFieldPaths(responses);
+  const evidencePaths = v7FireRatedRollerShutterEvidencePaths(responses, attachments);
+  const optionalPaths = evidencePaths.filter((path) => !required.includes(path as never));
   const attachedFields = new Set(attachments.filter((item) => item.systemKey === "fire_rated_roller_shutter" && item.protocolVersion === 7).map((item) => item.fieldPath));
   for (const fieldPath of required) if (!attachedFields.has(fieldPath)) issues.push(`${describeShutterEvidencePath(responses, fieldPath)} requires its own Photo`);
-  issues.push(...duplicateFireRatedRollerShutterV7PhotoIssues(attachments, required));
-  issues.push(...submittedPhotoIssues(attachments, required));
+  issues.push(...duplicateFireRatedRollerShutterV7PhotoIssues(attachments, evidencePaths, optionalPaths));
+  issues.push(...submittedPhotoIssues(attachments, evidencePaths));
   return issues;
 }
 

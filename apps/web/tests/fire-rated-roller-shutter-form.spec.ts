@@ -22,8 +22,11 @@ test("roller shutter fields and buttons save a local draft then queue a complete
   await page.getByRole("group", { name: "Auto Alarm Mode result" }).getByRole("button", { name: "Good", exact: true }).click();
   await page.getByRole("group", { name: "Manual Mode result" }).getByRole("button", { name: "Good", exact: true }).click();
   await page.getByRole("group", { name: "Auto Alarm Mode result" }).getByRole("button", { name: "Not Good" }).click();
-  await expect(page.getByRole("button", { name: "Take Photo" })).toBeVisible();
+  // CR-01: the finding keeps its required photo control, and the Good Manual Mode row now offers the optional slot.
+  await expect(page.locator(".optional-photo-slot")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Take Photo" })).toHaveCount(2);
   await page.getByRole("group", { name: "Auto Alarm Mode result" }).getByRole("button", { name: "Good", exact: true }).click();
+  await expect(page.locator(".optional-photo-slot")).toHaveCount(2);
   await page.getByRole("button", { name: "Save Draft" }).click();
   await expect(page.getByText("Draft saved on this device.")).toBeVisible();
   const draft = await page.evaluate(() => (window as any).inspect());

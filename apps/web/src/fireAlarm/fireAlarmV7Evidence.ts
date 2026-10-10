@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { FireAlarmInspectionRecord, FireAlarmResponses, ResolvedFireAlarmControls } from "./fireAlarmTypes";
@@ -22,8 +23,20 @@ export function v7RequiredFireAlarmFieldPaths(responses: FireAlarmResponses): Fi
   for (const row of responses.secondaryAlarmDeviceRows) { if (isEvidenceFinding(row.alarmBell)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.alarm_bell`); if (isEvidenceFinding(row.manualCallPoint)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.manual_call_point`); }
   return paths.sort();
 }
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalFireAlarmFieldPaths(responses: FireAlarmResponses): FireAlarmV7FieldPath[] {
+  const paths: FireAlarmV7FieldPath[] = [];
+  for (const [group, prefix] of checklistGroups) for (const [key, value] of Object.entries(responses[group])) if (isOptionalPhotoResult(value.result)) paths.push(`${prefix}.${key}` as FireAlarmV7FieldPath);
+  for (const row of responses.secondaryAlarmDeviceRows) { if (isOptionalPhotoResult(row.alarmBell)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.alarm_bell`); if (isOptionalPhotoResult(row.manualCallPoint)) paths.push(`alarm_devices.alarm_device_rows.rows.${row.rowUuid}.manual_call_point`); }
+  return paths.sort();
+}
+/** CR-01: required (findings) plus the Good / N.A. fields that currently hold a photo: the paths a manifest may contain. */
+export function v7FireAlarmEvidencePaths(responses: FireAlarmResponses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>): string[] {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return [...v7RequiredFireAlarmFieldPaths(responses), ...v7OptionalFireAlarmFieldPaths(responses).filter((fieldPath) => held.has(fieldPath))];
+}
 export async function listFireAlarmV7Photos(inspectionClientUuid: string) { return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray()).filter((item) => item.systemKey === "fire_alarm_detector" && item.protocolVersion === 7); }
-export function v7FireAlarmManifest(attachments: InspectionAttachmentRecord[], responses: FireAlarmResponses) { const currentPoor = new Set(v7RequiredFireAlarmFieldPaths(responses)); return attachments.filter((item) => item.protocolVersion === 7 && currentPoor.has(item.fieldPath as FireAlarmV7FieldPath)).map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 })).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath)); }
+export function v7FireAlarmManifest(attachments: InspectionAttachmentRecord[], responses: FireAlarmResponses) { const currentPoor = new Set<string>(v7FireAlarmEvidencePaths(responses, attachments)); return attachments.filter((item) => item.protocolVersion === 7 && currentPoor.has(item.fieldPath as FireAlarmV7FieldPath)).map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 })).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath)); }
 export function v7FireAlarmEvidenceOutbox(attachment: InspectionAttachmentRecord): SyncOutboxItem { return { operationId: crypto.randomUUID(), entityType: "v7StagedEvidence", entityId: attachment.photoUuid, action: "create", payload: { inspectionClientUuid: attachment.inspectionClientUuid, systemKey: "fire_alarm_detector", fieldPath: attachment.fieldPath, protocolVersion: 7 }, createdAt: attachment.localCreatedAt, attempts: 0, status: "Pending", activeKey: `v7StagedEvidence:create:${attachment.photoUuid}` }; }
 // These structural checks mirror the server's V7 acceptance validator
 // (apps/api/src/sync/fireAlarmV7Acceptance.ts `validResponses`).  Without them the
@@ -55,22 +68,26 @@ export function v7FireAlarmSubmissionIssues(responses: FireAlarmResponses, attac
   });
   for (const row of responses.secondaryAlarmDeviceRows) for (const key of ["alarmBell", "manualCallPoint"] as const) if (isEvidenceFinding(row[key]) && !row.fieldRemarks?.[key]?.trim()) issues.push(`Alarm-device row ${row.displaySequence} requires its own ${key === "alarmBell" ? "Alarm Bell" : "Manual Call Point"} Remark`);
   const required = v7RequiredFireAlarmFieldPaths(responses);
+  const evidencePaths = v7FireAlarmEvidencePaths(responses, attachments);
+  const optionalPaths = evidencePaths.filter((path) => !required.includes(path as never));
   const fields = new Set(attachments.filter((attachment) => attachment.protocolVersion === 7).map((attachment) => attachment.fieldPath));
   for (const fieldPath of required) if (!fields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
-  issues.push(...duplicateV7PhotoIssues(attachments, required));
-  issues.push(...submittedPhotoIssues(attachments, required));
+  issues.push(...duplicateV7PhotoIssues(attachments, evidencePaths, optionalPaths));
+  issues.push(...submittedPhotoIssues(attachments, evidencePaths));
   return issues;
 }
 /** The server refuses a manifest that reuses one image across two findings
  * (`parseV7EvidenceManifest`) and the accepted-evidence unique indexes refuse it
  * again per Job + system.  Catching it here is what keeps an offline technician
  * from stranding finished work in the outbox — the G7 failure mode. */
-export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
-  const required = new Set<string>(requiredFieldPaths);
+export function duplicateV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[], optionalFieldPaths: readonly string[] = []) {
+  const required = new Set<string>(requiredFieldPaths); const optional = new Set<string>(optionalFieldPaths);
   const issues: string[] = []; const firstUse = new Map<string, string>();
   for (const attachment of attachments.filter((item) => item.protocolVersion === 7 && required.has(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const earlier = firstUse.get(attachment.sha256);
-    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    if (earlier) issues.push(optional.has(earlier) || optional.has(attachment.fieldPath)
+      ? `${earlier} and ${attachment.fieldPath} use the same photo; remove or replace one of them`
+      : `${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
     else firstUse.set(attachment.sha256, attachment.fieldPath);
   }
   return issues;

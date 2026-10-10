@@ -4,6 +4,8 @@ import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { FireRatedRollerShutterV7EvidenceField } from "./FireRatedRollerShutterV7EvidenceField";
+import { OptionalPhotoSlot } from "../attachments/OptionalPhotoSlot";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import {
   isProposalHeldBehindPending, loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
@@ -131,7 +133,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
         const fieldPath = `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wireKey}` as FireRatedRollerShutterV7FieldPath;
         return <div className="hose-component" key={field}><strong>{columnLabel}</strong>
           {definition ? <ResultSelector<FireRatedRollerShutterResult> definition={definition} label={`${columnLabel} result`} value={result} readOnly={readOnly} onChange={(value) => updateRow(row.rowUuid, { [field]: value })} /> : <p className="error-text">Fire Rated Roller Shutter V7 definition is unavailable.</p>}
-          {finding ? <section><RemarksField label={`${columnLabel} Remark *`} definition={remarks} value={row.fieldRemarks?.[field] ?? ""} readOnly={readOnly} onChange={(value) => updateRow(row.rowUuid, { fieldRemarks: { ...row.fieldRemarks, [field]: value } })} /><FireRatedRollerShutterV7EvidenceField record={record} fieldPath={fieldPath} attachment={evidenceFor(fieldPath)} onChanged={refreshPhotos} /></section> : null}
+          {finding ? <section><RemarksField label={`${columnLabel} Remark *`} definition={remarks} value={row.fieldRemarks?.[field] ?? ""} readOnly={readOnly} onChange={(value) => updateRow(row.rowUuid, { fieldRemarks: { ...row.fieldRemarks, [field]: value } })} /><FireRatedRollerShutterV7EvidenceField record={record} fieldPath={fieldPath} attachment={evidenceFor(fieldPath)} onChanged={refreshPhotos} /></section> : null}{isOptionalPhotoResult(result) && (!readOnly || evidenceFor(fieldPath)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor(fieldPath)} editable={!readOnly} onChanged={refreshPhotos}><FireRatedRollerShutterV7EvidenceField record={record} fieldPath={fieldPath} attachment={evidenceFor(fieldPath)} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
         </div>;
       })}
       <RemarksField label="Remarks" definition={remarks} value={row.remarks} readOnly={readOnly} onChange={(value) => updateRow(row.rowUuid, { remarks: value })} />

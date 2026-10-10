@@ -5,7 +5,7 @@ import { resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../../api/s
 import { resolvePublishedDryWetRiserControls } from "../src/dryWetRiser/dryWetRiserDefinition";
 import { submitIssues } from "../src/dryWetRiser/dryWetRiserRepository";
 import type { DryWetRiserInspectionRecord, LegacyDryWetRiserResponses, V7DryWetRiserResponses } from "../src/dryWetRiser/dryWetRiserTypes";
-import { v7DryWetRiserSubmissionIssues, v7RequiredDryWetRiserFieldPaths } from "../src/dryWetRiser/dryWetRiserV7Evidence";
+import { v7DryWetRiserManifest, v7DryWetRiserSubmissionIssues, v7OptionalDryWetRiserFieldPaths, v7RequiredDryWetRiserFieldPaths } from "../src/dryWetRiser/dryWetRiserV7Evidence";
 
 const uuid = "00000000-0000-4000-8000-000000000099";
 const hash = (value: string) => value.repeat(64);
@@ -140,6 +140,14 @@ test("web field paths match the Slice 1 server adapter for checklist, measuremen
   const paths = v7RequiredDryWetRiserFieldPaths(draft);
   assert.deepEqual(paths, [checkPath, measurementPath, rowPath]);
   for (const path of paths) assert.ok(adapter.isCanonicalFieldPath(path));
+  // CR-01: the optional (Good / N.A.) paths agree with the server adapter, and a photo kept on one rides in the manifest.
+  const server = adapter.derivePhotoFieldPaths(draft)!;
+  assert.deepEqual(v7OptionalDryWetRiserFieldPaths(draft), server.optional);
+  assert.deepEqual(paths, server.required);
+  const kept = server.optional[0]!;
+  const keptPhoto = { systemKey: "dry_wet_riser", protocolVersion: 7, fieldPath: kept, sha256: "e".repeat(64), photoUuid: "00000000-0000-4000-8000-0000000000e1" };
+  assert.deepEqual(v7DryWetRiserManifest([keptPhoto] as never, draft).map((entry) => entry.fieldPath), [kept]);
+  assert.deepEqual(v7DryWetRiserManifest([], draft), []);
 });
 
 test("a V1-V6 Dry/Wet Riser record remains 2-state and submits unaffected by V7 evidence", () => {

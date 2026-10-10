@@ -6,7 +6,7 @@ import { resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../../api/s
 import { resolvePublishedHoseReelControls } from "../src/inspectionControls/definitionResolver";
 import { getHoseReelSubmitIssues, hoseReelTechnicianRowHasEnteredData, setHoseReelDrumCount } from "../src/hoseReel/hoseReelRepository";
 import type { HoseReelInspectionSnapshot, HoseReelResponses, MasterSystemInspectionRecord } from "../src/hoseReel/hoseReelTypes";
-import { v7HoseReelSubmissionIssues, v7RequiredHoseReelFieldPaths } from "../src/hoseReel/hoseReelV7Evidence";
+import { v7HoseReelManifest, v7HoseReelSubmissionIssues, v7OptionalHoseReelFieldPaths, v7RequiredHoseReelFieldPaths } from "../src/hoseReel/hoseReelV7Evidence";
 
 const uuid = "00000000-0000-4000-8000-000000000099";
 const hash = (value: string) => value.repeat(64);
@@ -121,6 +121,13 @@ test("web field paths match the Slice 1 server adapter for checklist and row fin
   assert.deepEqual(v7RequiredHoseReelFieldPaths(draft), [checkPath, rowPath]);
   assert.ok(adapter.isCanonicalFieldPath(checkPath));
   assert.ok(adapter.isCanonicalFieldPath(rowPath));
+  // CR-01: the optional (Good / N.A.) paths agree with the server adapter, and a photo kept on one rides in the manifest.
+  const server = adapter.derivePhotoFieldPaths(draft)!;
+  assert.deepEqual(v7OptionalHoseReelFieldPaths(draft), server.optional);
+  const kept = server.optional[0]!;
+  const keptPhoto = { systemKey: "hose_reel", protocolVersion: 7, fieldPath: kept, sha256: "e".repeat(64), photoUuid: "00000000-0000-4000-8000-0000000000e1" };
+  assert.deepEqual(v7HoseReelManifest([keptPhoto] as never, draft).map((entry) => entry.fieldPath), [kept]);
+  assert.deepEqual(v7HoseReelManifest([], draft), []);
 });
 
 // Sol P1-a (0.4b class) — `getHoseReelSubmitIssues()` did not mirror the

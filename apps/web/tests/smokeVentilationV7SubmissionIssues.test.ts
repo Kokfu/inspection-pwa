@@ -5,7 +5,7 @@ import { resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../../api/s
 import { submitIssues } from "../src/smokeVentilation/smokeVentilationRepository";
 import type { SmokeVentilationInspectionRecord, SmokeVentilationResponses } from "../src/smokeVentilation/smokeVentilationTypes";
 import { smokeVentilationChecklistFields } from "../src/smokeVentilation/smokeVentilationTypes";
-import { resolveSmokeVentilationChecklistDefinitions, resolveSmokeVentilationRowResultDefinitions, v7RequiredSmokeVentilationFieldPaths, v7SmokeVentilationSubmissionIssues } from "../src/smokeVentilation/smokeVentilationV7Evidence";
+import { resolveSmokeVentilationChecklistDefinitions, resolveSmokeVentilationRowResultDefinitions, v7OptionalSmokeVentilationFieldPaths, v7RequiredSmokeVentilationFieldPaths, v7SmokeVentilationManifest, v7SmokeVentilationSubmissionIssues } from "../src/smokeVentilation/smokeVentilationV7Evidence";
 
 const uuid = "00000000-0000-4000-8000-000000000099";
 const hash = (char: string) => char.repeat(64);
@@ -132,6 +132,13 @@ test("web Smoke Ventilation field paths exactly equal the server adapter's canon
   assert.ok(adapter, "Smoke Ventilation V7 server adapter must resolve");
   const draft = withFindings();
   assert.deepEqual(v7RequiredSmokeVentilationFieldPaths(draft), adapter.derivePoorFieldPaths(draft));
+  // CR-01: the optional (Good / N.A.) paths agree with the server adapter, and a photo kept on one rides in the manifest.
+  const server = adapter.derivePhotoFieldPaths(draft)!;
+  assert.deepEqual(v7OptionalSmokeVentilationFieldPaths(draft), server.optional);
+  assert.ok(server.optional.length > 0, "the draft has Good / N.A. fields");
+  const kept = server.optional[0]!;
+  assert.deepEqual(v7SmokeVentilationManifest([attachment(kept, hash("e"))] as never, draft).map((entry) => entry.fieldPath), [kept]);
+  assert.deepEqual(v7SmokeVentilationManifest([], draft), []);
   for (const path of v7RequiredSmokeVentilationFieldPaths(draft)) assert.equal(adapter.isCanonicalFieldPath(path), true, path);
   assert.equal(adapter.isCanonicalFieldPath(`fan_schedule.fan_schedule_rows.rows.${uuid}.remarks`), false);
   assert.equal(adapter.isCanonicalFieldPath(checklistPath("control_panel_no")), false);

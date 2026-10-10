@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type {
@@ -36,6 +37,19 @@ export function v7RequiredDryWetRiserFieldPaths(responses: V7DryWetRiserResponse
   for (const row of responses.riserOutlets) for (const field of riserOutletResultFields) if (isDryWetRiserV7EvidenceFinding(row[field])) paths.push(`riser_outlet.riser_outlet_rows.rows.${row.rowUuid}.${field}`);
   return paths.sort();
 }
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalDryWetRiserFieldPaths(responses: V7DryWetRiserResponses): DryWetRiserV7FieldPath[] {
+  const paths: DryWetRiserV7FieldPath[] = [];
+  for (const key of checklistKeys) if (isOptionalPhotoResult(responses.checklist[key]?.result)) paths.push(`dry_wet_riser_checks.${key}`);
+  for (const key of measurementKeys) if (isOptionalPhotoResult(responses.measurements[key].result)) paths.push(`dry_wet_riser_measurements.${key}`);
+  for (const row of responses.riserOutlets) for (const field of riserOutletResultFields) if (isOptionalPhotoResult(row[field])) paths.push(`riser_outlet.riser_outlet_rows.rows.${row.rowUuid}.${field}`);
+  return paths.sort();
+}
+/** CR-01: required (findings) plus the Good / N.A. fields that currently hold a photo: the paths a manifest may contain. */
+export function v7DryWetRiserEvidencePaths(responses: V7DryWetRiserResponses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>): string[] {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return [...v7RequiredDryWetRiserFieldPaths(responses), ...v7OptionalDryWetRiserFieldPaths(responses).filter((fieldPath) => held.has(fieldPath))];
+}
 
 export async function listDryWetRiserV7Photos(inspectionClientUuid: string) {
   return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray())
@@ -43,7 +57,7 @@ export async function listDryWetRiserV7Photos(inspectionClientUuid: string) {
 }
 
 export function v7DryWetRiserManifest(attachments: InspectionAttachmentRecord[], responses: V7DryWetRiserResponses) {
-  const required = new Set(v7RequiredDryWetRiserFieldPaths(responses));
+  const required = new Set<string>(v7DryWetRiserEvidencePaths(responses, attachments));
   return attachments.filter((item) => item.systemKey === "dry_wet_riser" && item.protocolVersion === 7 && required.has(item.fieldPath as DryWetRiserV7FieldPath))
     .map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 }))
     .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
@@ -60,17 +74,17 @@ export function v7DryWetRiserSubmissionIssues(record: DryWetRiserInspectionRecor
   for (const key of checklistKeys) if (isDryWetRiserV7EvidenceFinding(responses.checklist[key]?.result) && !responses.checklist[key]?.remarks.trim()) issues.push(`${key} requires its own Remark`);
   for (const key of measurementKeys) if (isDryWetRiserV7EvidenceFinding(responses.measurements[key].result) && !responses.measurements[key].remarks.trim()) issues.push(`${key} requires its own Remark`);
   for (const row of responses.riserOutlets) for (const field of riserOutletResultFields) if (isDryWetRiserV7EvidenceFinding(row[field]) && !row.fieldRemarks?.[field]?.trim()) issues.push(`${rowFieldLabels[field]} requires its own Remark`);
-  const required = v7RequiredDryWetRiserFieldPaths(responses);
+  const required = v7RequiredDryWetRiserFieldPaths(responses); const evidencePaths = v7DryWetRiserEvidencePaths(responses, attachments); const optionalPaths = evidencePaths.filter((path) => !required.includes(path as never));
   const photos = attachments.filter((item) => item.systemKey === "dry_wet_riser" && item.protocolVersion === 7);
   const attached = new Set(photos.map((item) => item.fieldPath));
   for (const path of required) if (!attached.has(path)) issues.push(`${path} requires its own Photo`);
   const first = new Map<string, string>();
-  for (const photo of photos.filter((item) => required.includes(item.fieldPath as DryWetRiserV7FieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
+  for (const photo of photos.filter((item) => evidencePaths.includes(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const prior = first.get(photo.sha256);
-    if (prior) issues.push(`${prior} and ${photo.fieldPath} use the same photo; each finding needs its own photo`);
+    if (prior) issues.push(optionalPaths.includes(prior) || optionalPaths.includes(photo.fieldPath) ? `${prior} and ${photo.fieldPath} use the same photo; remove or replace one of them` : `${prior} and ${photo.fieldPath} use the same photo; each finding needs its own photo`);
     else first.set(photo.sha256, photo.fieldPath);
   }
-  issues.push(...submittedPhotoIssues(attachments, required));
+  issues.push(...submittedPhotoIssues(attachments, evidencePaths));
   return issues;
 }
 

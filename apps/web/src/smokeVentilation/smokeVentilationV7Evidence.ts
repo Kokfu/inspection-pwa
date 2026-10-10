@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { ResultControlDefinition } from "../inspectionControls/definitionTypes";
@@ -78,6 +79,22 @@ export function v7RequiredSmokeVentilationFieldPaths(responses: SmokeVentilation
   }
   return paths.sort();
 }
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalSmokeVentilationFieldPaths(responses: SmokeVentilationResponses): SmokeVentilationV7FieldPath[] {
+  const paths: SmokeVentilationV7FieldPath[] = [];
+  for (const [key] of smokeVentilationChecklistFields) {
+    if (isOptionalPhotoResult(responses.checklist[key]?.result)) paths.push(`smoke_ventilation_checks.${key}`);
+  }
+  for (const row of responses.rows) for (const [responseKey, wireKey] of smokeVentilationRowColumns) {
+    if (isOptionalPhotoResult(row[responseKey])) paths.push(`fan_schedule.fan_schedule_rows.rows.${row.rowUuid}.${wireKey}`);
+  }
+  return paths.sort();
+}
+/** CR-01: required (findings) plus the Good / N.A. fields that currently hold a photo: the paths a manifest may contain. */
+export function v7SmokeVentilationEvidencePaths(responses: SmokeVentilationResponses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>): string[] {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return [...v7RequiredSmokeVentilationFieldPaths(responses), ...v7OptionalSmokeVentilationFieldPaths(responses).filter((fieldPath) => held.has(fieldPath))];
+}
 
 export async function listSmokeVentilationV7Photos(inspectionClientUuid: string) {
   return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray())
@@ -85,7 +102,7 @@ export async function listSmokeVentilationV7Photos(inspectionClientUuid: string)
 }
 
 export function v7SmokeVentilationManifest(attachments: InspectionAttachmentRecord[], responses: SmokeVentilationResponses) {
-  const required = new Set(v7RequiredSmokeVentilationFieldPaths(responses));
+  const required = new Set<string>(v7SmokeVentilationEvidencePaths(responses, attachments));
   return attachments.filter((item) => item.systemKey === "smoke_ventilation" && item.protocolVersion === 7 && required.has(item.fieldPath as SmokeVentilationV7FieldPath))
     .map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 }))
     .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
@@ -97,11 +114,13 @@ export function v7SmokeVentilationEvidenceOutbox(attachment: InspectionAttachmen
 
 /** The server rejects source-hash reuse inside a job+system. Refuse it before
  * a local Pending record can be stranded behind an impossible acceptance. */
-export function duplicateSmokeVentilationV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[]) {
-  const required = new Set(requiredFieldPaths); const issues: string[] = []; const firstUse = new Map<string, string>();
+export function duplicateSmokeVentilationV7PhotoIssues(attachments: InspectionAttachmentRecord[], requiredFieldPaths: readonly string[], optionalFieldPaths: readonly string[] = []) {
+  const required = new Set(requiredFieldPaths); const optional = new Set(optionalFieldPaths); const issues: string[] = []; const firstUse = new Map<string, string>();
   for (const attachment of attachments.filter((item) => item.systemKey === "smoke_ventilation" && item.protocolVersion === 7 && required.has(item.fieldPath)).slice().sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const earlier = firstUse.get(attachment.sha256);
-    if (earlier) issues.push(`${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
+    if (earlier) issues.push(optional.has(earlier) || optional.has(attachment.fieldPath)
+      ? `${earlier} and ${attachment.fieldPath} use the same photo; remove or replace one of them`
+      : `${earlier} and ${attachment.fieldPath} use the same photo; each finding needs its own photo`);
     else firstUse.set(attachment.sha256, attachment.fieldPath);
   }
   return issues;
@@ -131,10 +150,12 @@ export function v7SmokeVentilationSubmissionIssues(record: SmokeVentilationInspe
     }
   }
   const required = v7RequiredSmokeVentilationFieldPaths(responses);
+  const evidencePaths = v7SmokeVentilationEvidencePaths(responses, attachments);
+  const optionalPaths = evidencePaths.filter((path) => !required.includes(path as never));
   const attachedFields = new Set(attachments.filter((item) => item.systemKey === "smoke_ventilation" && item.protocolVersion === 7).map((item) => item.fieldPath));
   for (const fieldPath of required) if (!attachedFields.has(fieldPath)) issues.push(`${fieldPath} requires its own Photo`);
-  issues.push(...duplicateSmokeVentilationV7PhotoIssues(attachments, required));
-  issues.push(...submittedPhotoIssues(attachments, required));
+  issues.push(...duplicateSmokeVentilationV7PhotoIssues(attachments, evidencePaths, optionalPaths));
+  issues.push(...submittedPhotoIssues(attachments, evidencePaths));
   return issues;
 }
 

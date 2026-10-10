@@ -138,7 +138,9 @@ test("distinct photos on two findings raise no issue", () => {
   ]), []);
 });
 
-test("a photo left over on a field that is no longer a finding does not count as a duplicate", () => {
+// CR-01 (deliberate change): a photo left on a field that is now Good / N.A. is that field's OPTIONAL photo, so it is in the
+// manifest and the server refuses the same bytes on two fields of one Job+system.
+test("CR-01: the same photo on a finding and on a Good field is refused with a remove-or-replace message; a distinct one is fine", () => {
   const draft = responses({
     chargerAndBatteries: {
       main_supply: { result: "not_good", remarks: "Supply low" },
@@ -146,10 +148,17 @@ test("a photo left over on a field that is no longer a finding does not count as
       charger: { result: "good", remarks: "" }
     }
   });
-  assert.deepEqual(v7FireAlarmSubmissionIssues(draft, [
+  const issues = v7FireAlarmSubmissionIssues(draft, [
     attachment("charger_batteries.charger_battery_checks.main_supply", "bytes-a"),
     attachment("charger_batteries.charger_battery_checks.battery", "bytes-a")
-  ]), []);
+  ]);
+  assert.equal(issues.length, 1, JSON.stringify(issues));
+  assert.match(issues[0]!, /use the same photo; remove or replace one of them/);
+  assert.deepEqual(v7FireAlarmSubmissionIssues(draft, [
+    attachment("charger_batteries.charger_battery_checks.main_supply", "bytes-a"),
+    attachment("charger_batteries.charger_battery_checks.battery", "bytes-b")
+  ]), [], "a distinct optional photo raises no issue");
+  assert.deepEqual(v7FireAlarmSubmissionIssues(draft, [attachment("charger_batteries.charger_battery_checks.main_supply", "bytes-a")]), [], "a missing optional photo is never an issue");
 });
 
 test("each V7 finding state requires its own remark and photo", () => {

@@ -90,7 +90,7 @@ plus the following. See `v7-evidence-acceptance` for the full contract.
 4. Stale evidence. A photo whose path is not a finding or a Good / N.A. field of
    the CURRENT response must not enter the manifest, create an outbox item or
    block acceptance. CR-01: a Poor photo on a field flipped to Good / N.A. is
-   KEPT as that field's optional photo (migrated systems; see
+   KEPT as that field's optional photo (every V7 web form except Automatic Sprinkler; see
    `v7-evidence-acceptance`), and a missing optional photo never blocks.
 5. Staging is idempotent on `photoUuid` + a canonical request fingerprint over
    the immutable identity. Re-staging identical bytes = duplicate success;

@@ -3,7 +3,7 @@ import test from "node:test";
 import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7";
 import { submitIssues } from "../src/fireRatedRollerShutter/fireRatedRollerShutterRepository";
 import type { FireRatedRollerShutterInspectionRecord, FireRatedRollerShutterResponses } from "../src/fireRatedRollerShutter/fireRatedRollerShutterTypes";
-import { v7RequiredFireRatedRollerShutterFieldPaths } from "../src/fireRatedRollerShutter/fireRatedRollerShutterV7Evidence";
+import { v7FireRatedRollerShutterManifest, v7OptionalFireRatedRollerShutterFieldPaths, v7RequiredFireRatedRollerShutterFieldPaths } from "../src/fireRatedRollerShutter/fireRatedRollerShutterV7Evidence";
 
 const rowUuid = "00000000-0000-4000-8000-000000000b01";
 const definition = masterServiceReportV7.systems.find((system) => system.key === "fire_rated_roller_shutter")!;
@@ -35,6 +35,19 @@ test("each roller shutter finding needs its own remark and distinct photo", () =
   assert.ok(submitIssues(inspection, draft, [photo(paths[0]!, "a".repeat(64))]).some((issue) => issue.includes("requires its own Photo")));
   assert.ok(submitIssues(inspection, draft, paths.map((path) => photo(path, "a".repeat(64)))).some((issue) => issue.includes("same photo")));
   assert.deepEqual(submitIssues(inspection, draft, [photo(paths[0]!, "a".repeat(64)), photo(paths[1]!, "b".repeat(64))]), []);
+});
+
+test("CR-01: a Good / N.A. shutter result may carry one optional photo; it never blocks and a duplicate is told to remove or replace", () => {
+  const draft = response(); draft.rows[0]!.manualModeResult = "na";
+  const optional = v7OptionalFireRatedRollerShutterFieldPaths(draft);
+  assert.equal(optional.length, 2);
+  assert.deepEqual(v7RequiredFireRatedRollerShutterFieldPaths(draft), []);
+  assert.deepEqual(submitIssues(inspection, draft, []), [], "a missing optional photo never blocks");
+  assert.deepEqual(submitIssues(inspection, draft, [photo(optional[0]!, "a".repeat(64))]), [], "an optional photo is fine");
+  assert.deepEqual(v7FireRatedRollerShutterManifest([{ ...photo(optional[0]!, "a".repeat(64)), photoUuid: "00000000-0000-4000-8000-0000000000e1" }] as never, draft).map((entry) => entry.fieldPath), [optional[0]]);
+  const duplicate = submitIssues(inspection, draft, optional.map((path) => photo(path, "a".repeat(64))));
+  assert.equal(duplicate.length, 1, JSON.stringify(duplicate));
+  assert.match(duplicate[0]!, /use the same photo; remove or replace one of them/);
 });
 
 // ---- Phase 2: schema-2 zone headings must match the server's validResponses / configured-row match -------------

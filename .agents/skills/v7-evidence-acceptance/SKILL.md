@@ -118,13 +118,16 @@ to. Manifest entry shape (see `co2FormInstanceSync.ts` `manifestKeys`):
    Blob in IndexedDB — a photo whose path is neither a finding nor a good / na
    field of the current response (unknown path, a row the response does not
    contain) is never in the manifest.
-2. CR-01 (pilot: CO2 + Wet Chemical web; the server contract covers all 11 V7
-   systems): if a field was Poor with a photo and is then changed to `good` or
-   `na` before freeze, the photo is KEPT as that field's optional photo — it
+2. CR-01 (server contract: all 11 V7 systems; web: CO2, Wet Chemical, Fire Alarm,
+   Hydrant, Hose Reel, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller
+   Shutter, FM200): if a field was Poor with a photo and is then changed to `good`
+   or `na` before freeze, the photo is KEPT as that field's optional photo — it
    stays in the frozen manifest, is staged, and appears in Accepted Detail and
-   the Final Report. The technician's "Remove" deletes it (Draft only). Systems
-   whose web form has not been migrated yet still drop such a photo from their
-   own manifest; the server accepts both shapes.
+   the Final Report. The technician's "Remove" deletes it (Draft only). The
+   Automatic Sprinkler web form is the one V7 form not migrated yet: it still
+   drops such a photo from its own manifest; the server accepts both shapes.
+   Each web form wraps its system's existing evidence field in the shared
+   `OptionalPhotoSlot` (`apps/web/src/attachments/`); never invent a second capture path.
 3. Two findings A and B, then A becomes `good` -> A's photo is A's optional
    photo, B's stays required; the manifest holds both unless A's is removed.
 4. Once a Pending record is frozen, later Draft edits must not mutate the

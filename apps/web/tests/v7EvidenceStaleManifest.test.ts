@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { v7EvidenceManifest, v7EvidenceOutbox, v7OptionalFieldPaths, v7RequiredFieldPaths } from "../src/co2/v7Evidence.ts";
-import { v7FireAlarmEvidenceOutbox, v7FireAlarmManifest, v7RequiredFireAlarmFieldPaths } from "../src/fireAlarm/fireAlarmV7Evidence.ts";
+import { v7FireAlarmEvidenceOutbox, v7FireAlarmManifest, v7OptionalFireAlarmFieldPaths, v7RequiredFireAlarmFieldPaths } from "../src/fireAlarm/fireAlarmV7Evidence.ts";
 
 const hash = (char: string) => char.repeat(64);
 const attachment = (fieldPath: string, suffix: string) => ({ photoUuid: `00000000-0000-4000-8000-0000000000${suffix}`, inspectionClientUuid: "00000000-0000-4000-8000-000000000090", systemKey: "co2_fire_extinguisher", localCreatedAt: "2026-09-02T00:00:00.000Z", fieldPath, sha256: hash(suffix), protocolVersion: 7 });
 const suppressionResponses = (resultA: "not_good" | "good" | "complete_repair" | "na", cylinder: string): any => ({ chargerAndBatteries: { main_supply: { result: resultA, remarks: "A" }, battery: { result: "good", remarks: "" }, charger: { result: "good", remarks: "" } }, physicalOutlook: { [cylinder]: { result: "complete_repair", remarks: "B" } }, mainFunctionKeys: { lamp_test: { result: "good", remarks: "" } } });
 const fireResponses = (resultA: "not_good" | "good" | "complete_repair" | "na"): any => ({ chargerAndBatteries: { main_supply: { result: resultA, remarks: "A" }, battery: { result: "good", remarks: "" }, charger: { result: "good", remarks: "" } }, mainFunctionKeys: { main_alarm_reset: { result: "good", remarks: "" } }, secondaryAlarmDeviceRows: [{ rowUuid: "00000000-0000-4000-8000-000000000099", alarmBell: "not_good", manualCallPoint: "good", fieldRemarks: { alarmBell: "B" } }] });
 
-test("V7 stale-draft evidence matrix: a flipped Poor photo is kept as the optional photo (CR-01); Fire Alarm is unchanged; Pending authority is frozen", () => {
+test("V7 stale-draft evidence matrix: a flipped Poor photo is kept as the optional photo (CR-01); Fire Alarm keeps it too; Pending authority is frozen", () => {
   for (const [system, cylinder] of [["CO2", "co2_cylinder"], ["Wet Chemical", "wet_chemical_cylinder"]] as const) {
     const fieldB = `physical_outlook.physical_outlook_checks.${cylinder}`;
     const photos = [attachment("charger_batteries.charger_battery_checks.main_supply", system === "CO2" ? "01" : "11"), attachment(fieldB, system === "CO2" ? "02" : "12")];
@@ -33,9 +33,12 @@ test("V7 stale-draft evidence matrix: a flipped Poor photo is kept as the option
   const firePhotos = [attachment("charger_batteries.charger_battery_checks.main_supply", "03"), attachment(`alarm_devices.alarm_device_rows.rows.${rowUuid}.alarm_bell`, "04")];
   for (const next of ["good", "na"] as const) {
     const responses = fireResponses(next); const manifest = v7FireAlarmManifest(firePhotos as never, responses);
-    assert.deepEqual(manifest.map((item) => item.fieldPath), [`alarm_devices.alarm_device_rows.rows.${rowUuid}.alarm_bell`], `Fire Alarm Poor→${next} excludes stale photo from frozen manifest/outbox`);
+    // CR-01 (deliberate change): Fire Alarm now keeps a Poor photo flipped to Good / N.A. as that field's optional photo.
+    assert.deepEqual(manifest.map((item) => item.fieldPath), [firePhotos[0]!.fieldPath, `alarm_devices.alarm_device_rows.rows.${rowUuid}.alarm_bell`].sort(), `Fire Alarm Poor→${next} keeps the photo as the optional photo`);
     assert.deepEqual(v7RequiredFireAlarmFieldPaths(responses), [`alarm_devices.alarm_device_rows.rows.${rowUuid}.alarm_bell`]);
-    assert.deepEqual(manifest.map((item) => v7FireAlarmEvidenceOutbox(firePhotos.find((photo) => photo.photoUuid === item.photoUuid)! as never).entityId), [firePhotos[1]!.photoUuid], "Fire Alarm submits/stages no stale-evidence outbox item");
+    assert.ok(v7OptionalFireAlarmFieldPaths(responses).includes(firePhotos[0]!.fieldPath as never), "the flipped field is photo-eligible");
+    assert.deepEqual(manifest.map((item) => v7FireAlarmEvidenceOutbox(firePhotos.find((photo) => photo.photoUuid === item.photoUuid)! as never).entityId).sort(), firePhotos.map((photo) => photo.photoUuid).sort(), "Fire Alarm stages the kept optional photo too");
+    assert.deepEqual(v7FireAlarmManifest([firePhotos[1]!] as never, responses).map((item) => item.fieldPath), [`alarm_devices.alarm_device_rows.rows.${rowUuid}.alarm_bell`], "after Remove only the required photo remains");
   }
   const firePending = structuredClone({ responses: fireResponses("not_good"), evidenceManifest: v7FireAlarmManifest(firePhotos as never, fireResponses("not_good")) });
   assert.equal(firePending.responses.chargerAndBatteries.main_supply.result, "not_good");

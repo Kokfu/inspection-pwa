@@ -4,7 +4,7 @@ import { masterServiceReportV7 } from "../../api/src/inspections/templates/maste
 import { resolveV7EvidenceContract, v7EvidenceContractSha256 } from "../../api/src/inspections/evidence/v7EvidenceContracts";
 import { submitIssues } from "../src/fireIntercom/fireIntercomRepository";
 import type { FireIntercomInspectionRecord, FireIntercomResponses } from "../src/fireIntercom/fireIntercomTypes";
-import { resolveFireIntercomRowResultDefinitions, v7FireIntercomSubmissionIssues, v7RequiredFireIntercomFieldPaths } from "../src/fireIntercom/fireIntercomV7Evidence";
+import { resolveFireIntercomRowResultDefinitions, v7FireIntercomManifest, v7FireIntercomSubmissionIssues, v7OptionalFireIntercomFieldPaths, v7RequiredFireIntercomFieldPaths } from "../src/fireIntercom/fireIntercomV7Evidence";
 
 const rowA = "00000000-0000-4000-8000-000000000099";
 const rowB = "00000000-0000-4000-8000-00000000009a";
@@ -65,15 +65,15 @@ test("one photo reused across two station-row findings is refused before it can 
   assert.ok(issues.some((issue) => issue.includes(rowPath(rowA)) && issue.includes(rowPath(rowB))), `the issue must name both findings: ${JSON.stringify(issues)}`);
 });
 
-test("a stale Fire Intercom finding reverted to good or na is excluded from the gate", () => {
+test("CR-01: a Fire Intercom finding reverted to good or na keeps its photo as the optional photo and never blocks the gate", () => {
   for (const value of ["good", "na"] as const) {
     const draft = withFindings();
     draft.rows[0]!.conditionResult = value;
     draft.rows[0]!.fieldRemarks = {};
     draft.rows[1]!.conditionResult = value;
     draft.rows[1]!.fieldRemarks = {};
-    // Both photos linger in IndexedDB but neither row is a finding any more.
-    assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, bothPhotos()), [], `${value} must exclude stale evidence`);
+    // Both photos are now optional photos on Good / N.A. fields.
+    assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, bothPhotos()), [], `${value} keeps the photos as optional evidence`);
   }
 });
 
@@ -126,6 +126,14 @@ test("web Fire Intercom field paths exactly equal the server adapter's canonical
   assert.ok(adapter, "Fire Intercom V7 server adapter must resolve");
   const draft = withFindings();
   assert.deepEqual(v7RequiredFireIntercomFieldPaths(draft), adapter.derivePoorFieldPaths(draft));
+  // CR-01: the optional (Good / N.A.) paths agree with the server adapter, and a photo kept on one rides in the manifest.
+  const mixed = structuredClone(draft); mixed.rows[0]!.conditionResult = "good"; mixed.rows[0]!.fieldRemarks = {};
+  const server = adapter.derivePhotoFieldPaths(mixed)!;
+  assert.deepEqual(v7OptionalFireIntercomFieldPaths(mixed), server.optional);
+  assert.ok(server.optional.length > 0, "the draft has Good / N.A. fields");
+  const kept = server.optional[0]!;
+  assert.deepEqual(v7FireIntercomManifest([attachment(kept, hash("e"))] as never, mixed).map((entry) => entry.fieldPath), [kept]);
+  assert.deepEqual(v7FireIntercomManifest([], mixed), []);
   for (const path of v7RequiredFireIntercomFieldPaths(draft)) assert.equal(adapter.isCanonicalFieldPath(path), true, path);
   // Fire Intercom has no checklist and no header fields, so nothing but the row
   // Condition column may ever be canonical.
@@ -288,14 +296,16 @@ test("Sol P1: client submit gate now rejects every shape the server's validRespo
 
 // I-21: a photo that has left Draft may already be staged on the server (immutable there). If the findings no
 // longer need it, acceptance would see EXTRA staged evidence forever - only a corrected copy can drop it.
-test("a submitted photo that the findings no longer need blocks submit and points to a corrected copy", () => {
+test("CR-01: a submitted photo on a field now Good / N.A. is its optional photo; a submitted photo on a row that no longer exists still blocks and points to a corrected copy", () => {
   const draft = withFindings();
   draft.rows[0]!.conditionResult = "good";
   draft.rows[0]!.fieldRemarks = {};
   const photos = bothPhotos().map((item) => ({ ...item, syncStatus: "Synced" })) as unknown as ReturnType<typeof bothPhotos>;
-  const issues = v7FireIntercomSubmissionIssues(record, draft, photos);
-  assert.ok(issues.some((issue) => issue.includes(rowPath(rowA)) && /no longer needed/.test(issue) && /Start corrected copy/.test(issue)), JSON.stringify(issues));
-  assert.equal(issues.filter((issue) => /no longer needed/.test(issue)).length, 1, "only the dropped field is flagged");
+  assert.deepEqual(v7FireIntercomSubmissionIssues(record, draft, photos), [], "kept in the manifest as the optional photo, so it is not stale");
+  const orphan = [...photos, { ...attachment(rowPath("00000000-0000-4000-8000-0000000000ff"), hash("c")), syncStatus: "Synced" }] as unknown as ReturnType<typeof bothPhotos>;
+  const issues = v7FireIntercomSubmissionIssues(record, draft, orphan);
+  assert.ok(issues.some((issue) => issue.includes("0000000000ff") && /no longer needed/.test(issue) && /Start corrected copy/.test(issue)), JSON.stringify(issues));
+  assert.equal(issues.filter((issue) => /no longer needed/.test(issue)).length, 1, "only the orphaned field is flagged");
 });
 
 test("submitted photos that are still required raise no corrected-copy issue", () => {

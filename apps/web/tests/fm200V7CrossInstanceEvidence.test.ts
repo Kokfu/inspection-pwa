@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   collectV7SiblingEvidence,
   crossInstanceV7PhotoClash,
+  v7EvidenceManifest,
+  v7OptionalFieldPaths,
   v7RequiredFieldPaths,
   v7SubmissionIssues,
   type V7EvidenceSource
@@ -108,14 +110,18 @@ test("the capture-time guard refuses the same bytes and names the other location
   assert.equal(crossInstanceV7PhotoClash("other-bytes", siblings), undefined);
 });
 
-test("a sibling photo left on a field that is no longer a finding does not block", async () => {
-  // Location A's cylinder was reverted to good: the photo is stale, is excluded
-  // from A's manifest by v7EvidenceManifest and is never staged for acceptance.
-  const staleA = record({ clientUuid: "a", groupKey: FM200_GROUP, displaySequence: 1, locationName: "FM200 Room A" });
-  assert.deepEqual(v7RequiredFieldPaths(staleA.responses), [MAIN_SUPPLY]);
+test("CR-01: a sibling photo kept on a Good field is that sibling's optional photo, so it DOES clash with a finding photo of the same bytes", async () => {
+  // Location A's cylinder is Good but still holds a photo: before CR-01 it was stale and excluded from A's manifest; now it is
+  // A's optional photo, is staged, and the server holds its bytes against this Job+system.
+  const keptA = record({ clientUuid: "a", groupKey: FM200_GROUP, displaySequence: 1, locationName: "FM200 Room A" });
+  assert.deepEqual(v7RequiredFieldPaths(keptA.responses), [MAIN_SUPPLY]);
   const attachments = [attachment("a", CYLINDER, "same-bytes"), attachment("b", MAIN_SUPPLY, "same-bytes")];
-  const siblings = await collectV7SiblingEvidence(locationB, source([staleA, locationB], attachments));
-  assert.deepEqual(v7SubmissionIssues(locationB, locationB.responses, [attachments[1]], siblings), []);
+  const siblings = await collectV7SiblingEvidence(locationB, source([keptA, locationB], attachments));
+  const issues = v7SubmissionIssues(locationB, locationB.responses, [attachments[1]], siblings);
+  assert.equal(issues.length, 1, JSON.stringify(issues));
+  assert.match(issues[0]!, /use the same photo; remove or replace one of them/);
+  assert.ok(issues[0]!.includes("FM200 Room A"), "the other location is named");
+  assert.deepEqual(crossInstanceV7PhotoClash("same-bytes", siblings), { locationLabel: "FM200 Room A", fieldPath: CYLINDER, sha256: "same-bytes" });
 });
 
 test("a different system key in the same Job may reuse the same bytes", async () => {
@@ -145,4 +151,14 @@ test("distinct photos across two locations raise no issue", async () => {
   const attachments = [attachment("a", MAIN_SUPPLY, "bytes-a"), attachment("b", MAIN_SUPPLY, "bytes-b")];
   const siblings = await collectV7SiblingEvidence(locationB, source([locationA, locationB], attachments));
   assert.deepEqual(v7SubmissionIssues(locationB, locationB.responses, [attachments[1]], siblings), []);
+});
+
+test("CR-01: FM200 keeps a photo on a Good / N.A. field as the optional photo in the manifest; a missing one never blocks", () => {
+  const draft = responses();
+  const optional = v7OptionalFieldPaths(draft);
+  assert.ok(optional.includes(CYLINDER as never) && !optional.includes(MAIN_SUPPLY as never), "Good / N.A. fields are optional, the finding is not");
+  const photos = [attachment("b", CYLINDER, "kept-bytes"), attachment("b", MAIN_SUPPLY, "finding-bytes")];
+  assert.deepEqual(v7EvidenceManifest(photos as never, draft).map((entry) => entry.fieldPath), [CYLINDER, MAIN_SUPPLY].sort());
+  assert.deepEqual(v7EvidenceManifest([photos[1]!] as never, draft).map((entry) => entry.fieldPath), [MAIN_SUPPLY]);
+  assert.deepEqual(v7SubmissionIssues(locationB, draft, [photos[1]!], []), [], "no optional photo, no issue");
 });

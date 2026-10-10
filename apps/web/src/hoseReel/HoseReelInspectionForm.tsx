@@ -27,6 +27,8 @@ import {
 } from "./hoseReelTypes";
 import { inspectionSyncMessage } from "../uiPresentation";
 import { HoseReelV7EvidenceField } from "./HoseReelV7EvidenceField";
+import { OptionalPhotoSlot } from "../attachments/OptionalPhotoSlot";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import {
   isHoseReelV7EvidenceFinding,
   listHoseReelV7Photos,
@@ -362,7 +364,7 @@ export function HoseReelInspectionForm({
                 attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
                 onChanged={refreshPhotos}
               />
-            ) : null}
+            ) : null}{isV7 && isOptionalPhotoResult(responses.checklist[definition.key]?.result) && (!readOnly || evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
           </div>
           );
         })}
@@ -400,7 +402,7 @@ export function HoseReelInspectionForm({
                 attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
                 onChanged={refreshPhotos}
               />
-            ) : null}
+            ) : null}{isV7 && isOptionalPhotoResult(responses.checklist[definition.key]?.result) && (!readOnly || evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
           </div>
           );
         })}
@@ -446,7 +448,7 @@ export function HoseReelInspectionForm({
               attachment={evidenceFor("hose_reel_measurements.jockey_pump_pressure")}
               onChanged={refreshPhotos}
             />
-          ) : null}
+          ) : null}{isV7 && isOptionalPhotoResult(responses.measurements.jockey_pump_pressure.result) && (!readOnly || evidenceFor("hose_reel_measurements.jockey_pump_pressure")) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor("hose_reel_measurements.jockey_pump_pressure")} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath="hose_reel_measurements.jockey_pump_pressure" attachment={evidenceFor("hose_reel_measurements.jockey_pump_pressure")} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
         </div>
         <div
           className={`measurement-card ${invalidTargets.has("standby-measurement") ? "field-invalid" : ""}`}
@@ -487,7 +489,7 @@ export function HoseReelInspectionForm({
               attachment={evidenceFor("hose_reel_measurements.standby_pump_cut_in")}
               onChanged={refreshPhotos}
             />
-          ) : null}
+          ) : null}{isV7 && isOptionalPhotoResult(responses.measurements.standby_pump_cut_in.result) && (!readOnly || evidenceFor("hose_reel_measurements.standby_pump_cut_in")) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor("hose_reel_measurements.standby_pump_cut_in")} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath="hose_reel_measurements.standby_pump_cut_in" attachment={evidenceFor("hose_reel_measurements.standby_pump_cut_in")} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
         </div>
       </fieldset>
 
@@ -524,7 +526,7 @@ export function HoseReelInspectionForm({
                   attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)}
                   onChanged={refreshPhotos}
                 />
-              ) : null}
+              ) : null}{isOptionalPhotoResult(responses.checklist[definition.key]?.result) && (!readOnly || evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath={`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath} attachment={evidenceFor(`hose_reel_checks.${definition.key}` as HoseReelV7FieldPath)} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
             </div>
             );
           })}
@@ -685,7 +687,7 @@ export function HoseReelInspectionForm({
                         onChanged={refreshPhotos}
                       />
                     </section>
-                  ) : null}
+                  ) : null}{isV7 && isOptionalPhotoResult(result) && (!readOnly || evidenceFor(fieldPath)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={evidenceFor(fieldPath)} editable={!readOnly} onChanged={refreshPhotos}><HoseReelV7EvidenceField record={record} fieldPath={fieldPath} attachment={evidenceFor(fieldPath)} onChanged={refreshPhotos} /></OptionalPhotoSlot> : null}
                 </div>
                 );
               })}
