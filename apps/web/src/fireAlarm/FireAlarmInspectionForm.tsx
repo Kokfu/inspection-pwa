@@ -1,3 +1,4 @@
+import { isRetiredRepair, retiredRepairLabel, selectableResultOptions } from "../inspectionControls/resultEntryPolicy";
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useState } from "react";
 import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
@@ -32,7 +33,9 @@ const goodPoorV6Options: Array<[GoodPoor, string]> = [["good", "Good"], ["poor",
 const isV7EvidenceFinding = (value: unknown) => value === "not_good" || value === "complete_repair";
 
 function Select<T extends string>({ label, value, options, onChange, disabled = false }: { label: string; value: T | null; options: Array<[T, string]>; onChange: (value: T | null) => void; disabled?: boolean }) {
-  return <label>{label}<select aria-label={label} value={value ?? ""} disabled={disabled} onChange={(event) => onChange(event.target.value === "" ? null : event.target.value as T)}><option value="">Select</option>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>;
+  const retired = isRetiredRepair(value);
+  // REPAIR-DISABLED (CR-09): original unfiltered choices: options.map(([key, text]) => <option key={key} value={key}>{text}</option>)
+  return <label>{label}{retired ? <span>{disabled ? "Complete Repair" : retiredRepairLabel}</span> : null}<select aria-label={label} value={retired ? "" : value ?? ""} disabled={disabled} onChange={(event) => onChange(event.target.value === "" ? null : event.target.value as T)}><option value="">Select</option>{selectableResultOptions(options, ([key]) => key).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>;
 }
 
 export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onStartCorrectedCopy, onRecordChange }: Props) {

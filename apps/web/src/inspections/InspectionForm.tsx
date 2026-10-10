@@ -1,3 +1,4 @@
+import { isRetiredRepair, retiredRepairLabel, selectableResultOptions } from "../inspectionControls/resultEntryPolicy";
 import { useEffect, useState } from "react";
 import type { InspectionRecord } from "../db/localDatabase";
 import { sampleInspectionJob, sampleInspectionTemplateSnapshot } from "./sampleInspection";
@@ -100,10 +101,11 @@ export function InspectionForm({
             <label>
               <span>{item.label}{item.required ? " (required)" : ""}</span>
               {item.responseType === "status" ? (
-                <select value={values.responses[item.itemId]?.value ?? ""} onChange={(event) => updateResponse(item.itemId, "value", event.target.value)}>
+                <>{isRetiredRepair(values.responses[item.itemId]?.value) ? <span>{retiredRepairLabel}</span> : null}<select value={isRetiredRepair(values.responses[item.itemId]?.value) ? "" : values.responses[item.itemId]?.value ?? ""} onChange={(event) => updateResponse(item.itemId, "value", event.target.value)}>
                   <option value="">Select status</option>
-                  {item.options.map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
-                </select>
+                  {/* // REPAIR-DISABLED (CR-09): original unfiltered choices: item.options.map((option) => */}
+                  {selectableResultOptions(item.options, (option) => option).map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
+                </select></>
               ) : (
                 <input type={item.responseType === "number" ? "number" : "text"} value={values.responses[item.itemId]?.value ?? ""} onChange={(event) => updateResponse(item.itemId, "value", event.target.value)} />
               )}

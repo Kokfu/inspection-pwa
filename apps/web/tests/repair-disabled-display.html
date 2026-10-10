@@ -1,0 +1,11 @@
+<!doctype html><html><body><div id="accepted"></div><div id="report"></div><script type="module">
+import * as React from "react";
+import {createRoot} from "react-dom/client";
+import {ServerFireIntercomView} from "/src/fireIntercom/ServerFireIntercomView.tsx";
+import {FinalReportPresentation} from "/src/jobs/FinalReportPresentation.tsx";
+globalThis.fetch=async()=>new Response(JSON.stringify({evidence:[]}),{headers:{"Content-Type":"application/json"}});
+const inspection={clientUuid:"c0000000-0000-4000-8000-000000000841",jobReference:"CR09",jobTitle:"Existing accepted inspection",customerName:"Customer",systemLabel:"Fire Intercom",performedAt:"2026-10-10T01:00:00.000Z",syncedByUsername:"technician",responses:{schemaVersion:1,rows:[{rowUuid:"row-1",assetReference:"Station 1",conditionResult:"complete_repair",remarks:"",fieldRemarks:{conditionResult:"Previously repaired"}}],comments:""}};
+createRoot(document.querySelector("#accepted")).render(React.createElement(ServerFireIntercomView,{inspection,onBack:()=>{}}));
+const report={customer:"Customer",site:"Site",serviceDate:"2026-10-10",jobReference:"CR09",completedAt:"2026-10-10T01:00:00.000Z",completedBy:"technician",systems:[{systemKey:"fire_intercom",label:"Fire Intercom",status:"Accepted",locations:["Station 1"],condition:"REFER DETAIL PAGE"}],sections:[{systemKey:"fire_intercom",label:"Fire Intercom",fields:[{label:"Condition",value:"Complete Repair",depth:1}],evidence:[]}]};
+createRoot(document.querySelector("#report")).render(React.createElement(FinalReportPresentation,{report}));
+</script></body></html>

@@ -186,7 +186,8 @@ test("leaving with unsaved corrections asks first", async ({ page }) => {
   expect(dialogs).toHaveLength(2);
 });
 
-test("a conflicting correction is reported and nothing is claimed as saved", async ({ page }) => {
+// REPAIR-DISABLED (CR-09): retained Complete Repair conflict case; owner retired new selection.
+test.skip("a conflicting correction is reported and nothing is claimed as saved", async ({ page }) => {
   await installApi(page, { conflict: true });
   await openVisit(page);
   await page.getByRole("button", { name: "Review / correct" }).click();
@@ -288,4 +289,15 @@ test("a save that lands but cannot refresh says so instead of claiming a clean s
   await expect(page.getByText("Corrections saved, but this screen could not refresh.", { exact: false })).toBeVisible();
   // The write landed, so the supervisor stays on the screen rather than being thrown out of Manager.
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
+});
+
+test("a Not Good conflicting correction is reported and nothing is claimed as saved", async ({ page }) => {
+  await installApi(page, { conflict: true });
+  await openVisit(page);
+  await page.getByRole("button", { name: "Review / correct" }).click();
+  await page.locator(".manager-wording-label-row", { hasText: "Main Supply › Result" }).getByRole("button", { name: "Not Good" }).click();
+  await page.getByLabel(/Reason for these corrections/).fill("Repaired during the follow-up visit");
+  await page.getByRole("button", { name: "Save corrections" }).click();
+  await expect(page.getByRole("alert")).toContainText("The inspection changed since you opened it");
+  await expect(page.getByText("Corrections saved.", { exact: false })).toHaveCount(0);
 });

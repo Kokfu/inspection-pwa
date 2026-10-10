@@ -1,3 +1,4 @@
+import { isRetiredRepair, retiredRepairLabel, selectableResultOptions } from "../inspectionControls/resultEntryPolicy";
 import { reviewerRoleLabel } from "./roleAccess";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -156,7 +157,9 @@ export function ManagerCorrectionEditor({ clientUuid, canReview = false, onBack,
     const change = (next: CorrectionValue) => setDraft((current) => ({ ...current, [field.fieldPath]: next }));
     if (field.kind === "result") {
       return <div className="result-options" role="group" aria-label={`${field.label} result`}>
-        {(field.options ?? []).map((option) => <button
+        {/* // REPAIR-DISABLED (CR-09): original unfiltered choices: (field.options ?? []).map((option) => <button */}
+        {isRetiredRepair(value) ? <span>{retiredRepairLabel}</span> : null}
+        {selectableResultOptions(field.options ?? [], (option) => option).map((option) => <button
           key={option} type="button"
           className={`result-option${option === value ? " result-option--selected" : ""}`}
           aria-pressed={option === value}

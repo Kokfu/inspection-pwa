@@ -3,7 +3,28 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **CR-11 Admin wording implemented; Level 1 checks pass.**
+**Last updated:** 2026-10-10 — **CR-06 form "jumps to top" reproduced and fixed (scroll continuity); verified on the phone.**
+Cause: a network hand-over re-verifies the session and hides the open form (by design), collapsing the page to the top.
+The form now returns at the same scroll position. Hand-over test fails on HEAD (11/11) and passes (11/11); taps/autosave never moved the page.
+Owner decision left: keep Drafts mounted during re-verification (Level 2). See [CR06_FORM_SCROLL_JUMP](docs/testing/CR06_FORM_SCROLL_JUMP.md).
+
+**Earlier checkpoint:** 2026-10-10 — **CR-09 Complete Repair disabled for new entry; saved-data compatibility preserved.**
+One recoverable UI switch hides the option across all result-entry forms and correction choices.
+All 12 forms were checked; saved retired drafts in all 11 result-bearing systems can change offline.
+Web typecheck/build, 58 browser cases and 151 node tests pass; 14 retired-option scenarios are explicit skips.
+All 300 API files match pre-task hashes. No API/server, migration, Dexie or Git change. Requested Git
+checks were not run under the owner no-git rule, so literal DoD remains open for those checks.
+Evidence, per-hit audit and restore checklist: [CR09_REPAIR_DISABLED](docs/testing/CR09_REPAIR_DISABLED.md).
+
+**Earlier checkpoint:** 2026-10-10 — **CR-08 photo date/time watermark implemented; phone acceptance pending.**
+New camera/gallery photos burn Malaysia processing time into pixels before compression and SHA-256.
+Existing stored photos, copied evidence, retry/sync bytes and attachment schemas are unchanged. Focused photo
+tests, affected browser regressions and Node tests pass; web typecheck/build and diff check recorded in
+[CR08_PHOTO_WATERMARK](docs/testing/CR08_PHOTO_WATERMARK.md), with all callers, full-size measurements and owner
+phone retest steps. Existing high-resolution input/memory limits and a pre-existing e30c649 protected-file
+baseline discrepancy are documented. No deployment or Git mutation.
+
+**Earlier checkpoint:** 2026-10-10 — **CR-11 Admin wording implemented; Level 1 checks pass.**
 The existing `supervisor` review role now reads Admin throughout the UI, freshly rendered report/PDF text,
 API messages and client guides. The existing `admin` account still uses Manager; permissions and stored data
 are unchanged. Web typecheck/build, 55 affected browser cases (with focused rerun), 8 web node tests, API

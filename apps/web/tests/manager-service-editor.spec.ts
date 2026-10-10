@@ -54,7 +54,9 @@ test("Form wording: sections, inline edit, Custom badge, exact PUT map, reset, d
   const custom = waterTank.locator(".manager-wording-label-row", { hasText: "Tank Water Level" });
   await expect(custom.getByText("Custom", { exact: true })).toBeVisible();
   // Disabled look-alikes: 4-state result buttons, measurement input with unit, sample drum row.
-  await expect(waterTank.getByRole("group", { name: "S.A.J Main Water Supply result" }).getByRole("button")).toHaveText(["Good", "Not Good", "Complete Repair", "N.A."]);
+  // REPAIR-DISABLED (CR-09): retained former option assertion for restoration.
+  // await expect(waterTank.getByRole("group", { name: "S.A.J Main Water Supply result" }).getByRole("button")).toHaveText(["Good", "Not Good", "Complete Repair", "N.A."]);
+  await expect(waterTank.getByRole("group", { name: "S.A.J Main Water Supply result" }).getByRole("button")).toHaveText(["Good", "Not Good", "N.A."]);
   await expect(waterTank.getByRole("group", { name: "S.A.J Main Water Supply result" }).getByRole("button").first()).toBeDisabled();
   const pump = page.locator(".manager-wording-section", { hasText: "Pump House" });
   await expect(pump.locator(".measurement-card").first()).toContainText("PSI");
@@ -405,4 +407,13 @@ test("375px: customer page and every editor tab have no horizontal overflow", as
     }
     await page.getByRole("button", { name: "Back to Harbour View Tower" }).click();
   }
+});
+
+// REPAIR-DISABLED (CR-09): retained four-option preview assertion; owner retired Complete Repair entry.
+test.skip("CR-09 former four-option Manager preview", async ({page}) => {
+  await installFakeManagerApi(page);
+  await openFakeCustomer(page);
+  await openService(page, /Hose Reel System/);
+  const waterTank = page.locator(".manager-wording-section", {hasText:"Water Tank"}).first();
+  await expect(waterTank.getByRole("group", {name:"S.A.J Main Water Supply result"}).getByRole("button")).toHaveText(["Good", "Not Good", "Complete Repair", "N.A."]);
 });

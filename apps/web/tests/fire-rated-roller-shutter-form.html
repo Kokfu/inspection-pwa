@@ -22,7 +22,9 @@ const job={id:id(1),reference:"RS-BROWSER",title:"Roller Shutter Browser",status
 const catalog={templates:[template]};
 let record,root=ReactDomClient.createRoot(document.querySelector("#form"));
 const render=()=>root.render(React.createElement(FireRatedRollerShutterInspectionForm,{record,actorUserId:1,canUseServer:false,onBack:()=>{},onSaveDraft:async responses=>{record=await saveFireRatedRollerShutterDraft(record,responses);render()},onSubmitLocal:async responses=>{record=await submitLocalFireRatedRollerShutter(record,responses);render()},onEditFailed:async()=>{}}));
-await activateUserWorkspace(1);record=await getOrCreateFireRatedRollerShutterInspection(job,system,catalog,{id:1,username:"browser-tech",role:"inspector"});render();
+await activateUserWorkspace(1);record=await getOrCreateFireRatedRollerShutterInspection(job,system,catalog,{id:1,username:"browser-tech",role:"inspector"});
+if(params.has("cr09")){record.responses.rows[0].autoAlarmModeResult="complete_repair";record=await saveFireRatedRollerShutterDraft(record,record.responses);}
+render();
 window.inspect=async()=>{const stored=await localDatabase.masterSystemInspections.get(record.clientUuid);const outbox=await localDatabase.syncOutbox.where("entityId").equals(record.clientUuid).toArray();const proposal=await loadTechnicianLocationProposalDraft(job.id,system.systemKey,"general");return{stored,outbox,proposal}};
 window.clientUuid=record.clientUuid;
 </script></body></html>
