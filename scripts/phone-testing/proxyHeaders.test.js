@@ -8,7 +8,7 @@ const { forwardHeaders } = require('./proxyHeaders');
 const originAccepted = (headers) => {
   if (!headers.origin) return true;
   const parsed = new URL(headers.origin);
-  return ['http:', 'https:'].includes(parsed.protocol) && parsed.host === headers.host && parsed.origin === headers.origin;
+  return parsed.protocol === 'https:' && parsed.host === headers.host && parsed.origin === headers.origin;
 };
 
 test('a write from the phone origin is forwarded with an Origin that matches the forwarded Host', () => {

@@ -131,7 +131,24 @@ test("historical V2 Dry/Wet Riser accepted authority remains readable through th
   const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
 });
 
-test("regression (P0-FR1): V7 Dry/Wet Riser accepted authority is readable through the final-report and PDF path", async () => {
+test("regression (P0-FR1): V7 Dry/Wet Riser accepted authority is readable through the final-report and PDF path", async (t) => {
+  // P0-FR1 (second half): the report used to skip Dry/Wet Riser evidence entirely, so a finding's required photo and
+  // a CR-01 optional photo were silently missing from the report and the PDF.  Real JPEG bytes on disk prove both embed.
+  const uploadsPath = await mkdtemp(path.join(tmpdir(), "phase8e-riser-report-"));
+  const previousUploadsPath = process.env.UPLOADS_PATH;
+  process.env.UPLOADS_PATH = uploadsPath;
+  t.after(async () => { if (previousUploadsPath === undefined) delete process.env.UPLOADS_PATH; else process.env.UPLOADS_PATH = previousUploadsPath; await rm(uploadsPath, { recursive: true, force: true }); });
+  const photoBytes = async (color: string, name: string) => {
+    const content = await sharp({ create: { width: 2, height: 2, channels: 3, background: color } }).jpeg().toBuffer();
+    await mkdir(path.join(uploadsPath, "inspections", "riser"), { recursive: true });
+    await writeFile(path.join(uploadsPath, "inspections", "riser", name), content);
+    return { content, row: { stored_sha256: createHash("sha256").update(content).digest("hex"), storage_relative_path: `inspections/riser/${name}`, width: 2, height: 2 } };
+  };
+  const requiredPhoto = await photoBytes("white", "water-level.jpg"), optionalPhoto = await photoBytes("black", "battery.jpg");
+  const evidenceRows = [
+    { field_path: "dry_wet_riser_checks.battery_serviceable", ...optionalPhoto.row },
+    { field_path: "dry_wet_riser_checks.water_level", ...requiredPhoto.row }
+  ];
   const definition = masterServiceReportV7.systems.find((system) => system.key === "dry_wet_riser")!; const locationId = ids[21]!, rowId = ids[22]!;
   const checklistKeys = ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions", "pump_house_clean", "manual_start_pumps", "standby_pump_service_items", "battery_charging_alternator", "battery_charger_failure_alarm", "battery_serviceable", "pump_phase_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"];
   const checklist = Object.fromEntries(checklistKeys.map((key) => [key, { result: "good", remarks: "" }])) as Record<string, { result: string; remarks: string }>;
@@ -141,13 +158,22 @@ test("regression (P0-FR1): V7 Dry/Wet Riser accepted authority is readable throu
   const system = { enabledSystemId: ids[3]!, key: "dry_wet_riser", systemKey: "dry_wet_riser", displayName: "Dry / Wet Riser System", definitionStatus: "confirmed", sortOrder: 1, definition, systemConfiguration: { riserMode: "dry" }, repetitionMode: "single_with_repeatable_rows", zones: [], locations: [{ id: locationId, zoneId: null, displayName: "Outlet A", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] };
   const configuration = { schemaVersion: 1, customer: configurationSnapshot.customer, site: configurationSnapshot.site, configuration: { revisionId: ids[25]!, revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "Master", version: 7 }, enabledSystems: [system] };
   const contractSha256 = v7EvidenceContractSha256(definition);
-  const snapshot = { schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", version: 7 }, system, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null }, contractSha256, evidenceManifest: [{ photoUuid: ids[23]!, fieldPath: "dry_wet_riser_checks.water_level", sourceSha256: "a".repeat(64) }] };
+  const snapshot = { schemaVersion: 2, acceptedAt: "2026-08-19T08:00:00.000Z", job: { id: jobId, reference: "SV/2026:08", title: "Main Tower" }, customer: configuration.customer, configuration: configuration.configuration, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", version: 7 }, system, instance: { instanceKey: "primary", displaySequence: 1, zone: null, location: null }, contractSha256, evidenceManifest: [{ photoUuid: ids[23]!, fieldPath: "dry_wet_riser_checks.water_level", sourceSha256: "a".repeat(64) }, { photoUuid: ids[24]!, fieldPath: "dry_wet_riser_checks.battery_serviceable", sourceSha256: "b".repeat(64) }] };
   const row = { ...primary("dry_wet_riser", ids[10]!), master_template_version_id: masterServiceReportV7.id, customer_configuration_revision_id: ids[25]!, inspection_snapshot: snapshot, response_payload: responses, stored_sha256: null, storage_relative_path: null, width: null, height: null };
-  const database = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] }; throw new Error(`Unexpected query: ${sql}`); } };
+  const database = { async query(sql: string) { if (sql.includes("FROM inspection_jobs job")) return { rowCount: 1, rows: [{ id: jobId, status: "closed", configuration_snapshot: configuration, completed_at: "2026-08-19T08:00:00.000Z", completed_by_user_id: 7, completed_by_username: null, completed_by_display_name: "inspector-one", reference: "SV/2026:08", title: "Main Tower", service_date: "2026-08-19" }] }; if (sql.includes("FROM master_system_form_instances instance")) return { rowCount: 1, rows: [row] }; if (sql.includes("staged_inspection_evidence")) return { rowCount: evidenceRows.length, rows: evidenceRows }; throw new Error(`Unexpected query: ${sql}`); } };
   const report = await loadFinalServiceReport(jobId, database as never);
   assert.equal(report.sections[0]?.systemKey, "dry_wet_riser", "validHistoricalUnit no longer rejects a V7 (schemaVersion 2) Dry/Wet Riser record");
+  assert.deepEqual(report.sections[0]!.evidence.map((item) => item.field), ["dry_wet_riser_checks.battery_serviceable", "dry_wet_riser_checks.water_level"], "the finding's required photo and the optional Good-field photo are both in the report");
+  assert.deepEqual(report.sections[0]!.evidence.map((item) => item.content.equals(item.field.endsWith("water_level") ? requiredPhoto.content : optionalPhoto.content)), [true, true], "report evidence is the accepted bytes");
+  assert.equal(report.sections[0]!.evidence.find((item) => item.field.endsWith("water_level"))?.caption, "Water Tank - Water Level");
   assert.match(report.sections[0]!.fields.map((field) => field.value).join(" "), /not good/i);
   const pdf = await renderFinalServiceReportPdf(report); assert.equal(pdf.subarray(0, 5).toString(), "%PDF-");
+  assert.ok((pdf.toString("latin1").match(/\/DCTDecode/g) ?? []).length >= 2, "the PDF physically embeds both accepted riser photos");
+  // Fail closed: a missing REQUIRED photo is refused (an absent optional one is not).
+  const missingRequired = { async query(sql: string) { return sql.includes("staged_inspection_evidence") ? { rowCount: 1, rows: [evidenceRows[0]] } : database.query(sql); } };
+  await assert.rejects(() => loadFinalServiceReport(jobId, missingRequired as never), FinalReportError);
+  const missingOptional = { async query(sql: string) { return sql.includes("staged_inspection_evidence") ? { rowCount: 1, rows: [evidenceRows[1]] } : database.query(sql); } };
+  assert.equal((await loadFinalServiceReport(jobId, missingOptional as never)).sections[0]!.evidence.length, 1);
 
   // Regression guard: the new riserMode cross-check is not a no-op -- a response whose declared
   // `mode` disagrees with the frozen `system.systemConfiguration.riserMode` must stay rejected.
