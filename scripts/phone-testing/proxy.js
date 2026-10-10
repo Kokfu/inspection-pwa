@@ -47,7 +47,7 @@ http.createServer((req, res) => {
     const sub = parts.slice(2).join(':');
     if (req.url.includes(sub)) {
       req.resume();
-      req.on('end', () => { log(`${tag}: FAKE ${code} (never forwarded)`); res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: code === 401 ? 'UNAUTHENTICATED' : 'FORBIDDEN' })); });
+      req.on('end', () => { log(`${tag}: FAKE ${code} (never forwarded)`); res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(code === 409 ? { error: 'LOCATION_PROPOSAL_ALREADY_PENDING', message: 'A location proposal for this location is already awaiting review.' } : { error: code === 401 ? 'UNAUTHENTICATED' : 'FORBIDDEN' })); });
       return;
     }
   }
