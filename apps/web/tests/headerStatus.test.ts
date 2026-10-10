@@ -41,7 +41,9 @@ test("I-10: sign-out warning names the unsynced work, and stays silent when ther
 
 test("App wiring: label, chip, and the sign-out check run before the sign-out", () => {
   const app = readFileSync(join(import.meta.dirname, "../src/App.tsx"), "utf8");
-  assert.match(app, /label: "Server unreachable"/);
+  const chip = readFileSync(join(import.meta.dirname, "../src/pwa/browserOnline.ts"), "utf8");
+  assert.match(chip, /label: "Server unreachable"/);
+  assert.match(app, /headerConnectionChip\(\{ authStatus: authState\.status, serverUnreachable, connectivityRecoveryActive, browserOnline \}\)/);
   assert.match(app, /offlineReadinessLabel\[offlineReadiness\]/);
   const logout = app.slice(app.indexOf("async function handleLogout()"));
   assert.ok(logout.indexOf("describeUnsyncedWork") > 0 && logout.indexOf("describeUnsyncedWork") < logout.indexOf("beginExplicitAuthOperation()"), "warning precedes the sign-out operation");
@@ -55,4 +57,18 @@ test("I-06: header status text uses >= --text-xs and the header buttons use --ta
   assert.match(block, /\.app-account button \{[^}]*min-width: var\(--tap\)[^}]*min-height: var\(--tap\)/);
   assert.match(css, /--tap: 44px;/);
   assert.match(css, /--text-xs: \.75rem;/);
+});
+
+test("I-42: the header chip follows the browser's online flag over any auth/server state", async () => {
+  const { headerConnectionChip } = await import("../src/pwa/browserOnline.js");
+  const base = { serverUnreachable: false, connectivityRecoveryActive: false, browserOnline: true } as const;
+  assert.equal(headerConnectionChip({ ...base, authStatus: "verified" }).label, "Online");
+  assert.equal(headerConnectionChip({ ...base, authStatus: "verified", serverUnreachable: true }).label, "Server unreachable");
+  assert.equal(headerConnectionChip({ ...base, authStatus: "verifying" }).label, "Reconnecting");
+  assert.equal(headerConnectionChip({ ...base, authStatus: "online-unavailable" }).label, "Server unavailable");
+  assert.equal(headerConnectionChip({ ...base, authStatus: "offline-unverified" }).label, "Offline");
+  for (const authStatus of ["verified", "verifying", "online-unavailable", "offline-unverified", "logged-out", "restoring"] as const) {
+    assert.equal(headerConnectionChip({ ...base, authStatus, browserOnline: false }).label, "Offline", `${authStatus} while the browser is offline`);
+    assert.equal(headerConnectionChip({ ...base, authStatus, browserOnline: false, connectivityRecoveryActive: true }).label, "Offline");
+  }
 });

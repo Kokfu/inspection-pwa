@@ -210,6 +210,7 @@ import { useLocationProposalOutboxStatuses } from "./sync/useLocationProposalOut
 import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
 import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
 import { offlineReadinessLabel, useOfflineReadiness } from "./pwa/offlineReadiness";
+import { headerConnectionChip, useBrowserOnline } from "./pwa/browserOnline";
 import { useServerUnreachable } from "./jobs/serverHealth";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
@@ -2258,15 +2259,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
     : undefined;
   const serverUnreachable = useServerUnreachable(authState.status === "verified");
   const offlineReadiness = useOfflineReadiness(import.meta.env.PROD && authState.status !== "restoring", pwaUpdate.offlineReady);
-  const connectionState = authState.status === "verified" && serverUnreachable
-    ? { className: "unavailable", label: "Server unreachable" }
-    : authState.status === "verified"
-    ? { className: "online", label: "Online" }
-    : authState.status === "online-unavailable"
-      ? { className: "unavailable", label: "Server unavailable" }
-      : authState.status === "verifying" || connectivityRecoveryActive
-        ? { className: "reconnecting", label: "Reconnecting" }
-        : { className: "offline", label: "Offline" };
+  const browserOnline = useBrowserOnline();
+  const connectionState = headerConnectionChip({ authStatus: authState.status, serverUnreachable, connectivityRecoveryActive, browserOnline });
   const inspectionStatuses = [
     ...inspections.map((record) => record.syncStatus),
     ...masterSystemInspections.map((record) => record.syncStatus),
