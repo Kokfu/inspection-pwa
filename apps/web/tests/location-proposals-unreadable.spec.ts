@@ -32,7 +32,7 @@ test("I-24: an unreadable legacy proposal is listed but never blocks or bounces 
     return route.fulfill({ json: {} });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Supervisor/ }).click();
+  await page.getByRole("button", { name: /^Admin/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
 
   await expect(page.getByRole("heading", { name: "Location Proposals" })).toBeVisible();
@@ -61,7 +61,7 @@ test("I-24: a response that is not a list still fails closed", async ({ page }) 
     return route.fulfill({ json: {} });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Supervisor/ }).click();
+  await page.getByRole("button", { name: /^Admin/ }).click();
   // a malformed response is not "unreadable rows": the screen fails closed exactly as before (back to the role chooser)
   await expect(page.getByText("Choose how you are signing in")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
@@ -81,7 +81,7 @@ test("a rejected legacy row stays isolated beside a readable rejected proposal",
     return route.fulfill({ json: {} });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Supervisor/ }).click();
+  await page.getByRole("button", { name: /^Admin/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
   await expect(page.getByText("No pending location proposals.")).toBeVisible();
   await page.getByRole("tab", { name: "Rejected", exact: true }).click();

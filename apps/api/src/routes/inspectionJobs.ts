@@ -248,7 +248,7 @@ export function createFinalReportPdfHandler({ database = pool, loadReport = load
       ]);
       const approval = deriveReportApproval("closed", approvalEvents, latestCorrectionAt);
       if (approval.status !== "approved") {
-        response.status(409).json({ error: "REPORT_NOT_APPROVED", message: "This report has not been approved yet. It is available for download once an admin or supervisor approves it." });
+        response.status(409).json({ error: "REPORT_NOT_APPROVED", message: "This report has not been approved yet. It is available for download once an Admin approves it." });
         return;
       }
       const filename = finalReportFilename(report);

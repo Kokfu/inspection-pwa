@@ -120,7 +120,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
       <div>
         <p className="eyebrow">{job.configurationSnapshot.customer.displayName}</p>
         <h2 id="technician-location-proposal-title">Add a New Location</h2>
-        <p>Name a location this customer has that isn't set up yet (e.g. a second FM200 system). A Supervisor or Admin reviews it; once approved, your next visit gets a real form for it.</p>
+        <p>Name a location this customer has that isn't set up yet (e.g. a second FM200 system). An Admin reviews it; once approved, your next visit gets a real form for it.</p>
       </div>
     </div>
     {eligibleSystems.length === 0 ? (

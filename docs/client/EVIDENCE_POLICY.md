@@ -78,7 +78,7 @@ Once a photo has been submitted, its bytes cannot be replaced on that same recor
 3. The app creates a new draft with your answers and photos. Replace the incorrect photo or correct the answers in that new draft.
 4. Save and submit the new draft, then check that it becomes Synced.
 
-The rejected record is archived on that phone and will not be sent again. The new draft takes over its work. This archive is currently device-only; it is not a supervisor-accessible server history. This workflow does not change an inspection already accepted by the server.
+The rejected record is archived on that phone and will not be sent again. The new draft takes over its work. This archive is currently device-only; it is not an Admin-accessible server history. This workflow does not change an inspection already accepted by the server.
 
 ## How long photos stay on the phone
 
@@ -95,9 +95,9 @@ The app's retention rules cannot protect against clearing browser storage, remov
 
 ## Accepted records, reports and corrections
 
-Technicians can view their authorized accepted records and evidence. Admins and supervisors can view accepted records for review. Accepted original answers, photos and the visit's form/settings stay frozen; ordinary editing cannot overwrite them.
+Technicians can view their authorized accepted records and evidence. Admins can view accepted records for review. Accepted original answers, photos and the visit's form/settings stay frozen; ordinary editing cannot overwrite them.
 
-**Current correction access:** both Admin and Supervisor can append audited corrections to supported V7 records. Each correction records the previous value, replacement, reason, author and time. This differs from an admin-only policy; an admin-only restriction is not currently implemented. Corrections do not replace the accepted photographs. Technicians cannot make these accepted-record corrections.
+**Current correction access:** Admins can append audited corrections to supported V7 records. Each correction records the previous value, replacement, reason, author and time. This includes accounts signing in through either the Manager or Admin card; restricting corrections to Manager-card accounts is not currently implemented. Corrections do not replace the accepted photographs. Technicians cannot make these accepted-record corrections.
 
 **Accepted → Final Report → PDF:** accepted records supply the report; a completed visit is required for a Final Report. The report uses the visit's original form/settings and accepted evidence, plus supported audited corrections. Drafts, waiting uploads and unaccepted photos do not become report evidence. Report approval is a separate step from inspection acceptance.
 
@@ -111,7 +111,7 @@ V1–V7 are historical form versions. A visit keeps the version and configuratio
 
 - The V7 project skill still describes Good / Poor / Not Relevant and Poor-only evidence. Current V7 implements Good / Not Good / Complete Repair / N.A., with evidence for both findings.
 - Some older descriptions treat returning the same rejected record to draft as enough to replace evidence. Current submitted-photo protection requires **Start corrected copy** for photo changes.
-- Admin-only accepted-record correction, requested in the brief, differs from the implemented Admin-and-Supervisor audited correction access.
+- Accepted-record correction restricted to Manager-card accounts, requested in the brief, differs from the implemented audited correction access for both Manager and Admin sign-in cards.
 - The report-template README retains an older “no template today” analysis below its newer deployment notes. It should not be read as the current PDF implementation.
 
 These differences are reported for the next documentation/policy checkpoint; this task does not change forms, permissions or historical records.

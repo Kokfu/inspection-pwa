@@ -78,9 +78,9 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       <label>Password<input required type="password" minLength={12} maxLength={1024} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
       <label>Role<select value={role} onChange={(event) => setRole(event.target.value === "supervisor" ? "supervisor" : "inspector")}>
         <option value="inspector">Technician</option>
-        <option value="supervisor">Supervisor (review only)</option>
+        <option value="supervisor">Admin (review only)</option>
       </select></label>
-      <button disabled={busy} type="submit">{role === "supervisor" ? "Add Supervisor" : "Add Technician"}</button>
+      <button disabled={busy} type="submit">{role === "supervisor" ? "Add Admin" : "Add Technician"}</button>
     </form>
     {message && passwordTargetId === null && <p role="alert" className="form-message">{message}</p>}
     {notice && <p role="status" className="form-message">{notice}</p>}
@@ -101,14 +101,14 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       {onOpen && technician.role === "inspector"
         ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
         : <strong>{technician.username}</strong>}
-      {technician.role === "supervisor" && <span className="status-badge status-badge--neutral">Supervisor</span>}
+      {technician.role === "supervisor" && <span className="status-badge status-badge--neutral">Admin</span>}
       <span className={`status-badge status-badge--${technician.isActive ? "complete" : "attention"}`}>{technician.isActive ? "Active" : "Inactive"}</span>
       {technician.role === "inspector" && <fieldset className="manager-assignment-picker" disabled={busy}>
-        <legend>Assigned supervisors for {technician.username}</legend>
+        <legend>Assigned Admins for {technician.username}</legend>
         {supervisors.length ? supervisors.map((supervisor) => <label key={supervisor.id} className="checkbox-label">
           <input type="checkbox" checked={technician.supervisorIds.includes(supervisor.id)} onChange={(event) => void mutate(() => setTechnicianSupervisorAssignment(technician.id, supervisor.id, event.target.checked))} />
           {supervisor.displayName ?? supervisor.username}{supervisor.isActive ? "" : " (inactive)"}
-        </label>) : <p>No supervisors available.</p>}
+        </label>) : <p>No Admins available.</p>}
       </fieldset>}
       <form onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("displayName"); if (typeof value === "string") void mutate(() => updateManagerTechnicianDisplayName(technician.id, value.trim() || null)); }}>
         <label>Person’s name<input name="displayName" maxLength={160} defaultValue={technician.displayName ?? ""} key={`${technician.id}:${technician.displayName}`} /></label>
@@ -123,7 +123,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
           })} />
         : <button type="button" className="secondary-command" disabled={busy} onClick={() => { setMessage(""); setNotice(""); setPasswordTargetId(technician.id); }}>Set new password</button>}
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
-        if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "supervisor" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
+        if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "Admin" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}
       {!technician.isActive && technician.role === "inspector" && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         const confirmation = window.prompt(`Permanently remove ${technician.username} from staff lists? This cannot be undone. Used accounts keep their historical records; unused accounts are deleted. Type the username to confirm.`);

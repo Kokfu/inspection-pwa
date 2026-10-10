@@ -3,6 +3,8 @@
 For the person who looks after the Inspection system (the administrator or the IT contact).
 It explains how to get someone back in when a password is forgotten, and how to add another administrator.
 
+The **Admin** sign-in card opens the review workspace. Existing administrator accounts still use the **Manager** card. Recovery depends on which card the account uses: Section 1 covers Admin-card accounts; the office-PC commands cover Manager-card accounts.
+
 **Written from the code and automated tests (9 October 2026). The steps have not yet been tried on the client's own PC.** **[CONFIRM: authorized IT/recovery contact]** — name the person who is allowed to do Section 2 and 3.
 
 ---
@@ -11,16 +13,16 @@ It explains how to get someone back in when a password is forgotten, and how to 
 
 | Who forgot the password? | What to do | Where |
 |---|---|---|
-| A **technician** or **supervisor** | Section 1 — set a new password in the app | Any browser, signed in as an administrator |
+| A **technician** or **Admin** | Section 1 — set a new password in the app | Any browser, signed in as an administrator |
 | An **administrator**, and you remember the username | Section 2 — reset command | The office PC (PowerShell) |
 | An **administrator**, and nobody remembers the username | Section 4, then Section 2 | The office PC (PowerShell) |
 | You want an **additional administrator** | Section 3 — create command | The office PC (PowerShell) |
 
-Administrator passwords can only be changed on the office PC, never from the app. This is on purpose: if the app could change administrator passwords, anyone who got into one admin account could take over the rest.
+Passwords for administrator accounts using the Manager card can only be changed on the office PC, never from the app. This is on purpose: if the app could change administrator passwords, anyone who got into one admin account could take over the rest.
 
 ---
 
-## 1. Technician or supervisor forgot their password (in the app)
+## 1. Technician or Admin forgot their password (in the app)
 
 You need to be signed in as an administrator, and the app must be online.
 
@@ -67,7 +69,7 @@ What this command does:
 - Changes the password and makes sure the account is **active** (so it also recovers an administrator who was locked out).
 - Signs that administrator out everywhere.
 - Records the action in the audit log (no password is recorded).
-- Refuses, and changes nothing, if the username belongs to a technician or supervisor, or does not exist. Use Section 1 for technicians and supervisors.
+- Refuses, and changes nothing, if the username belongs to a technician or Admin, or does not exist. Use Section 1 for technicians and Admins.
 
 ---
 
@@ -114,7 +116,7 @@ The result lists each administrator's username and whether the account is active
 | What you see | What it means / what to do |
 |---|---|
 | `service "api" is not running` or the command cannot connect | The system is not running. Start Docker Desktop, wait until it says it is running, then try `docker compose ps` again. |
-| "User '…' is not an admin. Nothing was changed." | That username is a technician or supervisor. Use Section 1. |
+| "User '…' is not an admin. Nothing was changed." | That username is a technician or Admin. Use Section 1. |
 | "No user '…' exists." | Wrong username. Check the spelling, or list administrators (Section 4). |
 | "User '…' already exists." | You used the create command for an existing account. Use Section 2 instead. |
 | "Passwords do not match." | The two entries differed. Run the command again. |

@@ -26,3 +26,8 @@ const supervisorRoutes: ReadonlySet<string> = new Set([
 export function supervisorAllowsRoute(routeName: string) {
   return supervisorRoutes.has(routeName);
 }
+
+/** User-facing label shared by both existing review roles (CR-11). */
+export function reviewerRoleLabel(role: "admin" | "supervisor" | null): string {
+  return role === null ? "" : "Admin";
+}

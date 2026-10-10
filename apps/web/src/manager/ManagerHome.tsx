@@ -108,7 +108,7 @@ export function ManagerHome({
   </ul>;
 
   return <section aria-labelledby="manager-dashboard-title">
-    <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Supervisor workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
+    <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Admin workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
     <KpiTiles label="Dashboard summary" items={[
       { label: "Total Clients", value: clients ?? "—", icon: kpiIcons.clients, tone: "brand" },
       { label: "Total Inspections", value: inspections ?? "—", icon: kpiIcons.inspections, tone: "brand", meta: "This month" },

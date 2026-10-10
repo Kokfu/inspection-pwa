@@ -1,3 +1,4 @@
+import { reviewerRoleLabel } from "../manager/roleAccess";
 import { useEffect, useState } from "react";
 
 /**
@@ -87,14 +88,14 @@ export function AcceptedCorrectionsPanel({ clientUuid }: { clientUuid: string })
   const ordered = [...status.corrections].sort((left, right) => left.correctedAt.localeCompare(right.correctedAt) || left.sequence - right.sequence);
   return <section className="operational-message operational-message--warning" aria-labelledby={`accepted-corrections-${clientUuid}`}>
     <h3 id={`accepted-corrections-${clientUuid}`}>{status.review
-      ? status.review.status === "reviewed" ? "Reviewed by Supervisor" : "Pending Review"
+      ? status.review.status === "reviewed" ? "Reviewed by Admin" : "Pending Review"
       : `${ordered.length} ${ordered.length === 1 ? "correction" : "corrections"} after submission`}</h3>
     {status.review ? <><p>Submitted by Technician: {status.submittedBy ?? "Identity unavailable"}</p>
-      {status.review.status === "reviewed" ? <p>Reviewed by Supervisor: {status.review.reviewedBy} · {formatWhen(status.review.reviewedAt!)}</p> : <p>Supervisor approval is pending.</p>}</> : null}
+      {status.review.status === "reviewed" ? <p>Reviewed by Admin: {status.review.reviewedBy} · {formatWhen(status.review.reviewedAt!)}</p> : <p>Admin approval is pending.</p>}</> : null}
     {ordered.length ? <><p>The inspection below is shown exactly as it was accepted. These corrections were recorded separately.</p>
     <ul>{ordered.map((correction) => <li key={correction.id}>
       <strong>{correction.label}</strong>: {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong>
-      {" · "}{correction.correctedBy} ({correction.correctedByRole}) · {formatWhen(correction.correctedAt)} · {correction.reason}
+      {" · "}{correction.correctedBy} ({reviewerRoleLabel(correction.correctedByRole)}) · {formatWhen(correction.correctedAt)} · {correction.reason}
     </li>)}</ul></> : null}
   </section>;
 }

@@ -31,7 +31,7 @@ function CountPrompt({ onStart }: { onStart: (start: RollerShutterStart) => void
   }
   return <section className="report-summary" aria-labelledby="roller-shutter-setup-title">
     <h3 id="roller-shutter-setup-title">How many zones and locations?</h3>
-    <p>Enter how many zones this customer has and how many locations (roller shutters) are in each. The form then opens ready to fill in. The names you type are remembered for the next visit once a Supervisor approves them.</p>
+    <p>Enter how many zones this customer has and how many locations (roller shutters) are in each. The form then opens ready to fill in. The names you type are remembered for the next visit once an Admin approves them.</p>
     <label>Number of zones
       <input type="number" inputMode="numeric" min={1} max={maxZones} value={zones}
         onChange={(event) => { setZones(event.target.value); setError(""); }} />

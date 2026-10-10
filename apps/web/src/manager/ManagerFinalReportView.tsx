@@ -1,3 +1,4 @@
+import { reviewerRoleLabel } from "./roleAccess";
 import { useEffect, useState } from "react";
 import { FinalReportApiError, downloadFinalReport, loadFinalReport, type FinalReportPreview } from "../jobs/finalReportApi";
 import { FinalReportPresentation } from "../jobs/FinalReportPresentation";
@@ -58,7 +59,7 @@ function ReportApprovalPanel({ jobId, currentUserRole, reportApproval, checked, 
       {reportApproval.correctedAfterApproval && " — corrected after approval, re-approval needed"}
     </h3>
     {reportApproval.decidedBy && <p>
-      {reportApproval.status === "approved" ? "Approved" : "Last decided"} by {reportApproval.decidedBy} ({reportApproval.decidedByRole}){reportApproval.decidedAt ? ` on ${formatWhen(reportApproval.decidedAt)}` : ""}.
+      {reportApproval.status === "approved" ? "Approved" : "Last decided"} by {reportApproval.decidedBy} ({reviewerRoleLabel(reportApproval.decidedByRole)}){reportApproval.decidedAt ? ` on ${formatWhen(reportApproval.decidedAt)}` : ""}.
       {reportApproval.note ? ` "${reportApproval.note}"` : ""}
     </p>}
     {error ? <p className="form-message" role="alert">{error}</p> : null}
@@ -183,11 +184,11 @@ export function ManagerFinalReportView({ jobId, backLabel = "Back to Operations"
       <h3 id="manager-report-corrections-title">{corrections.length} {corrections.length === 1 ? "correction was" : "corrections were"} made after submission</h3>
       <p>The V7 report shows corrected values. The original accepted values remain in the correction history below. The PDF stays unavailable until it includes these corrections.</p>
       <ul>{corrections.map((correction) => <li key={correction.id}>
-        <strong>{correction.label}</strong>: {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong> · {correction.correctedBy} ({correction.correctedByRole}) · {correction.reason}
+        <strong>{correction.label}</strong>: {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong> · {correction.correctedBy} ({reviewerRoleLabel(correction.correctedByRole)}) · {correction.reason}
       </li>)}</ul>
     </section>}
     {report && reportApprovalChecked && reportApproval?.status !== "approved" && corrections.length === 0 && <p className="operational-message operational-message--warning" role="status">
-      This report has not been approved yet. It is available for download once an admin or supervisor approves it below.
+      This report has not been approved yet. It is available for download once an Admin approves it below.
     </p>}
     <ReportApprovalPanel jobId={jobId} currentUserRole={currentUserRole} reportApproval={reportApproval} checked={reportApprovalChecked}
       onChanged={(state) => { setReportApproval(state); setReportApprovalChecked(true); }} />

@@ -72,7 +72,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
         throw new ManagerTechnicianError("INVALID_REQUEST", "Request body is invalid.");
       }
       if (typeof (body as Record<string, unknown>).supervisorId !== "number") {
-        throw new ManagerTechnicianError("INVALID_SUPERVISOR_ID", "Supervisor ID must be a positive numeric ID.");
+        throw new ManagerTechnicianError("INVALID_SUPERVISOR_ID", "Admin ID must be a positive numeric ID.");
       }
       const supervisorId = numericUserId((body as Record<string, unknown>).supervisorId, "INVALID_SUPERVISOR_ID");
       client = await database.connect();
@@ -80,9 +80,9 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       const users = await client.query<{ id: string; role: UserRole }>("SELECT id, role FROM users WHERE id = ANY($1::bigint[]) AND hidden_at IS NULL ORDER BY id FOR UPDATE", [[technicianId, supervisorId]]);
       const roles = new Map(users.rows.map((row) => [Number(row.id), row.role]));
       if (!roles.has(technicianId)) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
-      if (!roles.has(supervisorId)) throw new ManagerTechnicianError("SUPERVISOR_NOT_FOUND", "Supervisor was not found.", 404);
+      if (!roles.has(supervisorId)) throw new ManagerTechnicianError("SUPERVISOR_NOT_FOUND", "Admin was not found.", 404);
       if (roles.get(technicianId) !== "inspector" || roles.get(supervisorId) !== "supervisor") {
-        throw new ManagerTechnicianError("INVALID_ROLE", "Assignment requires a technician and a supervisor.");
+        throw new ManagerTechnicianError("INVALID_ROLE", "Assignment requires a technician and an Admin.");
       }
       const assigned = await client.query(
         `INSERT INTO technician_supervisor_assignments AS assignment (technician_id, supervisor_id, created_by_user_id)
@@ -132,7 +132,7 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
       const name = Object.hasOwn(body, "displayName") ? displayName((body as Record<string, unknown>).displayName) : null;
       // Optional; absent keeps today's behaviour (a technician). Never "admin".
       if (requestedRole !== undefined && !managedRoles.includes(requestedRole as ManagedRole)) {
-        throw new ManagerTechnicianError("INVALID_ROLE", "Role must be inspector or supervisor.");
+        throw new ManagerTechnicianError("INVALID_ROLE", "Role must be Technician or Admin.");
       }
       const role: ManagedRole = requestedRole === undefined ? "inspector" : requestedRole as ManagedRole;
       if (typeof username !== "string" || !username.trim() || username.trim().length > 100) {

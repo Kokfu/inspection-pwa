@@ -25,7 +25,7 @@ function proposal(systemKey: string, locationKey: string, row: Record<string, st
   };
 }
 
-test("Supervisor inbox accepts every supported proposal row shape together", async () => {
+test("Admin inbox accepts every supported proposal row shape together", async () => {
   const oldFetch = globalThis.fetch;
   const proposals = examples.map(([systemKey, locationKey, row]) => proposal(systemKey, locationKey, row));
   globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
@@ -35,7 +35,7 @@ test("Supervisor inbox accepts every supported proposal row shape together", asy
 
 // I-24: a row that fails the strict check is still never a proposal that can be decided; it is reported as unreadable
 // instead of making the whole list unavailable.
-test("Supervisor inbox rejects a row submitted for the wrong Fire Alarm table", async () => {
+test("Admin inbox rejects a row submitted for the wrong Fire Alarm table", async () => {
   const oldFetch = globalThis.fetch;
   const proposals = [proposal("fire_alarm_detector", "general-primary", { assetReference: "FA-02", location: "Guard House" })];
   globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
@@ -47,7 +47,7 @@ test("Supervisor inbox rejects a row submitted for the wrong Fire Alarm table", 
   finally { globalThis.fetch = oldFetch; }
 });
 
-test("Supervisor inbox rejects an unknown system instead of treating it as CO2", async () => {
+test("Admin inbox rejects an unknown system instead of treating it as CO2", async () => {
   const oldFetch = globalThis.fetch;
   try {
     for (const systemKey of ["unknown_system", "__proto__"]) {
@@ -61,7 +61,7 @@ test("Supervisor inbox rejects an unknown system instead of treating it as CO2",
   finally { globalThis.fetch = oldFetch; }
 });
 
-test("Supervisor inbox reads a zoned Roller Shutter format and rejects mixed, oversized or foreign zoneText", async () => {
+test("Admin inbox reads a zoned Roller Shutter format and rejects mixed, oversized or foreign zoneText", async () => {
   const oldFetch = globalThis.fetch;
   const withRows = (systemKey: string, rows: Array<Record<string, string>>) => ({ ...proposal(systemKey, "general", {}), payload: { kind: "update-format", locationKey: "general", rows } });
   const zoned = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" }, { assetReference: "", locationText: "Dock", zoneText: "Zone 2" }]);

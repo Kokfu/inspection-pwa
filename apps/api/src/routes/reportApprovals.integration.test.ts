@@ -78,7 +78,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       // REPORT_NOT_APPROVED (not masked by the corrections gate, since none exist yet).
       const pdfBeforeApproval = await call(`/manager/service-visits/${job}/final-report.pdf`, "admin");
       assert.equal(pdfBeforeApproval.status, 409, "removing the REPORT_NOT_APPROVED gate would make this line pass with a 200 instead");
-      assert.equal((await pdfBeforeApproval.json() as { error: string }).error, "REPORT_NOT_APPROVED");
+      assert.deepEqual(await pdfBeforeApproval.json(), { error: "REPORT_NOT_APPROVED", message: "This report has not been approved yet. It is available for download once an Admin approves it." });
 
       // A technician never approves (falls out of requireRole).
       assert.equal((await post("inspector", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" })).status, 403);

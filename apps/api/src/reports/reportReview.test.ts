@@ -20,8 +20,8 @@ test("V7 report pages print the technician and current supervisor review state",
     status: "reviewed", submittedBy: "technician-one", reviewedBy: "review-lead", reviewedAt: "2026-09-20T03:00:00.000Z"
   } }] };
   const approved = renderReportHtml(buildReportViewModel(reviewed));
-  assert.match(approved, /Reviewed by Supervisor:<\/b> review-lead/);
+  assert.match(approved, /Reviewed by Admin:<\/b> review-lead/);
   assert.doesNotMatch(approved, /Pending Review/);
   const historical = renderReportHtml(buildReportViewModel({ ...report, sections: [{ ...report.sections[0]!, review: undefined }] }));
-  assert.doesNotMatch(historical, /Submitted by Technician|Pending Review|Reviewed by Supervisor/);
+  assert.doesNotMatch(historical, /Submitted by Technician|Pending Review|Reviewed by Admin/);
 });

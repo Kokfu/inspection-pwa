@@ -68,7 +68,7 @@ async function installApi(page: Page, actor: typeof supervisor | typeof admin, i
 // card, where "Services" is customer configuration and the service-visit list is "Operations".
 async function openReport(page: Page, as: "supervisor" | "admin" = "supervisor") {
   await page.goto("/tests/manager-service-editor.html#/manager");
-  await page.getByRole("button", { name: as === "admin" ? /^Manager Monitor/ : /^Supervisor Review/ }).click();
+  await page.getByRole("button", { name: as === "admin" ? /^Manager Monitor/ : /^Admin Review/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: as === "admin" ? "Operations" : "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-APPROVE-860/ }).click();
   await page.getByRole("button", { name: "View Final Report" }).click();
@@ -83,7 +83,7 @@ test("a supervisor approves the report and the Operations chip updates", async (
 
   await page.getByRole("button", { name: "Approve report" }).click();
   await expect(page.getByRole("heading", { name: "Report approved" })).toBeVisible();
-  await expect(page.getByText("review-lead (supervisor)", { exact: false })).toBeVisible();
+  await expect(page.getByText("review-lead (Admin)", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Download PDF" })).toBeEnabled();
   expect(api.posts).toHaveLength(1);
   expect(api.posts[0]!.decision).toBe("approved");

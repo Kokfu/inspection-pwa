@@ -22,7 +22,7 @@ test("Supervisor can review and approve a new-system proposal after full navigat
     return route.fulfill({ json: {} });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Supervisor/ }).click();
+  await page.getByRole("button", { name: /^Admin/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
   await expect(page.getByRole("heading", { name: "Location Proposals" })).toBeVisible();
   await page.reload();
@@ -49,7 +49,7 @@ test("Supervisor review shows each saved row as separate labelled lines, with it
     return route.fulfill({ json: {} });
   });
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Supervisor/ }).click();
+  await page.getByRole("button", { name: /^Admin/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
   await page.getByRole("button", { name: /Customer p-roller/ }).click();
   await page.setViewportSize({ width: 360, height: 800 });

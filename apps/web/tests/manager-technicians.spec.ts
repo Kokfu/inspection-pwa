@@ -116,9 +116,9 @@ test("admin creates a supervisor from the same form; supervisors are labelled an
   await page.getByLabel("Username", { exact: true }).fill("review-lead");
   await page.getByLabel("Password", { exact: true }).fill("supervisor-password");
   await page.getByLabel("Role").selectOption("supervisor");
-  await page.getByRole("button", { name: "Add Supervisor", exact: true }).click();
+  await page.getByRole("button", { name: "Add Admin", exact: true }).click();
   const row = page.locator("li").filter({ hasText: "review-lead" });
-  await expect(row.getByText("Supervisor", { exact: true })).toBeVisible();
+  await expect(row.getByText("Admin", { exact: true })).toBeVisible();
   expect(posts).toEqual([{ username: "review-lead", password: "supervisor-password", displayName: null, role: "supervisor" }]);
   // The form resets to Technician after a create.
   await expect(page.getByLabel("Role")).toHaveValue("inspector");
@@ -173,7 +173,7 @@ test("admin can assign multiple supervisors and remove one without affecting the
     } else await route.fulfill({ json: { technicians: [technician, ...supervisors] } });
   });
   await page.goto("/tests/manager-technicians.html");
-  const picker = page.getByRole("group", { name: "Assigned supervisors for tech-alpha" });
+  const picker = page.getByRole("group", { name: "Assigned Admins for tech-alpha" });
   const first = picker.getByRole("checkbox", { name: "Reviewer One" });
   const second = picker.getByRole("checkbox", { name: "review-two (inactive)" });
   await first.click();

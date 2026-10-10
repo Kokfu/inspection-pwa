@@ -119,7 +119,7 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
 async function openVisit(page: Page) {
   await page.goto("/tests/manager-service-editor.html#/manager");
   // The account is a supervisor: it signs in through the Supervisor role card (its sidebar "Services" opens the review list).
-  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
+  await page.getByRole("button", { name: /^Admin Review/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-CORRECT-840/ }).click();
   await expect(page.getByRole("heading", { name: "Accepted records" })).toBeVisible();
@@ -143,7 +143,7 @@ test("supervisor corrects a result with a reason; the original stays visible", a
   await expect(page.getByText("Corrections saved.", { exact: false })).toBeVisible();
   await expect(field.getByText("Corrected", { exact: true })).toBeVisible();
   await expect(field.getByText("Originally: Good")).toBeVisible();
-  await expect(field.getByText(/Good → Not Good · review-lead \(supervisor\)/)).toBeVisible();
+  await expect(field.getByText(/Good → Not Good · review-lead \(Admin\)/)).toBeVisible();
   expect(api.posts).toHaveLength(1);
   expect(api.posts[0]!.changes).toEqual([{ fieldPath: mainSupply, expectedCurrentValue: "good", newValue: "not_good" }]);
   expect(String(api.posts[0]!.reason)).toBe("Terminal corrosion found on the evidence photo");
@@ -156,7 +156,7 @@ test("supervisor explicitly approves a submitted form; a later correction return
   await page.getByRole("button", { name: "Review / correct" }).click();
   await expect(page.getByLabel("Inspection review status")).toContainText("Submitted by Technician: technician-one");
   await page.getByRole("button", { name: "Approve review" }).click();
-  await expect(page.getByLabel("Inspection review status")).toContainText("Reviewed by Supervisor: review-lead");
+  await expect(page.getByLabel("Inspection review status")).toContainText("Reviewed by Admin: review-lead");
   const field = page.locator(".manager-wording-label-row", { hasText: "Main Supply › Result" });
   await field.getByRole("button", { name: "Not Good" }).click();
   await page.getByLabel(/Reason for these corrections/).fill("Supervisor correction after review");

@@ -1,3 +1,4 @@
+import { reviewerRoleLabel } from "./roleAccess";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   approveInspectionReview, loadInspectionCorrections, ManagerApiError, saveInspectionCorrections,
@@ -137,7 +138,7 @@ export function ManagerCorrectionEditor({ clientUuid, canReview = false, onBack,
       await approveInspectionReview(clientUuid, { requestId: reviewRequestId.current, expectedCorrectionCount: record.review.correctionCount });
       reviewRequestId.current = crypto.randomUUID();
       const reloaded = await fetchRecord().then((done) => done, () => false);
-      if (mounted.current) setMessage(reloaded ? "Supervisor review recorded." : "Review recorded, but this screen could not refresh. Reload to verify it.");
+      if (mounted.current) setMessage(reloaded ? "Admin review recorded." : "Review recorded, but this screen could not refresh. Reload to verify it.");
     } catch (error) {
       if (!mounted.current) return;
       if (error instanceof ManagerApiError && error.kind === "authorization") { onAuthorityFailure(error); return; }
@@ -193,7 +194,7 @@ export function ManagerCorrectionEditor({ clientUuid, canReview = false, onBack,
     <p className="operational-message">The accepted inspection is never changed. A correction is recorded separately with the original value, your name and your reason; the report shows both.</p>
     {record.review && <section className="operational-message" aria-label="Inspection review status">
       <p>Submitted by Technician: {record.submittedBy ?? "identity unavailable"}.</p>
-      <p>{record.review.status === "reviewed" ? `Reviewed by Supervisor: ${record.review.reviewedBy} · ${formatWhen(record.review.reviewedAt!)}` : "Pending Review."}</p>
+      <p>{record.review.status === "reviewed" ? `Reviewed by Admin: ${record.review.reviewedBy} · ${formatWhen(record.review.reviewedAt!)}` : "Pending Review."}</p>
       {canReview && record.review.status === "pending" && <button type="button" disabled={busy || pending.length > 0} onClick={() => void approveReview()}>
         {busy ? "Saving…" : "Approve review"}
       </button>}
@@ -219,7 +220,7 @@ export function ManagerCorrectionEditor({ clientUuid, canReview = false, onBack,
             {editor(field)}
             {field.corrected && <p className="support-metadata">Originally: <strong>{show(field.originalValue)}</strong></p>}
             {history.map((correction) => <p key={correction.id} className="support-metadata">
-              {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong> · {correction.correctedBy} ({correction.correctedByRole}) · {formatWhen(correction.correctedAt)} · {correction.reason}
+              {show(correction.previousValue)} → <strong>{show(correction.newValue)}</strong> · {correction.correctedBy} ({reviewerRoleLabel(correction.correctedByRole)}) · {formatWhen(correction.correctedAt)} · {correction.reason}
             </p>)}
           </li>;
         })}

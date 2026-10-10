@@ -37,10 +37,10 @@ export function ManagerReminderPlan({ customerId, dueDate, onAuthorityFailure }:
         {plan.blocked && <p role="alert">Reminder blocked: add recipients.</p>}
         {plan.effective.length > 0 && <><p>Effective recipients:</p><ul>{plan.effective.map((person) => <li key={person.email}>{person.name} · {person.email}</li>)}</ul></>}
         <form onSubmit={(event) => void save(event)}>
-          <fieldset disabled={busy}><legend>Active technicians and supervisors</legend>
+          <fieldset disabled={busy}><legend>Active technicians and Admins</legend>
             {staff.filter((person) => person.isActive).map((person) => <label key={person.id} className="checkbox-label">
               <input type="checkbox" disabled={!person.email} checked={selected.includes(person.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, person.id] : selected.filter((id) => id !== person.id))} />
-              {person.displayName ?? person.username} · {person.role === "supervisor" ? "Supervisor" : "Technician"}{person.email ? ` · ${person.email}` : " · add email in Email reminders Settings"}
+              {person.displayName ?? person.username} · {person.role === "supervisor" ? "Admin" : "Technician"}{person.email ? ` · ${person.email}` : " · add email in Email reminders Settings"}
             </label>)}
           </fieldset>
           <fieldset disabled={busy}><legend>Additional recipients</legend>

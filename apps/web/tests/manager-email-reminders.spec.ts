@@ -107,7 +107,7 @@ test("recipient picker previews saved people and shows copied-date review warnin
   await expect(page.getByText("Recipients were copied from the previous date.", { exact: false })).toBeVisible();
   await expect(page.getByText("Previous service dates have sent reminders.", { exact: false })).toBeVisible();
   await page.getByLabel("Tech A · Technician · tech@example.test").check();
-  await expect(page.getByLabel("Supervisor A · Supervisor · add email in Email reminders Settings")).toBeDisabled();
+  await expect(page.getByLabel("Supervisor A · Admin · add email in Email reminders Settings")).toBeDisabled();
   await page.getByLabel("Name", { exact: true }).fill("Coordinator");
   await page.getByLabel("Email", { exact: true }).fill("coord@example.test");
   await page.getByRole("button", { name: "Add address" }).click();

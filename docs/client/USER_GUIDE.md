@@ -1,6 +1,8 @@
 # Client user guide
 
-Checked on 9 October 2026 by walking the real app (local demo, build `build-20261008T155132Z`) as administrator, supervisor and technician in a desktop-width browser, with a 360 px phone-width check of the menu and layout. It was not checked on the client's phone or on the client's production address. **[CONFIRM]** marks only things that depend on the client (company address, Gmail account, support contact, backup storage, install on the client's phone) or an action that could not be tried safely (it says which). This is a guide to using the current app, not production acceptance.
+Role wording updated on 10 October 2026 (CR-11): the **Admin** card opens the existing review workspace; existing administrator accounts continue using **Manager**. Permissions are unchanged.
+
+Checked on 9 October 2026 by walking the real app (local demo, build `build-20261008T155132Z`) as administrator, an Admin and technician in a desktop-width browser, with a 360 px phone-width check of the menu and layout. It was not checked on the client's phone or on the client's production address. **[CONFIRM]** marks only things that depend on the client (company address, Gmail account, support contact, backup storage, install on the client's phone) or an action that could not be tried safely (it says which). This is a guide to using the current app, not production acceptance.
 
 ## Quick start — keep this page handy
 
@@ -13,13 +15,13 @@ Checked on 9 October 2026 by walking the real app (local demo, build `build-2026
 | Technician | Open a visit, choose a system, then a location. Enter the results and attach a photo for each finding that needs one. Drafts stay on this device. |
 | Technician | Use **Save Draft** (or just keep typing — drafts also autosave), then **Submit Inspection**. Submitted work uploads on its own when the connection is good; **Sync Now** forces a check. |
 | Technician | Look at the top of the screen: **All submitted changes synced** means nothing submitted is waiting. It does not include drafts you have not submitted. |
-| Supervisor | Review accepted work (**Current Services Done** → customer → **View Progress** → **Review / correct** → **Approve review**) and location proposals. |
+| Admin | Review accepted work (**Current Services Done** → customer → **View Progress** → **Review / correct** → **Approve review**) and location proposals. |
 | Admin/Manager | Keep both database and photo backups, their matching verification files, and the separate encrypted email key backup. See Appendix A. |
 | If something fails | Do not clear the phone's app data. Note the message, the visit reference (for example SV-20261008-79) and the **Support build** shown at the top; call **[CONFIRM: support contact]**. |
 
 ## 1. Sign in, sign out and prepare a phone
 
-1. Open **[CONFIRM: company HTTPS app address]**. Choose **Technician**, **Manager** or **Supervisor**. A sign-in form appears with **Username**, **Password** and **Sign in** (titled "Sign in to your service jobs", "Sign in to Operations" or "Sign in to review service visits"). Choosing a card does not give an account extra permissions: if the signed-in account is not allowed that role, the app says "This signed-in account does not have Manager access. Choose the role for this account to continue."
+1. Open **[CONFIRM: company HTTPS app address]**. Choose **Technician**, **Manager** or **Admin**. A sign-in form appears with **Username**, **Password** and **Sign in** (titled "Sign in to your service jobs", "Sign in to Operations" or "Sign in to review service visits"). Choosing a card does not give an account extra permissions: if the signed-in account is not allowed that role, the app says "This signed-in account does not have Manager access. Choose the role for this account to continue."
 2. Enter the username and password your administrator gave you. Your administrator creates accounts (section 2); there is no self-registration.
 3. Use **Sign out** (top right) when finished on a shared device. If nothing submitted is waiting, you are signed out at once. If submitted work has not synced yet, the app first lists what is waiting and asks "Sign out anyway?" — the work stays on the phone and syncs after you sign in again as the same user. Technicians should not sign out before their submitted work has uploaded.
 4. **[CONFIRM: install on the client's phone]** Android Chrome: open the browser menu and choose **Install app** or **Add to Home screen**, then confirm. iPhone Safari: Share → **Add to Home Screen** → **Add**. The wording depends on the phone and browser; installation was not tried on the client's phone.
@@ -31,7 +33,7 @@ Offline work is for prepared inspection forms: typing, saving drafts and taking 
 
 - **Technician:** Home, New Service Visit, Add Customer, Completed Services, Upcoming Services.
 - **Admin/Manager:** Home, Technician List, Services, Operations, Add Customer, Current Services Done, Next Upcoming Service, Service Common Remarks, Service Catalog, Location Proposals, Company Profile, Email reminders.
-- **Supervisor:** Home, Services, Current Services Done, Location Proposals. Supervisors have no Operations screen and see only visits of the technicians assigned to them (section 2).
+- **Admin:** Home, Services, Current Services Done, Location Proposals. Accounts using the Admin card have no Operations screen and see only visits of the technicians assigned to them (section 2).
 
 ### Header messages
 
@@ -49,15 +51,15 @@ Offline work is for prepared inspection forms: typing, saving drafts and taking 
 | Sync needs attention | At least one inspection, photo or location proposal is **Failed** or **Conflict**. Open it and read its error. |
 | All submitted changes synced | Nothing submitted is waiting or failing. Unsubmitted drafts are not counted. |
 
-## 2. Admin/Manager: technicians and supervisors
+## 2. Admin/Manager: technicians and Admins
 
-1. Open **Technician List**. Under **Add Technician**, enter **Username**, **Person’s name** and **Password** (at least 12 characters). Choose **Role**: **Technician** or **Supervisor (review only)**, then **Add Technician**. The new person appears in the list as **Active**.
-2. To change a displayed name, edit **Person’s name** beside the account and choose **Save name**. Under a technician, **Assigned supervisors for …** are checkboxes: a supervisor sees and reviews only the visits of technicians assigned to them, so tick the right supervisor(s) for each technician. Use **Filter by username** to find someone.
+1. Open **Technician List**. Under **Add Technician**, enter **Username**, **Person’s name** and **Password** (at least 12 characters). Choose **Role**: **Technician** or **Admin (review only)**, then **Add Technician** or **Add Admin** to match the selected role. The new person appears in the list as **Active**.
+2. To change a displayed name, edit **Person’s name** beside the account and choose **Save name**. Under a technician, **Assigned Admins for …** are checkboxes: an Admin sees and reviews only the visits of technicians assigned to them, so tick the right Admin(s) for each technician. Use **Filter by username** to find someone.
 3. To stop access, choose **Deactivate**. The app asks "Deactivate this technician? They will no longer be able to log in." Confirm. The account moves out of the active list.
 4. For permanent removal, tick **Show deactivated technicians (N)**, then choose **Permanently remove** beside the inactive person. The app asks you to type the exact username. An account that never did any work is deleted ("Unused technician account deleted."); an account with history stays in the records. This cannot be undone.
-5. **Password reset:** beside a technician or supervisor, choose **Set new password**, type the new password twice (at least 12 characters) and choose **Set password**. The app confirms the person was signed out of existing sessions; give them the new password yourself. It does not reactivate a deactivated account, and it needs a connection to the server. This screen has no way to change an **administrator** password: IT resets that with the server's `resetAdminPassword` command (see Admin recovery in `docs/client-install-and-public-access.md`). **[CONFIRM: authorized IT/recovery contact]** *(Written from the code and automated browser tests; not yet walked through in the live app.)*
+5. **Password reset:** beside a technician or Admin, choose **Set new password**, type the new password twice (at least 12 characters) and choose **Set password**. The app confirms the person was signed out of existing sessions; give them the new password yourself. It does not reactivate a deactivated account, and it needs a connection to the server. This screen has no way to change an **administrator** password: IT resets that with the server's `resetAdminPassword` command (see Admin recovery in `docs/client-install-and-public-access.md`). **[CONFIRM: authorized IT/recovery contact]** *(Written from the code and automated browser tests; not yet walked through in the live app.)*
 
-"Review only" means a supervisor cannot administer staff or customer setup. Supervisors can approve a review and make audited corrections to supported accepted V7 inspections (section 7).
+"Review only" means an Admin cannot administer staff or customer setup. Admins can approve a review and make audited corrections to supported accepted V7 inspections (section 7).
 
 ## 3. Admin/Manager: customers and applicable systems
 
@@ -84,8 +86,8 @@ Saving customer settings creates a new configuration version. Existing visits ke
 1. Technician: open a visit and choose **Add a New Location**. Choose the **System**, type a **Location name**, and pick an **Existing zone** or **New zone**. Use **Save Draft** to keep it, or **Submit for Review**. If a name repeats one already in the visit, a notice asks you to consider a different name, but you can still submit.
 2. While online the proposal is sent at once and shows "New location submitted for review." Without a connection it shows "New location saved on this device, pending sync." and the header counts it. If it fails, it shows "Sync needs attention" with the reason and **Retry Sync**. After a successful submit you can choose **Add another location**. A proposal never changes the visit it was written on: the new location appears from the next visit, after approval.
 3. A supported inspection form can offer **Save as format for next visit**. This proposes the current row layout for review; it does not submit the inspection or change past visits.
-   - **Fire Rated Roller Shutter:** on a customer's first visit the form first asks **Number of zones** and **Locations in each zone** (open **Different number of locations in some zones?** to vary a zone), then opens already laid out in zones, ready to fill. A customer with one zone sees no zone headings. Type each shutter's **Location** (and optional **Asset Reference**), rename a zone with **Zone name**, and use **Add shutter to** a zone or **Add Zone** if something is missing. When you choose **Submit Inspection**, the layout is sent for review automatically if it is new or changed (it shows "Shutter layout saved on this device" or "sent to a Supervisor for approval"). Once a Supervisor approves it, the next visit shows **Same shutters as last time** with every zone and location already filled in, so you only record the results. To correct a saved name for future visits use **Correct format for next visit**; the current inspection keeps its original names.
-4. Admin or Supervisor: open **Location Proposals**, choose **Pending** and click a proposal. The details show who submitted it, the service visit, the new location and its zone.
+   - **Fire Rated Roller Shutter:** on a customer's first visit the form first asks **Number of zones** and **Locations in each zone** (open **Different number of locations in some zones?** to vary a zone), then opens already laid out in zones, ready to fill. A customer with one zone sees no zone headings. Type each shutter's **Location** (and optional **Asset Reference**), rename a zone with **Zone name**, and use **Add shutter to** a zone or **Add Zone** if something is missing. When you choose **Submit Inspection**, the layout is sent for review automatically if it is new or changed (it shows "Shutter layout saved on this device" or "sent to an Admin for approval"). Once an Admin approves it, the next visit shows **Same shutters as last time** with every zone and location already filled in, so you only record the results. To correct a saved name for future visits use **Correct format for next visit**; the current inspection keeps its original names.
+4. Admin: open **Location Proposals**, choose **Pending** and click a proposal. The details show who submitted it, the service visit, the new location and its zone.
 5. Choose **Approve**, or type a **Note (required to reject, optional to approve)** and choose **Reject**. **Close** leaves without deciding. Decisions cannot be undone. Approving adds the location to the customer's current settings for future visits. Use **Approved** or **Rejected** to see past decisions.
 6. An unreadable proposal is listed by reference but cannot be decided through the ordinary screen. Ask support to inspect it; other readable proposals are unaffected.
 
@@ -107,20 +109,20 @@ The old demo proposal with reference **678f1e17** was rejected with an audit rec
 2. Fill in the form with the labels shown. A current form uses **Good**, **Not Good**, **Complete Repair** and **No Need Checking / N.A.**; detector rows use **Normal**, **Test**, **Isolation**. Older visits may say **Good / Poor / Not Relevant**. Each row also has a **Remark** list.
 3. For every finding that needs evidence (**Not Good** or **Complete Repair** on current forms), choose that row's own **Remark** and attach one photo of its own: **Take Photo** or **Choose Existing Photo**. The row then says "Photo attached on this device" with **Replace with Camera** / **Replace from Gallery**. The older pressure-photo form says **Camera unavailable? Choose Existing Photo**. Read [Evidence policy](EVIDENCE_POLICY.md) for limits.
 4. **Save Draft** saves on this device (the draft is also saved as you type; after a save the form briefly reloads). **Submit Inspection** checks the form: if anything is missing it lists "Complete before submitting" with each missing result, remark or photo. Fix those and submit again.
-5. After submitting, the form says "Submitted on this device — waiting to sync." and the header counts it. With a connection it uploads on its own; **Sync Now** (My Service Jobs) forces a check. When the server confirms, the form changes to **Inspection Complete** with "Synced by …" and shows a **Pending Review** banner ("Supervisor approval is pending.") until a supervisor approves it. The accepted answers cannot be edited. A recorded finding shows **View accepted photo**.
+5. After submitting, the form says "Submitted on this device — waiting to sync." and the header counts it. With a connection it uploads on its own; **Sync Now** (My Service Jobs) forces a check. When the server confirms, the form changes to **Inspection Complete** with "Synced by …" and shows a **Pending Review** banner ("Admin approval is pending.") until an Admin approves it. The accepted answers cannot be edited. A recorded finding shows **View accepted photo**.
 6. If evidence fails, open the affected record and read its error. Choose **Start corrected copy**, confirm, fix the copy and submit it; the rejected original is archived on the phone and is not sent again. A submitted photo cannot be replaced on the same record. **[CONFIRM: corrected-copy screen]** — this needs a rejected record and was not reproduced in this walkthrough; it is covered by automated browser tests.
 7. When every required inspection of a visit is accepted, the visit's **Complete Service** action closes it. **[CONFIRM: Complete Service button]** — a full visit was not completed in this walkthrough. Do not assume a completed form alone closes the whole visit.
 8. **Completed Services** (menu) lists your closed visits; **View Report** opens the final report when online.
 
 Unsent photos are kept by the app. The 24-hour rule concerns unused draft photos of an already-synced inspection; the 30-day rule concerns local copies of confirmed uploads. Neither is a deadline for deleting unsent work.
 
-## 7. Reports — Admin/Manager, Supervisor and Technician
+## 7. Reports — Admin/Manager and Technician
 
-1. Admin/Manager or Supervisor: open **Current Services Done**, search **Customer name or code**, click the customer. The list shows its visits: completed ones offer **View Final Report**, **Download PDF** and **Archive**; unfinished ones offer **View Progress**. **Show archived visits** reveals archived ones.
+1. Admin/Manager: open **Current Services Done**, search **Customer name or code**, click the customer. The list shows its visits: completed ones offer **View Final Report**, **Download PDF** and **Archive**; unfinished ones offer **View Progress**. **Show archived visits** reveals archived ones.
 2. The **Final Report** screen shows **Download PDF**, the approval line (for example "Report approved — Approved by … on …") and, for an admin, **Withdraw approval**. **Approve report** appears on a completed visit that is awaiting approval; it is separate from accepting an inspection. **[CONFIRM: approving a report awaiting approval]** — only an already-approved report was viewed.
 3. **Download PDF** is available after report approval and successful report checks. A visit with audited corrections shows the corrected values in the browser report but cannot download a PDF yet (section 12).
-4. To review or correct accepted V7 work: Admin goes **Operations** → visit → **Accepted records** → **Review / correct**. A Supervisor goes **Current Services Done** → customer → **View Progress** → **Review / correct**. The editor lists every field (type in **Search fields**); change a value, enter **Reason for these corrections (3–500 characters)** and choose **Save corrections** (or **Discard**). The original value stays in history. In this editor the fourth result is labelled **N.A.**
-5. **Approve review** (shown to a Supervisor on a record that says **Pending Review**) marks it "Reviewed by Supervisor: …". It was exercised in this walkthrough. A saved correction invalidates a prior review. **[CONFIRM: Save corrections]** — corrections are permanent audit entries, so none was saved here.
+4. To review or correct accepted V7 work: With the Manager card, Admin goes **Operations** → visit → **Accepted records** → **Review / correct**. With the Admin card, Admin goes **Current Services Done** → customer → **View Progress** → **Review / correct**. The editor lists every field (type in **Search fields**); change a value, enter **Reason for these corrections (3–500 characters)** and choose **Save corrections** (or **Discard**). The original value stays in history. In this editor the fourth result is labelled **N.A.**
+5. **Approve review** (shown to an Admin on a record that says **Pending Review**) marks it "Reviewed by Admin: …". It was exercised in this walkthrough. A saved correction invalidates a prior review. **[CONFIRM: Save corrections]** — corrections are permanent audit entries, so none was saved here.
 6. Technicians open their own report from **Completed Services** → **View Report**, and cannot make corrections.
 
 ## 8. Email reminders — sender and receivers are different
@@ -136,7 +138,7 @@ Unsent photos are kept by the app. The 24-hour rule concerns unused draft photos
 ### Select receivers
 
 1. On **Email reminders**, under **Staff notification addresses**, find the person (**Name, username, or email** / **Search**; **Status** All staff / Active only / Inactive only), enter **Reminder email** and choose **Save address**.
-2. Open **Next Upcoming Service** → the customer → **Reminder recipients**. Tick the active technicians/supervisors who should receive it; staff without an email address say "add email in Email reminders Settings". Under **Additional recipients**, enter **Name** and **Email**, **Add address**, then **Save recipients**. The panel shows the **Planned send** time. A scheduled customer with nobody selected shows "Reminder blocked: add recipients." and appears under **Recipient gaps** on the Email reminders screen.
+2. Open **Next Upcoming Service** → the customer → **Reminder recipients**. Tick the active technicians/Admins who should receive it; staff without an email address say "add email in Email reminders Settings". Under **Additional recipients**, enter **Name** and **Email**, **Add address**, then **Save recipients**. The panel shows the **Planned send** time. A scheduled customer with nobody selected shows "Reminder blocked: add recipients." and appears under **Recipient gaps** on the Email reminders screen.
 
 Reminders go to each selected address individually at **09:00 Malaysia time on the day before the customer's due date**. The office PC and worker must be running. The worker checks every 15 minutes and on startup: restarting later that day can catch up; restarting after midnight records a missed reminder rather than sending an out-of-date "tomorrow" message.
 
@@ -182,15 +184,15 @@ Reminders go to each selected address individually at **09:00 Malaysia time on t
 | PDF unavailable | Approval/history checks or corrections prevent download. | Review the Final Report notice; ask support if a corrected PDF is needed. |
 | Form/visit not cached offline | This device has not prepared that form. | Reconnect and open it online first; do not invent a replacement visit. |
 | Draft save/photo storage error | Local storage could not finish. | Keep the app open, free unrelated storage, retry; do not clear this app's data. |
-| Supervisor cannot see a visit | The supervisor is not assigned to the technician who created it. | Admin assigns the supervisor under **Technician List** (section 2). |
+| Admin cannot see a visit | The Admin is not assigned to the technician who created it. | An administrator using the Manager card assigns the Admin under **Technician List** (section 2). |
 
 ## 12. Known limits
 
 - **Corrected visits cannot download a PDF yet.** When a visit has audited corrections, the browser report shows the corrected values but **Download PDF** stays unavailable. Do not distribute an earlier PDF as if it contained the corrections. This needs a product change; ask support.
-- **No password reset feature.** See section 2, step 5 for the workaround (deactivate and recreate a technician/supervisor; IT command for an administrator).
+- **No password reset feature.** See section 2, step 5 for the workaround (deactivate and recreate a technician/Admin; IT command for an administrator).
 - **Offline needs the job opened online once.** A visit can be used without internet only after it has been downloaded to that phone online (it says **Ready for offline use**) and its form has been opened. A visit created or assigned while the phone was offline cannot be started.
 - **New visits need to be online.** **+ New Service Visit**, **Add Customer** and all manager screens need the server. Only filling in, saving and photographing prepared inspections works offline.
-- **Supervisors see only their assigned technicians' visits** and have no Operations screen.
+- **Accounts using the Admin card see only their assigned technicians' visits** and have no Operations screen.
 - **A rejected photo cannot be replaced on the same record.** Use **Start corrected copy** (section 6).
 - **Reminders are never retried automatically**, and an accepted inspection cannot be deleted (only unfinished visits can).
 
@@ -199,7 +201,7 @@ Reminders go to each selected address individually at **09:00 Malaysia time on t
 | Term | Meaning |
 |---|---|
 | Admin/Manager | Owner's account for staff, customer and office settings. |
-| Supervisor | Reviewer of inspections, proposals and reports; also permitted audited V7 corrections. |
+| Admin | Reviewer of inspections, proposals and reports; also permitted audited V7 corrections. |
 | Technician | Field inspector completing their own authorized work. |
 | Service visit / job | One visit containing its applicable systems and required inspections. |
 | Zone / location | A grouping and a named place to inspect. |

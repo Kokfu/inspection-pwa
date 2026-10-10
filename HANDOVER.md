@@ -3,7 +3,20 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **Security committed; local candidate images verified; no deployment.**
+**Last updated:** 2026-10-10 — **CR-11 Admin wording implemented; Level 1 checks pass.**
+The existing `supervisor` review role now reads Admin throughout the UI, freshly rendered report/PDF text,
+API messages and client guides. The existing `admin` account still uses Manager; permissions and stored data
+are unchanged. Web typecheck/build, 55 affected browser cases (with focused rerun), 8 web node tests, API
+typecheck and 16 API integration/report/PDF cases pass. Duplicate Admin labels and per-hit internal-name
+audit: [CR11_ADMIN_WORDING](docs/testing/CR11_ADMIN_WORDING.md). No deployment or Git mutation.
+
+**Earlier checkpoint:** 2026-10-10 — **CR-05 compact remaining inspections implemented; Level 1 checks pass.**
+Remaining Inspections now uses a collapsed native disclosure with authoritative completion counts and compact
+unit/reason rows. Ready to Complete, completion rules and API/data behavior are unchanged. Chromium checks at
+360/768/1280px, existing completion workflow, UI static regressions, web typecheck/build and diff check pass.
+No Git mutations or deployment. Evidence and reproducible commands: [CR05_REMAINING_INSPECTIONS](docs/testing/CR05_REMAINING_INSPECTIONS.md).
+
+**Earlier checkpoint:** 2026-10-10 — **Security committed; local candidate images verified; no deployment.**
 Owner authorized commit `f208352` and continuation. API and web/Caddy candidates built from that committed archive,
 excluding unrelated changes. Candidate API versions match the reviewed lockfile; production audit is clean; Linux
 Argon2/Sharp/application Chromium PDF smoke checks and Caddy/PWA asset validation pass. Production replacement,

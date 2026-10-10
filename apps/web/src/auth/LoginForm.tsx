@@ -2,7 +2,7 @@ import { useState } from "react";
 
 type LoginFormProps = {
   onLogin: (username: string, password: string) => Promise<void>;
-  roleLabel?: "Technician" | "Manager" | "Supervisor";
+  roleLabel?: "Technician" | "Manager" | "Admin";
 };
 
 export function LoginForm({ onLogin, roleLabel = "Technician" }: LoginFormProps) {
@@ -25,7 +25,7 @@ export function LoginForm({ onLogin, roleLabel = "Technician" }: LoginFormProps)
   return (
     <section className="auth-panel" aria-label="Sign in">
       <p className="eyebrow">{roleLabel} access</p>
-      <h2>{roleLabel === "Manager" ? "Sign in to Operations" : roleLabel === "Supervisor" ? "Sign in to review service visits" : "Sign in to your service jobs"}</h2>
+      <h2>{roleLabel === "Manager" ? "Sign in to Operations" : roleLabel === "Admin" ? "Sign in to review service visits" : "Sign in to your service jobs"}</h2>
       <label>
         <span>Username</span>
         <input

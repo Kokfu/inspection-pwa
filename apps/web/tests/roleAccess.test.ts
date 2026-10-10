@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "../src/manager/roleAccess";
+import { isManagerRole, productRoleMatches, supervisorAllowsRoute, reviewerRoleLabel } from "../src/manager/roleAccess";
 
 const user = (role: "admin" | "inspector" | "supervisor") => ({ id: 1, username: role, role });
 
@@ -22,4 +22,10 @@ test("supervisor screens are exactly the review screens", () => {
 
 test("supervisor may review technician-submitted location proposals", () => {
   assert.equal(supervisorAllowsRoute("manager-location-proposals"), true);
+});
+
+test("CR-11 labels both review roles Admin without changing their authority", () => {
+  assert.equal(reviewerRoleLabel("supervisor"), "Admin");
+  assert.equal(reviewerRoleLabel("admin"), "Admin");
+  assert.equal(reviewerRoleLabel(null), "");
 });

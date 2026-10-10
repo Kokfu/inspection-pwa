@@ -22,7 +22,7 @@ test("cold migration, technician lifecycle, concurrent uniqueness and real sessi
     const admin = (await pool.query("INSERT INTO users(username,password_hash,role) VALUES('mobiletest',$1,'admin') RETURNING id", [await hashPassword("manager-test-password")])).rows[0];
     const app = express(); app.use(express.json()); app.use(currentUser); app.use(authRouter); app.use(createManagerTechniciansRouter(pool)); app.use(createManagerRemindersRouter(pool));
     app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-      response.status(error instanceof ManagerTechnicianError ? error.status : 500).json({ error: error instanceof ManagerTechnicianError ? error.code : "INTERNAL_SERVER_ERROR" });
+      response.status(error instanceof ManagerTechnicianError ? error.status : 500).json({ error: error instanceof ManagerTechnicianError ? error.code : "INTERNAL_SERVER_ERROR", ...(error instanceof ManagerTechnicianError ? { message: error.message } : {}) });
     });
     const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
     const { port } = server.address() as { port: number };
@@ -34,6 +34,19 @@ test("cold migration, technician lifecycle, concurrent uniqueness and real sessi
       const create = await request("/manager/technicians", "POST", { username: "field-tech", password: "technician-test-password" }, managerCookie);
       assert.equal(create.status, 201); const { technician } = await create.json() as { technician: { id: number; isActive: boolean; username: string } };
       assert.equal(technician.isActive, true); assert.equal("password_hash" in technician, false);
+      // CR-11 changes display copy only: error codes and role validation stay intact.
+      for (const [body, status, expected] of [
+        [{ supervisorId: "20" }, 400, { error: "INVALID_SUPERVISOR_ID", message: "Admin ID must be a positive numeric ID." }],
+        [{ supervisorId: 999999 }, 404, { error: "SUPERVISOR_NOT_FOUND", message: "Admin was not found." }],
+        [{ supervisorId: Number(admin.id) }, 400, { error: "INVALID_ROLE", message: "Assignment requires a technician and an Admin." }]
+      ] as const) {
+        const refused = await request(`/manager/technicians/${technician.id}/assignments`, "POST", body, managerCookie);
+        assert.equal(refused.status, status);
+        assert.deepEqual(await refused.json(), expected);
+      }
+      const invalidRole = await request("/manager/technicians", "POST", { username: "wrong-role", password: "technician-test-password", role: "Admin" }, managerCookie);
+      assert.equal(invalidRole.status, 400);
+      assert.deepEqual(await invalidRole.json(), { error: "INVALID_ROLE", message: "Role must be Technician or Admin." });
       const row = (await pool.query("SELECT * FROM users WHERE id=$1", [technician.id])).rows[0]; assert.equal(row.role, "inspector"); assert.ok(await verifyPassword(row.password_hash, "technician-test-password"));
       assert.equal(row.display_name, null, "migration does not invent existing names");
       const namePath = `/manager/technicians/${technician.id}/display-name`;

@@ -207,7 +207,7 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
           {formatStatus === "saving" ? "Saving format…" : "Save as format for next visit"}
         </button>
         {formatStatus === "pending" ? <span className="support-metadata">Saved on this device, pending sync.</span> : null}
-        {formatStatus === "synced" ? <span className="support-metadata">Submitted for Supervisor review.</span> : null}
+        {formatStatus === "synced" ? <span className="support-metadata">Submitted for Admin review.</span> : null}
         {formatStatus === "failed" ? <span className="form-message" role="alert">{formatError}</span> : null}
       </div> : null}
       {responses.detectorRows.slice().sort((left, right) => left.displaySequence - right.displaySequence).map((row, index) => (

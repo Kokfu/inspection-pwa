@@ -21,7 +21,7 @@ export function RoleSelection({
         <span>Monitor service visits, review completed reports, and manage customer service assignments.</span>
       </button>
       <button type="button" className="role-card" onClick={() => onSelect("supervisor")}>
-        <strong>Supervisor</strong>
+        <strong>Admin</strong>
         <span>Review service visits and completed reports.</span>
       </button>
     </div>

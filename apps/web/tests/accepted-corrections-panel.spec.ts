@@ -22,7 +22,7 @@ test("corrections on an accepted record are listed with the original value and t
   await expect(page.getByRole("heading", { name: "1 correction after submission" })).toBeVisible();
   await expect(page.getByText("The inspection below is shown exactly as it was accepted.", { exact: false })).toBeVisible();
   await expect(page.getByRole("listitem")).toContainText("Charger & Batteries › Main Supply › Result: Good → Not Good");
-  await expect(page.getByRole("listitem")).toContainText("review-lead (supervisor)");
+  await expect(page.getByRole("listitem")).toContainText("review-lead (Admin)");
   await expect(page.getByRole("listitem")).toContainText("Terminal corrosion found on the photo");
   await expect(page.locator("#accepted-detail")).toHaveText("Accepted inspection detail");
 });
@@ -64,7 +64,7 @@ test("V7 accepted form shows technician submission and pending supervisor review
   await open(page);
   await expect(page.getByRole("heading", { name: "Pending Review" })).toBeVisible();
   await expect(page.getByText("Submitted by Technician: field-tech")).toBeVisible();
-  await expect(page.getByText("Supervisor approval is pending.")).toBeVisible();
+  await expect(page.getByText("Admin approval is pending.")).toBeVisible();
 });
 
 test("V7 accepted form shows explicit supervisor approval", async ({ page }) => {
@@ -74,8 +74,8 @@ test("V7 accepted form shows explicit supervisor approval", async ({ page }) => 
     }, corrections: [correction]
   } }));
   await open(page);
-  await expect(page.getByRole("heading", { name: "Reviewed by Supervisor" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reviewed by Admin" })).toBeVisible();
   await expect(page.getByText("Submitted by Technician: field-tech")).toBeVisible();
-  await expect(page.getByText("Reviewed by Supervisor: review-lead", { exact: false })).toBeVisible();
+  await expect(page.getByText("Reviewed by Admin: review-lead", { exact: false })).toBeVisible();
   await expect(page.getByRole("listitem")).toContainText("Good → Not Good");
 });

@@ -65,8 +65,8 @@ const sidebar = (page: Page) => page.getByLabel("Primary navigation");
 
 async function enterAsSupervisor(page: Page, hash = "#/manager") {
   await page.goto(`/tests/manager-service-editor.html${hash}`);
-  await expect(page.getByRole("button", { name: /^Supervisor Review/ })).toBeVisible();
-  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
+  await expect(page.getByRole("button", { name: /^Admin Review/ })).toBeVisible();
+  await page.getByRole("button", { name: /^Admin Review/ }).click();
 }
 
 test("dedicated Supervisor login opens the review workspace", async ({ page }) => {
@@ -74,24 +74,24 @@ test("dedicated Supervisor login opens the review workspace", async ({ page }) =
   await page.goto("/tests/manager-service-editor.html#/manager");
   for (const width of [360, 768, 1280]) {
     await page.setViewportSize({ width, height: 800 });
-    await expect(page.getByRole("button", { name: /^Supervisor Review/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Admin Review/ })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
-  await page.getByRole("button", { name: /^Supervisor Review/ }).click();
-  await expect(page.getByText("Supervisor access")).toBeVisible();
+  await page.getByRole("button", { name: /^Admin Review/ }).click();
+  await expect(page.getByText("Admin access")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign in to review service visits" })).toBeVisible();
   await page.getByLabel("Username").fill("review-lead");
   await page.getByLabel("Password").fill("example-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager$/);
-  await expect(page.getByText("Supervisor workspace")).toBeVisible();
+  await expect(page.getByText("Admin workspace")).toBeVisible();
 });
 
 test("supervisor Home shows only the review cards; Services, visit detail and Final Report work", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done", "Location Proposals"]); // review-only cards; Location Proposals is in supervisorRoutes (roleAccess.ts)
-  await expect(page.getByText("Supervisor workspace")).toBeVisible();
+  await expect(page.getByText("Admin workspace")).toBeVisible();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
   await expect(page.getByText("No inspections scheduled in this period.")).toBeVisible();
@@ -99,7 +99,7 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await expect(page.getByText("No accepted inspections in this period.")).toBeVisible();
 
   await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
-  await expect(page.getByText("Supervisor workspace")).toBeVisible();
+  await expect(page.getByText("Admin workspace")).toBeVisible();
   await page.getByRole("button", { name: /SV-SUPERVISOR-830/ }).click();
   await expect(page.getByText(/Completed .* by technician-one\./)).toBeVisible();
   await expect(page.getByText(/2026-09-18T10:00:00/)).toHaveCount(0);

@@ -1,3 +1,4 @@
+import { reviewerRoleLabel } from "./roleAccess";
 import { useEffect, useState } from "react";
 import {
   decideLocationProposal, loadLocationProposals, ManagerApiError,
@@ -120,7 +121,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: {
         </ul>
       </>}
       {selected.decision ? <div className="offline-notice" role="status">
-        <p>{selected.decision.decision === "approved" ? "Approved" : "Rejected"} by {selected.decision.decidedBy} ({selected.decision.decidedByRole}) at {selected.decision.decidedAt}.</p>
+        <p>{selected.decision.decision === "approved" ? "Approved" : "Rejected"} by {selected.decision.decidedBy} ({reviewerRoleLabel(selected.decision.decidedByRole)}) at {selected.decision.decidedAt}.</p>
         {selected.decision.note ? <p>{selected.decision.note}</p> : null}
       </div> : <>
         {decisionError ? <p className="form-message" role="alert">{decisionError}</p> : null}

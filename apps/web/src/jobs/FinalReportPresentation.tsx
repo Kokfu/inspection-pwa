@@ -45,7 +45,7 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
       <h3>{section.label}{section.location ? ` - ${section.location.zoneLabel ? `${section.location.zoneLabel} / ` : ""}${section.location.locationLabel}` : ""}</h3>
       {section.review ? <p className="operational-message" role="status">
         Submitted by Technician: {section.review.submittedBy ?? "identity unavailable"}. {section.review.status === "reviewed"
-          ? `Reviewed by Supervisor: ${section.review.reviewedBy ?? "identity unavailable"}${section.review.reviewedAt ? ` on ${formatMalaysiaDateTime(section.review.reviewedAt)}` : ""}.`
+          ? `Reviewed by Admin: ${section.review.reviewedBy ?? "identity unavailable"}${section.review.reviewedAt ? ` on ${formatMalaysiaDateTime(section.review.reviewedAt)}` : ""}.`
           : "Pending Review."}
       </p> : null}
       <dl>{section.fields.map((field, fieldIndex) => <div className={`report-field report-field--depth-${Math.min(field.depth, 3)}`} key={`${field.label}:${fieldIndex}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
