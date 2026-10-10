@@ -1,5 +1,5 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
-import { submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
+import { LocationProposalAlreadyPendingError, proposalAlreadyPendingMessage, submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
 import { validLocationProposalPatch } from "./locationProposalShape";
 import { announceSyncFinished } from "../sync/syncEvents";
 
@@ -142,6 +142,11 @@ export async function queueTechnicianLocationProposal(draft: TechnicianLocationP
   return { ...draft, status: "Pending" };
 }
 
+/** I-49: the draft of a proposal the sync retired because an earlier one for the same target is still awaiting review. */
+export function isProposalHeldBehindPending(draft: Pick<TechnicianLocationProposalDraft, "status" | "lastError"> | undefined): boolean {
+  return draft?.status === "Failed" && draft.lastError === proposalAlreadyPendingMessage;
+}
+
 let syncing: Promise<void> | undefined;
 /** Resolves when no location-proposal sync is running (see technicianCustomerSyncIdle). */
 export function locationProposalSyncIdle(): Promise<void> { return (syncing ?? Promise.resolve()).catch(() => undefined); }
@@ -193,11 +198,17 @@ export function syncPendingLocationProposals(actorUserId: number): Promise<void>
       } catch (error) {
         if (currentWorkspaceUserId() !== actorUserId || localDatabase !== database) return;
         const message = error instanceof Error ? error.message : "Location proposal sync failed.";
+        // I-49: an earlier proposal for the same target is still awaiting review. Retrying cannot succeed and nothing
+        // needs attention, so the item is retired (Completed = never retried, header clear) while the local draft keeps
+        // its calm "not sent" text. It is deliberately NOT marked Synced: the server never confirmed this UUID.
+        const retired = error instanceof LocationProposalAlreadyPendingError;
         await database.transaction("rw", database.drafts, database.syncOutbox, async () => {
           const current = await database.syncOutbox.get(item.operationId);
           if (current?.status !== "Syncing") return;
           await database.drafts.put({ id: key, entityType: "technicianLocationProposal", payload: { ...draft, status: "Failed", lastError: message }, updatedAt: new Date().toISOString() });
-          await database.syncOutbox.update(item.operationId, { status: "Failed", lastError: message });
+          await database.syncOutbox.update(item.operationId, retired
+            ? { status: "Completed", activeKey: undefined, completedAt: new Date().toISOString(), lastError: message }
+            : { status: "Failed", lastError: message });
         });
       }
     }

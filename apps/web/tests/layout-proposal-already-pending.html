@@ -1,0 +1,69 @@
+<!doctype html><html><body><button id="run">Run already-pending proposal checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import {
+  isProposalHeldBehindPending, loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  saveTechnicianLocationProposalDraft, syncPendingLocationProposals
+} from "/src/jobs/technicianLocationProposalDraft.ts";
+import { proposalAlreadyPendingMessage } from "/src/referenceData/referenceDataApi.ts";
+import { headerSyncSummary } from "/src/sync/headerSyncSummary.ts";
+const id = n => `6b000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const jobId = id(1), customerId = id(2), systemKey = "fire_rated_roller_shutter";
+const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const proposalStatuses = async () => (await localDatabase.syncOutbox.where("entityType").equals("technicianLocationProposal").toArray()).filter(item => item.status !== "Completed").map(item => item.status);
+async function queueOne(location) {
+  await localDatabase.drafts.clear(); await localDatabase.syncOutbox.clear();
+  const draft = newUpdateFormatDraft(jobId, customerId, systemKey, "general", [{ assetReference: "A", locationText: location, zoneText: "Zone 1" }]);
+  await saveTechnicianLocationProposalDraft(draft);
+  await queueTechnicianLocationProposal(draft);
+  return draft;
+}
+document.querySelector("#run").onclick = async () => {
+  const originalFetch = window.fetch;
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9003);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: 9003, username: "lp-tech2", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+
+    // 1. The server says an earlier proposal for this target is still awaiting review.
+    const first = await queueOne("Dock");
+    let calls = 0;
+    window.fetch = async () => { calls += 1; return reply(409, { error: "LOCATION_PROPOSAL_ALREADY_PENDING", message: "A location proposal for this location is already awaiting review." }); };
+    await syncPendingLocationProposals(9003);
+    const held = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    const outbox = await localDatabase.syncOutbox.get(first.id);
+    check("the server was asked exactly once", calls === 1);
+    check("the local draft keeps the calm not-sent text and is recognised as held", held?.lastError === proposalAlreadyPendingMessage && isProposalHeldBehindPending(held));
+    check("the draft is never marked Synced (the server did not confirm this UUID)", held?.status !== "Synced");
+    check("the outbox item is retired: Completed, no active key", outbox?.status === "Completed" && outbox.activeKey === undefined);
+    check("the header no longer needs attention", !headerSyncSummary({ inspectionStatuses: [], attachmentStatuses: [], proposalStatuses: await proposalStatuses() }).needsAttention);
+    await syncPendingLocationProposals(9003);
+    check("a later sync does not ask the server again", calls === 1);
+
+    // 2. Any OTHER 409 stays a failure that is retried and flagged.
+    const second = await queueOne("Gate");
+    calls = 0;
+    window.fetch = async () => { calls += 1; return reply(409, { error: "LOCATION_PROPOSAL_ALREADY_DECIDED", message: "This location proposal has already been decided." }); };
+    await syncPendingLocationProposals(9003);
+    const other = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    const otherOutbox = await localDatabase.syncOutbox.get(second.id);
+    check("another 409 is Failed with the server's own message", other?.status === "Failed" && other.lastError === "This location proposal has already been decided." && !isProposalHeldBehindPending(other));
+    check("another 409 stays retryable in the outbox", otherOutbox?.status === "Failed");
+    check("another 409 still flags the header", headerSyncSummary({ inspectionStatuses: [], attachmentStatuses: [], proposalStatuses: await proposalStatuses() }).needsAttention);
+
+    // 3. A held proposal does not block the next layout: the same key is simply overwritten by the next proposal.
+    await queueOne("Roof");
+    window.fetch = async (url, init) => { const body = JSON.parse(init.body); return reply(201, { proposal: { id: body.id, status: "pending" } }); };
+    await syncPendingLocationProposals(9003);
+    const confirmed = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
+    check("after the earlier proposal is decided, the next proposal syncs and reaches Synced", confirmed?.status === "Synced");
+
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: checks.every(x => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error) });
+  }
+};
+</script></body></html>

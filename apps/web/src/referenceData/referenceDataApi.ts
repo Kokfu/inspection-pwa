@@ -21,6 +21,27 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** The JSON body of a reply, or an empty object when it is missing or not JSON (a gateway page, for example). */
+async function readJsonBody<T extends object>(response: Response): Promise<Partial<T>> {
+  try {
+    const value: unknown = await response.json();
+    return value !== null && typeof value === "object" ? value as Partial<T> : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * I-44: what a 401/403 on a queued write means to the technician. The server WAS reached, so "Connect to the server"
+ * (which is for a real network failure) would send them looking for the wrong problem: a 401 means the session has
+ * ended, a 403 means the server said no.
+ */
+function authRefusalMessage(status: number, body: { message?: unknown }, subject: string, signInTo: string): string {
+  if (status === 401) return `Sign in again to ${signInTo}.`;
+  const reason = typeof body.message === "string" && body.message.trim() ? ` ${body.message.trim()}` : "";
+  return `The server refused this ${subject} (HTTP ${status}).${reason} Tell your Admin if this keeps happening.`;
+}
+
 export async function loadInspectionCatalog(): Promise<InspectionCatalog> {
   const catalog = parseInspectionCatalog(await getJson<unknown>("/api/inspection-catalog"));
   if (!catalog) throw new Error("Inspection catalog response is invalid");
@@ -100,9 +121,9 @@ export async function createTechnicianCustomer(input: {
     method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) }, body: JSON.stringify(input)
   });
-  const data = await response.json() as { customer?: { customer?: ReferenceCustomer }; message?: string };
+  const data = await readJsonBody<{ customer: { customer?: ReferenceCustomer }; message: string }>(response);
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Connect to the server to add a new customer.");
+    throw new Error(authRefusalMessage(response.status, data, "new customer", "add this customer"));
   }
   if (!response.ok || !data.customer?.customer
     || typeof data.customer.customer.id !== "string"
@@ -114,6 +135,18 @@ export async function createTechnicianCustomer(input: {
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** I-49: what the technician reads when the server already holds a pending proposal for the same target. */
+export const proposalAlreadyPendingMessage = "Not sent: a proposal for this location is already waiting for Admin review.";
+
+/**
+ * I-49: the server answers `409 LOCATION_PROPOSAL_ALREADY_PENDING` when an earlier proposal for the same customer,
+ * system and location is still awaiting review. Nothing is wrong and retrying cannot help, so this is not a failure
+ * to keep retrying; the sync retires the item. It is NOT a confirmation of this proposal's UUID.
+ */
+export class LocationProposalAlreadyPendingError extends Error {
+  constructor() { super(proposalAlreadyPendingMessage); this.name = "LocationProposalAlreadyPendingError"; }
+}
 
 /** Mirrors the API's `LocationProposalPatch` (`apps/api/src/inspections/locationConfiguration.ts`).
  *  `add-location` names a brand-new location (no real inspection data exists for it yet);
@@ -144,15 +177,22 @@ export async function submitTechnicianLocationProposal(
   input: { id: string; jobId: string; patch: LocationProposalPatch },
   expectedUserId?: number
 ): Promise<{ id: string; status: string }> {
-  const response = await fetch(`/api/technician/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/location-proposals`, {
-    method: "POST", credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) },
-    body: JSON.stringify(input)
-  });
-  const data = await response.json() as { proposal?: { id?: string; status?: string }; message?: string };
-  if (response.status === 401 || response.status === 403) {
+  let response: Response;
+  try {
+    response = await fetch(`/api/technician/customers/${encodeURIComponent(customerId)}/systems/${encodeURIComponent(systemKey)}/location-proposals`, {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) },
+      body: JSON.stringify(input)
+    });
+  } catch {
+    // The request never got an answer: this is the one case that really is a connection problem.
     throw new Error("Connect to the server to submit this location proposal.");
   }
+  const data = await readJsonBody<{ proposal: { id?: string; status?: string }; message: string; error: string }>(response);
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(authRefusalMessage(response.status, data, "location proposal", "submit this location proposal"));
+  }
+  if (response.status === 409 && data.error === "LOCATION_PROPOSAL_ALREADY_PENDING") throw new LocationProposalAlreadyPendingError();
   if (!response.ok || !data.proposal
     || typeof data.proposal.id !== "string" || !uuidPattern.test(data.proposal.id)
     || typeof data.proposal.status !== "string") {

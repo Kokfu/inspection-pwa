@@ -2,6 +2,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { forwardHeaders } = require('./proxyHeaders');
 const MODE_FILE = path.join(__dirname, 'mode.txt');
 const LOG_FILE = path.join(__dirname, 'proxy.log');
 const readMode = () => { try { return fs.readFileSync(MODE_FILE, 'utf8').trim(); } catch { return ''; } };
@@ -19,7 +20,7 @@ http.createServer((req, res) => {
   const kind = parts[0] || '';
   const needle = (kind === 'slow' || kind === 'status') ? parts.slice(2).join(':') : parts.slice(1).join(':');
   const hit = write && kind && req.url.includes(needle);
-  const headers = { ...req.headers, host: 'localhost' };
+  const headers = forwardHeaders(req.headers);
   const tag = `${req.method} ${req.url.split('?')[0]}`;
 
   const forward = () => {

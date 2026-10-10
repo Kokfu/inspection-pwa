@@ -5,13 +5,13 @@ import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { FireRatedRollerShutterV7EvidenceField } from "./FireRatedRollerShutterV7EvidenceField";
 import {
-  loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  isProposalHeldBehindPending, loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
 } from "../jobs/technicianLocationProposalDraft";
 import { configuredFireRatedRollerShutterRows, submitIssues } from "./fireRatedRollerShutterRepository";
 import { FireRatedRollerShutterIssueSummary } from "./FireRatedRollerShutterIssueSummary";
 import { FireRatedRollerShutterSetupPrompt } from "./FireRatedRollerShutterSetupPrompt";
-import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, defaultCollapsedKeys, layoutDiffersFrom, layoutIssue, layoutRowsFromResponses, maxShutterRows, maxZoneTextLength, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
+import { addPlannedZoneRows, addRowToZone, addTechnicianShutterRows, addZone, decideLayoutProposal, defaultCollapsedKeys, layoutDiffersFrom, layoutIssue, layoutProposalNote, layoutRowsFromResponses, maxShutterRows, maxZoneTextLength, newRowFor, renameTechnicianZone, rollerShutterSetupStep, zoneGroupKey, zoneGroups, zoneNameTaken, zoneProgress, type RollerShutterSetupStep, type RollerShutterStart, type ShutterLayoutCorrections, type ShutterLayoutRow } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterInspectionRecord, type FireRatedRollerShutterResponses, type FireRatedRollerShutterResult } from "./fireRatedRollerShutterTypes";
 import { isFireRatedRollerShutterV7EvidenceFinding, listFireRatedRollerShutterV7Photos, resolveFireRatedRollerShutterRowResultDefinitions, type FireRatedRollerShutterV7FieldPath } from "./fireRatedRollerShutterV7Evidence";
 
@@ -23,6 +23,8 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
   const [formatError, setFormatError] = useState("");
   const [formatCorrections, setFormatCorrections] = useState<ShutterLayoutCorrections>({});
   const [layoutNote, setLayoutNote] = useState("");
+  // I-50: the stored layout proposal for this visit, so its note survives a reload (see layoutProposalNote).
+  const [storedLayout, setStoredLayout] = useState<Awaited<ReturnType<typeof loadTechnicianLocationProposalDraft>>>(undefined);
   const [zoneNameNote, setZoneNameNote] = useState("");
   const summaryRef = useRef<HTMLElement>(null);
   // Which zone groups are collapsed. null = the default (all but the first); once the technician toggles one it is explicit.
@@ -44,6 +46,14 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
     setResponses((current) => "plan" in start ? addPlannedZoneRows(current, start.plan) : addTechnicianShutterRows(current, start.extraRows));
     setSetup({ uuid: record.clientUuid, step: null });
   };
+  useEffect(() => {
+    if (record.syncStatus === "Draft") return;
+    let active = true;
+    void loadTechnicianLocationProposalDraft(record.inspectionSnapshot.job.id, record.systemKey, "general")
+      .then((draft) => { if (active) setStoredLayout(draft); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [record.clientUuid, record.syncStatus, record.localUpdatedAt]);
+  const shownLayoutNote = layoutNote || (record.syncStatus === "Draft" ? "" : layoutProposalNote(storedLayout, isProposalHeldBehindPending(storedLayout)));
   const evidenceFor = (fieldPath: string) => photos.find((photo) => photo.fieldPath === fieldPath);
   const refreshPhotos = async () => setPhotos(await listFireRatedRollerShutterV7Photos(record.clientUuid));
   const jobId = record.inspectionSnapshot.job.id, customerId = record.inspectionSnapshot.customer.id, layoutKey = "general";
@@ -85,10 +95,9 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       const decision = decideLayoutProposal(savedLayout, rows, existing?.status);
       if (decision.action === "note") { setLayoutNote(decision.note); return; }
       if (decision.action === "skip") return;
-      const outcome = await sendLayout(rows);
-      setLayoutNote(outcome === "synced" ? "Shutter layout sent to an Admin for approval. Once approved, it is pre-filled on the next visit."
-        : outcome === "pending" ? "Shutter layout saved on this device. It will be sent to an Admin for approval when online."
-        : "Inspection submitted. The shutter layout needs attention to sync; see the sync status in the header.");
+      await sendLayout(rows);
+      setLayoutNote("");
+      setStoredLayout(await loadTechnicianLocationProposalDraft(jobId, record.systemKey, layoutKey));
     } catch (error) {
       setLayoutNote(`Inspection submitted. The shutter layout could not be saved for next visit: ${error instanceof Error ? error.message : "unknown error"}`);
     }
@@ -129,7 +138,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       {!readOnly && row.source === "technician" ? <button type="button" className="secondary-command" onClick={() => setResponses((current) => ({ ...current, rows: current.rows.filter((candidate) => candidate.rowUuid !== row.rowUuid).map((candidate, rowIndex) => ({ ...candidate, sortOrder: rowIndex + 1 })) }))}>Remove Row</button> : null}
     </section>;
   }
-  return <section className="hose-reel-form" aria-labelledby="roller-shutter-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button><header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="roller-shutter-title">Fire Rated Roller Shutter System</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong>{record.syncStatus === "Synced" ? "Inspection Complete" : record.syncStatus === "Pending" ? "Waiting to Sync" : record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? "Needs Attention" : record.syncStatus === "Syncing" ? "Syncing…" : record.syncStatus}</strong></header>{record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{message ? <p className="form-message">{message}</p> : null}{layoutNote ? <p className="form-message" role="status">{layoutNote}</p> : null}{show && issues.length ? <section ref={summaryRef} className="validation-summary" role="alert"><h3>Cannot submit yet</h3><FireRatedRollerShutterIssueSummary responses={responses} issues={issues} /></section> : null}{["Failed", "Conflict"].includes(record.syncStatus) ? <button type="button" onClick={() => void onEditFailed()}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
+  return <section className="hose-reel-form" aria-labelledby="roller-shutter-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button><header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="roller-shutter-title">Fire Rated Roller Shutter System</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong>{record.syncStatus === "Synced" ? "Inspection Complete" : record.syncStatus === "Pending" ? "Waiting to Sync" : record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? "Needs Attention" : record.syncStatus === "Syncing" ? "Syncing…" : record.syncStatus}</strong></header>{record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{message ? <p className="form-message">{message}</p> : null}{shownLayoutNote ? <p className="form-message" role="status">{shownLayoutNote}</p> : null}{show && issues.length ? <section ref={summaryRef} className="validation-summary" role="alert"><h3>Cannot submit yet</h3><FireRatedRollerShutterIssueSummary responses={responses} issues={issues} /></section> : null}{["Failed", "Conflict"].includes(record.syncStatus) ? <button type="button" onClick={() => void onEditFailed()}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
     {setupStep ? <FireRatedRollerShutterSetupPrompt key={`${record.clientUuid}:${setupStep}`} step={setupStep} savedRows={savedLayout} onStart={startInspection} /> : <>
     <fieldset disabled={readOnly}><legend>Inspection Details</legend>
       <label>Date Tested<input type="date" value={responses.dateTested} onChange={(event) => setResponses((current) => ({ ...current, dateTested: event.target.value }))} /></label>
@@ -147,20 +156,22 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
         const key = zoneGroupKey(group);
         const isCollapsed = collapsed.has(key);
         const progress = zoneProgress(group, hasPhoto);
+        // I-34: a zone the technician owns is titled by its own name input, so the name is drawn once. The heading stays in
+        // the page (visually hidden) for screen readers and heading navigation.
+        const nameEditable = showZoneHeadings && !group.hasConfigured && !readOnly;
         return <section className="location-group" key={key} aria-label={showZoneHeadings ? `Zone ${name || "(unnamed)"}` : undefined}>
           {showZoneHeadings ? <div className="zone-header">
-            <h3>{name || "Unnamed zone"}</h3>
-            <span className="support-metadata">{progress.complete} of {progress.total} complete</span>
-            <button type="button" className="secondary-command" aria-expanded={!isCollapsed} aria-controls={`zone-rows-${key}`}
-              aria-label={`${isCollapsed ? "Show" : "Hide"} shutters in ${name || "unnamed zone"}`} onClick={() => toggleZone(key)}>{isCollapsed ? "Show shutters" : "Hide shutters"}</button>
-          </div> : null}
-          {showZoneHeadings && !group.hasConfigured && !readOnly
-            ? <label>Zone name<input maxLength={maxZoneTextLength} value={name} onChange={(event) => {
+            {nameEditable ? <label className="zone-name-field">Zone name<input maxLength={maxZoneTextLength} value={name} onChange={(event) => {
               const next = event.target.value;
               if (zoneNameTaken(responses, name, next)) { setZoneNameNote(`Another zone is already named "${next}". Choose a different name.`); return; }
               setZoneNameNote("");
               setResponses((current) => renameTechnicianZone(current, name, next));
             }} /></label> : null}
+            <h3 className={nameEditable ? "visually-hidden" : undefined}>{name || "Unnamed zone"}</h3>
+            <span className="support-metadata">{progress.complete} of {progress.total} complete</span>
+            <button type="button" className="secondary-command" aria-expanded={!isCollapsed} aria-controls={`zone-rows-${key}`}
+              aria-label={`${isCollapsed ? "Show" : "Hide"} shutters in ${name || "unnamed zone"}`} onClick={() => toggleZone(key)}>{isCollapsed ? "Show shutters" : "Hide shutters"}</button>
+          </div> : null}
           <div id={`zone-rows-${key}`} className="zone-rows" hidden={isCollapsed}>
             {group.rows.map((row, index) => renderRow(row, index + 1))}
             {!readOnly && zoned ? <button type="button" className="secondary-command" disabled={atRowLimit} onClick={() => setResponses((current) => addRowToZone(current, name))}>{showZoneHeadings ? `Add shutter to ${name || "this zone"}` : "Add Row"}</button> : null}

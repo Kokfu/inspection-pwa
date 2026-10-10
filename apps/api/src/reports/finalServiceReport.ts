@@ -28,6 +28,7 @@ import { validateHydrantHistoricalPayload } from "../sync/hydrantInspectionSync.
 import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguisherSync.js";
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
 import { applyCorrections, type Json, type StoredCorrection } from "../corrections/correctionApplication.js";
+import { isZonedRollerShutterResponse, rollerShutterRowLocation, rollerShutterRowsInDisplayOrder, rollerShutterZones } from "./rollerShutterDisplay.js";
 
 type RecordValue = Record<string, unknown>;
 type Queryable = { query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }> };
@@ -299,6 +300,46 @@ function flatten(value: unknown, prefix = "", depth = 0, output: FinalReportFiel
     flatten(child, prefix ? `${prefix} - ${key}` : key, depth + (prefix ? 1 : 0), output, lookup);
   }
   return output;
+}
+
+/**
+ * I-45 / I-46: readable report fields for a Fire Rated Roller Shutter schema 2 response. The generic `flatten()` printed
+ * every stored key of every row (row UUID, sort order, source, snapshots) under "Rows N - ...". This builds the same
+ * thing the PDF shows: one block per shutter titled `No. N (Zone - Location)`, in zone-grouped display order (the stored
+ * order is unchanged), with its two results (each followed by its own remark), the asset reference and the row remark.
+ * A result keeps `conditionResult: true`, so the derived condition, the dashboard and the PDF remark lines behave as before.
+ */
+const rollerShutterResultColumns = [["autoAlarmModeResult", "Auto Alarm Mode"], ["manualModeResult", "Manual Mode"]] as const;
+
+export function rollerShutterFields(response: RecordValue & { rows: unknown[] }): FinalReportField[] {
+  const invalid = () => new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted inspection data is malformed and cannot be reported.");
+  const fields: FinalReportField[] = [];
+  const add = (label: string, value: unknown, depth: number, conditionResult = false) => {
+    const rendered = scalar(value);
+    if (rendered === undefined) throw invalid();
+    const field: FinalReportField = { label, value: rendered, depth };
+    Object.defineProperty(field, "conditionResult", { value: conditionResult });
+    fields.push(field);
+  };
+  if (!response.rows.every(isRecord)) throw invalid();
+  if (response.dateTested !== undefined) add("Date Tested", response.dateTested, 0);
+  const zones = typeof response.zone === "string" && response.zone.trim() !== "" ? response.zone.trim() : rollerShutterZones(response.rows).join(", ");
+  if (zones !== "") add("Zone", zones, 0);
+  if (response.inspectedBy !== undefined) add("Inspected By", response.inspectedBy, 0);
+  rollerShutterRowsInDisplayOrder(response.rows as RecordValue[]).forEach((row, index) => {
+    const location = rollerShutterRowLocation(row);
+    const prefix = `No. ${index + 1}${location ? ` (${location})` : ""}`;
+    if (typeof row.assetReference === "string" && row.assetReference.trim() !== "") add(`${prefix} - Asset Reference`, row.assetReference, 1);
+    const remarks = isRecord(row.fieldRemarks) ? row.fieldRemarks : {};
+    for (const [key, name] of rollerShutterResultColumns) {
+      add(`${prefix} - ${name}`, row[key] ?? null, 1, true);
+      const remark = remarks[key];
+      if (typeof remark === "string" && remark.trim() !== "") add(`${prefix} - ${name} Remark`, remark, 2);
+    }
+    if (typeof row.remarks === "string" && row.remarks.trim() !== "") add(`${prefix} - Remarks`, row.remarks, 1);
+  });
+  if (typeof response.comments === "string" && response.comments.trim() !== "") add("Comments", response.comments, 0);
+  return fields;
 }
 
 function expectedSystem(snapshot: unknown, key: string) {
@@ -680,7 +721,9 @@ export function fieldsForAcceptedReportInstance(systemKey: string, snapshot: unk
   const snapshotIsV7 = isRecord(snapshot) && snapshot.schemaVersion === 2;
   const fields = systemKey === "fire_alarm_detector" && snapshotIsV7
     ? fireAlarmV6Fields(snapshot, response)
-    : flatten(response, "", 0, [], displayLabels?.display);
+    : systemKey === "fire_rated_roller_shutter" && snapshotIsV7 && isZonedRollerShutterResponse(response)
+      ? rollerShutterFields(response)
+      : flatten(response, "", 0, [], displayLabels?.display);
   return { fields, displayLabels };
 }
 
@@ -733,9 +776,28 @@ async function validatedV7SuppressionEvidence(database: Queryable, row: ReportIn
     if (createHash("sha256").update(content).digest("hex") !== item.stored_sha256) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
     let metadata: { format?: string; width?: number; height?: number }; try { metadata = await sharp(content, { failOn: "error" }).metadata(); } catch { throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt."); }
     if (metadata.format !== "jpeg" || metadata.width !== item.width || metadata.height !== item.height) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
-    evidence.push({ field: item.field_path, caption, content, width: item.width, height: item.height });
+    evidence.push({ field: item.field_path, caption: rollerShutterEvidenceCaption(snapshot.system.key, row.response_payload, item.field_path, caption), content, width: item.width, height: item.height });
   }
-  return evidence;
+  return rollerShutterEvidenceInDisplayOrder(snapshot.system.key, row.response_payload, evidence);
+}
+
+/** I-45: a Roller Shutter photo caption also names its shutter, since the schedule has up to 250 of them. */
+export function rollerShutterEvidenceCaption(systemKey: unknown, response: unknown, fieldPath: string, caption: string) {
+  if (systemKey !== "fire_rated_roller_shutter" || !isZonedRollerShutterResponse(response)) return caption;
+  const uuid = /\.rows\.([0-9a-f-]{36})\./.exec(fieldPath)?.[1];
+  const location = rollerShutterRowLocation(response.rows.find((candidate) => isRecord(candidate) && candidate.rowUuid === uuid));
+  return location ? `${caption} (${location})` : caption;
+}
+
+/** I-46: photos follow the shutters' zone-grouped display order, then Auto Alarm Mode before Manual Mode. */
+export function rollerShutterEvidenceInDisplayOrder(systemKey: unknown, response: unknown, evidence: FinalReportEvidence[]) {
+  if (systemKey !== "fire_rated_roller_shutter" || !isZonedRollerShutterResponse(response) || !response.rows.every(isRecord)) return evidence;
+  const order = rollerShutterRowsInDisplayOrder(response.rows as RecordValue[]).map((row) => String(row.rowUuid));
+  const position = (item: FinalReportEvidence) => {
+    const match = /\.rows\.([0-9a-f-]{36})\.(auto_alarm_mode|manual_mode)$/.exec(item.field);
+    return (match ? order.indexOf(match[1]!) : order.length) * 2 + (match?.[2] === "manual_mode" ? 1 : 0);
+  };
+  return [...evidence].sort((left, right) => position(left) - position(right));
 }
 
 function historicalLocation(system: RecordValue, unit: { authorityKey: string; label: string }, instanceKey: string): FinalReportLocation | undefined {

@@ -123,6 +123,19 @@ test("roller shutter V7 schema 2 carries zone headings, enforces the frozen conf
     const withTechnicianZone = await submit((rows) => { rows.push(technicianRow("Zone 3")); });
     assert.equal(withTechnicianZone.result.acceptedIds.length, 1, "a technician row may name its own zone");
 
+    // I-45 / I-46 end to end: a shutter added to Zone 1 during the visit is stored after Zone 2's row but is READ with Zone 1.
+    const added = await submit((rows) => { rows.push(technicianRow("Zone 1")); });
+    assert.equal(added.result.acceptedIds.length, 1);
+    await database.query("UPDATE inspection_jobs SET status='closed', completed_at=now(), completed_by_user_id=$2, completed_by_display_name='Alice Tan', report_number='TEST/' || id::text, technician_team_snapshot='[]'::jsonb WHERE id=$1", [added.job, actor]);
+    const addedReport = await loadFinalServiceReport(added.job, database);
+    const addedLabels = addedReport.sections.find((section) => section.systemKey === "fire_rated_roller_shutter")!.fields.map((field) => field.label);
+    const at = (label: string) => addedLabels.indexOf(label);
+    assert.ok(at("No. 3 (Zone 1 — Loading bay) - Auto Alarm Mode") > at("No. 2 (Zone 1 — Dock) - Manual Mode"), "the added shutter follows its zone's other shutters");
+    assert.ok(at("No. 3 (Zone 1 — Loading bay) - Manual Mode") < at("No. 4 (Zone 2 — Roof) - Auto Alarm Mode"), "and precedes the next zone");
+    assert.ok(addedLabels.every((label) => !/row uuid|sort order|snapshot|ordinal|^rows \d/i.test(label)), "no internal key is printed");
+    const addedPdfText = (await extractPdfText(await renderFinalServiceReportPdf(addedReport))).join(" ").replace(/\s+/g, " ");
+    assert.ok(addedPdfText.indexOf("Zone 1 — Loading bay") > 0 && addedPdfText.indexOf("Zone 1 — Loading bay") < addedPdfText.indexOf("Zone 2 — Roof"), "the PDF register lists it with Zone 1 too");
+
     const tampered = await submit((rows) => { rows[0]!.zoneText = "Zone 9"; });
     assert.equal(tampered.result.failed[0]?.code, "VALIDATION_ERROR", "a configured row must keep its frozen zone heading");
     assert.equal(tampered.stored, undefined);

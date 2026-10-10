@@ -102,6 +102,13 @@ export function zoneGroups(rows: readonly FireRatedRollerShutterRow[]): ShutterZ
   return groups;
 }
 
+/** I-46: rows grouped by zone for reading (the accepted detail). Zones keep the order they first appear in and rows keep
+ *  their stored order inside a zone, so a shutter added during the visit sits with its zone's other shutters. Display only:
+ *  the stored `sortOrder` and row order are never changed. */
+export function rowsInZoneOrder(rows: readonly FireRatedRollerShutterRow[]): FireRatedRollerShutterRow[] {
+  return zoneGroups(rows).flatMap((group) => group.rows);
+}
+
 /** How each shutter is named in messages, matching what the form shows. With zone headings in use the form
  *  numbers shutters from 1 inside each zone, so a row is "Zone 2, Shutter 3"; otherwise (one unnamed zone, or a
  *  schema-1 record) the rows are "Shutter row N" by position. Index-aligned with `responses.rows`. */
@@ -235,6 +242,18 @@ export function addPlannedZoneRows(responses: FireRatedRollerShutterResponses, p
   const rows = [...responses.rows];
   for (const zone of plan) for (let index = 0; index < zone.count; index += 1) rows.push({ ...newTechnicianShutterRow(rows.length + 1), zoneText: zone.name });
   return { ...responses, rows };
+}
+
+/**
+ * I-50: the note about this visit's shutter layout, derived from the stored proposal draft so it is still there after a
+ * reload or when the submitted record is opened again (it used to live in component state only).
+ */
+export function layoutProposalNote(draft: { status: string; lastError?: string } | undefined, held: boolean): string {
+  if (!draft || draft.status === "Draft") return "";
+  if (draft.status === "Synced") return "Shutter layout sent to an Admin for approval. Once approved, it is pre-filled on the next visit.";
+  if (draft.status === "Pending") return "Shutter layout saved on this device. It will be sent to an Admin for approval when online.";
+  if (held) return "A shutter layout for this customer is already waiting for Admin review, so this visit's layout was not sent.";
+  return "Inspection submitted. The shutter layout needs attention to sync; see the sync status in the header.";
 }
 
 export type LayoutProposalDecision =

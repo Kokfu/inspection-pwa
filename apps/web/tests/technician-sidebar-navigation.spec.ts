@@ -52,11 +52,16 @@ test("technician sidebar opens all five destinations at phone and desktop widths
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(sidebar).toBeHidden();
   const mobile = page.getByLabel("Mobile navigation");
-  await page.getByText("Menu", { exact: true }).click();
+  const menu = page.locator("details.app-mobile-navigation");
   for (const [label, route, heading] of destinations) {
+    // I-36: the menu is opened for each choice and closes itself once a destination is chosen.
+    await expect(menu).not.toHaveJSProperty("open", true);
+    await page.getByText("Menu", { exact: true }).click();
+    await expect(menu).toHaveJSProperty("open", true);
     await mobile.getByRole("button", { name: label, exact: true }).click();
-    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`#/${route}$`));
+    await expect(menu).not.toHaveJSProperty("open", true);
+    await expect(mobile).toBeHidden();
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();    await expect(page).toHaveURL(new RegExp(`#/${route}$`));
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
   await page.screenshot({ path: "test-results/technician-sidebar-phone.png", fullPage: true });

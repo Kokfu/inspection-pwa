@@ -280,3 +280,17 @@ test("a one-zone or schema-1 form is not grouped", () => {
   assert.deepEqual(groupSubmitIssues(zonedResponses([zonedRow(1, ""), zonedRow(2, "")]), flat), { general: flat, zones: [] });
   assert.deepEqual(groupSubmitIssues({ ...zonedResponses([zonedRow(1, "A"), zonedRow(2, "B")]), schemaVersion: 1 }, flat), { general: flat, zones: [] });
 });
+
+test("I-46: rowsInZoneOrder groups an added shutter with its zone and never changes the stored rows", async () => {
+  const { rowsInZoneOrder } = await import("../src/fireRatedRollerShutter/fireRatedRollerShutterSetup.js");
+  const row = (n: number, locationText: string, zoneText: string | undefined, source: "configured" | "technician") => ({
+    rowUuid: `r${n}`, source, configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null,
+    assetReference: "", locationText, ...(zoneText === undefined ? {} : { zoneText }), autoAlarmModeResult: null, manualModeResult: null, remarks: "", fieldRemarks: {}, sortOrder: n
+  }) as never;
+  const stored = [row(1, "Lobby", "Zone 1", "configured"), row(2, "Dock", "Zone 2", "configured"), row(3, "Roof", "Zone 1", "technician"), row(4, "Yard", "Zone 3", "technician")];
+  const before = JSON.stringify(stored);
+  assert.deepEqual(rowsInZoneOrder(stored).map((entry) => (entry as { locationText: string }).locationText), ["Lobby", "Roof", "Dock", "Yard"]);
+  assert.equal(JSON.stringify(stored), before);
+  const schema1 = [row(1, "A", undefined, "configured"), row(2, "B", undefined, "configured")];
+  assert.deepEqual(rowsInZoneOrder(schema1).map((entry) => (entry as { locationText: string }).locationText), ["A", "B"], "schema 1 rows keep their order");
+});

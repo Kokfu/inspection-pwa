@@ -1,0 +1,8 @@
+<!doctype html><html><body><div id="mount"></div><script type="module">
+import * as React from "react";
+import "/src/styles/app.css";
+import * as ReactDom from "react-dom/client";
+import { NewServiceVisit } from "/src/jobs/NewServiceVisit.tsx";
+// I-47 harness: the real New Service Visit screen; the spec answers /api/* with Playwright routes.
+ReactDom.createRoot(document.querySelector("#mount")).render(React.createElement(NewServiceVisit, { onCreated: async () => undefined, onCancel: () => undefined }));
+</script></body></html>

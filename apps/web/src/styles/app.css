@@ -388,6 +388,52 @@ dd {
   overflow-wrap: anywhere;
 }
 
+/* I-37: the Roller Shutter setup prompts ('How many zones and locations?', 'Same shutters as last time') live in a
+   .report-summary card, which has no field layout of its own: one block per row with a gap, label above its input. */
+.setup-prompt {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.report-summary.setup-prompt > :is(h3, p, ul, label, details, div) {
+  margin: 0;
+}
+
+.setup-prompt label {
+  display: grid;
+  gap: var(--space-2);
+  font-weight: 700;
+}
+
+/* A details element lays its content out in an inner slot, so a grid gap does not apply: space the fields by margin. */
+.setup-prompt details > label {
+  margin-top: var(--space-4);
+}
+
+.setup-prompt summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  cursor: pointer;
+}
+
+/* display:flex removes the disclosure triangle (same as the Submit summary, I-40), so draw one. */
+.setup-prompt summary::before {
+  content: "\25B8";
+  flex: none;
+}
+
+.setup-prompt details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .setup-prompt summary::before {
+    transition: transform 0.15s ease;
+  }
+}
+
 /* Roller Shutter zone group: heading + progress + show/hide, then the rows (collapsible). */
 .zone-header {
   display: flex;
@@ -399,6 +445,14 @@ dd {
 .zone-header h3 {
   margin: 0;
   flex: 1 1 auto;
+}
+
+/* I-34: an editable zone is titled by its name input, on its own row above the progress count and show/hide control. */
+.zone-name-field {
+  display: grid;
+  flex: 1 1 100%;
+  gap: var(--space-1);
+  font-weight: 700;
 }
 
 .zone-rows {
@@ -1485,7 +1539,11 @@ section[aria-labelledby="upcoming-title"] > section > h3, .manager-inline-form h
 .job-offline-readiness--not-ready { color: var(--muted-on-sunken); }
 
 /* I-18: autosave status line. Words carry the meaning; colour only reinforces it. Fixed height while a Draft form is open (no jump). */
-.autosave-status { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; min-height: var(--space-8); margin: 0; padding: 0 var(--space-4); border-bottom: 1px solid var(--border); color: var(--muted-on-sunken); background: var(--surface-muted); font-size: var(--text-xs); font-weight: 700; }
+.autosave-status { position: sticky; top: 0; z-index: 15; pointer-events: none; display: flex; align-items: center; min-height: var(--space-8); margin: 0; padding: 0 var(--space-4); border-bottom: 1px solid var(--border); color: var(--muted-on-sunken); background: var(--surface-muted); font-size: var(--text-xs); font-weight: 700; }
+/* I-48: the strip is informational and floats over the top of the form (and the phone Menu bar), so it never catches a tap
+   in any state. I-41: before the first edit it has no text; it still takes its height (no page jump at the first save) but
+   is not painted, so it never shows as an empty grey box over the form. */
+.autosave-status--idle { background: transparent; border-bottom-color: transparent; }
 .autosave-status--saved { color: var(--success-ink); }
 .autosave-status--error { color: var(--danger-ink); background: var(--danger-soft); border-bottom-color: var(--danger-border); }
 .autosave-status--pending, .autosave-status--saving { color: var(--warning-ink); }

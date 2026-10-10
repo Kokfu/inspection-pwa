@@ -1,0 +1,41 @@
+<!doctype html><html><body><div id="accepted"></div><div id="report"></div><script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ServerFireRatedRollerShutterView } from "/src/fireRatedRollerShutter/ServerFireRatedRollerShutterView.tsx";
+import { FinalReportPresentation } from "/src/jobs/FinalReportPresentation.tsx";
+
+// I-46: the rows are STORED with the configured rows first and the shutters added during the visit after them.
+const uuid = (n) => `86000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const row = (n, locationText, zoneText, source) => ({
+  rowUuid: uuid(n), source, configuredLocationId: null, configuredRowOrdinal: null, zoneSnapshot: null, locationSnapshot: null,
+  assetReference: "", locationText, zoneText, autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: n
+});
+const rows = [row(1, "Lobby", "Zone 1", "configured"), row(2, "Dock", "Zone 2", "configured"), row(3, "Roof", "Zone 1", "technician"), row(4, "Yard", "Zone 3", "technician")];
+const stored = JSON.stringify(rows);
+window.storedUnchanged = () => JSON.stringify(rows) === stored;
+
+globalThis.fetch = async () => new Response(JSON.stringify({ evidence: [] }), { headers: { "Content-Type": "application/json" } });
+const inspection = {
+  clientUuid: uuid(900), jobReference: "RS-ORDER", jobTitle: "Roller order", customerName: "Customer", systemLabel: "Fire Rated Roller Shutter",
+  performedAt: "2026-10-10T01:00:00.000Z", syncedByUsername: "technician", responses: { schemaVersion: 2, dateTested: "2026-10-10", zone: "", inspectedBy: "Inspector A", rows, comments: "" }
+};
+createRoot(document.querySelector("#accepted")).render(React.createElement(ServerFireRatedRollerShutterView, { inspection, onBack: () => {} }));
+
+// I-45: what the API now sends for a Roller Shutter section (readable fields, a caption on the photo line).
+const field = (label, value, depth = 1) => ({ label, value, depth });
+const report = {
+  customer: "Customer", site: "Site", serviceDate: "2026-10-10", jobReference: "RS-ORDER", completedAt: "2026-10-10T01:00:00.000Z", completedBy: "technician",
+  systems: [{ systemKey: "fire_rated_roller_shutter", label: "Fire Rated Roller Shutter", status: "Accepted", locations: [], condition: "FAILED", conditionDetail: "No. 2 (Zone 1 — Roof) - Manual Mode: Not Good" }],
+  sections: [
+    { systemKey: "fire_rated_roller_shutter", label: "Fire Rated Roller Shutter", fields: [
+      field("Date Tested", "2026-10-10", 0), field("Zone", "Zone 1, Zone 2, Zone 3", 0), field("Inspected By", "Inspector A", 0),
+      field("No. 1 (Zone 1 — Lobby) - Auto Alarm Mode", "Good"), field("No. 1 (Zone 1 — Lobby) - Manual Mode", "Good"),
+      field("No. 2 (Zone 1 — Roof) - Auto Alarm Mode", "Good"), field("No. 2 (Zone 1 — Roof) - Manual Mode", "Not Good"), field("No. 2 (Zone 1 — Roof) - Manual Mode Remark", "Sticks half way", 2)
+    ], evidence: [{ field: `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${uuid(3)}.manual_mode`, caption: "Roller Shutter Schedule - Manual Mode (Zone 1 — Roof)", available: true, captureSource: "camera" }] },
+    { systemKey: "fm200_fire_suppression", label: "FM200", fields: [field("Control Panel Location", "Plant room", 0)],
+      evidence: [{ field: "charger_batteries.charger_battery_checks.mainSupply", available: true, captureSource: "gallery" }] }
+  ]
+};
+createRoot(document.querySelector("#report")).render(React.createElement(FinalReportPresentation, { report }));
+</script></body></html>

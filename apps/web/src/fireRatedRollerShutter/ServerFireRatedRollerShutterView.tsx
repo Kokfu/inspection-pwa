@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatClientDateTime } from "../uiPresentation";
 import { fireRatedRollerShutterRowColumns } from "./fireRatedRollerShutterTypes";
+import { rowsInZoneOrder } from "./fireRatedRollerShutterSetup";
 import { fireRatedRollerShutterV7AcceptedEvidenceContentUrl, loadFireRatedRollerShutterV7AcceptedEvidence, type FireRatedRollerShutterV7AcceptedEvidence } from "./fireRatedRollerShutterV7AcceptedEvidence";
 import type { ServerFireRatedRollerShutterDetail } from "./serverFireRatedRollerShutterApi";
 
@@ -22,7 +23,7 @@ export function ServerFireRatedRollerShutterView({ inspection, onBack }: { inspe
     <header className="inspection-context"><div><p className="eyebrow">{inspection.jobReference}</p><h2 id="accepted-roller-shutter-title">{inspection.systemLabel}</h2><p><strong>{inspection.customerName}</strong></p><p>{inspection.jobTitle}</p></div><strong className="inspection-status status-synced">Inspection Complete</strong></header>
     <p className="success-message">Submitted {formatClientDateTime(inspection.performedAt)} · Synced by {inspection.syncedByUsername}</p>
     <section><h3>Inspection Details</h3><p>Date Tested: {inspection.responses.dateTested || "Not recorded"}</p><p>Zone: {inspection.responses.zone || [...new Set(inspection.responses.rows.map((row) => row.zoneText).filter((zone): zone is string => !!zone))].join(", ") || "Not recorded"}</p><p>Inspected By: {inspection.responses.inspectedBy || "Not recorded"}</p></section>
-    <section><h3>Roller Shutter Schedule</h3>{inspection.responses.rows.map((row, index) => <article className="accepted-location-row" key={row.rowUuid}>
+    <section><h3>Roller Shutter Schedule</h3>{rowsInZoneOrder(inspection.responses.rows).map((row, index) => <article className="accepted-location-row" key={row.rowUuid}>
       <div className="accepted-location-heading"><strong>No. {index + 1}</strong>{row.zoneText ? <span><small>Zone</small><br />{row.zoneText}</span> : null}<span><small>Location</small><br />{row.locationText}</span></div>
       <div className="accepted-results" aria-label={`Inspection results for Shutter ${index + 1}`}>{fireRatedRollerShutterRowColumns.map(([key, wire, name]) => {
         const finding = isFinding(row[key]);

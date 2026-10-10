@@ -186,9 +186,10 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
       <div className="setup-fields">
         <div className="form-field"><label htmlFor="service-call-number">Service Call No</label><input id="service-call-number" maxLength={80} value={serviceCallNumber} onChange={(event) => setServiceCallNumber(event.target.value)} disabled={creating} /></div>
       </div>
-      {systemKeys.length ? <p className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"} and ready to create.</p> : null}
+      {/* I-47: Site is required too, so say what is missing instead of "ready to create" next to a dimmed button. */}
+      {systemKeys.length ? <p id="new-service-visit-summary" className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"}{siteId ? " and ready to create." : ". Choose a site to continue."}</p> : null}
       {message ? <p className="operational-message operational-message--warning" role="status">{message}</p> : null}
-      <button className="setup-submit" type="button" onClick={() => void submit()} disabled={!canCreate}>{creating ? "Creating…" : "Create Service Visit"}</button>
+      <button className="setup-submit" type="button" onClick={() => void submit()} disabled={!canCreate} aria-describedby={systemKeys.length ? "new-service-visit-summary" : undefined}>{creating ? "Creating…" : "Create Service Visit"}</button>
     </div>
   </section>;
 }

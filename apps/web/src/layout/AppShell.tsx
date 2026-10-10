@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 const ICONS: Record<string, ReactNode> = {
   "manager-home": <path d="m3 10 9-7 9 7M5 9v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9" />,
@@ -38,12 +38,14 @@ export function AppShell<TRouteName extends string>({
   mobileNavigation?: boolean;
   children: ReactNode;
 }) {
+  // I-36: the phone menu closes itself once a destination is chosen, so the new page is not pushed down by an open menu.
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="app-shell-split">
-      {mobileNavigation ? <details className="app-mobile-navigation"><summary>Menu</summary><nav aria-label="Mobile navigation">
+      {mobileNavigation ? <details className="app-mobile-navigation" open={menuOpen} onToggle={(event) => setMenuOpen(event.currentTarget.open)}><summary>Menu</summary><nav aria-label="Mobile navigation">
         {navLinks.map(([label, routeName]) => <button key={routeName} type="button"
           aria-current={routeName === activeRouteName ? "page" : undefined}
-          onClick={() => onNavigate(routeName)}>{label}</button>)}
+          onClick={() => { setMenuOpen(false); onNavigate(routeName); }}>{label}</button>)}
       </nav></details> : null}
       <nav className="app-sidebar" aria-label="Primary navigation">
         {navLinks.map(([label, routeName]) => {

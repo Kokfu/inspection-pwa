@@ -211,7 +211,8 @@ export function createFinalReportHandler({ database = pool, loadReport = loadFin
         ...report,
         sections: report.sections.map(({ evidence, ...section }) => ({
           ...section,
-          evidence: evidence.map((item) => ({ field: item.field, available: true,
+          // I-45: a Roller Shutter photo says which shutter it belongs to; every other system's line is unchanged.
+          evidence: evidence.map((item) => ({ field: item.field, ...(section.systemKey === "fire_rated_roller_shutter" && item.caption ? { caption: item.caption } : {}), available: true,
             captureSource: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field])) ?? null }))
         }))
       } });

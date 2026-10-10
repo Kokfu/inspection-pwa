@@ -439,3 +439,21 @@ test("Roller Shutter V7 schema 2 header Zone lists the row zones when the header
   assert.deepEqual(header({ ...response, rows: [row(1, "")] }), ["2026-10-09", null, "Inspector A"], "no zones leaves the header blank");
   assert.deepEqual(header({ ...response, schemaVersion: 1, rows: response.rows.map(({ zoneText: _zoneText, ...legacy }) => legacy) }), ["2026-10-09", null, "Inspector A"], "schema 1 is unchanged");
 });
+
+test("I-46: Roller Shutter schema 2 register groups a shutter added during the visit with its zone; the stored response is untouched", () => {
+  const row = (n: number, locationText: string, zoneText: string, source: "configured" | "technician") => ({
+    rowUuid: uuid(850 + n), source, configuredLocationId: null, configuredRowOrdinal: null,
+    zoneSnapshot: null, locationSnapshot: null, assetReference: "", locationText, zoneText,
+    autoAlarmModeResult: "good", manualModeResult: "good", remarks: "", fieldRemarks: {}, sortOrder: n
+  });
+  // stored order: the configured rows first, the shutters added during the visit after them
+  const rows = [row(1, "Lobby", "Zone 1", "configured"), row(2, "Dock", "Zone 2", "configured"), row(3, "Roof", "Zone 1", "technician"), row(4, "Yard", "Zone 3", "technician")];
+  const response = { schemaVersion: 2, dateTested: "2026-10-09", zone: "", inspectedBy: "Inspector A", rows, comments: "" };
+  const model = buildReportViewModel(reportOf([v7Section("fire_rated_roller_shutter", "Fire Rated Roller Shutter", response as never)]));
+  const register = blockOf(model, "register", "roller_shutter_schedule_rows");
+  const location = (index: number) => (register.rows[index]!.cells[0] as { text: string | null }).text;
+  assert.deepEqual([0, 1, 2, 3].map(location), ["Zone 1 — Lobby", "Zone 1 — Roof", "Zone 2 — Dock", "Zone 3 — Yard"]);
+  assert.deepEqual(register.rows.map((entry) => entry.no), [1, 2, 3, 4]);
+  assert.deepEqual(response.rows.map((entry) => entry.sortOrder), [1, 2, 3, 4], "the stored order is not modified");
+  assert.deepEqual(response.rows.map((entry) => entry.locationText), ["Lobby", "Dock", "Roof", "Yard"]);
+});

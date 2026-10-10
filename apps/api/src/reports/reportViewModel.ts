@@ -3,6 +3,7 @@ import {
   type FinalReportReview, type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
 } from "./finalServiceReport.js";
 import { currentCompanyProfile, type CompanyProfile } from "./companyProfile.js";
+import { rollerShutterRowsInDisplayOrder, rollerShutterZones } from "./rollerShutterDisplay.js";
 export { companyProfile, companyProfileAssetPath, currentCompanyProfile, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
 
 /**
@@ -316,11 +317,16 @@ function commentsBlock(context: BuildContext, head: BlockHead, field: unknown): 
 type StructuredResult = { blocks: ReportBlock[]; remarks: Array<{ text: string; result: ReportResult }>; parts: Map<string, number>; comments: string[] };
 
 /** Roller Shutter schema 2 keeps its zones on the rows and leaves the header Zone blank; show the distinct
- *  zone headings there so the page does not read as missing data. The stored response is never changed. */
+ *  zone headings there so the page does not read as missing data. I-46: the rows are also grouped by zone, so a shutter
+ *  added during the visit sits with its zone's other shutters. The stored response is never changed. */
 function displayResponse(systemKey: string, response: RecordValue): RecordValue {
-  if (systemKey !== "fire_rated_roller_shutter" || response.schemaVersion !== 2 || nonEmpty(response.zone) !== null || !Array.isArray(response.rows)) return response;
-  const zones = [...new Set(response.rows.filter(isRecord).map((row) => nonEmpty(row.zoneText)).filter((zone): zone is string => zone !== null))];
-  return zones.length > 0 ? { ...response, zone: zones.join(", ") } : response;
+  if (systemKey !== "fire_rated_roller_shutter" || response.schemaVersion !== 2 || !Array.isArray(response.rows)) return response;
+  const zones = rollerShutterZones(response.rows);
+  return {
+    ...response,
+    rows: rollerShutterRowsInDisplayOrder(response.rows),
+    ...(nonEmpty(response.zone) === null && zones.length > 0 ? { zone: zones.join(", ") } : {})
+  };
 }
 
 function structuredBlocks(section: FinalReportSection): StructuredResult | undefined {

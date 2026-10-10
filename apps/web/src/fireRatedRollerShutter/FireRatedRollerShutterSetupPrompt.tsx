@@ -29,7 +29,7 @@ function CountPrompt({ onStart }: { onStart: (start: RollerShutterStart) => void
     setError("");
     onStart({ plan: parsed.plan });
   }
-  return <section className="report-summary" aria-labelledby="roller-shutter-setup-title">
+  return <section className="report-summary setup-prompt" aria-labelledby="roller-shutter-setup-title">
     <h3 id="roller-shutter-setup-title">How many zones and locations?</h3>
     <p>Enter how many zones this customer has and how many locations (roller shutters) are in each. The form then opens ready to fill in. The names you type are remembered for the next visit once an Admin approves them.</p>
     <label>Number of zones
@@ -66,7 +66,7 @@ function ConfirmPrompt({ savedRows, onStart }: { savedRows: readonly ShutterLayo
     onStart({ extraRows: count });
   }
   const line = (row: ShutterLayoutRow) => `${row.assetReference ? `${row.assetReference} – ` : ""}${row.locationText}`;
-  return <section className="report-summary" aria-labelledby="roller-shutter-setup-title">
+  return <section className="report-summary setup-prompt" aria-labelledby="roller-shutter-setup-title">
     <h3 id="roller-shutter-setup-title">Same shutters as last time</h3>
     <p>This customer has {savedRows.length} saved shutter{savedRows.length === 1 ? "" : "s"}{zoned ? ` in ${zoneNames.length} zone${zoneNames.length === 1 ? "" : "s"}` : ""}. They are already in the form, so you only need to fill in the results.</p>
     {zoned

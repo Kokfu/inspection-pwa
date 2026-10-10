@@ -63,8 +63,12 @@ test("manager mobile menu reaches manager pages at phone width", async ({ page }
   const mobile = page.getByLabel("Mobile navigation");
   await mobile.getByRole("button", { name: "Service Catalog" }).click();
   await expect(page.getByRole("heading", { name: "Service Catalog" })).toBeVisible();
+  // I-36: choosing a destination closes the menu; it is opened again for the next choice.
+  await expect(page.locator("details.app-mobile-navigation")).not.toHaveJSProperty("open", true);
+  await page.locator(".app-mobile-navigation summary").click();
   await expect(mobile.getByRole("button", { name: "Service Catalog" })).toHaveAttribute("aria-current", "page");
   await mobile.getByRole("button", { name: "Service Common Remarks" }).click();
+  await expect(page.locator("details.app-mobile-navigation")).not.toHaveJSProperty("open", true);
   await expect(page.getByRole("heading", { name: "Service common remarks" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

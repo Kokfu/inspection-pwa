@@ -1,0 +1,10 @@
+<!doctype html><html><head><style>#view{display:contents}</style></head><body><div id="view"></div><div id="content" style="height:3000px;position:relative">Form content<button id="under" type="button" style="position:absolute;top:400px;left:0;width:100%;height:64px" onclick="window.underClicks=(window.underClicks||0)+1">Under the strip</button></div><script type="module">
+import * as React from "react";
+import "/src/styles/app.css";
+import * as ReactDomClient from "react-dom/client";
+import { AutosaveStatusLine } from "/src/inspectionControls/AutosaveStatusLine.tsx";
+import { publishAutosaveStatus, setAutosaveActive } from "/src/inspectionControls/autosaveStatus.ts";
+// I-41 harness: the real strip + the real stylesheet; the spec drives the same two calls useDraftAutosave makes.
+ReactDomClient.createRoot(document.querySelector("#view")).render(React.createElement(AutosaveStatusLine));
+window.autosave = { setActive: setAutosaveActive, publish: publishAutosaveStatus };
+</script></body></html>

@@ -404,3 +404,36 @@ test("a one-zone form shows its first messages and the rest behind Show all", as
   await summary.getByText("Show all 15").click();
   await expect(summary.getByText("Shutter row 5 Manual Mode result is required")).toBeVisible();
 });
+
+/** I-50: the note about the visit's shutter layout must still be there after a reload (it was component state only). */
+async function submitFirstVisitWithLayout(page: Page) {
+  await page.goto("/tests/fire-rated-roller-shutter-form.html");
+  await page.getByLabel("Number of zones").fill("1");
+  await page.getByLabel("Locations in each zone").fill("1");
+  await start(page);
+  await expandAll(page);
+  await page.locator(".hose-row-card").first().getByLabel("Location").fill("Admin Office");
+  await fillInspection(page);
+  await submitAndWait(page);
+  await expect(page.getByText("Shutter layout saved on this device.")).toBeVisible();
+}
+
+test("I-50: the layout note is still shown after the page is reloaded and the submitted record is opened again", async ({ page }) => {
+  await submitFirstVisitWithLayout(page);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Back to Systems" })).toBeVisible();
+  await expect(page.getByText("Shutter layout saved on this device.")).toBeVisible();
+});
+
+test("I-50 / I-49: after a reload a layout the server held behind an earlier pending proposal says so, calmly", async ({ page }) => {
+  await submitFirstVisitWithLayout(page);
+  await page.evaluate(async () => {
+    const { localDatabase } = await import(/* @vite-ignore */ "/src/db/localDatabase.ts" as string);
+    const { proposalAlreadyPendingMessage } = await import(/* @vite-ignore */ "/src/referenceData/referenceDataApi.ts" as string);
+    const row = (await localDatabase.drafts.toArray()).find((item: any) => item.entityType === "technicianLocationProposal");
+    await localDatabase.drafts.put({ ...row, payload: { ...row.payload, status: "Failed", lastError: proposalAlreadyPendingMessage } });
+  });
+  await page.reload();
+  await expect(page.getByText("already waiting for Admin review, so this visit's layout was not sent.")).toBeVisible();
+  await expect(page.getByText("needs attention to sync")).toHaveCount(0);
+});

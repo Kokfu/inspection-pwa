@@ -2,6 +2,7 @@ import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxI
 import { refreshCommonRemarks, type CommonRemark } from "../inspectionControls/commonRemarks";
 import { outboxHasAutoSyncWork, type AutoSyncReason } from "./autoSync";
 import { syncPendingTechnicianCustomers, technicianCustomerSyncIdle } from "../jobs/technicianCustomerDraft";
+import { readRefusalBody, syncRefusalMessage } from "./syncRefusal";
 import { locationProposalSyncIdle, syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
@@ -610,7 +611,7 @@ export async function syncPendingRecords(actorUserId?: number) {
     });
 
     if (response.status === 401 || response.status === 403) {
-      throw new Error("Sign in required before server sync");
+      throw new Error(syncRefusalMessage(response.status, await readRefusalBody(response)));
     }
 
     if (response.status === 409) {
