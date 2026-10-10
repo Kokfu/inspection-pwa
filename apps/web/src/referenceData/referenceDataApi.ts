@@ -6,6 +6,7 @@ import type {
 } from "./referenceDataTypes";
 import { parseInspectionCatalog } from "./referenceDataTypes";
 import { localDatabase } from "../db/localDatabase";
+import { proposalAlreadyPendingMessage } from "./proposalMessages";
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
@@ -136,8 +137,7 @@ export async function createTechnicianCustomer(input: {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** I-49: what the technician reads when the server already holds a pending proposal for the same target. */
-export const proposalAlreadyPendingMessage = "Not sent: a proposal for this location is already waiting for Admin review.";
+export { proposalAlreadyPendingMessage };
 
 /**
  * I-49: the server answers `409 LOCATION_PROPOSAL_ALREADY_PENDING` when an earlier proposal for the same customer,

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  deriveSystemCondition, fieldsForAcceptedReportInstance, rollerShutterEvidenceCaption, rollerShutterEvidenceInDisplayOrder, sectionRemarkLines,
+  deriveSystemCondition, fieldsForAcceptedReportInstance, presentRollerShutterEvidence, rollerShutterEvidenceCaption, rollerShutterEvidenceInDisplayOrder, sectionRemarkLines,
   type FinalReportEvidence, type FinalReportSection
 } from "./finalServiceReport.js";
 import { rollerShutterRowLocation, rollerShutterRowsInDisplayOrder, rollerShutterZones } from "./rollerShutterDisplay.js";
@@ -106,4 +107,27 @@ test("I-46: photos follow the display order of the shutters, Auto Alarm Mode bef
   const ordered = rollerShutterEvidenceInDisplayOrder("fire_rated_roller_shutter", response(stored), fromDatabase).map((item) => item.field.split(".").slice(-2).join("."));
   assert.deepEqual(ordered, [`${uuid(1)}.auto_alarm_mode`, `${uuid(3)}.auto_alarm_mode`, `${uuid(3)}.manual_mode`, `${uuid(2)}.manual_mode`, `${uuid(4)}.auto_alarm_mode`]);
   assert.deepEqual(rollerShutterEvidenceInDisplayOrder("smoke_ventilation", response(stored), fromDatabase), fromDatabase, "another system keeps its order");
+});
+
+test("I-53: caption and photo order follow the CORRECTED response, the same one the fields use", () => {
+  const photo = (n: number, column: string, caption: string): FinalReportEvidence => ({ field: `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${uuid(n)}.${column}`, caption, content: Buffer.alloc(0), width: 1, height: 1 });
+  const accepted = response(stored);
+  // a manager moves row 3 ("Roof") from Zone 1 to Zone 3 and renames its location
+  const corrected = response(stored.map((entry) => entry.rowUuid === uuid(3) ? { ...entry, zoneText: "Zone 3", locationText: "Yard annex" } : entry));
+  const loaded = [photo(3, "manual_mode", "Roller Shutter Schedule - Manual Mode"), photo(1, "auto_alarm_mode", "Roller Shutter Schedule - Auto Alarm Mode")];
+  const shown = presentRollerShutterEvidence("fire_rated_roller_shutter", corrected, loaded);
+  assert.deepEqual(shown.map((item) => item.caption), ["Roller Shutter Schedule - Auto Alarm Mode (Zone 1 — Lobby)", "Roller Shutter Schedule - Manual Mode (Zone 3 — Yard annex)"]);
+  const fromAccepted = presentRollerShutterEvidence("fire_rated_roller_shutter", accepted, loaded);
+  assert.equal(fromAccepted[1]!.caption, "Roller Shutter Schedule - Manual Mode (Zone 1 — Roof)", "the accepted response would have named the old zone and location");
+  assert.deepEqual(loaded.map((item) => item.caption), ["Roller Shutter Schedule - Manual Mode", "Roller Shutter Schedule - Auto Alarm Mode"], "the loaded evidence is not mutated");
+  const labelsAfter = fieldsOf(corrected).map((field) => field.label);
+  assert.ok(labelsAfter.some((label) => label.includes("Zone 3 — Yard annex")), "the field block uses the corrected row too");
+  assert.deepEqual(presentRollerShutterEvidence("smoke_ventilation", corrected, loaded), loaded, "another system is untouched");
+});
+
+test("I-53 wiring: the report applies the Roller Shutter photo caption and order to the effective response, not inside the evidence loader", () => {
+  const source = readFileSync(new URL("./finalServiceReport.ts", import.meta.url), "utf8");
+  assert.match(source, /presentRollerShutterEvidence\(completeSystem\.systemKey, effectiveResponse, loadedEvidence\)/);
+  const loader = source.slice(source.indexOf("async function validatedV7SuppressionEvidence"), source.indexOf("/** I-45: a Roller Shutter photo caption also names its shutter"));
+  assert.doesNotMatch(loader, /rollerShutterEvidence(Caption|InDisplayOrder)/);
 });

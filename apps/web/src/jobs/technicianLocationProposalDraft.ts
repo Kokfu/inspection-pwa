@@ -1,5 +1,6 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
-import { LocationProposalAlreadyPendingError, proposalAlreadyPendingMessage, submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
+import { LocationProposalAlreadyPendingError, submitTechnicianLocationProposal, type LocationProposalPatch } from "../referenceData/referenceDataApi";
+import { isHeldProposalDraft } from "../referenceData/proposalMessages";
 import { validLocationProposalPatch } from "./locationProposalShape";
 import { announceSyncFinished } from "../sync/syncEvents";
 
@@ -143,9 +144,7 @@ export async function queueTechnicianLocationProposal(draft: TechnicianLocationP
 }
 
 /** I-49: the draft of a proposal the sync retired because an earlier one for the same target is still awaiting review. */
-export function isProposalHeldBehindPending(draft: Pick<TechnicianLocationProposalDraft, "status" | "lastError"> | undefined): boolean {
-  return draft?.status === "Failed" && draft.lastError === proposalAlreadyPendingMessage;
-}
+export const isProposalHeldBehindPending = isHeldProposalDraft;
 
 let syncing: Promise<void> | undefined;
 /** Resolves when no location-proposal sync is running (see technicianCustomerSyncIdle). */

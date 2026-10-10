@@ -53,7 +53,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       .then((draft) => { if (active) setStoredLayout(draft); }).catch(() => undefined);
     return () => { active = false; };
   }, [record.clientUuid, record.syncStatus, record.localUpdatedAt]);
-  const shownLayoutNote = layoutNote || (record.syncStatus === "Draft" ? "" : layoutProposalNote(storedLayout, isProposalHeldBehindPending(storedLayout)));
+  const shownLayoutNote = layoutNote || (record.syncStatus === "Draft" ? "" : layoutProposalNote(storedLayout));
   const evidenceFor = (fieldPath: string) => photos.find((photo) => photo.fieldPath === fieldPath);
   const refreshPhotos = async () => setPhotos(await listFireRatedRollerShutterV7Photos(record.clientUuid));
   const jobId = record.inspectionSnapshot.job.id, customerId = record.inspectionSnapshot.customer.id, layoutKey = "general";
@@ -92,7 +92,7 @@ export function FireRatedRollerShutterInspectionForm({ record, actorUserId, canU
       const rows = layoutRowsFromResponses(submitted, formatCorrections);
       if (!layoutDiffersFrom(savedLayout, rows)) return;
       const existing = await loadTechnicianLocationProposalDraft(jobId, record.systemKey, layoutKey);
-      const decision = decideLayoutProposal(savedLayout, rows, existing?.status);
+      const decision = decideLayoutProposal(savedLayout, rows, existing?.status, isProposalHeldBehindPending(existing));
       if (decision.action === "note") { setLayoutNote(decision.note); return; }
       if (decision.action === "skip") return;
       await sendLayout(rows);

@@ -3,7 +3,7 @@ import { locationConfigurableSystemKeys } from "../manager/managerApi";
 import type { InspectionJob } from "./jobTypes";
 import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 import {
-  loadLatestAddLocationProposalDraft, loadTechnicianLocationProposalDraft, newAddLocationDraft, queueTechnicianLocationProposal,
+  isProposalHeldBehindPending, loadLatestAddLocationProposalDraft, loadTechnicianLocationProposalDraft, newAddLocationDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals, type TechnicianLocationProposalDraft
 } from "./technicianLocationProposalDraft";
 
@@ -134,7 +134,14 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
       {saved && !error ? <p role="status">Location draft saved on this device.</p> : null}
       {!systemKey ? null : !selectedSystem ? <p className="form-message" role="alert">This proposal cannot be opened: the selected system is not part of this service visit. Go back to the service visit and try again.</p>
       : !draft || !patch ? <p role="status">Loading…</p> : <>
-        {draft.status === "Pending" || draft.status === "Failed" ? (
+        {isProposalHeldBehindPending(draft) ? (
+          <div className="report-summary" role="status">
+            <p>{draft.lastError}</p>
+            <div className="inline-actions">
+              <button type="button" className="secondary-command" disabled={saving} onClick={() => void startAnother()}>Add another location</button>
+            </div>
+          </div>
+        ) : draft.status === "Pending" || draft.status === "Failed" ? (
           <div className="report-summary" role="status">
             <p>{draft.status === "Pending" ? "New location saved on this device, pending sync." : `Sync needs attention: ${draft.lastError ?? "Retry the original request."}`}</p>
             <div className="inline-actions">

@@ -1,4 +1,5 @@
 import { fireRatedRollerShutterRowColumns, type FireRatedRollerShutterResponses, type FireRatedRollerShutterRow } from "./fireRatedRollerShutterTypes";
+import { isHeldProposalDraft } from "../referenceData/proposalMessages";
 
 /** Server cap on Roller Shutter schedule rows (`validResponses`); also the cap on a saved layout. */
 export const maxShutterRows = 250;
@@ -248,11 +249,11 @@ export function addPlannedZoneRows(responses: FireRatedRollerShutterResponses, p
  * I-50: the note about this visit's shutter layout, derived from the stored proposal draft so it is still there after a
  * reload or when the submitted record is opened again (it used to live in component state only).
  */
-export function layoutProposalNote(draft: { status: string; lastError?: string } | undefined, held: boolean): string {
+export function layoutProposalNote(draft: { status: string; lastError?: string } | undefined): string {
   if (!draft || draft.status === "Draft") return "";
   if (draft.status === "Synced") return "Shutter layout sent to an Admin for approval. Once approved, it is pre-filled on the next visit.";
   if (draft.status === "Pending") return "Shutter layout saved on this device. It will be sent to an Admin for approval when online.";
-  if (held) return "A shutter layout for this customer is already waiting for Admin review, so this visit's layout was not sent.";
+  if (isHeldProposalDraft(draft)) return "A shutter layout for this customer is already waiting for Admin review, so this visit's layout was not sent.";
   return "Inspection submitted. The shutter layout needs attention to sync; see the sync status in the header.";
 }
 
@@ -264,12 +265,13 @@ export type LayoutProposalDecision =
 /** What the submit-time layout save should do. `existingStatus` is the local proposal draft already
  *  stored for this job + system (a second proposal would overwrite its draft row and strand its outbox item). */
 export function decideLayoutProposal(
-  saved: readonly ShutterLayoutRow[], proposed: readonly ShutterLayoutRow[], existingStatus: string | undefined
+  saved: readonly ShutterLayoutRow[], proposed: readonly ShutterLayoutRow[], existingStatus: string | undefined, existingHeld = false
 ): LayoutProposalDecision {
   if (!layoutDiffersFrom(saved, proposed)) return { action: "skip" };
   const issue = layoutIssue(proposed);
   if (issue) return { action: "note", note: `Inspection submitted. The shutter layout was not saved for next visit: ${issue}` };
-  if (existingStatus !== undefined && existingStatus !== "Draft") {
+  // A proposal the server held behind an earlier pending one was never sent, so it must not block a new one (I-52).
+  if (existingStatus !== undefined && existingStatus !== "Draft" && !existingHeld) {
     return { action: "note", note: "Inspection submitted. A shutter layout for this visit was already sent for review." };
   }
   return { action: "send" };

@@ -1,0 +1,56 @@
+<!doctype html><html><body><button id="run">Run sync refusal engine checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { submitLocal } from "/src/records/testRecordRepository.ts";
+import { syncPendingRecords } from "/src/sync/syncEngine.ts";
+
+// I-51 / I-55: drive the real sync engine against a faked 401 and 403 and read what it stores.
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const userId = 9005;
+async function pendingRecord() {
+  await localDatabase.testRecords.clear(); await localDatabase.syncOutbox.clear();
+  return submitLocal({ title: "Refusal check", notes: "", createdAt: new Date().toISOString() });
+}
+const stored = async (uuid) => ({ record: await localDatabase.testRecords.get(uuid), outbox: (await localDatabase.syncOutbox.toArray())[0] });
+
+document.querySelector("#run").onclick = async () => {
+  const originalFetch = window.fetch;
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(userId);
+    await deviceDatabase.authState.put({ key: "device-auth", userId, username: "refusal-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+
+    // 401: the session ended, signing in again is the right advice (unchanged text).
+    let record = await pendingRecord();
+    window.fetch = async (url) => String(url).includes("/api/sync") ? reply(401, { error: "UNAUTHENTICATED" }) : originalFetch(url);
+    await syncPendingRecords(userId);
+    let state = await stored(record.clientUuid);
+    check("401 keeps 'Sign in required before server sync'", state.record?.lastSyncError === "Sign in required before server sync");
+    check("401 leaves the record Failed and retryable", state.record?.syncStatus === "Failed" && state.outbox?.status === "Failed");
+
+    // 403: the server refused; it must not tell the technician to sign in.
+    record = await pendingRecord();
+    window.fetch = async (url) => String(url).includes("/api/sync") ? reply(403, { error: "CROSS_ORIGIN_WRITE_DENIED", message: "Cross-origin writes are not allowed." }) : originalFetch(url);
+    await syncPendingRecords(userId);
+    state = await stored(record.clientUuid);
+    check("403 says the server refused the sync, with the status", /server refused this sync request \(HTTP 403\)/.test(state.record?.lastSyncError ?? ""));
+    check("403 shows the server's own message", (state.record?.lastSyncError ?? "").includes("Cross-origin writes are not allowed."));
+    check("403 never says to sign in", !/sign in/i.test(state.record?.lastSyncError ?? ""));
+    check("403 keeps the record Failed, retryable, with its outbox item and attempts counted", state.record?.syncStatus === "Failed" && state.outbox?.status === "Failed" && state.outbox.attempts === 1);
+
+    // A 403 whose body is not JSON (a gateway page) gives the same plain text, no parse error.
+    record = await pendingRecord();
+    window.fetch = async (url) => String(url).includes("/api/sync") ? new Response("<html>Forbidden</html>", { status: 403, headers: { "content-type": "text/html" } }) : originalFetch(url);
+    await syncPendingRecords(userId);
+    state = await stored(record.clientUuid);
+    check("a non-JSON 403 gives the same plain text", /server refused this sync request \(HTTP 403\)/.test(state.record?.lastSyncError ?? "") && !/Unexpected token|JSON/i.test(state.record?.lastSyncError ?? ""));
+
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error) });
+  }
+};
+</script></body></html>

@@ -42,7 +42,7 @@ export async function loadFinalReport(jobId: string, endpointBase = "/api/inspec
     const data = await response.json() as { report?: FinalReportPreview };
     if (!data.report || !Array.isArray(data.report.sections) || data.report.sections.some((section) =>
       !Array.isArray(section.evidence) || section.evidence.some((item) =>
-        typeof item.field !== "string" || item.available !== true
+        typeof item.field !== "string" || item.available !== true || (item.caption !== undefined && typeof item.caption !== "string")
         || item.captureSource !== null && item.captureSource !== "camera" && item.captureSource !== "gallery" && item.captureSource !== "unknown"))) throw new Error();
     return data.report;
   } catch { throw new FinalReportApiError("Final report is currently unavailable.", "unavailable"); }

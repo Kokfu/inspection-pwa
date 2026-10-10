@@ -779,9 +779,9 @@ async function validatedV7SuppressionEvidence(database: Queryable, row: ReportIn
     if (createHash("sha256").update(content).digest("hex") !== item.stored_sha256) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
     let metadata: { format?: string; width?: number; height?: number }; try { metadata = await sharp(content, { failOn: "error" }).metadata(); } catch { throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt."); }
     if (metadata.format !== "jpeg" || metadata.width !== item.width || metadata.height !== item.height) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted V7 evidence is corrupt.");
-    evidence.push({ field: item.field_path, caption: rollerShutterEvidenceCaption(snapshot.system.key, row.response_payload, item.field_path, caption), content, width: item.width, height: item.height });
+    evidence.push({ field: item.field_path, caption, content, width: item.width, height: item.height });
   }
-  return rollerShutterEvidenceInDisplayOrder(snapshot.system.key, row.response_payload, evidence);
+  return evidence;
 }
 
 /** I-45: a Roller Shutter photo caption also names its shutter, since the schedule has up to 250 of them. */
@@ -790,6 +790,18 @@ export function rollerShutterEvidenceCaption(systemKey: unknown, response: unkno
   const uuid = /\.rows\.([0-9a-f-]{36})\./.exec(fieldPath)?.[1];
   const location = rollerShutterRowLocation(response.rows.find((candidate) => isRecord(candidate) && candidate.rowUuid === uuid));
   return location ? `${caption} (${location})` : caption;
+}
+
+/**
+ * I-45 / I-46 / I-53: the Roller Shutter photo line names its shutter and the photos follow the zone-grouped display
+ * order. Applied to the EFFECTIVE (corrected) response, the same one the report fields are built from, so a manager's
+ * correction of a row's zone or location changes the field block and its photo together.
+ */
+export function presentRollerShutterEvidence(systemKey: unknown, effectiveResponse: unknown, evidence: FinalReportEvidence[]): FinalReportEvidence[] {
+  if (systemKey !== "fire_rated_roller_shutter") return evidence;
+  return rollerShutterEvidenceInDisplayOrder(systemKey, effectiveResponse, evidence.map((item) => ({
+    ...item, caption: item.caption === undefined ? undefined : rollerShutterEvidenceCaption(systemKey, effectiveResponse, item.field, item.caption)
+  })));
 }
 
 /** I-46: photos follow the shutters' zone-grouped display order, then Auto Alarm Mode before Manual Mode. */
@@ -975,13 +987,14 @@ export async function loadFinalServiceReport(
       const { fields, displayLabels, response: effectiveResponse } = effectiveFieldsForAcceptedReportInstance(
         completeSystem.systemKey, primaryRow.inspection_snapshot, primaryRow.response_payload, system, corrections
       );
-      const evidence = completeSystem.systemKey === "automatic_sprinkler"
+      const loadedEvidence = completeSystem.systemKey === "automatic_sprinkler"
         ? (snapshotIsV7 ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedEvidence(matching, system))
         : completeSystem.systemKey === "fire_alarm_detector" && snapshotIsV7
           ? (primaryRow.master_template_version_id === "00000000-0000-4000-8000-000000000807" ? await validatedV7SuppressionEvidence(database, primaryRow) : await validatedFireAlarmV6Evidence(database, primaryRow))
           : (completeSystem.systemKey === "co2_fire_extinguisher" || completeSystem.systemKey === "wet_chemical" || completeSystem.systemKey === "hydrant" || completeSystem.systemKey === "hose_reel" || completeSystem.systemKey === "smoke_ventilation" || completeSystem.systemKey === "fire_intercom" || completeSystem.systemKey === "fire_rated_roller_shutter" || completeSystem.systemKey === "fm200_fire_suppression") && snapshotIsV7
             ? await validatedV7SuppressionEvidence(database, primaryRow)
             : [];
+      const evidence = presentRollerShutterEvidence(completeSystem.systemKey, effectiveResponse, loadedEvidence);
       if (displayLabels) remapEvidenceCaptions(evidence, displayLabels);
       const reviewed = isV7 && primaryRow.reviewed_correction_count === corrections.length && typeof primaryRow.reviewed_by === "string";
       const review: FinalReportReview | undefined = isV7 && primaryRow.corrections !== undefined ? {

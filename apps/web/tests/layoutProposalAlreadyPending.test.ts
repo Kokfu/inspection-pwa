@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { LocationProposalAlreadyPendingError, proposalAlreadyPendingMessage, submitTechnicianLocationProposal } from "../src/referenceData/referenceDataApi.js";
-import { layoutProposalNote } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup.js";
+import { decideLayoutProposal, layoutProposalNote } from "../src/fireRatedRollerShutter/fireRatedRollerShutterSetup.js";
 
 /** I-49 (typed 409) and I-50 (the layout note is derived from the stored proposal, so it survives a reload). */
 
@@ -30,12 +30,31 @@ test("I-49: any other 409, and the same code on another status, stay ordinary fa
 });
 
 test("I-50: the layout note follows the stored proposal status", () => {
-  assert.equal(layoutProposalNote(undefined, false), "");
-  assert.equal(layoutProposalNote({ status: "Draft" }, false), "");
-  assert.match(layoutProposalNote({ status: "Pending" }, false), /saved on this device/);
-  assert.match(layoutProposalNote({ status: "Synced" }, false), /sent to an Admin for approval/);
-  assert.match(layoutProposalNote({ status: "Failed", lastError: "x" }, false), /needs attention/);
-  const held = layoutProposalNote({ status: "Failed", lastError: proposalAlreadyPendingMessage }, true);
+  assert.equal(layoutProposalNote(undefined), "");
+  assert.equal(layoutProposalNote({ status: "Draft" }), "");
+  assert.match(layoutProposalNote({ status: "Pending" }), /saved on this device/);
+  assert.match(layoutProposalNote({ status: "Synced" }), /sent to an Admin for approval/);
+  assert.match(layoutProposalNote({ status: "Failed", lastError: "x" }), /needs attention/);
+  const held = layoutProposalNote({ status: "Failed", lastError: proposalAlreadyPendingMessage });
   assert.match(held, /already waiting for Admin review/);
   assert.doesNotMatch(held, /needs attention/);
+});
+
+test("I-52: a proposal held behind an earlier pending one does not block a new proposal; a sent one still does", () => {
+  const saved: Array<{ assetReference: string; locationText: string }> = [];
+  const proposed = [{ assetReference: "", locationText: "Dock" }];
+  assert.deepEqual(decideLayoutProposal(saved, proposed, "Failed", true), { action: "send" });
+  assert.equal(decideLayoutProposal(saved, proposed, "Failed", false).action, "note", "an ordinary failure is not re-proposed silently");
+  assert.equal(decideLayoutProposal(saved, proposed, "Pending", false).action, "note");
+  assert.equal(decideLayoutProposal(saved, proposed, "Synced", false).action, "note");
+  assert.deepEqual(decideLayoutProposal(saved, proposed, undefined, false), { action: "send" });
+  assert.deepEqual(decideLayoutProposal(saved, proposed, "Draft", false), { action: "send" });
+});
+
+test("I-52: the held check is shared and exact", async () => {
+  const { isHeldProposalDraft } = await import("../src/referenceData/proposalMessages.js");
+  assert.equal(isHeldProposalDraft({ status: "Failed", lastError: proposalAlreadyPendingMessage }), true);
+  assert.equal(isHeldProposalDraft({ status: "Failed", lastError: "Anything else" }), false);
+  assert.equal(isHeldProposalDraft({ status: "Pending", lastError: proposalAlreadyPendingMessage }), false);
+  assert.equal(isHeldProposalDraft(undefined), false);
 });

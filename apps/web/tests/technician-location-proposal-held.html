@@ -1,0 +1,55 @@
+<!doctype html><html><body>
+<button id="run">Run held proposal checks</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { newAddLocationDraft } from "/src/jobs/technicianLocationProposalDraft.ts";
+import { proposalAlreadyPendingMessage } from "/src/referenceData/proposalMessages.ts";
+import { TechnicianLocationProposal } from "/src/jobs/TechnicianLocationProposal.tsx";
+
+// I-52: a proposal retired because an earlier one is still awaiting review was shown as 'Sync needs attention' with a
+// Retry Sync button that can never do anything. It now says it was not sent and offers to add another location.
+const id = (n) => `6c000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { try { const v = fn(); if (v) return v; } catch {} await wait(25); } return undefined; }
+const customerId = id(2), jobId = id(1), systemKey = "co2_fire_extinguisher";
+const job = { id: jobId, configurationSnapshot: { customer: { id: customerId, displayName: "Held Customer" },
+  enabledSystems: [{ systemKey, displayName: "CO2 Fire Extinguisher System", zones: [{ id: id(3), key: "zone-a", displayName: "Zone A" }], locations: [] }] } };
+const button = (label) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9004);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: 9004, username: "held-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    await localDatabase.drafts.clear(); await localDatabase.syncOutbox.clear();
+    const draft = newAddLocationDraft(jobId, customerId, systemKey, ["zone-a"]);
+    const held = { ...draft, patch: { ...draft.patch, displayName: "Annex" }, status: "Failed", lastError: proposalAlreadyPendingMessage };
+    await localDatabase.drafts.put({ id: `technician-location-proposal:${jobId}:${systemKey}:${draft.patch.locationKey}`, entityType: "technicianLocationProposal", payload: held, updatedAt: new Date().toISOString() });
+
+    createRoot(document.querySelector("#view")).render(React.createElement(TechnicianLocationProposal, { job, actorUserId: 9004, canUseServer: true, onBack() {} }));
+    await until(() => document.body.innerText.includes("Not sent"));
+    const text = document.body.innerText;
+    check("the calm not-sent text is shown", text.includes(proposalAlreadyPendingMessage));
+    check("it does not say 'Sync needs attention'", !text.includes("Sync needs attention"));
+    check("there is no Retry Sync button", button("Retry Sync") === undefined);
+    check("the technician can add another location", button("Add another location") !== undefined);
+
+    // An ordinary failure is unchanged: it still says it needs attention and offers Retry Sync.
+    await localDatabase.drafts.put({ id: `technician-location-proposal:${jobId}:${systemKey}:${draft.patch.locationKey}`, entityType: "technicianLocationProposal", payload: { ...held, lastError: "The server refused this location proposal (HTTP 403)." }, updatedAt: new Date(Date.now() + 5000).toISOString() });
+    document.querySelector("#view").innerHTML = "";
+    createRoot(document.querySelector("#view")).render(React.createElement(TechnicianLocationProposal, { job, actorUserId: 9004, canUseServer: true, onBack() {} }));
+    await until(() => document.body.innerText.includes("Sync needs attention"));
+    check("another failure still needs attention", document.body.innerText.includes("Sync needs attention"));
+    check("another failure still offers Retry Sync", button("Retry Sync") !== undefined);
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error) });
+  }
+};
+</script></body></html>
