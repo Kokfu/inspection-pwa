@@ -9,6 +9,10 @@ excluding unrelated changes. Candidate API versions match the reviewed lockfile;
 Argon2/Sharp/application Chromium PDF smoke checks and Caddy/PWA asset validation pass. Production replacement,
 edge/proxy-chain verification and physical-phone acceptance remain outstanding; security sign-off is withheld.
 Details: [SECURITY_DEPLOYMENT_CHECKPOINT](docs/testing/SECURITY_DEPLOYMENT_CHECKPOINT.md).
+Replacement/rollback plan prepared without production access:
+[SECURITY_DEPLOYMENT_EXECUTION_PLAN](docs/testing/SECURITY_DEPLOYMENT_EXECUTION_PLAN.md).
+Production authorization, origin and purpose-created account inputs remain pending. The reminder worker must use the
+coordinated API image; public Host preservation is required by the HTTPS Origin guard.
 
 **Earlier local review checkpoint:**
 The origin guard now requires HTTPS as well as the incoming Host, without enabling proxy trust. New disposable tests
