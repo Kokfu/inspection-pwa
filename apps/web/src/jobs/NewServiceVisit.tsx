@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createTechnicianCustomer,
   loadCustomerConfiguration,
@@ -27,6 +27,12 @@ export function serviceAvailabilityMessage({
   if (!configurationLoaded) return "Customer service configuration is unavailable.";
   if (systemCount === 0) return "No services are currently assigned to this customer.";
   return undefined;
+}
+
+// The visit start time is the phone/browser clock (local HH:MM) at the moment the
+// technician taps Create. Arrival is never typed; it is recorded from the device.
+export function deviceClockTime(now: Date = new Date()) {
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
 function hasRealJobId(job: unknown): job is InspectionJob {
@@ -59,11 +65,12 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   const [newCustomerRequestId, setNewCustomerRequestId] = useState(() => crypto.randomUUID());
   const [serviceFormatOptions, setServiceFormatOptions] = useState<ServiceFormatOption[]>([]);
   const [serviceCallNumber, setServiceCallNumber] = useState("");
-  const [arrivalTime, setArrivalTime] = useState("");
-  const [departureTime, setDepartureTime] = useState("");
   // Keep the same mutation identity for a retry after a lost response. It is
   // not a job identity; the server alone allocates the job and reference.
   const [requestId] = useState(() => crypto.randomUUID());
+  // Captured on the first Create tap and reused by retries, so a retry after a
+  // lost response replays the identical request instead of an IDEMPOTENCY_MISMATCH.
+  const deviceStartTime = useRef<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
@@ -150,12 +157,12 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   async function submit() {
     if (!canCreate) return;
     setCreating(true); setMessage("");
+    deviceStartTime.current ??= deviceClockTime();
     try {
       const job = await createServiceVisit({
         requestId, customerId, siteId, systemKeys,
         ...(serviceCallNumber.trim() ? { serviceCallNumber: serviceCallNumber.trim() } : {}),
-        ...(arrivalTime.trim() ? { arrivalTime: arrivalTime.trim() } : {}),
-        ...(departureTime.trim() ? { departureTime: departureTime.trim() } : {})
+        arrivalTime: deviceStartTime.current
       });
       if (!hasRealJobId(job)) throw new Error("Service visit could not be created.");
       await onCreated(job);
@@ -169,7 +176,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
     <div className="setup-card">
       <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
       <div className="setup-fields">
-        <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created.</p>
+        <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created. Your arrival time is taken from this device's clock when you tap Create.</p>
         <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
       </div>
@@ -178,8 +185,6 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
       {configurationMatchesCustomer && systems.length ? <button type="button" className="secondary-command" disabled={creating} onClick={() => setSystemKeys(systems.map((system) => system.key))}>Reuse Previous Service Format</button> : null}
       <div className="setup-fields">
         <div className="form-field"><label htmlFor="service-call-number">Service Call No</label><input id="service-call-number" maxLength={80} value={serviceCallNumber} onChange={(event) => setServiceCallNumber(event.target.value)} disabled={creating} /></div>
-        <div className="form-field"><label htmlFor="service-arrival">Arrival</label><input id="service-arrival" type="time" value={arrivalTime} onChange={(event) => setArrivalTime(event.target.value)} disabled={creating} /></div>
-        <div className="form-field"><label htmlFor="service-departure">Departure</label><input id="service-departure" type="time" value={departureTime} onChange={(event) => setDepartureTime(event.target.value)} disabled={creating} /></div>
       </div>
       {systemKeys.length ? <p className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"} and ready to create.</p> : null}
       {message ? <p className="operational-message operational-message--warning" role="status">{message}</p> : null}
