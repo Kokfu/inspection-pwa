@@ -1,3 +1,5 @@
+import { formatMalaysiaDateTime } from "../uiPresentation";
+
 const sourceSizeLimit = 20 * 1024 * 1024;
 const sourcePixelLimit = 40_000_000;
 const sourceDimensionLimit = 12_000;
@@ -69,11 +71,41 @@ function throwIfCancelled(signal?: AbortSignal) {
   }
 }
 
+function stampPhoto(context: CanvasRenderingContext2D, width: number, height: number, text: string) {
+  const fontSize = Math.max(14, Math.round(Math.max(width, height) * 0.025));
+  const padding = Math.round(fontSize * 0.4);
+  const margin = Math.min(Math.round(fontSize * 0.5), width * 0.02, height * 0.02);
+  context.font = `600 ${fontSize}px sans-serif`;
+  const boxWidth = Math.min(context.measureText(text).width + padding * 2, width - margin * 2);
+  const boxHeight = Math.min(fontSize * 1.4 + padding * 2, height - margin * 2);
+  const x = width - margin - boxWidth;
+  const y = height - margin - boxHeight;
+  const radius = Math.min(padding, boxWidth / 2, boxHeight / 2);
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + boxWidth, y, x + boxWidth, y + boxHeight, radius);
+  context.arcTo(x + boxWidth, y + boxHeight, x, y + boxHeight, radius);
+  context.arcTo(x, y + boxHeight, x, y, radius);
+  context.arcTo(x, y, x + boxWidth, y, radius);
+  context.closePath();
+  context.fillStyle = "rgba(0, 0, 0, 0.65)";
+  context.fill();
+  context.fillStyle = "#ffffff";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  context.fillText(text, width - margin - padding, y + boxHeight / 2, Math.max(1, boxWidth - padding * 2));
+}
+
 export async function processInspectionPhoto(
   sourceBlob: Blob,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  clock: () => Date = () => new Date()
 ) {
   throwIfCancelled(signal);
+  // Processing time for camera AND gallery. Freeze once across encoding retries.
+  const stamp = formatMalaysiaDateTime(clock().toISOString())
+    .replace(",", "")
+    .replace(/\b(\d):/, "0$1:");
   if (sourceBlob.size <= 0 || sourceBlob.size > sourceSizeLimit) {
     throw new Error("Photo must be smaller than 20 MB before processing");
   }
@@ -109,6 +141,8 @@ export async function processInspectionPhoto(
         context.fillStyle = "#ffffff";
         context.fillRect(0, 0, width, height);
         context.drawImage(decoded.source, 0, 0, width, height);
+        // Always redraw from the original source, then stamp at output resolution.
+        stampPhoto(context, width, height, stamp);
         result = await canvasBlob(canvas, quality);
         throwIfCancelled(signal);
       } finally {
