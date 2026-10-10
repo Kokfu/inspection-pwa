@@ -389,22 +389,24 @@ export function TechnicianHome({
           </section>
         ) : selectedJob.status === "open" ? (
           <section className="remaining-inspections" aria-labelledby="remaining-inspections-title">
-            <div className="workspace-heading"><div><p className="eyebrow">Completion requirements</p><h3 id="remaining-inspections-title">Remaining Inspections</h3></div><span>{selectedJob.completion ? `${selectedJob.completion.acceptedUnitCount} of ${selectedJob.completion.requiredUnitCount} complete` : "Progress unavailable"}</span></div>
-            {selectedJob.completion ? (
-              <ul className="record-list">
-                {selectedJob.completion.systems.flatMap((system) => system.units
-                  .filter((unit) => unit.status === "incomplete")
-                  .map((unit) => <li className="completion-requirement" key={`${system.systemKey}:${unit.authorityKey}`}>
-                    <strong>{system.systemLabel}</strong>
-                    <span>{unit.label}</span>
-                    <small>{unit.reason === "EVIDENCE_PENDING" ? "Required evidence is pending"
-                      : unit.reason === "EVIDENCE_INVALID" ? "Required evidence is invalid"
-                      : unit.reason === "SYSTEM_NOT_SUPPORTED" ? "Configured system is not supported"
-                      : unit.reason === "CONFIGURATION_INVALID" ? "Authoritative job configuration is invalid"
-                      : "Inspection is not complete"}</small>
-                  </li>))}
-              </ul>
-            ) : <p>Reconnect and refresh to confirm completion readiness.</p>}
+            <details key={selectedJob.id}>
+              <summary id="remaining-inspections-title">Remaining Inspections - {selectedJob.completion ? `${selectedJob.completion.acceptedUnitCount} of ${selectedJob.completion.requiredUnitCount} complete` : "Progress unavailable"}</summary>
+              {selectedJob.completion ? (
+                <ul className="record-list">
+                  {selectedJob.completion.systems.flatMap((system) => system.units
+                    .filter((unit) => unit.status === "incomplete")
+                    .map((unit) => <li className="completion-requirement" key={`${system.systemKey}:${unit.authorityKey}`}>
+                      <div><strong>{system.systemLabel}</strong> - <span>{unit.label}</span></div>
+                      <small>{unit.reason === "EVIDENCE_PENDING" ? "Required evidence is pending"
+                        : unit.reason === "EVIDENCE_INVALID" ? "Required evidence is invalid"
+                        : unit.reason === "SYSTEM_NOT_SUPPORTED" ? "Configured system is not supported"
+                        : unit.reason === "CONFIGURATION_INVALID" ? "Authoritative job configuration is invalid"
+                        : "Inspection is not complete"}</small>
+                    </li>))}
+                </ul>
+              ) : null}
+            </details>
+            {!selectedJob.completion ? <p>Reconnect and refresh to confirm completion readiness.</p> : null}
           </section>
         ) : null}
         <h3 id="applicable-systems-title">Applicable Systems</h3>

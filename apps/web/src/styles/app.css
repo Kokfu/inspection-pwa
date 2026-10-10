@@ -966,13 +966,16 @@ h1, h2, h3, h4, p, dd, strong, span, small { overflow-wrap: anywhere; }
 .job-completion { display: grid; gap: 14px; margin-bottom: 26px; padding: 20px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .job-completion--ready { border-color: var(--success-border); background: linear-gradient(135deg, var(--success-soft), var(--surface)); }
 .job-completion--ready > button { justify-self: start; min-width: 190px; }
-.remaining-inspections { display: grid; gap: 12px; margin-bottom: 24px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-muted); }
-.remaining-inspections .workspace-heading h3 { margin: 0; font-size: 1.12rem; }
-.remaining-inspections .record-list { margin: 0; }
-.completion-requirement { display: grid; gap: 2px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.completion-requirement strong, .completion-requirement span, .completion-requirement small { display: block; }
-.completion-requirement span { color: var(--ink); }
-.completion-requirement small { color: var(--muted); }
+.remaining-inspections { margin-bottom: var(--space-6); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-muted); }
+.remaining-inspections summary { box-sizing: border-box; min-height: var(--tap); padding: var(--space-3) var(--space-2); font-size: var(--text-sm); cursor: pointer; touch-action: manipulation; overflow-wrap: anywhere; }
+.remaining-inspections summary:focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); border-radius: var(--radius-md); }
+.remaining-inspections .record-list { gap: 0; margin: 0; padding: 0 var(--space-3) var(--space-2); }
+.remaining-inspections > p { margin: 0; padding: 0 var(--space-3) var(--space-3); }
+.completion-requirement { padding: var(--space-2) 0; border-top: 1px solid var(--border); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.completion-requirement small { display: block; color: var(--muted); font-size: var(--text-xs); }
+@media (hover: hover) {
+  .remaining-inspections summary:hover { color: var(--brand-dark); background: var(--brand-tint); }
+}
 
 .navigation-list { gap: 9px; }
 .navigation-list button { position: relative; min-height: 68px; border-color: var(--border); border-radius: 12px; padding: 11px 42px 11px 14px; box-shadow: 0 3px 12px rgb(25 57 61 / 5%); }

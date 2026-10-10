@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><title>Job completion workflow harness</title></head><body>
-<button id="run" type="button">Run job completion workflow checks</button><div id="app"></div><pre id="result">Ready</pre>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Job completion workflow harness</title></head><body class="app-shell">
+<button id="run" type="button">Run job completion workflow checks</button><main class="workspace" id="app"></main><pre id="result">Ready</pre>
 <script type="module">
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { TechnicianHome } from "/src/jobs/TechnicianHome.tsx";
+import "/src/styles/app.css";
 
 const system={enabledSystemId:"30000000-0000-4000-8000-000000000002",systemKey:"hose_reel",displayName:"Hose Reel",sortOrder:1,definitionStatus:"confirmed",zones:[],locations:[]};
 const completion={jobId:"30000000-0000-4000-8000-000000000001",jobStatus:"open",eligible:true,checkedAt:"2026-08-13T01:00:00.000Z",requiredUnitCount:1,acceptedUnitCount:1,completedAt:null,completedBy:null,systems:[{systemKey:"hose_reel",systemLabel:"Hose Reel",status:"accepted",units:[{authorityKey:"primary",label:"Primary inspection",status:"accepted"}]}]};
@@ -14,13 +15,27 @@ const common={inspections:[],masterSystemInspections:[],masterSystemInspectionGr
 const root=createRoot(document.querySelector("#app"));
 const settle=()=>new Promise(resolve=>setTimeout(resolve,200));
 
+// Display-only fixtures use the real component, completion data and production CSS.
+const mode=new URLSearchParams(location.search).get("mode");
+if(mode){
+  const pending={...baseJob,completion:{...completion,eligible:false,requiredUnitCount:3,acceptedUnitCount:1,systems:[{systemKey:"hose_reel",systemLabel:"Hose Reel",status:"incomplete",units:[
+    {authorityKey:"accepted",label:"Ground floor",status:"accepted"},
+    {authorityKey:"primary",label:"Primary inspection",status:"incomplete",reason:"ACCEPTED_INSPECTION_MISSING"},
+    {authorityKey:"upper",label:"Upper floor",status:"incomplete",reason:"EVIDENCE_PENDING"}
+  ]}]}};
+  const job=mode==="ready"?baseJob:mode==="unavailable"?{...baseJob,completion:undefined}:pending;
+  root.render(React.createElement(TechnicianHome,{...common,jobs:[job],authState:{status:"verified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:noop}));
+  document.querySelector("#run").hidden=true;
+  document.querySelector("#result").hidden=true;
+}
+
 document.querySelector("#run").onclick=async()=>{
   const checks=[],check=(name,passed)=>checks.push({name,passed:Boolean(passed)});let closes=0;
   root.render(React.createElement(TechnicianHome,{...common,jobs:[baseJob],authState:{status:"verified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:async()=>{closes+=1}}));
   await settle();
   let complete=[...document.querySelectorAll("button")].find(button=>button.textContent==="Complete Service");
   check("eligible verified job exposes enabled Complete Service",complete&&!complete.disabled);
-  check("server accepted progress is presented as complete",document.body.textContent.includes("1/1 inspections complete")&&document.body.textContent.includes("Inspection Complete"));
+  check("server accepted progress is presented as complete",document.querySelector(".job-detail-progress strong")?.textContent==="1/1 complete"&&document.querySelector(".navigation-list .status-badge")?.textContent==="Inspection complete and synced.");
   complete?.click();await settle();check("close command is dispatched once",closes===1);
 
   root.render(React.createElement(TechnicianHome,{...common,jobs:[baseJob],authState:{status:"offline-unverified",user:{id:1,username:"inspector",role:"inspector"},lastVerifiedAt:"2026-08-13T00:00:00.000Z"},onCloseJob:async()=>{closes+=1}}));

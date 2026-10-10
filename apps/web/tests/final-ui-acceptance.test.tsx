@@ -55,10 +55,11 @@ test("technician job tabs show current work and completed history", () => {
   } finally { sessionTab = null; }
 });
 
-test("incomplete completion requirements have separate semantic elements and no completion action", () => {
+test("incomplete completion requirements use a collapsed disclosure and retain unit identity and reason", () => {
   const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob]} message="" selectedJobId={baseJob.id} />);
   assert.match(html, /class="completion-requirement"/);
-  assert.match(html, /<strong>Automatic Sprinkler System<\/strong><span>Primary inspection<\/span><small>Inspection is not complete<\/small>/);
+  assert.match(html, /<details><summary id="remaining-inspections-title">Remaining Inspections - 0 of 1 complete<\/summary>/);
+  assert.match(html, /<div><strong>Automatic Sprinkler System<\/strong> - <span>Primary inspection<\/span><\/div><small>Inspection is not complete<\/small>/);
   assert.doesNotMatch(html, />Complete Service<\/button>/);
 });
 
