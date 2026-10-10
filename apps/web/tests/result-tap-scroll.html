@@ -1,0 +1,123 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>#result{position:absolute;width:1px;height:1px;overflow:hidden;margin:0;white-space:pre-wrap}</style></head><body><pre id="result">Ready</pre><div id="mount"></div><script type="module">
+// CR-06: the real App, a technician, and a seeded Draft of any inspection form. window.openSystem(systemKey) seeds the Draft
+// through that system's real repository (V7 template definitions from the API) and routes the App to it.
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import "/src/styles/app.css";
+import { App } from "/src/App.tsx";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+import { masterServiceReportV5 } from "../../api/src/inspections/templates/masterServiceReportV5.ts";
+import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
+import { getOrCreateAutomaticSprinklerInspection } from "/src/automaticSprinkler/automaticSprinklerRepository.ts";
+import { getOrCreateHoseReelInspection } from "/src/hoseReel/hoseReelRepository.ts";
+import { getOrCreateDryWetRiserInspection } from "/src/dryWetRiser/dryWetRiserRepository.ts";
+import { getOrCreateFireAlarmInspection } from "/src/fireAlarm/fireAlarmRepository.ts";
+import { getOrCreateHydrantInspection } from "/src/hydrant/hydrantRepository.ts";
+import { getOrCreateSmokeVentilationInspection } from "/src/smokeVentilation/smokeVentilationRepository.ts";
+import { getOrCreateFireIntercomInspection } from "/src/fireIntercom/fireIntercomRepository.ts";
+import { getOrCreateFireRatedRollerShutterInspection } from "/src/fireRatedRollerShutter/fireRatedRollerShutterRepository.ts";
+import { getOrCreatePortable } from "/src/portableFireExtinguisher/portableFireExtinguisher.ts";
+import { initializeCo2InspectionGroup } from "/src/co2/co2Repository.ts";
+import { initializeFm200InspectionGroup } from "/src/fm200/fm200Repository.ts";
+
+const id = (n) => `97000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const user = { id: 97, username: "scroll-tech", role: "inspector" };
+const params = new URLSearchParams(location.search);
+const autosaveOff = params.has("noautosave");
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const waitFor = async (predicate, what) => { for (let i = 0; i < 200; i += 1) { if (await predicate()) return; await sleep(50); } throw new Error(`Timed out: ${what}. DOM: ${document.querySelector("#mount").textContent.slice(0, 400)}`); };
+
+let browserOnline = true;
+Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => browserOnline });
+// ?online answers like a healthy server (a phone on Wi-Fi); without it every call except /api/auth/me fails (offline start).
+const online = params.has("online");
+let currentJob;
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+globalThis.fetch = async (input) => {
+  const url = String(input);
+  if (url === "/api/auth/me") return json({ user });
+  if (!online) throw new TypeError("Failed to fetch");
+  if (url === "/api/health") return json({ status: "ok" });
+  if (url === "/api/inspection-jobs") return json({ jobs: currentJob ? [currentJob] : [] });
+  if (url.startsWith("/api/master-system-inspections?")) return json({ inspections: [], hasMore: false, nextCursor: null });
+  if (url === "/api/service-common-remarks") return json({ remarks: [] });
+  if (url === "/api/customers") return json({ customers: [] });
+  return json({ error: "NOT_FOUND" }, 404);
+};
+/** What Android Chrome does on a Wi-Fi / mobile-data hand-over: the browser goes offline and straight back online. */
+window.flapNetwork = () => { browserOnline = false; window.dispatchEvent(new Event("offline")); browserOnline = true; window.dispatchEvent(new Event("online")); };
+
+const creators = {
+  automatic_sprinkler: { create: getOrCreateAutomaticSprinklerInspection, route: (r) => `#/sprinkler-form/${r.clientUuid}` },
+  hose_reel: { create: getOrCreateHoseReelInspection, route: (r) => `#/inspection/${r.clientUuid}` },
+  dry_wet_riser: { create: getOrCreateDryWetRiserInspection, route: (r) => `#/riser-form/${r.clientUuid}`, riser: true },
+  fire_alarm_detector: { create: getOrCreateFireAlarmInspection, route: (r) => `#/fire-alarm-form/${r.jobId}/${r.clientUuid}` },
+  hydrant: { create: getOrCreateHydrantInspection, route: (r) => `#/hydrant-form/${r.clientUuid}` },
+  smoke_ventilation: { create: getOrCreateSmokeVentilationInspection, route: (r) => `#/smoke-ventilation-form/${r.clientUuid}` },
+  fire_intercom: { create: getOrCreateFireIntercomInspection, route: (r) => `#/fire-intercom-form/${r.clientUuid}` },
+  fire_rated_roller_shutter: { create: getOrCreateFireRatedRollerShutterInspection, route: (r) => `#/fire-rated-roller-shutter-form/${r.clientUuid}` },
+  portable_fire_extinguisher: { create: getOrCreatePortable, route: (r) => `#/portable-fire-extinguisher-form/${r.clientUuid}` },
+  co2_fire_extinguisher: { group: initializeCo2InspectionGroup, route: (r) => `#/co2-form/${r.clientUuid}` },
+  wet_chemical: { group: initializeCo2InspectionGroup, route: (r) => `#/wet-chemical-form/${r.clientUuid}` },
+  fm200_fire_suppression: { group: initializeFm200InspectionGroup, route: (r) => `#/fm200-form/${r.clientUuid}` }
+};
+
+const templateJson = { ...masterServiceReportV7, id: masterServiceReportV7.id, code: "MFE-FSSR" };
+const fixedForm = new Set(["automatic_sprinkler", "portable_fire_extinguisher"]);
+function snapshotFor(systemKey, n) {
+  const enabledSystemId = id(100 + n), locationId = id(200 + n);
+  return {
+    enabledSystemId, systemKey, displayName: systemKey, sortOrder: n, definitionStatus: "confirmed", zones: [],
+    locations: fixedForm.has(systemKey) || systemKey === "fire_rated_roller_shutter" ? [] : [{ id: locationId, enabledSystemId, zoneId: null, key: "general", displayName: "General", presetRowCount: 4, rowPreset: systemKey === "fire_alarm_detector" ? { fireAlarmTable: "primary" } : {}, sortOrder: 1 }],
+    ...(creators[systemKey].riser ? { systemConfiguration: { riserMode: "dry" } } : {})
+  };
+}
+
+let root;
+window.openSystem = async (systemKey) => {
+  const output = document.querySelector("#result");
+  try {
+    const mount = document.querySelector("#mount");
+    if (root) { root.unmount(); mount.replaceChildren(); }
+    window.location.hash = "#/jobs";
+    const n = Object.keys(creators).indexOf(systemKey) + 1;
+    const system = snapshotFor(systemKey, n);
+    const job = { id: id(1), reference: "SCROLL-1", title: "Scroll repro", status: "open", createdAt: "2026-10-10T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
+      configurationSnapshot: { schemaVersion: 1, customer: { id: id(2), code: "SCR", displayName: "Scroll Customer" }, configuration: { revisionId: id(3), revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+    const catalog = { templates: [{ id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? system.enabledSystemId : id(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) }] };
+    // Portable keeps its V5 contract even on a V7 job. Include its frozen catalog row.
+    if (systemKey === "portable_fire_extinguisher") catalog.templates.push({id: masterServiceReportV5.id, code: "MFE-FSSR", name: "MFE", version: 5, systems: masterServiceReportV5.systems.map((s) => ({...s, definition:s}))});
+    catalog.template = catalog.templates[0];
+    currentJob = job;
+    await storeVerifiedIdentity(user);
+    root = ReactDomClient.createRoot(mount); root.render(React.createElement(App));
+    await waitFor(() => [...mount.querySelectorAll("button")].some((b) => b.textContent.startsWith("Technician")), "Technician role button");
+    [...mount.querySelectorAll("button")].find((b) => b.textContent.startsWith("Technician")).click();
+    await waitFor(() => localDatabase.name === `inspection-pwa:user:${user.id}`, "user workspace");
+    await Promise.all([localDatabase.masterSystemInspections.clear(), localDatabase.masterSystemFormInstances.clear(), localDatabase.masterSystemInspectionGroups.clear(), localDatabase.syncOutbox.clear()]);
+    const creator = creators[systemKey];
+    let record;
+    if (creator.group) { const { instances } = await creator.group(job, system, catalog, user); record = instances[0]; }
+    else record = await creator.create(job, system, catalog, user);
+    if (!record) throw new Error("no record created");
+    if (params.has("cr09")) {
+      const setFirst = (obj, prefix = []) => {
+        for (const [key, value] of Object.entries(obj)) {
+          if (value === null && /result$/i.test(key)) { obj[key] = "complete_repair"; return [...prefix, key]; }
+          if (value && typeof value === "object") { const found = setFirst(value, [...prefix, key]); if (found) return found; }
+        }
+      };
+      window.__repairPath = setFirst(record.responses);
+      for (const table of [localDatabase.masterSystemInspections, localDatabase.masterSystemFormInstances]) {
+        if (await table.get(record.clientUuid)) await table.update(record.clientUuid, { responses: record.responses });
+      }
+    }
+    window.location.hash = creator.route(record);
+    await waitFor(() => [...mount.querySelectorAll("button")].some((b) => b.textContent.trim() === "Save Draft") || mount.querySelector(".result-option, .result-options") || [...mount.querySelectorAll("button")].some((b) => b.textContent.trim() === "Start Inspection"), "form to render");
+    window.__clientUuid = record.clientUuid;
+    output.textContent = JSON.stringify({ status: "READY", systemKey, uuid: record.clientUuid, options: mount.querySelectorAll(".result-option").length });
+    return true;
+  } catch (error) { output.textContent = JSON.stringify({ status: "ERROR", systemKey, message: String(error && error.stack || error) }); return false; }
+};
+</script></body></html>

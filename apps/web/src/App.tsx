@@ -108,6 +108,7 @@ import {
 } from "./auth/authStateTypes";
 import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRestoration";
 import { ConnectivityRecovery } from "./auth/connectivityRecovery";
+import { useFormScrollContinuity } from "./jobs/formScrollContinuity";
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerHome, managerNavLinks, type ManagerDashboardRoute } from "./manager/ManagerHome";
@@ -558,6 +559,8 @@ export function App() {
   const authRequestQueue = useRef<Promise<void>>(Promise.resolve());
   const connectivityRecovery = useRef(new ConnectivityRecovery(setConnectivityRecoveryActive));
   const authAuthorityGuard = useRef(new AuthAuthorityGuard());
+  // CR-06: re-verifying hides the open form; remember where the technician was and put the form back there.
+  const holdFormScroll = useFormScrollContinuity();
   const serverSummaryRefreshGuard = useRef(new ServerSummaryRefreshGuard());
   const serverSummaryJobContext = useRef("");
   const sprinklerRouteGeneration = useRef(0);
@@ -943,6 +946,7 @@ export function App() {
 
   function beginServerVerification() {
     authReconciliationGeneration.current += 1;
+    holdFormScroll();
     if (authAuthorityGuard.current.hasAuthority) revokeVerifiedAuthority();
     setAuthState(beginAuthVerificationState);
   }

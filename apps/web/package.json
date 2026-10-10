@@ -14,6 +14,7 @@
     "test:draft-autosave": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/draftAutosave.test.ts",
     "test:draft-autosave-submit": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/draftAutosaveWiring.test.ts tests/autosaveStatus.test.ts && playwright test tests/draft-autosave-submit.spec.ts --workers=1",
     "test:route-refresh": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/routeRefresh.test.ts && playwright test tests/form-stays-mounted-on-autosave.spec.ts --workers=1",
+    "test:form-scroll": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/formScrollContinuity.test.ts && playwright test tests/result-tap-scroll.spec.ts --workers=1",
     "test:mobile-css": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/mobileCssRules.test.ts && playwright test tests/manager-tap-targets-and-focus.spec.ts tests/header-compact.spec.ts --workers=1",
     "test:hygiene": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/hygieneBundle.test.ts && playwright test tests/hygiene-bundle.spec.ts --workers=1",
     "test:location-proposal-list": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/locationProposalList.test.ts tests/locationProposalReviewShape.test.ts && playwright test tests/location-proposals-unreadable.spec.ts tests/supervisor-location-proposals.spec.ts --workers=1",

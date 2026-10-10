@@ -32,6 +32,13 @@ export function getAutosaveStatus() {
   return snapshot;
 }
 
+/** Only whether a Draft form is open: unlike `useAutosaveStatus` it does not re-render on every save tick. */
+const subscribeToStatus = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
+const getAutosaveActive = () => snapshot.active;
+export function useAutosaveActive() {
+  return useSyncExternalStore(subscribeToStatus, getAutosaveActive, getAutosaveActive);
+}
+
 export function useAutosaveStatus() {
   return useSyncExternalStore(
     (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
