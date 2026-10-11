@@ -16,7 +16,7 @@ const fields = hydrantResultColumns.map(([responseKey]) => responseKey);
  *  `fireRatedRollerShutterRepository.ts`: `location.rowPreset.rows[]`, index-aligned with the frozen
  *  `presetRowCount`. Malformed/missing/short presets fall back to the flat legacy defaults below rather
  *  than crashing or producing a partial configured layout. */
-function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string }> | undefined {
+export function rowPresets(location: JobSystemSnapshot["locations"][number]): Array<{ assetReference: string; locationText: string }> | undefined {
   const preset = location.rowPreset;
   if (!preset || typeof preset !== "object" || Array.isArray(preset)) return undefined;
   const rows: unknown = (preset as Record<string, unknown>).rows;

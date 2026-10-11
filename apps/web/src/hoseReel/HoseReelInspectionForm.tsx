@@ -1,6 +1,10 @@
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
 import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
+import { RowSetupPrompt } from "../inspectionControls/RowSetupPrompt";
+import { proposeRowLayoutAfterSubmit } from "../inspectionControls/rowLayoutProposal";
+import { useRowLayoutNote } from "../inspectionControls/useRowLayoutNote";
+import { hoseReelLayoutLimits, hoseReelLayoutLocationKey, hoseReelLayoutRows, hoseReelNouns, hoseReelSetupStep, savedHoseReelLayout, startHoseReelRows } from "./hoseReelLayout";
 import {
   loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
@@ -85,6 +89,20 @@ export function HoseReelInspectionForm({
   const [priorReference, setPriorReference] = useState<Awaited<ReturnType<typeof latestHoseReelReferenceForCustomer>>>(undefined);
   const isV7 = record.masterTemplate.version === 7;
   const isSchema3 = responses.schemaVersion === 3;
+  // Phase 3: the pre-form step is decided once per record from its persisted content, then only ever cleared.
+  const [setup, setSetup] = useState<{ uuid: string; done: boolean }>(() => ({ uuid: record.clientUuid, done: false }));
+  const setupStep = setup.uuid === record.clientUuid && setup.done ? null : hoseReelSetupStep({ syncStatus: record.syncStatus, responses: record.responses, system: record.inspectionSnapshot.system });
+  const [layoutNote, setLayoutNote] = useState("");
+  const storedLayout = useRowLayoutNote({ submitted: record.syncStatus !== "Draft" && record.responses.schemaVersion === 3, jobId: record.inspectionSnapshot.job.id, systemKey: record.systemKey, locationKey: hoseReelLayoutLocationKey, noun: hoseReelNouns.noun, refreshKey: `${record.clientUuid}:${record.syncStatus}:${record.localUpdatedAt}` });
+  const shownLayoutNote = layoutNote || storedLayout.note;
+  async function saveLayoutAfterSubmit(submitted: HoseReelResponses) {
+    if (submitted.schemaVersion !== 3) return;
+    const result = await proposeRowLayoutAfterSubmit({
+      jobId: record.inspectionSnapshot.job.id, customerId: record.inspectionSnapshot.customer.id, systemKey: record.systemKey, locationKey: hoseReelLayoutLocationKey,
+      saved: savedHoseReelLayout(record.inspectionSnapshot.system), proposed: hoseReelLayoutRows(submitted), limits: hoseReelLayoutLimits, noun: hoseReelNouns.noun, canUseServer, actorUserId
+    });
+    setLayoutNote(result.note); storedLayout.setStored(result.stored);
+  }
   // Display-only: the frozen per-customer label for one canonical tree path,
   // else the definition label. Reads the non-synced `record.displayLabelOverrides`
   // and never `controls` — every key / evidence `fieldPath` / submit-gate read
@@ -250,9 +268,11 @@ export function HoseReelInspectionForm({
     }
 
     try {
+      const submitted = responses;
       await submitLocal();
       setShowValidation(false);
       setMessage("");
+      void saveLayoutAfterSubmit(submitted);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Inspection could not be submitted");
     }
@@ -292,6 +312,26 @@ export function HoseReelInspectionForm({
     );
   }
 
+  if (setupStep) {
+    return (
+      <section className="hose-reel-form" aria-labelledby="hose-reel-form-title">
+        <button type="button" className="secondary-command" onClick={onClose}>
+          Back to Systems
+        </button>
+        <header className="inspection-context">
+          <div>
+            <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
+            <h2 id="hose-reel-form-title">Hose Reel System</h2>
+            <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
+            <p>{record.inspectionSnapshot.job.title}</p>
+          </div>
+        </header>
+        <RowSetupPrompt step={setupStep} noun={hoseReelNouns.noun} plural={hoseReelNouns.plural} maxRows={hoseReelLayoutLimits.rows} savedRows={savedHoseReelLayout(record.inspectionSnapshot.system)} showDrumType
+          onStart={(start) => { setResponses((current) => startHoseReelRows(current, start)); setSetup({ uuid: record.clientUuid, done: true }); }} />
+      </section>
+    );
+  }
+
   return (
     <section className="hose-reel-form" aria-labelledby="hose-reel-form-title">
       <button type="button" className="secondary-command" onClick={onClose}>
@@ -314,6 +354,7 @@ export function HoseReelInspectionForm({
       {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}
       {lifecycleMessage ? <p className="success-message">{lifecycleMessage}</p> : null}
       {message ? <p className="form-message">{message}</p> : null}
+      {shownLayoutNote ? <p className="form-message" role="status">{shownLayoutNote}</p> : null}
       {validationIssues.length > 0 ? (
         <section className="validation-summary" role="alert" aria-labelledby="validation-title">
           <h3 id="validation-title">Cannot submit yet</h3>

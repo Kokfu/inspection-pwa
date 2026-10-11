@@ -1,0 +1,71 @@
+<!doctype html><html><body><div id="form"></div><pre id="state"></pre><script type="module">
+// Phase 3: the real Dry/Wet Riser form (V7) with a real repository and real Dexie. ?preset=saved gives the customer a saved layout of
+// two riser outlets, no preset is a first visit (the location's single placeholder outlet); ?locations=2 adds a second named location
+// (feature off); ?online lets the form talk to a fake server (proposal POSTs are captured in window.__posts).
+import * as React from "react";
+import "/src/styles/app.css";
+import * as ReactDomClient from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { loadTechnicianLocationProposalDraft } from "/src/jobs/technicianLocationProposalDraft.ts";
+import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
+import { getOrCreateDryWetRiserInspection, saveDryWetRiserDraft, submitLocalDryWetRiser } from "/src/dryWetRiser/dryWetRiserRepository.ts";
+import { DryWetRiserInspectionForm } from "/src/dryWetRiser/DryWetRiserInspectionForm.tsx";
+
+const id = (n) => `9a000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const params = new URLSearchParams(location.search);
+const systemKey = "dry_wet_riser";
+window.__posts = [];
+window.__proposalReply = { status: 201 };
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (params.has("online") && url.includes("/location-proposals") && init?.method === "POST") {
+    const body = JSON.parse(init.body);
+    window.__posts.push({ url, body });
+    if (window.__proposalReply.status === 409) return json({ error: "LOCATION_PROPOSAL_ALREADY_PENDING", message: "already awaiting review" }, 409);
+    return json({ proposal: { id: body.id, status: "pending" } }, 201);
+  }
+  throw new TypeError("Failed to fetch");
+};
+
+const enabledSystemId = id(4);
+const saved = params.get("preset") === "saved";
+const savedRows = [{ assetReference: "R-1", locationText: "Lobby riser" }, { assetReference: "R-2", locationText: "Roof riser" }];
+const makeLocation = (n, key, displayName, rows) => ({ id: id(10 + n), enabledSystemId, zoneId: null, key, displayName, presetRowCount: rows ? rows.length : 1, rowPreset: rows ? { rows } : {}, sortOrder: n });
+const locations = [makeLocation(1, "general", "General", saved ? savedRows : undefined), ...(params.get("locations") === "2" ? [makeLocation(2, "annex", "Annex", undefined)] : [])];
+const system = { enabledSystemId, systemKey, displayName: "Dry / Wet Riser", sortOrder: 6, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" }, zones: [], locations };
+const template = { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? enabledSystemId : id(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) };
+const catalog = { templates: [template], template };
+const job = { id: id(1), reference: "DWR-LAYOUT", title: "Riser layout", status: "open", createdAt: "2026-10-11T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
+  configurationSnapshot: { schemaVersion: 1, customer: { id: id(2), code: "DWR", displayName: "Riser Customer" }, configuration: { revisionId: id(3), revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+
+let record, root = ReactDomClient.createRoot(document.querySelector("#form"));
+const render = () => root.render(React.createElement(DryWetRiserInspectionForm, {
+  record, actorUserId: 1, canUseServer: params.has("online"), onBack: () => {}, onEditFailed: async () => {}, onStartCorrectedCopy: async () => {},
+  onSaveDraft: async (responses) => { record = await saveDryWetRiserDraft(record, responses); render(); },
+  onSubmitLocal: async (responses) => { record = await submitLocalDryWetRiser(record, responses); render(); }
+}));
+await activateUserWorkspace(1);
+await deviceDatabase.authState.put({ key: "device-auth", userId: 1, username: "browser-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+record = await getOrCreateDryWetRiserInspection(job, system, catalog, { id: 1, username: "browser-tech", role: "inspector" });
+render();
+
+/** Fills every required answer in the stored Draft (all Good, names for blank outlet locations), then re-renders. */
+window.fillAll = async (names = []) => {
+  record = await localDatabase.masterSystemInspections.get(record.clientUuid);
+  const next = structuredClone(record.responses);
+  for (const key of Object.keys(next.checklist)) next.checklist[key].result = "good";
+  next.measurements.jockey_psi.values = { cut_in: 80, cut_out: 100 }; next.measurements.jockey_psi.result = "good";
+  next.measurements.duty_psi.values = { cut_in: 70 }; next.measurements.duty_psi.result = "good";
+  next.measurements.standby_psi.values = { cut_in: 60 }; next.measurements.standby_psi.result = "good";
+  next.riserOutlets = next.riserOutlets.map((row) => ({ ...row, canvasHoseAt2Result: "good", diffuserNozzleResult: "good", landingValveResult: "good", crandleResult: "good", doorResult: "good", locationText: row.locationText || (names.shift() ?? "Outlet") }));
+  record = await saveDryWetRiserDraft(record, next);
+  render();
+};
+window.inspect = async () => {
+  const stored = await localDatabase.masterSystemInspections.get(record.clientUuid);
+  const outbox = await localDatabase.syncOutbox.toArray();
+  const proposal = await loadTechnicianLocationProposalDraft(job.id, systemKey, "general");
+  return { stored, outbox, proposal, posts: window.__posts };
+};
+</script></body></html>

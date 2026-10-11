@@ -6,7 +6,7 @@ for (const system of systems) {
     await page.waitForFunction(() => typeof (window as any).openSystem === "function");
     expect(await page.evaluate((key) => (window as any).openSystem(key), system)).toBe(true);
     const start = page.getByRole("button", { name: "Start Inspection" });
-    if (await start.count()) { await page.getByLabel("Locations in each zone").fill("2"); await start.click(); }
+    if (await start.count()) { if (await page.getByLabel("Locations in each zone").count()) await page.getByLabel("Locations in each zone").fill("2"); await start.click(); }
     await expect(page.getByRole("button", { name: "Save Draft", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Complete Repair", exact: true })).toHaveCount(0);
     await expect(page.locator('option[value="complete_repair"]')).toHaveCount(0);

@@ -1,0 +1,59 @@
+<!doctype html><html><body><div id="form"></div><pre id="state"></pre><script type="module">
+// Phase 3: the real Hydrant form with a real repository and real Dexie. ?preset=saved gives the customer a saved layout of two
+// hydrants, no preset gives the default single placeholder row; ?locations=2 adds a second named location (feature off);
+// ?online lets the form talk to a fake server (proposal POSTs are captured in window.__posts).
+import * as React from "react";
+import "/src/styles/app.css";
+import * as ReactDomClient from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { loadTechnicianLocationProposalDraft } from "/src/jobs/technicianLocationProposalDraft.ts";
+import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
+import { getOrCreateHydrantInspection, saveHydrantDraft, submitLocalHydrant } from "/src/hydrant/hydrantRepository.ts";
+import { HydrantInspectionForm } from "/src/hydrant/HydrantInspectionForm.tsx";
+
+const id = (n) => `98000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const params = new URLSearchParams(location.search);
+const systemKey = "hydrant";
+const saved = params.has("preset") && params.get("preset") === "saved";
+window.__posts = [];
+window.__proposalReply = { status: 201 };
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (params.has("online") && url.includes("/location-proposals") && init?.method === "POST") {
+    const body = JSON.parse(init.body);
+    window.__posts.push({ url, body });
+    if (window.__proposalReply.status === 409) return json({ error: "LOCATION_PROPOSAL_ALREADY_PENDING", message: "already awaiting review" }, 409);
+    return json({ proposal: { id: body.id, status: "pending" } }, 201);
+  }
+  throw new TypeError("Failed to fetch");
+};
+
+const enabledSystemId = id(4);
+const makeLocation = (n, key, displayName, rows) => ({ id: id(10 + n), enabledSystemId, zoneId: null, key, displayName, presetRowCount: rows ? rows.length : 1, rowPreset: rows ? { rows } : {}, sortOrder: n });
+const savedRows = [{ assetReference: "H-1", locationText: "Lobby" }, { assetReference: "H-2", locationText: "Roof" }];
+const locations = [makeLocation(1, "general", "General", saved ? savedRows : undefined), ...(params.get("locations") === "2" ? [makeLocation(2, "annex", "Annex", undefined)] : [])];
+const system = { enabledSystemId, systemKey, displayName: "Hydrant", sortOrder: 5, definitionStatus: "confirmed", zones: [], locations };
+const template = { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? enabledSystemId : id(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) };
+const catalog = { templates: [template], template };
+const job = { id: id(1), reference: "HY-LAYOUT", title: "Hydrant layout", status: "open", createdAt: "2026-10-11T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
+  configurationSnapshot: { schemaVersion: 1, customer: { id: id(2), code: "HY", displayName: "Hydrant Customer" }, configuration: { revisionId: id(3), revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+
+let record, root = ReactDomClient.createRoot(document.querySelector("#form"));
+const render = () => root.render(React.createElement(HydrantInspectionForm, {
+  record, actorUserId: 1, canUseServer: params.has("online"), onBack: () => {}, onEditFailed: async () => {}, onStartCorrectedCopy: async () => {},
+  onSaveDraft: async (responses) => { record = await saveHydrantDraft(record, responses); render(); },
+  onSubmitLocal: async (responses) => { record = await submitLocalHydrant(record, responses); render(); }
+}));
+await activateUserWorkspace(1);
+await deviceDatabase.authState.put({ key: "device-auth", userId: 1, username: "browser-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+record = await getOrCreateHydrantInspection(job, system, catalog, { id: 1, username: "browser-tech", role: "inspector" });
+render();
+window.inspect = async () => {
+  const stored = await localDatabase.masterSystemInspections.get(record.clientUuid);
+  const outbox = await localDatabase.syncOutbox.toArray();
+  const proposal = await loadTechnicianLocationProposalDraft(job.id, systemKey, "general");
+  return { stored, outbox, proposal, posts: window.__posts };
+};
+window.clientUuid = record.clientUuid;
+</script></body></html>

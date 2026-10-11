@@ -10,8 +10,13 @@ test("I-23: an autosave does not re-create the open form, drop focus or lose new
   await page.locator("#run").click();
   await expect.poll(async () => { try { return JSON.parse(await page.locator("#result").innerText()).status; } catch { return "RUNNING"; } }, { timeout: 30_000 }).not.toBe("RUNNING");
   expect(JSON.parse(await page.locator("#result").innerText()).status).toBe("READY");
+  // Phase 3: a fresh Draft of this system asks how many / shows the saved layout first; answer it with the default.
+  const start = page.getByRole("button", { name: "Start Inspection" });
+  if (await start.count()) await start.click();
 
-  const field = page.getByRole("textbox", { name: "No. / Reference" });
+  // I-59: a configured row's Location and Reference are frozen (the server requires them as configured), so type into a row the technician adds.
+  await page.getByRole("button", { name: "Add Row" }).click();
+  const field = page.getByRole("textbox", { name: "No. / Reference" }).last();
   await field.click();
   await field.evaluate((element) => { (element as HTMLElement & { __mark?: number }).__mark = 1; });
   await field.fill("typed before the autosave");

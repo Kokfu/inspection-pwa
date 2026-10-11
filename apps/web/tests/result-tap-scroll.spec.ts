@@ -29,7 +29,7 @@ async function open(page: Page, systemKey: string) {
   // Roller Shutter asks "how many zones and locations?" before the form; answer it so the form has several rows.
   const start = page.getByRole("button", { name: "Start Inspection" });
   if (await start.count()) {
-    await page.getByLabel("Locations in each zone").fill("4");
+    if (await page.getByLabel("Locations in each zone").count()) await page.getByLabel("Locations in each zone").fill("4");
     await start.click();
     await expect(page.getByRole("button", { name: "Save Draft" })).toBeVisible();
   }
@@ -114,7 +114,7 @@ test.describe("CR-06 network hand-over while a form is open", () => {
       const ok = await page.evaluate((key) => (window as unknown as { openSystem: (k: string) => Promise<boolean> }).openSystem(key), systemKey);
       expect(ok, await page.locator("#result").innerText()).toBe(true);
       const start = page.getByRole("button", { name: "Start Inspection" });
-      if (await start.count()) { await page.getByLabel("Locations in each zone").fill("4"); await start.click(); await expect(page.getByRole("button", { name: "Save Draft" })).toBeVisible(); }
+      if (await start.count()) { if (await page.getByLabel("Locations in each zone").count()) await page.getByLabel("Locations in each zone").fill("4"); await start.click(); await expect(page.getByRole("button", { name: "Save Draft" })).toBeVisible(); }
       const control = page.locator(".result-option, select:has(option)").nth(14);
       if (!(await control.count())) test.skip(true, "this form has no result controls");
       await control.evaluate((element) => element.scrollIntoView({ block: "center" }));

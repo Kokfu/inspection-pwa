@@ -3,6 +3,9 @@ import { expect, test } from "@playwright/test";
 test("Hose Reel form saves real drum content as a format and pre-fills a new visit", async ({ page }) => {
   await page.goto("/tests/hose-reel-format-roundtrip.html");
   await expect(page.getByRole("heading", { name: "Hose Reel System" })).toBeVisible();
+  // Phase 3: a first visit asks how many hose reel drums before the form.
+  await page.getByRole("spinbutton", { name: "Number of hose reel drums", exact: true }).fill("2");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
   await page.getByRole("spinbutton", { name: "Number of hose reel drums inspected" }).fill("2");
   await page.getByRole("radio", { name: "Swing" }).first().check();
   await page.getByRole("radio", { name: "Fixed" }).last().check();
@@ -13,6 +16,9 @@ test("Hose Reel form saves real drum content as a format and pre-fills a new vis
   await page.getByRole("button", { name: "Save as format for next visit" }).click();
   await expect(page.getByText("Saved on this device, pending sync.")).toBeVisible();
   await page.getByRole("button", { name: "Open next visit from saved format" }).click();
+  // Phase 3: the next visit shows the saved layout first.
+  await expect(page.getByRole("heading", { name: "Same hose reel drums as last time" })).toBeVisible();
+  await page.getByRole("button", { name: "Start Inspection" }).click();
   await expect(page.getByRole("spinbutton", { name: "Number of hose reel drums inspected" })).toHaveValue("2");
   await expect(page.getByRole("heading", { name: "Drum 1 (configured)" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Drum 2 (configured)" })).toBeVisible();
