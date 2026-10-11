@@ -19,8 +19,8 @@
 | CR-06 | Form jumps to top | **Done, committed** (scroll restored after a network hand-over) | `11570ea`, `194550b` | **verified on phone** | Optional "option B" (keep the form mounted while re-verifying, Level 2) — **not needed now**; only if the client still complains about the keyboard closing |
 | CR-08 | Photo date/time stamp | **Done, committed** | `ce5a5db` | not yet | Phone retest steps in `docs/testing/CR08_PHOTO_WATERMARK.md` |
 | CR-09 | Remove Repair + Repair List | **Phase A done, committed** (Complete Repair hidden, recoverable). Phases B/C/D **planned, not built** | `d0c371a` (A) | — | Needs plan answers (§0.2) then 3 build phases. Migration **051** |
-| CR-07 | Per-section free-text remarks | **Planned, not built** — plan approved | — | — | **NEXT TO BUILD**: Phase 1 (Automatic Sprinkler pilot). Migration **049** |
-| CR-02 | Manual site + Admin approval | **Planned, not built** — defaults D1–D7 accepted | — | — | After CR-07. Migration **050**. Commit the I-47 batch first (same file) |
+| CR-07 | Per-section free-text remarks | **Phase 1 done, committed** (Automatic Sprinkler pilot; migration **049**) | `1f466b9` | not yet | Phone steps in `docs/testing/CR07_SECTION_REMARKS_P1.md`. Phase 2 = other systems + edit/delete. Owner question: keep the "Others" option in the Sprinkler form (kept for now) |
+| CR-02 | Manual site + Admin approval | **Phase 1 done (API + DB only; migration **050**)** — defaults D1–D7 applied | see git log | — | Web UI = Phase 2 (`NewServiceVisit.tsx`, Admin review screen, add `siteApproval` to `InspectionJob`). Report: `docs/testing/CR02_P1_SITE_PROPOSALS_API.md` |
 | CR-01 | Optional photo on Good / N.A. | **Phase 0+1 done, committed** (`31f18f4`): server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical). Web rollout (committed 2026-10-11, real-stack browser check passed; phone retest pending) to Fire Alarm, Hydrant, Hose Reel, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter, FM200 done 2026-10-11; **Automatic Sprinkler web form pending** (after the CR-07 commit) | `31f18f4` | **verified on phone 2026-10-10** (CO2: required + Good + N.A. photos offline -> sync -> Accepted Detail -> Final Report + PDF; Wet Chemical not retested on the phone) | No migration. Next: roll the web slot out system by system (same `OptionalPhotoSlot`); P0-FR1 (Dry/Wet Riser evidence missing from the Final Report) **fixed 2026-10-10** (committed) and verified on the phone (the riser's report lists its photo) |
 | CR-10 | Repair-only PDF | **Not planned yet** | — | — | After CR-09 Phase C. Plan-only prompt ready |
 
@@ -95,7 +95,7 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
 - **Open question → Q1.**
 
 ### CR-02 — New Service Visit: manually keyed site, save after first visit, Admin approval
-- [ ] Done — Result: _
+- [ ] Done — Result: Phase 1 (API + DB, migration 050) built; web UI (Phase 2) pending
 - **Client wording:** "New Service Visit, Manual Key in Select Site. Need Save after first visit. Supervisor approval."
 - **Tidied requirement (my reading — confirm Q2):** On New Service Visit the technician can type a site that is not in the
   list. After the first visit the site is **saved** for that customer so it appears in the Site list next time, but only
@@ -155,7 +155,7 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
 - **Open question → Q5.**
 
 ### CR-07 — Technician adds a new remark, per section
-- [ ] Done — Result: _ (plan approved; build = Phase 1 Automatic Sprinkler pilot, migration 049)
+- [ ] Done — Result: Phase 1 built and committed (`1f466b9`, Automatic Sprinkler pilot, migration 049); phone test and Phase 2 pending
 - **Client wording:** "Remark. Add new remark, particully on this side/form."
 - **Clarified by owner (2026-10-10):** The technician can add a **free-text remark inside each inspection form,
   tied to the section it was added in**. Example: Automatic Sprinkler System → *S.A.J Main Water Supply*: a new

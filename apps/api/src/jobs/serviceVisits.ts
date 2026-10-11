@@ -2,18 +2,21 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspections/templates/systemContractCompatibility.js";
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
+import { siteNameKey, siteNameKeySql } from "../inspections/siteProposal.js";
 
 type Queryable = Pick<PoolClient, "query">;
+
+/** CR-02: a site the technician typed because it is not in the customer's list (name and address already normalised). */
+export type NewSiteInput = { displayName: string; address: string | null };
 
 export type CreateServiceVisitInput = {
   requestId: string;
   customerId: string;
-  siteId: string;
   systemKeys: string[];
   serviceCallNumber?: string | null;
   arrivalTime?: string | null;
   departureTime?: string | null;
-};
+} & ({ siteId: string; newSite?: undefined } | { siteId?: undefined; newSite: NewSiteInput });
 
 type CustomerRow = {
   id: string; code: string; displayName: string; contactPhone: string | null; contactPerson: string | null;
@@ -46,7 +49,7 @@ export type CreatedServiceVisit = {
 };
 
 export class ServiceVisitError extends Error {
-  constructor(readonly code: string, message: string, readonly status = 400) { super(message); }
+  constructor(readonly code: string, message: string, readonly status = 400, readonly details?: Record<string, unknown>) { super(message); }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -80,7 +83,12 @@ function coverFields(input: CreateServiceVisitInput): CoverFields {
 
 // A replay is idempotent only when every client-supplied value matches the stored visit.
 function sameReplay(row: Record<string, unknown>, input: CreateServiceVisitInput, cover: CoverFields) {
-  return row.customerId === input.customerId && row.siteId === input.siteId
+  // A typed site is compared by its normalised name: the visit may have reused another technician's pending site
+  // of the same name (owner decision D2), whose stored address is the first submitter's, not this request's.
+  const sameSite = input.newSite
+    ? typeof row.siteDisplayName === "string" && siteNameKey(row.siteDisplayName) === siteNameKey(input.newSite.displayName)
+    : row.siteId === input.siteId;
+  return row.customerId === input.customerId && sameSite
     && sameSystems(row.configurationSnapshot, input.systemKeys)
     && row.serviceCallNumber === cover.serviceCallNumber
     && row.arrivalTime === cover.arrivalTime
@@ -198,12 +206,59 @@ async function buildSnapshot(
   };
 }
 
+/**
+ * CR-02: resolve a typed site inside the visit's transaction (the caller already holds the customer row FOR UPDATE).
+ * An ACTIVE site of the same normalised name refuses the request (409, nothing written) so the technician picks it;
+ * a PENDING one (any technician, same customer) is reused and no second proposal is made (D2); otherwise a new
+ * INACTIVE site and its proposal are inserted. Serialised per (customer, name) so two technicians typing the same
+ * name at once end with one site and one proposal.
+ */
+async function resolveTypedSite(
+  client: Queryable, customerId: string, typed: NewSiteInput, actorUserId: number, jobId: string
+): Promise<SiteRow> {
+  const key = siteNameKey(typed.displayName);
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('site_proposal_name:' || $1 || ':' || $2))", [customerId, key]);
+  const active = await client.query<{ id: string }>(`SELECT id FROM customer_sites
+    WHERE customer_id = $1 AND is_active = true AND ${siteNameKeySql("display_name")} = $2 LIMIT 1`, [customerId, key]);
+  if (active.rows[0]) {
+    throw new ServiceVisitError("SITE_ALREADY_EXISTS", "A site with this name already exists for this customer. Choose it from the list.", 409,
+      { existingSiteId: active.rows[0].id });
+  }
+  const pending = await client.query<SiteRow>(`SELECT site.id, site.customer_id AS "customerId",
+      site.display_name AS "displayName", site.address
+    FROM customer_sites site
+    INNER JOIN customer_site_proposals proposal ON proposal.site_id = site.id
+    WHERE site.customer_id = $1 AND site.is_active = false AND ${siteNameKeySql("site.display_name")} = $2
+      AND NOT EXISTS (SELECT 1 FROM customer_site_proposal_decisions decision WHERE decision.proposal_id = proposal.id)
+    ORDER BY proposal.submitted_at, proposal.id LIMIT 1 FOR UPDATE OF site`, [customerId, key]);
+  if (pending.rows[0]) return pending.rows[0];
+  const siteId = randomUUID();
+  const code = `SITE-${siteId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+  await client.query(`INSERT INTO customer_sites (id, customer_id, site_code, display_name, address, is_active)
+    VALUES ($1, $2, $3, $4, $5, false)`, [siteId, customerId, code, typed.displayName, typed.address]);
+  const proposalId = randomUUID();
+  await client.query(`INSERT INTO customer_site_proposals
+    (id, customer_id, site_id, job_id, submitted_by_user_id, submitted_by_role, proposed_display_name, proposed_address)
+    VALUES ($1, $2, $3, $4, $5, 'inspector', $6, $7)`, [proposalId, customerId, siteId, jobId, actorUserId, typed.displayName, typed.address]);
+  await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result)
+    VALUES ($1, 'site_proposal_submitted', 'customer_site_proposal', $2, 'success')`, [actorUserId, proposalId]);
+  return { id: siteId, customerId, displayName: typed.displayName, address: typed.address };
+}
+
 export async function createServiceVisit(
-  client: PoolClient, input: CreateServiceVisitInput, actorUserId: number
+  client: PoolClient, input: CreateServiceVisitInput, actorUserId: number, actorRole?: string
 ): Promise<CreatedServiceVisit> {
+  // Only a technician proposes a site; an Admin adds sites through the Manager screen. Fail closed on an unknown role.
+  if (input.newSite && actorRole !== "inspector") {
+    throw new ServiceVisitError("NEW_SITE_NOT_ALLOWED", "Only a technician can propose a new site while creating a service visit.", 403);
+  }
   const cover = coverFields(input);
   await client.query("BEGIN");
   try {
+    // One typed-site request at a time per (actor, request id): a double submit waits here, then replays below.
+    if (input.newSite) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('service_visit_new_site:' || $1 || ':' || $2))", [String(actorUserId), input.requestId]);
+    }
     // A 010-era row has no server-owned proof of its creator. Never bind it to
     // a caller or expose it merely because the caller knows its request UUID.
     const unresolvedLegacy = await client.query(`
@@ -242,14 +297,20 @@ export async function createServiceVisit(
     const customerResult = await client.query<CustomerRow>(`SELECT id, customer_code AS code,
       display_name AS "displayName", contact_phone AS "contactPhone", contact_person AS "contactPerson",
       fax, contract_number AS "contractNumber", service_frequency AS "serviceFrequency"
-      FROM customers WHERE id = $1 AND is_active = true FOR SHARE`, [input.customerId]);
+      FROM customers WHERE id = $1 AND is_active = true ${input.newSite ? "FOR UPDATE" : "FOR SHARE"}`, [input.customerId]);
     const customer = customerResult.rows[0];
     if (!customer) throw new ServiceVisitError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
-    const siteResult = await client.query<SiteRow>(`SELECT id, customer_id AS "customerId",
-      display_name AS "displayName", address FROM customer_sites
-      WHERE id = $1 AND customer_id = $2 AND is_active = true FOR SHARE`, [input.siteId, input.customerId]);
-    const site = siteResult.rows[0];
-    if (!site) throw new ServiceVisitError("SITE_NOT_FOUND", "Site was not found for the selected customer.", 404);
+    const id = randomUUID();
+    let site: SiteRow | undefined;
+    if (input.newSite) {
+      site = await resolveTypedSite(client, customer.id, input.newSite, actorUserId, id);
+    } else {
+      const siteResult = await client.query<SiteRow>(`SELECT id, customer_id AS "customerId",
+        display_name AS "displayName", address FROM customer_sites
+        WHERE id = $1 AND customer_id = $2 AND is_active = true FOR SHARE`, [input.siteId, input.customerId]);
+      site = siteResult.rows[0];
+      if (!site) throw new ServiceVisitError("SITE_NOT_FOUND", "Site was not found for the selected customer.", 404);
+    }
     const configuration = await activeConfiguration(client, customer.id);
     if (!configuration) throw new ServiceVisitError("CONFIGURATION_NOT_FOUND", "Customer configuration is unavailable.", 409);
     const systems = await selectedSystems(client, configuration.revisionId, input.systemKeys);
@@ -264,7 +325,6 @@ export async function createServiceVisit(
     if (!createdSchedule) throw new Error("Database creation clock is unavailable");
     const referenceSequence = await client.query<{ next: string }>("SELECT nextval('service_visit_reference_sequence')::text AS next");
     const reference = `SV-${createdSchedule.serviceDate.replace(/-/g, "")}-${referenceSequence.rows[0]!.next}`;
-    const id = randomUUID();
     const inserted = await client.query(`
       INSERT INTO inspection_jobs (
         id, template_id, master_template_version_id, job_reference, title, status, is_sample,
@@ -278,6 +338,9 @@ export async function createServiceVisit(
         JSON.stringify(snapshot), site.id, createdSchedule.serviceDate, createdSchedule.serviceTime, input.requestId, actorUserId,
         cover.serviceCallNumber, cover.arrivalTime, cover.departureTime]);
     if (inserted.rowCount === 0) {
+      // A typed-site request must leave no orphan site or proposal behind: undo everything this transaction did,
+      // then read the winning visit outside it. (The advisory lock above makes this unreachable in practice.)
+      if (input.newSite) await client.query("ROLLBACK");
       const concurrent = await client.query(`
         SELECT job.id, job.job_reference AS reference, job.title, job.created_at AS "createdAt",
           job.service_date::text AS "serviceDate", job.site_id AS "siteId",
@@ -293,7 +356,7 @@ export async function createServiceVisit(
       if (!row || !sameReplay(row, input, cover)) {
         throw new ServiceVisitError("IDEMPOTENCY_MISMATCH", "This create request was already used for another service visit.", 409);
       }
-      await client.query("COMMIT");
+      if (!input.newSite) await client.query("COMMIT");
       return { id: row.id as string, idempotent: true };
     }
     await client.query("COMMIT");

@@ -3,7 +3,10 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **CR-07 Phase 1 built: technician section remarks (Automatic Sprinkler pilot); owner phone test pending.**
+**Last updated:** 2026-10-11 — **CR-02 Phase 1 built: manually typed site + Admin approval (API + database only; migration 050).**
+A technician creating a visit may send `newSite` instead of `siteId`; the site is created inactive (hidden from every site list), the visit proceeds, and an Admin or supervisor approves or rejects it (`/manager/site-proposals`). Job DTOs gain an additive `siteApproval`. No web change yet (Phase 2 = New Service Visit UI + Admin screen), no Dexie change. 17/17 integration + 6 unit tests, existing visit/location/manager/V7 suites and API typecheck/build pass. Details: [CR02_P1_SITE_PROPOSALS_API](docs/testing/CR02_P1_SITE_PROPOSALS_API.md).
+
+**Earlier checkpoint:** 2026-10-10 — **CR-07 Phase 1 built: technician section remarks (Automatic Sprinkler pilot); owner phone test pending.**
 A technician adds a free-text remark in one Sprinkler section (each checklist/measurement row, or Comments); it is stored per customer + system + section on the phone first (offline OK), synced idempotently, and offered only in that section for every technician of the customer. Add-only. Migration **049** (new table only), 2 new API routes, no Dexie version/stores change, nothing in inspection payloads/templates/reports.
 API 12/12 + contract 1/1 on the disposable DB; web 19 node + 7 browser cases + 24 existing browser regressions pass. Web and API typecheck pass (the API one was briefly red mid-session from another task's untracked `rollerShutterReport.test.ts`, then cleared). Uncommitted. Decision for the owner: keep the "Others" option in the Sprinkler form? Details: [CR07_SECTION_REMARKS_P1](docs/testing/CR07_SECTION_REMARKS_P1.md).
 

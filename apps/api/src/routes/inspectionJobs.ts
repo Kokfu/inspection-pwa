@@ -10,6 +10,7 @@ import {
   loadJobCompletion
 } from "../jobs/jobCompletion.js";
 import { createServiceVisit, ServiceVisitError, type CreateServiceVisitInput } from "../jobs/serviceVisits.js";
+import { normaliseSiteAddress, normaliseSiteDisplayName, siteApprovalSql } from "../inspections/siteProposal.js";
 import { requireRole } from "../middleware/requireRole.js";
 import {
   FinalReportError,
@@ -28,6 +29,8 @@ type InspectionJobRow = {
   serviceDate: string | null;
   serviceTime: string | null;
   site: { id: string; displayName: string } | null;
+  /** CR-02: null for every visit whose site was never typed by a technician; otherwise the proposal's state. */
+  siteApproval?: { status: "pending" | "approved" | "rejected"; note?: string } | null;
 };
 
 const uuidPattern =
@@ -51,7 +54,8 @@ export async function listTechnicianInspectionJobs(
       to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
-      ) END AS site
+      ) END AS site,
+      ${siteApprovalSql("inspection_jobs.site_id")}
     FROM inspection_jobs
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
     WHERE inspection_jobs.master_template_version_id IS NOT NULL
@@ -81,7 +85,8 @@ export async function loadCanonicalInspectionJob(
       to_char(inspection_jobs.service_time, 'HH24:MI') AS "serviceTime",
       CASE WHEN site.id IS NULL THEN NULL ELSE jsonb_build_object(
         'id', site.id, 'displayName', site.display_name
-      ) END AS site
+      ) END AS site,
+      ${siteApprovalSql("inspection_jobs.site_id")}
     FROM inspection_jobs
     LEFT JOIN customer_sites site ON site.id = inspection_jobs.site_id
     WHERE inspection_jobs.id = $1 AND master_template_version_id IS NOT NULL
@@ -129,12 +134,26 @@ function optionalTime(value: unknown): string | null | undefined {
 export function parseCreateServiceVisit(value: unknown): CreateServiceVisitInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const body = value as Record<string, unknown>;
-  const required = ["requestId", "customerId", "siteId", "systemKeys"];
-  const optional = ["serviceCallNumber", "arrivalTime", "departureTime"];
+  const required = ["requestId", "customerId", "systemKeys"];
+  const optional = ["siteId", "newSite", "serviceCallNumber", "arrivalTime", "departureTime"];
+  // CR-02: exactly ONE of `siteId` (an existing active site) or `newSite` (a site the technician typed).
+  const hasSiteId = "siteId" in body, hasNewSite = "newSite" in body;
+  if (hasSiteId === hasNewSite) return undefined;
+  let newSite: { displayName: string; address: string | null } | undefined;
+  if (hasNewSite) {
+    const typed = body.newSite;
+    if (typeof typed !== "object" || typed === null || Array.isArray(typed)) return undefined;
+    const fields = typed as Record<string, unknown>;
+    if (Object.keys(fields).some((key) => key !== "displayName" && key !== "address")) return undefined;
+    const displayName = normaliseSiteDisplayName(fields.displayName);
+    const address = normaliseSiteAddress(fields.address);
+    if (displayName === undefined || address === undefined) return undefined;
+    newSite = { displayName, address };
+  }
   if (!required.every((key) => key in body) || Object.keys(body).some((key) => !required.includes(key) && !optional.includes(key))
     || typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)
     || typeof body.customerId !== "string" || !uuidPattern.test(body.customerId)
-    || typeof body.siteId !== "string" || !uuidPattern.test(body.siteId)
+    || (hasSiteId && (typeof body.siteId !== "string" || !uuidPattern.test(body.siteId)))
     || !Array.isArray(body.systemKeys) || body.systemKeys.length === 0
     || body.systemKeys.some((key) => typeof key !== "string" || !/^[a-z][a-z0-9_]{1,63}$/.test(key))
     || new Set(body.systemKeys).size !== body.systemKeys.length) return undefined;
@@ -145,7 +164,7 @@ export function parseCreateServiceVisit(value: unknown): CreateServiceVisitInput
   if (serviceCallNumber === undefined || arrivalTime === undefined || departureTime === undefined) return undefined;
 
   return {
-    requestId: body.requestId, customerId: body.customerId, siteId: body.siteId, systemKeys: body.systemKeys,
+    requestId: body.requestId, customerId: body.customerId, ...(newSite ? { newSite } : { siteId: body.siteId }), systemKeys: body.systemKeys,
     serviceCallNumber, arrivalTime, departureTime
   } as CreateServiceVisitInput;
 }
@@ -277,7 +296,7 @@ export function createServiceVisitHandler({
     const client = await database.connect();
     try {
       const actor = request.currentUser!;
-      const created = await createServiceVisit(client, input, actor.id);
+      const created = await createServiceVisit(client, input, actor.id, actor.role);
       await writeAudit({ actorUserId: actor.id,
         action: created.idempotent ? "service_visit_create_replay" : "service_visit_create",
         entityType: "inspectionJob", entityId: created.id, result: "success" });
@@ -288,7 +307,7 @@ export function createServiceVisitHandler({
       if (error instanceof ServiceVisitError) {
         await writeAudit({ actorUserId: request.currentUser!.id, action: "service_visit_create",
           entityType: "inspectionJob", result: "failure", reason: error.code });
-        response.status(error.status).json({ error: error.code, message: error.message });
+        response.status(error.status).json({ error: error.code, message: error.message, ...(error.details ?? {}) });
         return;
       }
       next(error);

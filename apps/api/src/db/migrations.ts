@@ -152,6 +152,9 @@ const customerLocationProposalsMigrationUrl = new URL(
 const serviceSectionRemarksMigrationUrl = new URL(
   "../../migrations/049_service_section_remarks.sql", import.meta.url
 );
+const customerSiteProposalsMigrationUrl = new URL(
+  "../../migrations/050_customer_site_proposals.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -640,6 +643,13 @@ export async function runMigrations(
   );
   if (!serviceSectionRemarks.rows[0]?.exists) {
     await database.query(await readFile(serviceSectionRemarksMigrationUrl, "utf8"));
+  }
+  // Migration 050 creates `customer_site_proposals`; the table's presence is the replay marker.
+  const customerSiteProposals = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.customer_site_proposals') IS NOT NULL AS exists`
+  );
+  if (!customerSiteProposals.rows[0]?.exists) {
+    await database.query(await readFile(customerSiteProposalsMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
