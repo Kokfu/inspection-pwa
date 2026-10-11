@@ -960,7 +960,8 @@ export type ManagerZone = {
 export type ManagerLocation = {
   id: string;
   enabledSystemId: string;
-  zoneId: string;
+  /** null only for the zone-free General layout of Hydrant / Dry-Wet-Riser (see `isGeneralLayout`). */
+  zoneId: string | null;
   key: string;
   displayName: string;
   presetRowCount: number;
@@ -1001,6 +1002,21 @@ function isManagerLocationShape(value: unknown): value is Omit<ManagerLocation, 
     && isPlainObject(value.rowPreset);
 }
 
+const generalLayoutSystemKeys: ReadonlySet<string> = new Set(["hydrant", "dry_wet_riser"]);
+
+/** Hydrant and Dry/Wet Riser may hold ONE zone-free "General layout" (saved from the inspection form, approved by an Admin)
+ *  instead of named zones and locations. Mirrors `isGeneralLayoutShape` on the server. */
+export function isGeneralLayout(systemKey: string, zones: readonly unknown[], locations: ReadonlyArray<{ key: string; zoneId: unknown }>): boolean {
+  return generalLayoutSystemKeys.has(systemKey) && zones.length === 0 && locations.length === 1
+    && locations[0]!.zoneId === null && locations[0]!.key === "general";
+}
+
+/** A system a technician may propose a named location for. A Hydrant / Dry-Wet-Riser customer whose layout is the zone-free
+ *  General layout takes no named location: it would mix the two shapes, and the server refuses it at approval. */
+export function offersAddLocation(system: { systemKey: string; zones: readonly unknown[]; locations: ReadonlyArray<{ key: string; zoneId: unknown }> }): boolean {
+  return locationConfigurableSystemKeys.has(system.systemKey) && !isGeneralLayout(system.systemKey, system.zones, system.locations);
+}
+
 /**
  * Fully validate the locations response body AND bind it to the system that was
  * actually requested. A poisoned HTTP 200 that names a different `systemKey`,
@@ -1023,7 +1039,8 @@ function asManagerLocations(expectedSystemKey: string, data: Record<string, unkn
   }
   const zoneIdSet = new Set(zoneIds);
   const locations = data.locations as Array<Omit<ManagerLocation, "zoneId"> & { zoneId: unknown }>;
-  if (!locations.every((location) => typeof location.zoneId === "string" && zoneIdSet.has(location.zoneId))) {
+  if (!isGeneralLayout(expectedSystemKey, zones, locations)
+    && !locations.every((location) => typeof location.zoneId === "string" && zoneIdSet.has(location.zoneId))) {
     throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
   }
   return {

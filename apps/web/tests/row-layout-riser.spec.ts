@@ -156,3 +156,71 @@ test("reopening a draft that already has entries never puts the prompt back", as
   await expect(page.getByText("Water Tank", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: /How many riser outlets/ })).toHaveCount(0);
 });
+
+// A brand-new customer has no location at all: the layout is proposed under "general" and the server turns it into the General location.
+test("a brand-new customer (no location) is asked how many riser outlets and starts with only the technician's own outlets", async ({ page }) => {
+  await open(page, "?locations=0");
+  await expect(page.getByRole("heading", { name: "How many riser outlets?" })).toBeVisible();
+  await expect(page.getByText("Water Tank", { exact: true })).toHaveCount(0);
+  await startWithCount(page, 3);
+  const rows = (await inspect(page)).stored.responses.riserOutlets;
+  expect(rows.map((row: any) => row.source)).toEqual(["technician", "technician", "technician"]);
+  expect(rows.map((row: any) => row.sortOrder)).toEqual([1, 2, 3]);
+  for (let index = 0; index < 3; index += 1) await expect(outlets(page).nth(index).getByLabel("Location")).toBeEnabled();
+  await expect(page.getByRole("button", { name: /as format for next visit/ })).toHaveCount(0);
+});
+
+test("a brand-new customer's offline submit queues the layout under 'general' and says so, also after a reload", async ({ page }) => {
+  await open(page, "?locations=0");
+  await startWithCount(page, 3);
+  await fillAndSubmit(page, ["Gate", "Car park", "Roof"]);
+  await expect(page.getByText("Riser outlet layout saved on this device.")).toBeVisible();
+  const state = await inspect(page);
+  expect(state.proposal.status).toBe("Pending");
+  expect(state.proposal.patch).toEqual({ kind: "update-format", locationKey: "general", rows: [
+    { assetReference: "", locationText: "Gate" }, { assetReference: "", locationText: "Car park" }, { assetReference: "", locationText: "Roof" }
+  ] });
+  expect(state.outbox.filter((item: any) => item.entityType === "technicianLocationProposal")).toHaveLength(1);
+  expect(state.stored.responses.riserOutlets.every((row: any) => row.source === "technician")).toBe(true);
+  await page.reload();
+  await expect(page.getByText("Riser outlet layout saved on this device.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many riser outlets|Same riser outlets/ })).toHaveCount(0);
+});
+
+test("a brand-new customer's online submit sends the layout to the server once, under 'general'", async ({ page }) => {
+  await open(page, "?locations=0&online");
+  await startWithCount(page, 2);
+  await fillAndSubmit(page, ["Lobby", "Roof"]);
+  await expect(page.getByText("Riser outlet layout sent to an Admin for approval.")).toBeVisible();
+  const state = await inspect(page);
+  expect(state.posts).toHaveLength(1);
+  expect(state.posts[0].url).toContain("/systems/dry_wet_riser/location-proposals");
+  expect(state.posts[0].body.patch).toEqual({ kind: "update-format", locationKey: "general", rows: [{ assetReference: "", locationText: "Lobby" }, { assetReference: "", locationText: "Roof" }] });
+  expect(state.proposal.status).toBe("Synced");
+});
+
+test("a customer with a zone but no location keeps the form with no prompt and nothing automatic", async ({ page }) => {
+  await open(page, "?locations=0&zones=1&online");
+  await expect(page.getByText("Water Tank", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many riser outlets|Same riser outlets/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add Riser Outlet" }).click();
+  await fillAndSubmit(page, ["Lobby"]);
+  const state = await inspect(page);
+  expect(state.posts).toHaveLength(0);
+  expect(state.proposal).toBeUndefined();
+});
+
+test("a brand-new customer's draft with entries never gets the prompt back after a reload", async ({ page }) => {
+  await open(page, "?locations=0");
+  await startWithCount(page, 1);
+  await page.evaluate(async () => {
+    const { localDatabase } = await import(/* @vite-ignore */ "/src/db/localDatabase.ts" as string);
+    const stored = await (window as any).inspect();
+    const next = structuredClone(stored.stored.responses);
+    next.comments = "started";
+    await localDatabase.masterSystemInspections.update(stored.stored.clientUuid, { responses: next });
+  });
+  await page.reload();
+  await expect(page.getByText("Water Tank", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many riser outlets/ })).toHaveCount(0);
+});

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { locationConfigurableSystemKeys } from "../manager/managerApi";
+import { offersAddLocation } from "../manager/managerApi";
 import type { InspectionJob } from "./jobTypes";
 import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 import {
@@ -21,7 +21,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
   canUseServer: boolean;
   onBack: () => void;
 }) {
-  const eligibleSystems = job.configurationSnapshot.enabledSystems.filter((system) => locationConfigurableSystemKeys.has(system.systemKey));
+  const eligibleSystems = job.configurationSnapshot.enabledSystems.filter(offersAddLocation);
   // The picked system is only a request: it counts only while THIS job still offers it. Route changes between
   // jobs reuse this component instance, so a system chosen for the previous job must never survive the switch.
   const [pickedSystemKey, setPickedSystemKey] = useState<string | undefined>();

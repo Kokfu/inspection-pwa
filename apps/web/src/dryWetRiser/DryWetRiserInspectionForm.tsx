@@ -4,7 +4,7 @@ import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { RowSetupPrompt } from "../inspectionControls/RowSetupPrompt";
 import { proposeRowLayoutAfterSubmit } from "../inspectionControls/rowLayoutProposal";
 import { useRowLayoutNote } from "../inspectionControls/useRowLayoutNote";
-import { dryWetRiserLayoutLimits, dryWetRiserLayoutLocation, dryWetRiserLayoutRows, dryWetRiserNouns, dryWetRiserSetupStep, hasSavedDryWetRiserLayout, savedDryWetRiserLayout, startDryWetRiserRows } from "./dryWetRiserLayout";
+import { dryWetRiserLayoutLimits, dryWetRiserLayoutLocationKey, dryWetRiserLayoutRows, dryWetRiserNouns, dryWetRiserSetupStep, hasSavedDryWetRiserLayout, savedDryWetRiserLayout, startDryWetRiserRows } from "./dryWetRiserLayout";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { RemarksField } from "../inspectionControls/RemarksField";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
@@ -48,14 +48,14 @@ export function DryWetRiserInspectionForm({ record, actorUserId, canUseServer, o
   const [setup, setSetup] = useState<{ uuid: string; done: boolean }>(() => ({ uuid: record.clientUuid, done: false }));
   const setupStep = setup.uuid === record.clientUuid && setup.done ? null : dryWetRiserSetupStep(record);
   const [layoutNote, setLayoutNote] = useState("");
-  const layoutLocation = dryWetRiserLayoutLocation(record.inspectionSnapshot.system);
-  const storedLayout = useRowLayoutNote({ submitted: record.syncStatus !== "Draft" && record.responses.schemaVersion === 2, jobId: record.inspectionSnapshot.job.id, systemKey: record.systemKey, locationKey: layoutLocation?.key, noun: dryWetRiserNouns.noun, refreshKey: `${record.clientUuid}:${record.syncStatus}:${record.localUpdatedAt}` });
+  const layoutLocationKey = dryWetRiserLayoutLocationKey(record.inspectionSnapshot.system);
+  const storedLayout = useRowLayoutNote({ submitted: record.syncStatus !== "Draft" && record.responses.schemaVersion === 2, jobId: record.inspectionSnapshot.job.id, systemKey: record.systemKey, locationKey: layoutLocationKey, noun: dryWetRiserNouns.noun, refreshKey: `${record.clientUuid}:${record.syncStatus}:${record.localUpdatedAt}` });
   const shownLayoutNote = layoutNote || storedLayout.note;
   async function saveLayoutAfterSubmit(submitted: DryWetRiserResponses) {
-    if (!layoutLocation || submitted.schemaVersion !== 2) return;
+    if (layoutLocationKey === undefined || submitted.schemaVersion !== 2) return;
     const system = record.inspectionSnapshot.system;
     const result = await proposeRowLayoutAfterSubmit({
-      jobId: record.inspectionSnapshot.job.id, customerId: record.inspectionSnapshot.customer.id, systemKey: record.systemKey, locationKey: layoutLocation.key,
+      jobId: record.inspectionSnapshot.job.id, customerId: record.inspectionSnapshot.customer.id, systemKey: record.systemKey, locationKey: layoutLocationKey,
       saved: hasSavedDryWetRiserLayout(system) ? savedDryWetRiserLayout(system) : [], proposed: dryWetRiserLayoutRows(submitted), limits: dryWetRiserLayoutLimits, noun: dryWetRiserNouns.noun, canUseServer, actorUserId
     });
     setLayoutNote(result.note); storedLayout.setStored(result.stored);

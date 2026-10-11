@@ -14,7 +14,7 @@ import { submitIssues } from "./hydrantRepository";
 import { RowSetupPrompt } from "../inspectionControls/RowSetupPrompt";
 import { proposeRowLayoutAfterSubmit } from "../inspectionControls/rowLayoutProposal";
 import { useRowLayoutNote } from "../inspectionControls/useRowLayoutNote";
-import { hasSavedHydrantLayout, hydrantLayoutLimits, hydrantLayoutLocation, hydrantLayoutRows, hydrantNouns, hydrantSetupStep, savedHydrantLayout, startHydrantRows } from "./hydrantLayout";
+import { hasSavedHydrantLayout, hydrantLayoutLimits, hydrantLayoutLocationKey, hydrantLayoutRows, hydrantNouns, hydrantSetupStep, savedHydrantLayout, startHydrantRows } from "./hydrantLayout";
 import { hydrantResultColumns, type HydrantInspectionRecord, type HydrantResponses, type HydrantResult } from "./hydrantTypes";
 import { historicalHydrantResultDefinition, isHydrantV7EvidenceFinding, listHydrantV7Photos, resolveHydrantV7ResultDefinitions, type HydrantV7FieldPath } from "./hydrantV7Evidence";
 
@@ -31,14 +31,14 @@ export function HydrantInspectionForm({ record, actorUserId, canUseServer, onBac
   const [setup, setSetup] = useState<{ uuid: string; done: boolean }>(() => ({ uuid: record.clientUuid, done: false }));
   const setupStep = setup.uuid === record.clientUuid && setup.done ? null : hydrantSetupStep(record);
   const [layoutNote, setLayoutNote] = useState("");
-  const layoutLocation = hydrantLayoutLocation(record.inspectionSnapshot.system);
-  const storedLayout = useRowLayoutNote({ submitted: record.syncStatus !== "Draft", jobId: record.inspectionSnapshot.job.id, systemKey: record.systemKey, locationKey: layoutLocation?.key, noun: hydrantNouns.noun, refreshKey: `${record.clientUuid}:${record.syncStatus}:${record.localUpdatedAt}` });
+  const layoutLocationKey = hydrantLayoutLocationKey(record.inspectionSnapshot.system);
+  const storedLayout = useRowLayoutNote({ submitted: record.syncStatus !== "Draft", jobId: record.inspectionSnapshot.job.id, systemKey: record.systemKey, locationKey: layoutLocationKey, noun: hydrantNouns.noun, refreshKey: `${record.clientUuid}:${record.syncStatus}:${record.localUpdatedAt}` });
   const shownLayoutNote = layoutNote || storedLayout.note;
   async function saveLayoutAfterSubmit(submitted: HydrantResponses) {
-    if (!layoutLocation) return;
+    if (layoutLocationKey === undefined) return;
     const system = record.inspectionSnapshot.system;
     const result = await proposeRowLayoutAfterSubmit({
-      jobId: record.inspectionSnapshot.job.id, customerId: record.inspectionSnapshot.customer.id, systemKey: record.systemKey, locationKey: layoutLocation.key,
+      jobId: record.inspectionSnapshot.job.id, customerId: record.inspectionSnapshot.customer.id, systemKey: record.systemKey, locationKey: layoutLocationKey,
       saved: hasSavedHydrantLayout(system) ? savedHydrantLayout(system) : [], proposed: hydrantLayoutRows(submitted), limits: hydrantLayoutLimits, noun: hydrantNouns.noun, canUseServer, actorUserId
     });
     setLayoutNote(result.note); storedLayout.setStored(result.stored);

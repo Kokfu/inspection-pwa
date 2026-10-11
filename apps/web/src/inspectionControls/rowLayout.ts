@@ -12,6 +12,21 @@ export type LayoutRow = { assetReference: string; locationText: string; drumType
 export type LayoutLimits = { rows: number; location: number; assetReference: number };
 export type RowSetupStep = "count" | "confirm";
 
+/** The key of the one zone-free General location a customer's layout is saved under when the system has none yet. The server
+ *  (`generalLayoutLocationKeysBySystem`) creates it when the first `general` format is approved. */
+export const generalLayoutKey = "general";
+
+/**
+ * The location a Hydrant / Dry-Wet-Riser layout is set up and saved under, or undefined when the automatic flow does not apply.
+ * Exactly one existing location: that location's own key. No location and no zone (a brand-new customer): "general", which
+ * the server turns into the General location on approval. Several locations, or zones without a location, keep the manual
+ * per-location buttons: one count and one saved list cannot describe several places.
+ */
+export function layoutLocationKey(system: { zones: readonly unknown[]; locations: readonly { key: string }[] }): string | undefined {
+  if (system.locations.length === 1) return system.locations[0]!.key;
+  return system.locations.length === 0 && system.zones.length === 0 ? generalLayoutKey : undefined;
+}
+
 /** Which pre-form step a freshly opened Draft needs. Anything the technician has already entered skips it, so reopening
  *  real work never puts a prompt in front of it. */
 export function rowSetupStep(input: { untouched: boolean; hasSavedLayout: boolean }): RowSetupStep | null {

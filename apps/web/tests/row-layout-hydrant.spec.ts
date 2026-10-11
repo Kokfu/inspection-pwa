@@ -173,3 +173,71 @@ test("I-59: a configured (saved-layout) row's Location and Reference cannot be e
   await expect(rowCards(page).nth(2).getByLabel("Location", { exact: true })).toBeEnabled();
   await expect(rowCards(page).nth(2).getByLabel("No. / Reference")).toBeEnabled();
 });
+
+// A brand-new customer has no location at all: the layout is proposed under "general" and the server turns it into the General location.
+test("a brand-new customer (no location) is asked how many hydrants and starts with only the technician's own rows", async ({ page }) => {
+  await open(page, "?locations=0");
+  await expect(page.getByRole("heading", { name: "How many hydrants?" })).toBeVisible();
+  await expect(page.getByLabel("Hydrant Type")).toHaveCount(0);
+  await page.getByLabel("Number of hydrants").fill("3");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
+  await expect(page.getByLabel("Hydrant Type")).toBeVisible();
+  await expect(rowCards(page)).toHaveCount(3);
+  await expect.poll(async () => (await inspect(page)).stored.responses.rows.map((row: any) => row.source)).toEqual(["technician", "technician", "technician"]);
+  expect((await inspect(page)).stored.responses.rows.map((row: any) => row.sortOrder)).toEqual([1, 2, 3]);
+  for (let index = 0; index < 3; index += 1) await expect(rowCards(page).nth(index).getByLabel("Location", { exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /as format for next visit/ })).toHaveCount(0);
+});
+
+test("a brand-new customer's offline submit queues the layout under 'general' and says so, also after a reload", async ({ page }) => {
+  await open(page, "?locations=0");
+  await page.getByLabel("Number of hydrants").fill("3");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
+  await fillAndSubmit(page, ["Gate", "Car park", "Roof"]);
+  await expect(page.getByText("Hydrant layout saved on this device.")).toBeVisible();
+  const state = await inspect(page);
+  expect(state.proposal.status).toBe("Pending");
+  expect(state.proposal.patch).toEqual({ kind: "update-format", locationKey: "general", rows: [
+    { assetReference: "", locationText: "Gate" }, { assetReference: "", locationText: "Car park" }, { assetReference: "", locationText: "Roof" }
+  ] });
+  expect(state.outbox.filter((item: any) => item.entityType === "technicianLocationProposal")).toHaveLength(1);
+  expect(state.stored.responses.rows.every((row: any) => row.source === "technician")).toBe(true);
+  await page.reload();
+  await expect(page.getByText("Hydrant layout saved on this device.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many hydrants|Same hydrants/ })).toHaveCount(0);
+});
+
+test("a brand-new customer's online submit sends the layout to the server once, under 'general'", async ({ page }) => {
+  await open(page, "?locations=0&online");
+  await page.getByLabel("Number of hydrants").fill("2");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
+  await fillAndSubmit(page, ["Lobby", "Roof"]);
+  await expect(page.getByText("Hydrant layout sent to an Admin for approval.")).toBeVisible();
+  const state = await inspect(page);
+  expect(state.posts).toHaveLength(1);
+  expect(state.posts[0].url).toContain("/systems/hydrant/location-proposals");
+  expect(state.posts[0].body.patch).toEqual({ kind: "update-format", locationKey: "general", rows: [{ assetReference: "", locationText: "Lobby" }, { assetReference: "", locationText: "Roof" }] });
+  expect(state.proposal.status).toBe("Synced");
+});
+
+test("a customer with a zone but no location keeps the form with no prompt and nothing automatic", async ({ page }) => {
+  await open(page, "?locations=0&zones=1&online");
+  await expect(page.getByLabel("Hydrant Type")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many hydrants|Same hydrants/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add Row" }).click();
+  await fillAndSubmit(page, ["Lobby"]);
+  const state = await inspect(page);
+  expect(state.posts).toHaveLength(0);
+  expect(state.proposal).toBeUndefined();
+});
+
+test("a brand-new customer's draft with entries never gets the prompt back after a reload", async ({ page }) => {
+  await open(page, "?locations=0");
+  await page.getByLabel("Number of hydrants").fill("1");
+  await page.getByRole("button", { name: "Start Inspection" }).click();
+  await page.getByLabel("Hydrant Type").selectOption("meter");
+  await expect.poll(async () => (await inspect(page)).stored.responses.hydrantType).toBe("meter");
+  await page.evaluate(() => window.location.reload());
+  await expect(page.getByLabel("Hydrant Type")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /How many hydrants/ })).toHaveCount(0);
+});

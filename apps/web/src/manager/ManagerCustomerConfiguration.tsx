@@ -20,7 +20,8 @@ import {
   type ManagerCustomer,
   type ManagerEvidencePolicyOption,
   type ManagerLocations,
-  type ManagerSystemConfigurationSchema
+  type ManagerSystemConfigurationSchema,
+  isGeneralLayout
 } from "./managerApi";
 import { ManagerCustomerServiceHistory } from "./ManagerCustomerServiceHistory";
 import { ManagerCustomerServices } from "./ManagerCustomerServices";
@@ -613,6 +614,8 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
   const [zoneRows, setZoneRows] = useState<LocationsZoneRow[]>([]);
   const [locationRows, setLocationRows] = useState<LocationsLocationRow[]>([]);
   const [loadedSnapshot, setLoadedSnapshot] = useState("");
+  // Hydrant / Dry-Wet-Riser customers whose layout is the General layout saved from inspections: shown, not edited here.
+  const [generalLayoutRows, setGeneralLayoutRows] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const saveStatusRef = useRef<HTMLDivElement>(null);
@@ -630,6 +633,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
     }));
     setZoneRows(zones);
     setLocationRows(locations);
+    setGeneralLayoutRows(isGeneralLayout(systemKey, result.zones, result.locations) ? result.locations[0]!.presetRowCount : null);
     setLoadedSnapshot(JSON.stringify(normalizeLocationsDraft(zones, locations)));
     setLoaded(true);
   };
@@ -692,7 +696,13 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
     {open ? <div>
       {loading ? <p>Loading zones and locations…</p> : null}
       {!loaded && error ? <p className="form-message" role="alert">{error}</p> : null}
-      {loaded ? <>
+      {loaded && generalLayoutRows !== null ? <>
+        <p className="support-metadata">General layout: {generalLayoutRows} {generalLayoutRows === 1 ? "row" : "rows"} saved from technician inspections and approved by an Admin. This service has no named zones or locations to edit here; a technician updates the layout from the next visit.</p>
+        <div className="inline-actions">
+          <button type="button" className="secondary-command" disabled={loading} onClick={() => void load()}>Reload</button>
+        </div>
+      </> : null}
+      {loaded && generalLayoutRows === null ? <>
         <h5>Zones</h5>
         <ul className="manager-locations-zone-list">
           {zoneRows.map((zone) => (
@@ -740,7 +750,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
                 <input
                   type="number"
                   min={1}
-                  max={systemKey === "co2_fire_extinguisher" || systemKey === "fm200_fire_suppression" ? 250 : 500}
+                  max={systemKey === "co2_fire_extinguisher" || systemKey === "fm200_fire_suppression" || systemKey === "hydrant" || systemKey === "dry_wet_riser" ? 250 : 500}
                   aria-label={`Preset rows for ${location.key}`}
                   value={location.presetRowCount}
                   onChange={(event) => updateLocation(location.localId, { presetRowCount: Math.trunc(Number(event.target.value)) || 1 })}

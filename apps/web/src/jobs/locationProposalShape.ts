@@ -7,6 +7,8 @@ const zoneFreeKeys: Readonly<Record<string, readonly string[]>> = {
   smoke_ventilation: ["general"], fire_intercom: ["general"]
 };
 const zonedSystems = new Set(["co2_fire_extinguisher", "fm200_fire_suppression", "wet_chemical", "hydrant", "dry_wet_riser"]);
+// Hydrant / Dry-Wet-Riser also save one zone-free "general" layout; acceptance refuses more than 250 configured rows (I-61).
+const generalLayoutSystems = new Set(["hydrant", "dry_wet_riser"]);
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -22,7 +24,7 @@ export function validLocationProposalPatch(value: unknown, systemKey: string): b
   }
   if (value.kind !== "update-format" || typeof value.locationKey !== "string"
     || (!zonedSystems.has(systemKey) && !allowedZoneFreeKeys!.includes(value.locationKey))
-    || !Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > (zonedSystems.has(systemKey) ? 500 : 250)) return false;
+    || !Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > (zonedSystems.has(systemKey) && !generalLayoutSystems.has(systemKey) ? 500 : 250)) return false;
   const baseFields = systemKey === "fire_alarm_detector"
     ? (value.locationKey === "general-primary" ? ["assetReference", "alarmZone", "location"] : ["assetReference", "location"])
     : systemKey === "smoke_ventilation" || systemKey === "fire_intercom" ? ["assetReference"]

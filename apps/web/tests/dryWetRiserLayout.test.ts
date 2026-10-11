@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { configuredDryWetRiserOutlets } from "../src/dryWetRiser/dryWetRiserRepository.js";
-import { dryWetRiserLayoutLocation, dryWetRiserLayoutRows, dryWetRiserSetupStep, hasSavedDryWetRiserLayout, savedDryWetRiserLayout, startDryWetRiserRows } from "../src/dryWetRiser/dryWetRiserLayout.js";
+import { dryWetRiserLayoutLocation, dryWetRiserLayoutLocationKey, dryWetRiserLayoutRows, dryWetRiserSetupStep, hasSavedDryWetRiserLayout, savedDryWetRiserLayout, startDryWetRiserRows } from "../src/dryWetRiser/dryWetRiserLayout.js";
 import type { DryWetRiserInspectionRecord } from "../src/dryWetRiser/dryWetRiserTypes.js";
 
 /** Phase 3 (Dry/Wet Riser, V7): which step a Draft needs, what the saved layout is, and what starting does to the outlets. */
@@ -9,7 +9,7 @@ import type { DryWetRiserInspectionRecord } from "../src/dryWetRiser/dryWetRiser
 const location = (key: string, rows?: Array<{ assetReference: string; locationText: string }>, count?: number) => ({
   id: `l-${key}`, enabledSystemId: "e1", zoneId: null, key, displayName: key === "general" ? "General" : key, presetRowCount: count ?? (rows ? rows.length : 1), rowPreset: rows ? { rows } : {}, sortOrder: 1
 });
-const system = (locations: ReturnType<typeof location>[]) => ({ enabledSystemId: "e1", systemKey: "dry_wet_riser", displayName: "Riser", sortOrder: 1, definitionStatus: "confirmed", zones: [], locations, systemConfiguration: { riserMode: "dry" } }) as never;
+const system = (locations: ReturnType<typeof location>[], zones: unknown[] = []) => ({ enabledSystemId: "e1", systemKey: "dry_wet_riser", displayName: "Riser", sortOrder: 1, definitionStatus: "confirmed", zones, locations, systemConfiguration: { riserMode: "dry" } }) as never;
 const saved = [{ assetReference: "R-1", locationText: "Lobby" }, { assetReference: "R-2", locationText: "Roof" }];
 const v7 = (sys: ReturnType<typeof system>) => ({
   schemaVersion: 2, mode: "dry", comments: "", riserOutlets: configuredDryWetRiserOutlets(sys, true),
@@ -21,10 +21,34 @@ const recordFor = (sys: ReturnType<typeof system>, mutate: (responses: any) => v
   return { syncStatus: status, inspectionSnapshot: { system: sys }, responses } as never;
 };
 
-test("only a customer with exactly one location gets the automatic flow", () => {
+test("a customer with one location, or none, gets the automatic flow; several named locations keep the per-location buttons", () => {
   assert.equal(dryWetRiserLayoutLocation(system([location("general")]))?.key, "general");
-  assert.equal(dryWetRiserLayoutLocation(system([])), undefined);
+  assert.equal(dryWetRiserLayoutLocation(system([])), undefined, "no location: nothing saved to pre-fill");
   assert.equal(dryWetRiserLayoutLocation(system([location("general"), location("annex")])), undefined);
+  assert.equal(dryWetRiserLayoutLocationKey(system([location("lobby")])), "lobby");
+  assert.equal(dryWetRiserLayoutLocationKey(system([])), "general");
+  assert.equal(dryWetRiserLayoutLocationKey(system([location("general"), location("annex")])), undefined);
+  assert.equal(dryWetRiserLayoutLocationKey(system([], [{ id: "z1", key: "z1", displayName: "Zone" }])), undefined, "zones without a location");
+});
+
+test("a brand-new customer (no location) gets the count step from zero outlets, until something is entered", () => {
+  const fresh = recordFor(system([]));
+  assert.equal(fresh.responses.riserOutlets.length, 0, "nothing is configured");
+  assert.equal(dryWetRiserSetupStep(fresh), "count");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([]), (r) => { r.comments = "x"; })), null, "a comment");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([]), (r) => { r.checklist.water_level.result = "good"; })), null, "a checklist answer");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([]), (r) => { r.measurements.duty_psi.values.cut_in = 70; })), null, "a measurement");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([]), () => undefined, "Pending")), null, "a submitted record");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([]), (r) => { r.schemaVersion = 1; })), null, "legacy responses keep their flow");
+  assert.equal(dryWetRiserSetupStep(recordFor(system([], [{ id: "z1", key: "z1", displayName: "Zone" }]))), null, "zones but no location");
+  const started = startDryWetRiserRows(fresh.responses, { total: 3 });
+  assert.deepEqual(started.riserOutlets.map((row) => row.source), ["technician", "technician", "technician"]);
+  assert.deepEqual(started.riserOutlets.map((row) => row.sortOrder), [1, 2, 3]);
+  assert.equal(fresh.responses.riserOutlets.length, 0, "the input is not modified");
+  started.riserOutlets[0]!.locationText = "Core A"; started.riserOutlets[1]!.locationText = "Core B"; started.riserOutlets[2]!.locationText = "Roof";
+  assert.deepEqual(dryWetRiserLayoutRows(started).map((row) => row.locationText), ["Core A", "Core B", "Roof"]);
+  assert.equal(hasSavedDryWetRiserLayout(system([])), false);
+  assert.deepEqual(savedDryWetRiserLayout(system([])), []);
 });
 
 test("the saved layout is what the form pre-fills; a default location has none", () => {

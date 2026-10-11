@@ -32,8 +32,10 @@ const enabledSystemId = id(4);
 const saved = params.get("preset") === "saved";
 const savedRows = [{ assetReference: "R-1", locationText: "Lobby riser" }, { assetReference: "R-2", locationText: "Roof riser" }];
 const makeLocation = (n, key, displayName, rows) => ({ id: id(10 + n), enabledSystemId, zoneId: null, key, displayName, presetRowCount: rows ? rows.length : 1, rowPreset: rows ? { rows } : {}, sortOrder: n });
-const locations = [makeLocation(1, "general", "General", saved ? savedRows : undefined), ...(params.get("locations") === "2" ? [makeLocation(2, "annex", "Annex", undefined)] : [])];
-const system = { enabledSystemId, systemKey, displayName: "Dry / Wet Riser", sortOrder: 6, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" }, zones: [], locations };
+// ?locations=0 is a brand-new customer with no location (the layout is proposed under "general"; add &zones=1 for a zone but no location).
+const locations = params.get("locations") === "0" ? [] : [makeLocation(1, "general", "General", saved ? savedRows : undefined), ...(params.get("locations") === "2" ? [makeLocation(2, "annex", "Annex", undefined)] : [])];
+const zones = params.has("zones") ? [{ id: id(20), enabledSystemId, key: "zone-a", displayName: "Zone A", sortOrder: 1 }] : [];
+const system = { enabledSystemId, systemKey, displayName: "Dry / Wet Riser", sortOrder: 6, definitionStatus: "confirmed", systemConfiguration: { riserMode: "dry" }, zones, locations };
 const template = { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? enabledSystemId : id(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) };
 const catalog = { templates: [template], template };
 const job = { id: id(1), reference: "DWR-LAYOUT", title: "Riser layout", status: "open", createdAt: "2026-10-11T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
