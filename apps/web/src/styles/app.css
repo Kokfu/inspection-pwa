@@ -674,6 +674,15 @@ dd {
   margin: 0;
 }
 
+/* I-57: issue lines can carry a raw field path (no break opportunity); let it wrap instead of widening the page. */
+.validation-summary {
+  min-width: 0;
+}
+
+.validation-summary li {
+  overflow-wrap: anywhere;
+}
+
 /* Scrolled to after a failed Submit: stop below the sticky autosave chip instead of under it. */
 .validation-summary {
   scroll-margin-top: calc(var(--space-8) + var(--space-2));

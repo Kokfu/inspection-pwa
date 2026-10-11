@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module">
+import "/src/styles/app.css";
+// I-57 harness: the real stylesheet and the markup every V7 form renders for a failed Submit. The list holds the raw
+// field path the V7 issue functions print; it has no break opportunity, so it used to widen the whole page on a phone.
+const issue = "automatic_sprinkler_checks.automatic_refilling_facilities requires its own Photo";
+document.querySelector("#root").innerHTML = `<main class="app-shell"><section class="hose-reel-form"><header class="inspection-context"><h2>Automatic Sprinkler System</h2></header>
+<section class="validation-summary" role="alert"><h3>Cannot submit yet</h3><ul><li>${issue}</li><li>${issue.replace("refilling", "refill_2")}</li></ul></section>
+<button type="button" class="secondary-command" id="after">Back to Systems</button></section></main>`;
+</script></body></html>

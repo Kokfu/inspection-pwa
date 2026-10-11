@@ -31,6 +31,7 @@ document.querySelector("#run").onclick=async()=>{try{checks.length=0;const f=fix
   const widget=(sel,inSlot)=>[...formEl.querySelectorAll(sel)].filter(e=>Boolean(e.closest(".optional-photo-slot"))===inSlot).length;
   const finding='[aria-label^="V7 evidence photo for automatic_sprinkler_checks.saj_main_water_supply"]', good='[aria-label^="V7 evidence photo for automatic_sprinkler_checks.water_level"]';
   check("V7 finding reveals the REQUIRED photo widget; a Good / N.A. field gets the optional slot instead (CR-01)",widget(finding,false)===1&&widget(finding,true)===0&&widget(good,false)===0&&widget(good,true)===1);
+  check("the optional photo box talks about a photo, not a V7 finding (I-58)",[...formEl.querySelectorAll(".optional-photo-slot")].length>0&&![...formEl.querySelectorAll(".optional-photo-slot")].some(slot=>/V7|finding/i.test(slot.innerText)));
   formRoot.unmount();
   for(const[fieldPath,sha]of[[paths.checklist,h],[paths.testRun,k],[paths.measurement,m]])await saveAutomaticSprinklerV7Photo({record:draft,fieldPath,captureSource:"gallery",blob:new Blob(["A"],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:sha});
   check("one photo per finding is saved on this device across all three shapes",(await snapshot(draft.clientUuid)).photos.length===3);
