@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  applyLocationProposalPatch, parseLocationConfigurationInput, parseLocationProposalPatch, type LocationConfigurationInput
+  applyLocationProposalPatch, exceedsGeneralLayoutRowCap, isGeneralLayoutShape, parseLocationConfigurationInput, parseLocationProposalPatch, type LocationConfigurationInput
 } from "./locationConfiguration.js";
 
 const base: LocationConfigurationInput = {
@@ -149,7 +149,7 @@ test("Fire Alarm format: two independent zone-free pseudo-locations, one per rep
   assert.equal(parseLocationConfigurationInput({ zones: [], locations: [submitted.locations[0]!, submitted.locations[1]!, { ...submitted.locations[0]!, key: "general-primary" }] }, "fire_alarm_detector"), undefined, "more than two locations refused");
 });
 
-test("Hydrant / Dry-Wet-Riser format: assetReference/locationText rows accepted, zone-requiring add-location still required (not zone-free)", () => {
+test("Hydrant / Dry-Wet-Riser format: assetReference/locationText rows accepted, zoned customers keep working", () => {
   for (const systemKey of ["hydrant", "dry_wet_riser"]) {
     const patch = { kind: "update-format" as const, locationKey: "loc-a", rows: [
       { assetReference: "HY-01", locationText: "North wall" },
@@ -158,19 +158,89 @@ test("Hydrant / Dry-Wet-Riser format: assetReference/locationText rows accepted,
     assert.deepEqual(parseLocationProposalPatch(patch, systemKey), patch, systemKey);
     // The system's own {alarmZone, location} shape is refused once assetReference/locationText fields apply.
     assert.equal(parseLocationProposalPatch({ kind: "update-format", locationKey: "loc-a", rows: [{ alarmZone: "a", location: "b" }] }, systemKey), undefined, systemKey);
-    // Unlike Roller Shutter / Hose Reel, these systems are NOT zone-free: an update-format against a
-    // location that does not yet exist must be refused, not implicitly create a General location.
+    // A format for a named location that does not exist is refused (only the "general" key can create a location, see below).
     const empty: LocationConfigurationInput = { zones: [], locations: [] };
     assert.equal(applyLocationProposalPatch(empty, patch, systemKey), undefined, systemKey);
     // The real merge against an existing zoned location works exactly like CO2/FM200.
     const merged = applyLocationProposalPatch(base, patch, systemKey)!;
     assert.equal(merged.locations[0]!.presetRowCount, 2);
     assert.deepEqual(merged.locations[0]!.rowPreset, { rows: patch.rows });
-    // add-location (naming a brand-new location) remains available, unlike the zone-free systems.
+    // add-location (naming a brand-new location) remains available for a zoned customer, unlike the zone-free systems.
     const addPatch = { kind: "add-location" as const, locationKey: "loc-b", displayName: "Location B", zoneKey: "zone-a", newZone: null };
     assert.deepEqual(parseLocationProposalPatch(addPatch, systemKey), addPatch, systemKey);
     assert.ok(applyLocationProposalPatch(base, addPatch, systemKey), systemKey);
   }
+});
+
+test("Hydrant / Dry-Wet-Riser General layout: the first approved general format creates the zone-free General location (a customer with no location)", () => {
+  for (const systemKey of ["hydrant", "dry_wet_riser"]) {
+    const patch = { kind: "update-format" as const, locationKey: "general", rows: [
+      { assetReference: "HY-01", locationText: "Lobby" }, { assetReference: "", locationText: "Roof" }
+    ] };
+    assert.deepEqual(parseLocationProposalPatch(patch, systemKey), patch, systemKey);
+    const created = applyLocationProposalPatch({ zones: [], locations: [] }, patch, systemKey)!;
+    assert.deepEqual(created, { zones: [], locations: [{ key: "general", displayName: "General", zoneId: null,
+      presetRowCount: 2, rowPreset: { rows: patch.rows }, sortOrder: 1 }] }, systemKey);
+    // The Manager's own validator accepts exactly what the merge produced (the write path re-validates the same shape).
+    const submitted = { zones: [], locations: created.locations.map(({ sortOrder: _sortOrder, ...location }) => location) };
+    assert.deepEqual(parseLocationConfigurationInput(submitted, systemKey), created, systemKey);
+    assert.equal(isGeneralLayoutShape(systemKey, created), true, systemKey);
+    // A second format replaces the rows in place (same location, new count); nothing else changes.
+    const again = { ...patch, rows: [{ assetReference: "HY-09", locationText: "Pump room" }] };
+    const replaced = applyLocationProposalPatch(created, again, systemKey)!;
+    assert.deepEqual(replaced.locations, [{ ...created.locations[0]!, presetRowCount: 1, rowPreset: { rows: again.rows } }], systemKey);
+    // A customer that already has named zones/locations is NEVER touched by a general format, and an unknown key cannot create one.
+    assert.equal(applyLocationProposalPatch(base, patch, systemKey), undefined, `${systemKey}: zoned customer untouched`);
+    assert.equal(applyLocationProposalPatch({ zones: [], locations: [] }, { ...patch, locationKey: "loc-z" }, systemKey), undefined, `${systemKey}: only general can create`);
+    // No zone is added next to a General layout (it would mix the two shapes).
+    assert.equal(applyLocationProposalPatch(created, { kind: "add-location", locationKey: "loc-b", displayName: "B", zoneKey: null, newZone: { key: "z", displayName: "Z" } }, systemKey), undefined, systemKey);
+  }
+  // Roller Shutter / Hose Reel are not General-layout systems (they have their own zone-free rules).
+  assert.equal(isGeneralLayoutShape("hose_reel", { zones: [], locations: [{ key: "general", displayName: "General", zoneId: null, presetRowCount: 1, rowPreset: {}, sortOrder: 1 }] }), false);
+});
+
+test("Hydrant / Dry-Wet-Riser Manager editor input: the zoned shape and the single General location are valid, a mix is not", () => {
+  for (const systemKey of ["hydrant", "dry_wet_riser"]) {
+    const zoned = { zones: [{ key: "zone-a", displayName: "Zone A" }], locations: [{ key: "loc-a", displayName: "Location A", zoneId: "zone-a", presetRowCount: 2 }] };
+    assert.ok(parseLocationConfigurationInput(zoned, systemKey), `${systemKey}: zoned shape still valid`);
+    const general = { key: "general", displayName: "General", zoneId: null, presetRowCount: 3, rowPreset: { rows: [] } };
+    assert.ok(parseLocationConfigurationInput({ zones: [], locations: [general] }, systemKey), `${systemKey}: General location valid`);
+    assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...general, key: "other" }] }, systemKey), undefined, "a zone-free location must be the General one");
+    assert.equal(parseLocationConfigurationInput({ zones: zoned.zones, locations: [general] }, systemKey), undefined, "General layout has no zones");
+    assert.equal(parseLocationConfigurationInput({ zones: zoned.zones, locations: [...zoned.locations, general] }, systemKey), undefined, "never mixed with a zoned location");
+    assert.equal(parseLocationConfigurationInput({ zones: [], locations: [general, { ...general, key: "general" }] }, systemKey), undefined, "only one General location");
+    assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ ...general, presetRowCount: 251 }] }, systemKey), undefined, "a General layout is capped at 250 rows");
+  }
+  // A system that is not a General-layout system still refuses a location without a zone.
+  assert.equal(parseLocationConfigurationInput({ zones: [], locations: [{ key: "general", displayName: "General", zoneId: null, presetRowCount: 1 }] }, "co2_fire_extinguisher"), undefined);
+});
+
+test("I-61: a Hydrant / Dry-Wet-Riser format above 250 rows is refused (acceptance refuses more than 250 configured rows)", () => {
+  const rows = (count: number) => Array.from({ length: count }, (_, index) => ({ assetReference: `R-${index}`, locationText: `Place ${index}` }));
+  for (const systemKey of ["hydrant", "dry_wet_riser"]) {
+    assert.ok(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: rows(250) }, systemKey), `${systemKey}: 250 rows`);
+    assert.equal(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: rows(251) }, systemKey), undefined, `${systemKey}: 251 rows, general`);
+    assert.equal(parseLocationProposalPatch({ kind: "update-format", locationKey: "loc-a", rows: rows(251) }, systemKey), undefined, `${systemKey}: 251 rows, named location`);
+  }
+  // CO2 keeps its larger zoned cap (this change must not narrow it).
+  assert.ok(parseLocationProposalPatch({ kind: "update-format", locationKey: "loc-a", rows: Array.from({ length: 300 }, () => ({ alarmZone: "Z", location: "L" })) }, "co2_fire_extinguisher"));
+  // A Riser outlet location is held to the 250 characters its technician rows are; a Hydrant location keeps 300.
+  const long = (length: number) => [{ assetReference: "R-1", locationText: "x".repeat(length) }];
+  assert.ok(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: long(250) }, "dry_wet_riser"));
+  assert.equal(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: long(251) }, "dry_wet_riser"), undefined);
+  assert.ok(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: long(300) }, "hydrant"));
+  assert.equal(parseLocationProposalPatch({ kind: "update-format", locationKey: "general", rows: long(301) }, "hydrant"), undefined);
+});
+
+test("I-61: Hydrant / Dry-Wet-Riser configurations freezing more than 250 configured rows in all are flagged", () => {
+  const withRows = (...counts: number[]): LocationConfigurationInput => ({ zones: [], locations: counts.map((presetRowCount, index) => ({ key: `l${index}`, displayName: "L", zoneId: null, presetRowCount, rowPreset: {}, sortOrder: index + 1 })) });
+  for (const systemKey of ["hydrant", "dry_wet_riser"]) {
+    assert.equal(exceedsGeneralLayoutRowCap(systemKey, withRows(250)), false, systemKey);
+    assert.equal(exceedsGeneralLayoutRowCap(systemKey, withRows(251)), true, systemKey);
+    assert.equal(exceedsGeneralLayoutRowCap(systemKey, withRows(200, 51)), true, `${systemKey}: all locations together`);
+  }
+  assert.equal(exceedsGeneralLayoutRowCap("co2_fire_extinguisher", withRows(400)), false, "CO2 keeps its own limits");
+  assert.equal(exceedsGeneralLayoutRowCap("constructor", withRows(400)), false, "an inherited object key is not a system");
 });
 
 test("Smoke Ventilation / Fire Intercom format: only a zone-free General list of asset references", () => {

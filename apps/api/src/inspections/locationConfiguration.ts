@@ -51,6 +51,33 @@ export const zoneFreeLocationKeysBySystem: Readonly<Record<string, readonly stri
   fire_intercom: ["general"]
 };
 
+/** Hydrant and Dry/Wet Riser save ONE "General layout" for the whole customer, like Hose Reel, so a brand-new customer (who has
+ *  no location) gets the Phase 3 flow. Unlike the zone-free systems above they ALSO keep the older zoned configuration (named
+ *  zones and locations a Manager typed in), so they are not in `zoneFreeLocationKeysBySystem`: that registry would refuse every
+ *  zone, and with it every existing customer's Manager edit and per-location format. A configuration is therefore EITHER the
+ *  zoned shape OR exactly one zone-free "general" location with no zones (`isGeneralLayoutShape`). */
+export const generalLayoutLocationKeysBySystem: Readonly<Record<string, readonly string[]>> = {
+  hydrant: ["general"],
+  dry_wet_riser: ["general"]
+};
+/** Acceptance (`expectedConfiguredHydrantRows`, `dryWetRiserOutletMaximum`) refuses more than 250 configured rows. */
+export const generalLayoutRowCap = 250;
+/** Longest Dry/Wet Riser outlet location the technician form and `validRiserOutlets` accept. */
+const riserOutletLocationMaximum = 250;
+
+/** True when a Hydrant / Dry-Wet-Riser configuration freezes more configured rows than acceptance takes (all locations together). */
+export function exceedsGeneralLayoutRowCap(systemKey: string, input: LocationConfigurationInput): boolean {
+  return Object.hasOwn(generalLayoutLocationKeysBySystem, systemKey)
+    && input.locations.reduce((total, location) => total + location.presetRowCount, 0) > generalLayoutRowCap;
+}
+
+/** True for the single zone-free General location of a General-layout system (and nothing else). */
+export function isGeneralLayoutShape(systemKey: string | undefined, input: LocationConfigurationInput): boolean {
+  const keys = systemKey === undefined ? undefined : generalLayoutLocationKeysBySystem[systemKey];
+  return keys !== undefined && input.zones.length === 0 && input.locations.length === 1
+    && input.locations[0]!.zoneId === null && keys.includes(input.locations[0]!.key);
+}
+
 const maxZones = 100;
 const maxLocations = 500;
 const maxKeyLength = 128;
@@ -160,7 +187,12 @@ export function parseLocationConfigurationInput(value: unknown, systemKey?: stri
   const { zones: rawZones, locations: rawLocations } = value;
   if (!Array.isArray(rawZones) || !Array.isArray(rawLocations)) return undefined;
   if (rawZones.length > maxZones || rawLocations.length > maxLocations) return undefined;
-  const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
+  // A General-layout system (Hydrant, Dry/Wet Riser) takes the zone-free rules only when it is submitted as the single
+  // zone-free General location; anything else stays the zoned configuration (a location without a zone is refused there).
+  const generalKeys = systemKey !== undefined ? generalLayoutLocationKeysBySystem[systemKey] : undefined;
+  const generalShape = generalKeys !== undefined && rawZones.length === 0 && rawLocations.length > 0
+    && rawLocations.every((location) => object(location) && location.zoneId === null);
+  const zoneFreeKeys = (systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined) ?? (generalShape ? generalKeys : undefined);
   const allowNoZone = zoneFreeKeys !== undefined;
   if (allowNoZone && rawZones.length !== 0) return undefined;
   if (allowNoZone) {
@@ -304,7 +336,8 @@ function parseRow(value: unknown, systemKey: string | undefined, locationKey: st
     || Object.keys(value).some((key) => !fields.includes(key))) return undefined;
   const parsed: LocationProposalRowPreset = {};
   for (const field of fields) {
-    const text = boundedTextAllowEmpty(value[field], field === "assetReference" ? 200 : field === "zoneText" ? maxZoneTextLength : maxDisplayNameLength);
+    const text = boundedTextAllowEmpty(value[field], field === "assetReference" ? 200 : field === "zoneText" ? maxZoneTextLength
+      : field === "locationText" && systemKey === "dry_wet_riser" ? riserOutletLocationMaximum : maxDisplayNameLength);
     if (text === undefined || (field === "locationText" && !text.trim())
       || (field === "drumType" && text !== "" && text !== "swing" && text !== "fixed")) return undefined;
     parsed[field] = text;
@@ -319,9 +352,10 @@ function parseFormatPatch(value: Record<string, unknown>, systemKey?: string): L
   if (!locationKey) return undefined;
   const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
   if (zoneFreeKeys !== undefined && !zoneFreeKeys.includes(locationKey)) return undefined;
-  const capped250 = zoneFreeKeys !== undefined;
+  // I-61: acceptance refuses more than 250 configured rows, so a layout above that must never be approved.
+  const capped250 = zoneFreeKeys !== undefined || (systemKey !== undefined && Object.hasOwn(generalLayoutLocationKeysBySystem, systemKey));
   if (!Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > maxPresetRowCount) return undefined;
-  if (capped250 && value.rows.length > 250) return undefined;
+  if (capped250 && value.rows.length > generalLayoutRowCap) return undefined;
   const rows: LocationProposalRowPreset[] = [];
   // Every row of a proposal agrees on whether it carries the optional zone heading.
   const optional = optionalFormatRowFieldsBySystem[systemKey ?? ""];
@@ -366,7 +400,10 @@ export function applyLocationProposalPatch(
     const rowPreset: Record<string, unknown> = fireAlarmTable ? { fireAlarmTable, rows: patch.rows } : { rows: patch.rows };
     const index = current.locations.findIndex((location) => location.key === patch.locationKey);
     if (index === -1) {
-      const zoneFreeKeys = systemKey !== undefined ? zoneFreeLocationKeysBySystem[systemKey] : undefined;
+      // A General-layout system (Hydrant, Dry/Wet Riser) creates its General location only for a customer with no zones and
+      // no locations; a customer with named locations is never touched by a "general" format.
+      const zoneFreeKeys = systemKey !== undefined
+        ? zoneFreeLocationKeysBySystem[systemKey] ?? generalLayoutLocationKeysBySystem[systemKey] : undefined;
       if (!zoneFreeKeys || !zoneFreeKeys.includes(patch.locationKey) || current.zones.length !== 0
         || current.locations.length >= zoneFreeKeys.length) return undefined;
       const displayName = fireAlarmTable ? (fireAlarmTable === "primary" ? "General (Primary Devices)" : "General (Secondary Alarm Devices)") : "General";
@@ -386,6 +423,8 @@ export function applyLocationProposalPatch(
     return { zones: current.zones, locations };
   }
   if (current.locations.some((location) => location.key === patch.locationKey)) return undefined;
+  // Never mix a zoned location with a zone-free General layout (Hydrant, Dry/Wet Riser).
+  if (current.locations.some((location) => location.zoneId === null)) return undefined;
   let zones = current.zones;
   let zoneId: string;
   if (patch.zoneKey !== null) {

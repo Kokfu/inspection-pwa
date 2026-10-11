@@ -12,6 +12,9 @@ import {
 import { buildLabelOverrideFormLayout } from "../inspections/labelOverrideFormLayout.js";
 import { collectResolvedLabelPaths, resolvedLabelPathSet } from "../inspections/labelOverrides.js";
 import {
+  exceedsGeneralLayoutRowCap,
+  generalLayoutLocationKeysBySystem,
+  isGeneralLayoutShape,
   locationConfigurableSystemKeys,
   parseLocationConfigurationInput,
   zoneFreeLocationKeysBySystem,
@@ -620,12 +623,18 @@ export async function applyManagerLocationsUpdate(
   // Other location-dependent systems require a zone in this same system.
   // Roller Shutter/Hose Reel/Fire Alarm are zone-free; assert both contracts at the write path.
   const submittedZoneKeys = new Set(parsed.zones.map((zone) => zone.key));
-  const zoneFreeKeys = zoneFreeLocationKeysBySystem[systemKey];
+  // Hydrant / Dry-Wet-Riser: the single zone-free General location is allowed next to the zoned shape (never mixed with it).
+  const zoneFreeKeys = zoneFreeLocationKeysBySystem[systemKey]
+    ?? (isGeneralLayoutShape(systemKey, parsed) ? generalLayoutLocationKeysBySystem[systemKey] : undefined);
   if (zoneFreeKeys !== undefined
     ? parsed.zones.length !== 0 || parsed.locations.length > zoneFreeKeys.length
       || parsed.locations.some((location) => location.zoneId !== null || !zoneFreeKeys.includes(location.key) || location.presetRowCount > 250)
     : parsed.locations.some((location) => location.zoneId === null || !submittedZoneKeys.has(location.zoneId))) {
     throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "Every location must reference a submitted zone of this system.");
+  }
+  // I-61: acceptance refuses more than 250 configured rows in all, so a Manager edit or an approved format may never reach it.
+  if (exceedsGeneralLayoutRowCap(systemKey, parsed)) {
+    throw new ManagerCustomerError("INVALID_LOCATION_CONFIGURATION", "A Hydrant or Dry/Wet Riser service can have at most 250 preset rows in total.");
   }
   const current = await loadConfiguration(client, customerId);
   const keys = current.enabled.map((system) => system.key);
