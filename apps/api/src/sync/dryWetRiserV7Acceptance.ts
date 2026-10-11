@@ -5,6 +5,7 @@ import { dryWetRiserOutletMaximum } from "../inspections/dryWetRiserAccepted.js"
 import { parseDryWetRiserSystemConfiguration } from "../inspections/dryWetRiserConfiguration.js";
 import { isV7EvidenceFinding, parseV7EvidenceManifest, resolveV7EvidenceContract, v7EvidenceContractSha256, v7EvidenceManifestFailureMessage } from "../inspections/evidence/v7EvidenceContracts.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
+import { savedLayoutRows } from "../inspections/savedLayoutRows.js";
 
 type Value = Record<string, unknown>;
 type SyncItem = { operationId: unknown; entityType: unknown; entityId: unknown; action: unknown; payload: unknown };
@@ -128,9 +129,11 @@ function validRiserOutlets(rows: unknown, system: Value, values: Map<string, Set
     if (zoneId === null || zoneId === undefined) { if (row.zoneSnapshot !== null) return false; }
     else if (!zone || !record(row.zoneSnapshot) || !exact(row.zoneSnapshot, ["id", "displayName"]) || row.zoneSnapshot.id !== zoneId || row.zoneSnapshot.displayName !== (zone as Value).displayName) return false;
     if (!record(row.locationSnapshot) || !exact(row.locationSnapshot, ["id", "displayName"]) || row.locationSnapshot.id !== location.id || row.locationSnapshot.displayName !== location.displayName) return false;
+    // I-60: a saved layout (`rowPreset.rows`) is expected per row; without one the original rule applies.
     const preset = record(location.rowPreset) ? location.rowPreset : undefined;
-    const asset = preset && typeof preset.assetReference === "string" ? preset.assetReference : "";
-    if (row.assetReference !== asset || row.locationText !== location.displayName) return false;
+    const saved = savedLayoutRows(location)?.[Number(row.configuredRowOrdinal) - 1];
+    const asset = saved ? saved.assetReference : preset && typeof preset.assetReference === "string" ? preset.assetReference : "";
+    if (row.assetReference !== asset || row.locationText !== (saved ? saved.locationText : location.displayName)) return false;
   }
   return seen.size === expected.size;
 }

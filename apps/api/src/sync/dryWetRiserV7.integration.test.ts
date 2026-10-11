@@ -263,3 +263,25 @@ test("Dry/Wet Riser V1-V6 historical path still accepts through canonicalDryWetR
     assert.equal((await database.query("SELECT 1 FROM staged_inspection_evidence WHERE inspection_client_uuid=$1", [client])).rowCount, 0, "the historical riser path never touches V7 staged evidence");
   });
 });
+
+// I-60 — a location's saved layout (`rowPreset.rows`, stored by an approved update-format proposal) is what the web pre-fills as
+// configured outlets. The validator only knew the location name, so every such visit was rejected ('V7 Dry/Wet Riser responses
+// are invalid'). It now expects the saved text per outlet (same fail-closed reader as the web).
+test("Dry/Wet Riser V7 accepts the configured outlets of a saved layout and still rejects an edited one (I-60)", { skip: !databaseUrl }, async () => {
+  await withDatabase(async (database) => {
+    const f = await seed(database, "saved-layout");
+    f.location.presetRowCount = 2;
+    (f.location as Value).rowPreset = { rows: [{ assetReference: "R-1", locationText: "Lobby riser" }, { assetReference: "R-2", locationText: "Roof riser" }] };
+    const outlet = (ordinal: number, change: Value = {}) => riserRow(f.location.id, f.location.displayName, id(), { configuredRowOrdinal: ordinal, sortOrder: ordinal, assetReference: ordinal === 1 ? "R-1" : "R-2", locationText: ordinal === 1 ? "Lobby riser" : "Roof riser", ...change });
+    const run = async (rows: Value[]) => {
+      const job = await f.job(), client = id();
+      await f.reserve(client, job);
+      const body = responses(rows[0]!); body.riserOutlets = rows as never;
+      return { client, result: await syncDryWetRiserInspections([f.envelope(client, job, body, [])], f.actor) };
+    };
+    const accepted = await run([outlet(1), outlet(2), { ...riserRow(f.location.id, f.location.displayName, id(), { source: "technician", configuredLocationId: null, configuredRowOrdinal: null, locationSnapshot: null, locationText: "Added on site", sortOrder: 3 }) }]);
+    assert.deepEqual(accepted.result.acceptedIds, [accepted.client], JSON.stringify(accepted.result));
+    assert.equal((await run([outlet(1, { locationText: "Lobby riser 2" }), outlet(2)])).result.failed[0]?.code, "VALIDATION_ERROR", "an edited configured outlet is rejected");
+    assert.equal((await run([outlet(1, { assetReference: "", locationText: "Riser Outlet 1" }), outlet(2, { assetReference: "", locationText: "Riser Outlet 1" })])).result.failed[0]?.code, "VALIDATION_ERROR", "the location name is no longer the expected text once a layout is saved");
+  });
+});

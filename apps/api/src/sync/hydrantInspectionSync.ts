@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 import { isCompatibleSystemContract } from "../inspections/templates/systemContractCompatibility.js";
 import { acceptHydrantV7Inspection, isHydrantV7Payload } from "./hydrantV7Acceptance.js";
+import { savedLayoutRows, type SavedLayoutRow } from "../inspections/savedLayoutRows.js";
 type R=Record<string,unknown>;const rec=(x:unknown):x is R=>typeof x==="object"&&x!==null&&!Array.isArray(x);const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;const fail=(id:string,code:string,message:string):SyncFailure=>({id,code,message});
 type SyncItem={operationId:unknown;entityType:unknown;entityId:unknown;action:unknown;payload:unknown};
 type HydrantPayload=R&{clientUuid:string;jobId:string;systemKey:"hydrant";masterTemplate:R&{id:string;code:"MFE-FSSR";version:number};configuration:R&{revisionId:string;revisionNumber:number};inspectionSnapshot:R;responses:R;performedAt:string;originalCreatorSnapshot:R|null};
@@ -41,7 +42,7 @@ export function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydr
     zonesById.set(zone.id, { id: zone.id, displayName: zone.displayName });
   }
 
-  const locations: Array<{ id: string; zoneId: string | null; displayName: string; presetRowCount: number; assetReference: string; sortOrder: number }> = [];
+  const locations: Array<{ id: string; zoneId: string | null; displayName: string; presetRowCount: number; assetReference: string; saved: SavedLayoutRow[] | undefined; sortOrder: number }> = [];
   const locationIds = new Set<string>();
   const sortOrders = new Set<number>();
   for (const location of system.locations) {
@@ -63,6 +64,7 @@ export function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydr
       displayName: location.displayName,
       presetRowCount: Number(location.presetRowCount),
       assetReference,
+      saved: savedLayoutRows(location),
       sortOrder: Number(location.sortOrder)
     });
   }
@@ -74,8 +76,8 @@ export function expectedConfiguredHydrantRows(system: R): ExpectedConfiguredHydr
         locationId: location.id,
         ordinal,
         sortOrder: expected.length + 1,
-        assetReference: location.assetReference,
-        locationText: location.displayName,
+        assetReference: location.saved?.[ordinal - 1]?.assetReference ?? location.assetReference,
+        locationText: location.saved?.[ordinal - 1]?.locationText ?? location.displayName,
         zoneSnapshot: location.zoneId === null ? null : zonesById.get(location.zoneId) ?? null,
         locationSnapshot: { id: location.id, displayName: location.displayName }
       });

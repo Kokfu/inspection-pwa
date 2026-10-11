@@ -76,7 +76,7 @@ async function withV7Database(run: (database: pg.Pool) => Promise<void>) {
 
 /** Mirrors the happy path's seed exactly; only the per-case Jobs, reservations,
  * staged rows and payloads differ. */
-async function seedHydrantV7(database: pg.Pool, label: string) {
+async function seedHydrantV7(database: pg.Pool, label: string, locationsFor: (enabledSystemId: string) => Value[] = () => []) {
   const template = (await database.query<{ id: string; definition: unknown }>("SELECT template.id,system.definition FROM master_service_report_templates template INNER JOIN master_service_report_systems system ON system.template_version_id=template.id WHERE template.version=7 AND system.system_key='hydrant'")).rows[0]!;
   const customer = id(), revision = id(), enabled = id();
   const user = async (role: string) => (await database.query<{ id: number }>("INSERT INTO users(username,password_hash,role) VALUES($1,'x',$2) RETURNING id", [`hydrant-v7-${label}-${id()}`, role])).rows[0]!.id;
@@ -84,7 +84,7 @@ async function seedHydrantV7(database: pg.Pool, label: string) {
   await database.query("INSERT INTO customers(id,customer_code,display_name,is_demo) VALUES($1,$2,$3,false)", [customer, `HY-${customer}`, `Hydrant V7 ${label}`]);
   await database.query("INSERT INTO customer_configuration_revisions(id,customer_id,template_version_id,revision,status) VALUES($1,$2,$3,1,'active')", [revision, customer, template.id]);
   await database.query("INSERT INTO customer_enabled_systems(id,configuration_revision_id,template_version_id,system_key,sort_order,system_configuration) VALUES($1,$2,$3,'hydrant',1,'{}')", [enabled, revision, template.id]);
-  const system = { enabledSystemId: enabled, systemKey: "hydrant", displayName: "Hydrant System", sortOrder: 7, definitionStatus: "confirmed", zones: [], locations: [] };
+  const system = { enabledSystemId: enabled, systemKey: "hydrant", displayName: "Hydrant System", sortOrder: 7, definitionStatus: "confirmed", zones: [], locations: locationsFor(enabled) };
   const snapshot = { schemaVersion: 1, customer: { id: customer, code: `HY-${customer}`, displayName: `Hydrant V7 ${label}` }, site: { id: id(), displayName: "Site" }, configuration: { revisionId: revision, revisionNumber: 1 }, template: { id: template.id, code: "MFE-FSSR", name: "MFE Fire System Service Report Template", version: 7 }, enabledSystems: [system] };
   const contract = v7EvidenceContractSha256(template.definition);
 
@@ -370,5 +370,24 @@ test("Hydrant V1 still accepts unchanged through the historical path", { skip: !
     assert.equal(Object.hasOwn(stored.inspection_snapshot, "evidenceManifest"), false, "the historical path stays evidence-free");
     assert.deepEqual((await syncHydrantInspections([item], actor)).duplicateIds, [clientUuid], "the historical idempotency contract is unchanged");
     assert.equal((await database.query("SELECT 1 FROM staged_inspection_evidence")).rowCount, 0);
+  });
+});
+
+// I-60 — a location's saved layout (`rowPreset.rows`, stored by an approved update-format proposal) is what the web pre-fills as
+// configured rows. The validator only knew the location name, so every such visit was rejected as 'configured row identity
+// is invalid'. It now expects the saved text per row (same fail-closed reader as the web).
+test("Hydrant V7 accepts the configured rows of a saved layout and still rejects an edited one (I-60)", { skip: !databaseUrl }, async () => {
+  await withV7Database(async (database) => {
+    const locationId = id();
+    const saved = [{ assetReference: "H-1", locationText: "Lobby" }, { assetReference: "H-2", locationText: "Roof" }];
+    const fixture = await seedHydrantV7(database, "saved-layout", (enabledSystemId) => [{ id: locationId, enabledSystemId, zoneId: null, key: "general", displayName: "General", presetRowCount: 2, rowPreset: { rows: saved }, sortOrder: 1 }]);
+    const configured = (ordinal: number, change: Value = {}) => hydrantRow(id(), ordinal, { source: "configured", configuredLocationId: locationId, configuredRowOrdinal: ordinal, locationSnapshot: { id: locationId, displayName: "General" }, assetReference: saved[ordinal - 1]!.assetReference, locationText: saved[ordinal - 1]!.locationText, ...change });
+    const run = async (rows: Value[]) => { const job = await fixture.makeJob(), clientUuid = id(); return { clientUuid, outcome: await syncHydrantInspections([fixture.envelope({ clientUuid, job, responses: hydrantResponses(rows), evidenceManifest: [] })], fixture.actor) }; };
+    const accepted = await run([configured(1), configured(2), hydrantRow(id(), 3, { locationText: "Added on site" })]);
+    assert.deepEqual(accepted.outcome.acceptedIds, [accepted.clientUuid], JSON.stringify(accepted.outcome));
+    const edited = await run([configured(1, { locationText: "Lobby 2" }), configured(2)]);
+    assert.equal(edited.outcome.failed[0]?.code, "VALIDATION_ERROR");
+    const legacyText = await run([configured(1, { assetReference: "", locationText: "General" }), configured(2, { assetReference: "", locationText: "General" })]);
+    assert.equal(legacyText.outcome.failed[0]?.code, "VALIDATION_ERROR", "with a saved layout the location name is no longer the expected text");
   });
 });
