@@ -1,4 +1,5 @@
 import { assertPhotoReplaceable, submittedPhotoIssues } from "../attachments/correctedCopy";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import type { AttachmentCaptureSource, InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord, AutomaticSprinklerResponses, AutomaticSprinklerV7ChecklistKey, SprinklerMeasurementKey } from "./automaticSprinklerTypes";
@@ -19,13 +20,27 @@ export function v7RequiredAutomaticSprinklerFieldPaths(responses: AutomaticSprin
   return paths.sort();
 }
 
+/** CR-01: the Good / N.A. fields - each MAY hold one optional photo (never required). */
+export function v7OptionalAutomaticSprinklerFieldPaths(responses: AutomaticSprinklerResponses): AutomaticSprinklerV7FieldPath[] {
+  if (responses.schemaVersion !== 2) return [];
+  const paths: AutomaticSprinklerV7FieldPath[] = [];
+  for (const key of checklistKeys) if (isOptionalPhotoResult(responses.checklist[key].result)) paths.push(`automatic_sprinkler_checks.${key}`);
+  for (const key of measurementKeys) if (isOptionalPhotoResult(responses.measurements[key].result)) paths.push(`automatic_sprinkler_measurements.${key}`);
+  return paths.sort();
+}
+/** CR-01: required (findings) plus the Good / N.A. fields that currently hold a photo: the paths a manifest may contain. */
+export function v7AutomaticSprinklerEvidencePaths(responses: AutomaticSprinklerResponses, attachments: ReadonlyArray<Pick<InspectionAttachmentRecord, "fieldPath" | "protocolVersion">>): string[] {
+  const held = new Set(attachments.filter((item) => item.protocolVersion === 7).map((item) => item.fieldPath));
+  return [...v7RequiredAutomaticSprinklerFieldPaths(responses), ...v7OptionalAutomaticSprinklerFieldPaths(responses).filter((fieldPath) => held.has(fieldPath))];
+}
+
 export async function listAutomaticSprinklerV7Photos(inspectionClientUuid: string) {
   return (await localDatabase.inspectionAttachments.where("inspectionClientUuid").equals(inspectionClientUuid).toArray())
     .filter((item) => item.systemKey === "automatic_sprinkler" && item.protocolVersion === 7);
 }
 
 export function v7AutomaticSprinklerManifest(attachments: InspectionAttachmentRecord[], responses: AutomaticSprinklerResponses) {
-  const required = new Set(v7RequiredAutomaticSprinklerFieldPaths(responses));
+  const required = new Set<string>(v7AutomaticSprinklerEvidencePaths(responses, attachments));
   return attachments.filter((item) => item.systemKey === "automatic_sprinkler" && item.protocolVersion === 7 && required.has(item.fieldPath as AutomaticSprinklerV7FieldPath))
     .map((item) => ({ photoUuid: item.photoUuid, fieldPath: item.fieldPath, sourceSha256: item.sha256 }))
     .sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));
@@ -45,13 +60,17 @@ export function v7AutomaticSprinklerSubmissionIssues(record: AutomaticSprinklerI
   const photos = attachments.filter((item) => item.systemKey === "automatic_sprinkler" && item.protocolVersion === 7);
   const attached = new Set(photos.map((item) => item.fieldPath));
   for (const path of required) if (!attached.has(path)) issues.push(`${path} requires its own Photo`);
+  const evidencePaths = v7AutomaticSprinklerEvidencePaths(responses, attachments);
+  const optionalPaths = new Set(evidencePaths.filter((path) => !required.includes(path as AutomaticSprinklerV7FieldPath)));
   const first = new Map<string, string>();
-  for (const photo of photos.filter((item) => required.includes(item.fieldPath as AutomaticSprinklerV7FieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
+  for (const photo of photos.filter((item) => evidencePaths.includes(item.fieldPath)).sort((left, right) => left.fieldPath.localeCompare(right.fieldPath))) {
     const prior = first.get(photo.sha256);
-    if (prior) issues.push(`${prior} and ${photo.fieldPath} use the same photo; each finding needs its own photo`);
+    if (prior) issues.push(optionalPaths.has(prior) || optionalPaths.has(photo.fieldPath)
+      ? `${prior} and ${photo.fieldPath} use the same photo; remove or replace one of them`
+      : `${prior} and ${photo.fieldPath} use the same photo; each finding needs its own photo`);
     else first.set(photo.sha256, photo.fieldPath);
   }
-  issues.push(...submittedPhotoIssues(attachments, required));
+  issues.push(...submittedPhotoIssues(attachments, evidencePaths));
   return issues;
 }
 

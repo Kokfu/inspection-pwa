@@ -8,6 +8,8 @@ import {
 import { listInspectionAttachments } from "../attachments/attachmentRepository";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import { PhotoEvidenceField } from "../attachments/PhotoEvidenceField";
+import { OptionalPhotoSlot } from "../attachments/OptionalPhotoSlot";
+import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
@@ -190,6 +192,7 @@ export function AutomaticSprinklerInspectionForm({
         attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_checks.${key}`)}
         onChanged={refreshAttachments}
       /> : null}
+      {isV7 && isOptionalPhotoResult(response.result) && (!readOnly || attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_checks.${key}`)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_checks.${key}`)} editable={!readOnly} onChanged={refreshAttachments}><AutomaticSprinklerV7EvidenceField record={record} fieldPath={`automatic_sprinkler_checks.${key}` as AutomaticSprinklerV7FieldPath} attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_checks.${key}`)} onChanged={refreshAttachments} /></OptionalPhotoSlot> : null}
     </section>;
   }
 
@@ -249,6 +252,7 @@ export function AutomaticSprinklerInspectionForm({
         attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_measurements.${measurementKey}`)}
         onChanged={refreshAttachments}
       /> : null}
+      {isV7 && isOptionalPhotoResult(response.result) && (!readOnly || attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_measurements.${measurementKey}`)) ? <OptionalPhotoSlot inspectionClientUuid={record.clientUuid} attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_measurements.${measurementKey}`)} editable={!readOnly} onChanged={refreshAttachments}><AutomaticSprinklerV7EvidenceField record={record} fieldPath={`automatic_sprinkler_measurements.${measurementKey}` as AutomaticSprinklerV7FieldPath} attachment={attachments.find((candidate) => candidate.protocolVersion === 7 && candidate.fieldPath === `automatic_sprinkler_measurements.${measurementKey}`)} onChanged={refreshAttachments} /></OptionalPhotoSlot> : null}
       </div>
     </section>;
   }

@@ -28,7 +28,9 @@ document.querySelector("#run").onclick=async()=>{try{checks.length=0;const f=fix
   await new Promise(res=>{formRoot.render(React.createElement(AutomaticSprinklerInspectionForm,{record:{...draft,responses},onBack:()=>{},onSaveDraft:noop,onSubmitLocal:noop,onEditFailed:noop,onAttachmentsChange:noop}));setTimeout(res,80)});
   const formEl=document.querySelector("#form");
   check("no legacy PSI photo control on the V7 form",formEl.querySelectorAll(".sprinkler-legacy-psi-evidence .photo-evidence-field").length===0);
-  check("V7 finding reveals the photo widget on that field only",formEl.querySelectorAll('[aria-label^="V7 evidence photo for automatic_sprinkler_checks.saj_main_water_supply"]').length===1&&formEl.querySelectorAll('[aria-label^="V7 evidence photo for automatic_sprinkler_checks.water_level"]').length===0);
+  const widget=(sel,inSlot)=>[...formEl.querySelectorAll(sel)].filter(e=>Boolean(e.closest(".optional-photo-slot"))===inSlot).length;
+  const finding='[aria-label^="V7 evidence photo for automatic_sprinkler_checks.saj_main_water_supply"]', good='[aria-label^="V7 evidence photo for automatic_sprinkler_checks.water_level"]';
+  check("V7 finding reveals the REQUIRED photo widget; a Good / N.A. field gets the optional slot instead (CR-01)",widget(finding,false)===1&&widget(finding,true)===0&&widget(good,false)===0&&widget(good,true)===1);
   formRoot.unmount();
   for(const[fieldPath,sha]of[[paths.checklist,h],[paths.testRun,k],[paths.measurement,m]])await saveAutomaticSprinklerV7Photo({record:draft,fieldPath,captureSource:"gallery",blob:new Blob(["A"],{type:"image/jpeg"}),mimeType:"image/jpeg",sizeBytes:1,width:1,height:1,sha256:sha});
   check("one photo per finding is saved on this device across all three shapes",(await snapshot(draft.clientUuid)).photos.length===3);

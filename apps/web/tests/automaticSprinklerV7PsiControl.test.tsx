@@ -54,5 +54,11 @@ test("a V1 Automatic Sprinkler Draft still renders the legacy PSI photo control"
 test("a V7 Automatic Sprinkler Draft never renders the legacy PSI photo control", () => {
   const html = render(7);
   assert.equal(html.includes('aria-label="PSI photo evidence"'), false, "V7 drops the legacy PSI photo control entirely");
-  assert.equal(html.includes("sprinkler-legacy-psi-evidence") && html.match(/photo-evidence-field/g) !== null && /sprinkler-legacy-psi-evidence[^]*?photo-evidence-field/.test(html), false, "no PhotoEvidenceField inside the V7 legacy-PSI wrapper");
+  // CR-01: a Good / N.A. field now renders an optional photo slot (a photo-evidence-field inside .optional-photo-slot) after the
+  // legacy wrapper; the legacy control would be a photo-evidence-field whose nearest preceding marker is the wrapper itself.
+  const legacyField = [...html.matchAll(/photo-evidence-field/g)].some((match) => {
+    const before = html.slice(0, match.index);
+    return before.lastIndexOf("sprinkler-legacy-psi-evidence") > before.lastIndexOf("optional-photo-slot");
+  });
+  assert.equal(legacyField, false, "no PhotoEvidenceField inside the V7 legacy-PSI wrapper");
 });
