@@ -1,0 +1,271 @@
+import { expect, test, type BrowserContext, type Locator, type Page } from "@playwright/test";
+
+/**
+ * CR-07 Phase 1, browser level: the real Automatic Sprinkler form on real IndexedDB, with a small in-memory server
+ * behind page.route. Proves the owner's rule - a remark added in one section is offered ONLY in that section - plus
+ * offline entry, survival of a reload, exactly-one-row sync, sharing with a second technician, the 375 px layout and
+ * the read-only form.
+ */
+const customerId = "76000000-0000-4000-8000-000000000050";
+const otherCustomerId = "76000000-0000-4000-8000-000000000077";
+const wording = "S.A.J Main Water Supply gate valve is leaking";
+type Row = { id: string; customerId: string; systemKey: string; sectionKey: string; wording: string };
+
+function createServer() {
+  const server = { rows: [] as Row[], posts: [] as Array<Record<string, unknown>>, gets: 0, offline: false };
+  return server;
+}
+type FakeServer = ReturnType<typeof createServer>;
+
+async function wire(context: BrowserContext, server: FakeServer) {
+  await context.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (server.offline) { await route.abort("internetdisconnected"); return; }
+    if (url.pathname === "/api/service-common-remarks") {
+      await route.fulfill({ json: { remarks: [
+        { id: "00000000-0000-4000-8000-000000003501", systemKey: "automatic_sprinkler", wording: "Battery spoilt", detailLabel: "Battery size", detailOptions: ["12V x 12AH"], active: true },
+        { id: "00000000-0000-4000-8000-000000003503", systemKey: "automatic_sprinkler", wording: "25mm ball valve spoilt", detailLabel: null, detailOptions: [], active: true }
+      ] } });
+      return;
+    }
+    const list = /^\/api\/customers\/([0-9a-f-]{36})\/section-remarks$/.exec(url.pathname);
+    if (list && request.method() === "GET") {
+      server.gets += 1;
+      await route.fulfill({ json: { remarks: server.rows.filter((row) => row.customerId === list[1]) } });
+      return;
+    }
+    const create = /^\/api\/technician\/customers\/([0-9a-f-]{36})\/systems\/([a-z_0-9]+)\/section-remarks$/.exec(url.pathname);
+    if (create && request.method() === "POST") {
+      const body = request.postDataJSON() as { id: string; sectionKey: string; wording: string };
+      server.posts.push(body);
+      const same = server.rows.find((row) => row.id === body.id);
+      if (same) { await route.fulfill({ json: { requestedId: body.id, duplicate: true, merged: false, remark: same } }); return; }
+      const text = server.rows.find((row) => row.customerId === create[1] && row.sectionKey === body.sectionKey && row.wording.toLowerCase() === body.wording.toLowerCase());
+      if (text) { await route.fulfill({ json: { requestedId: body.id, duplicate: false, merged: true, remark: text } }); return; }
+      const row = { id: body.id, customerId: create[1]!, systemKey: create[2]!, sectionKey: body.sectionKey, wording: body.wording };
+      server.rows.push(row);
+      await route.fulfill({ status: 201, json: { requestedId: body.id, duplicate: false, merged: false, remark: row } });
+      return;
+    }
+    await route.fulfill({ status: 404, json: { error: "NOT_FOUND" } });
+  });
+}
+
+async function open(page: Page, options: { syncStatus?: string } = {}) {
+  await page.goto("/tests/section-remarks-form.html");
+  await page.locator("body[data-harness-ready='1']").waitFor({ state: "attached", timeout: 60_000 });
+  await page.evaluate((syncStatus) => (window as unknown as { harness: { mount: (options: object) => Promise<void> } }).harness.mount({ syncStatus }), options.syncStatus);
+  await expect(page.locator("#sprinkler-saj_main_water_supply")).toBeVisible({ timeout: 30_000 });
+}
+const rowOf = (page: Page, key: string) => page.locator(`#sprinkler-${key}`);
+const picker = (scope: Locator) => scope.getByRole("combobox", { name: "Remark", exact: true });
+const sectionOptions = (scope: Locator) => picker(scope).locator("optgroup[label='Added for this customer'] option");
+
+async function addRemark(row: Locator, text: string) {
+  await row.getByRole("button", { name: "Add new remark" }).click();
+  await row.getByRole("textbox", { name: /^New remark for / }).fill(text);
+  await row.getByRole("button", { name: "Save & use" }).click();
+}
+
+test("offline: a new remark is offered only in its own section, survives a reload, and syncs to exactly one server row", async ({ page, context }) => {
+  const server = createServer();
+  await wire(context, server);
+  await open(page);
+  await context.setOffline(true);
+  server.offline = true;
+  expect(await page.evaluate(() => navigator.onLine)).toBe(false);
+
+  const sajRow = rowOf(page, "saj_main_water_supply");
+  await sajRow.getByRole("button", { name: "Add new remark" }).click();
+  await expect(sajRow.getByText("Adds to S.A.J Main Water Supply for this customer. This cannot be undone here.")).toBeVisible();
+  await expect(sajRow.getByRole("button", { name: "Save & use" })).toBeDisabled();
+  await sajRow.getByRole("textbox", { name: "New remark for S.A.J Main Water Supply" }).fill(wording);
+  await expect(sajRow.getByText(`${wording.length}/300`)).toBeVisible();
+  await sajRow.getByRole("button", { name: "Save & use" }).click();
+
+  // Used in the field, and offered in this section's choices.
+  await expect(sajRow.getByRole("list", { name: "Selected remarks" })).toContainText(wording);
+  await expect(sectionOptions(sajRow)).toHaveText([wording]);
+  await expect(sajRow.getByRole("button", { name: "Add new remark" })).toBeVisible();
+  // NOT in any other row, nor in Comments, nor in a sibling of the same group.
+  for (const key of ["water_level", "automatic_refilling_facilities", "pump_house_clean", "jockey_pump_pressure", "trfp_jockey_pump", "comments"]) {
+    const other = rowOf(page, key);
+    await expect(other.getByRole("combobox", { name: "Remark", exact: true }), key).toBeVisible();
+    await expect(sectionOptions(other), key).toHaveCount(0);
+    await expect(other.getByRole("list", { name: "Selected remarks" }), key).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Add to common remarks" })).toHaveCount(0);
+  await expect(picker(sajRow).getByRole("option", { name: "Others" })).toBeAttached();
+  await expect(picker(sajRow).getByRole("option", { name: "Battery spoilt" })).toBeAttached();
+
+  // The chosen text is stored in the field string only: no id enters the draft payload.
+  await sajRow.getByRole("button", { name: "Save Draft" }).or(page.getByRole("button", { name: "Save Draft" })).first().click();
+  await expect.poll(() => page.evaluate(() => JSON.stringify((window as unknown as { harness: { saved?: unknown } }).harness.saved ?? null))).toContain(wording);
+  const saved = await page.evaluate(() => (window as unknown as { harness: { saved: { checklist: Record<string, { remarks: string }>; comments: string } } }).harness.saved);
+  expect(saved.checklist.saj_main_water_supply!.remarks).toBe(wording);
+  expect(saved.checklist.water_level!.remarks).toBe("");
+  expect(saved.comments).toBe("");
+  expect(JSON.stringify(saved)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-4/);
+
+  // Offline sync keeps it queued (Pending), not lost.
+  const offlineRun = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync());
+  expect(offlineRun.confirmed).toBe(0);
+  const queued = await page.evaluate(() => (window as unknown as { harness: { outbox: () => Promise<Array<{ status: string; entityType: string }>> } }).harness.outbox());
+  expect(queued).toHaveLength(1);
+  expect(queued[0]!.status).toBe("Pending");
+  expect(server.posts).toHaveLength(0);
+
+  // Reload: the dev harness has no service worker, so the page itself is fetched while the link is up and the phone
+  // goes offline again before anything is read. The option must come back from IndexedDB, not from the network.
+  await context.setOffline(false);
+  await page.reload();
+  await page.locator("body[data-harness-ready='1']").waitFor({ state: "attached", timeout: 60_000 });
+  await context.setOffline(true);
+  await page.evaluate(() => (window as unknown as { harness: { mount: (options: object) => Promise<void> } }).harness.mount({}));
+  await expect(sectionOptions(rowOf(page, "saj_main_water_supply"))).toHaveText([wording]);
+  await expect(sectionOptions(rowOf(page, "water_level"))).toHaveCount(0);
+  await expect(sectionOptions(rowOf(page, "comments"))).toHaveCount(0);
+
+  // Reconnect and sync: exactly one server row, and a second run adds nothing.
+  await context.setOffline(false);
+  server.offline = false;
+  const firstRun = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync());
+  expect(firstRun.confirmed).toBe(1);
+  expect(server.rows).toHaveLength(1);
+  expect(server.rows[0]).toMatchObject({ customerId, systemKey: "automatic_sprinkler", sectionKey: "checklist.waterTank.saj_main_water_supply", wording });
+  const secondRun = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ attempted: number }> } }).harness.sync());
+  expect(secondRun.attempted).toBe(0);
+  expect(server.rows).toHaveLength(1);
+  const completed = await page.evaluate(() => (window as unknown as { harness: { outbox: () => Promise<Array<{ status: string }>> } }).harness.outbox());
+  expect(completed.map((item) => item.status)).toEqual(["Completed"]);
+  expect(server.posts[0]!.jobId).toBe("76000000-0000-4000-8000-000000000001");
+});
+
+test("a duplicate in the same section, or equal to a catalogue entry, is refused with a message and nothing is added", async ({ page, context }) => {
+  const server = createServer();
+  await wire(context, server);
+  await open(page);
+  const row = rowOf(page, "water_level");
+  await addRemark(row, "Float valve stuck open");
+  await expect(sectionOptions(row)).toHaveCount(1);
+  await row.getByRole("button", { name: "Add new remark" }).click();
+  await row.getByRole("textbox", { name: /^New remark for / }).fill("  FLOAT valve   stuck OPEN ");
+  await row.getByRole("button", { name: "Save & use" }).click();
+  await expect(row.getByRole("status")).toContainText("already in this section");
+  await expect(sectionOptions(row)).toHaveCount(1);
+  await row.getByRole("button", { name: "Cancel" }).click();
+  // The same wording in ANOTHER section is a separate remark and is allowed.
+  await addRemark(rowOf(page, "automatic_refilling_facilities"), "Float valve stuck open");
+  await expect(sectionOptions(rowOf(page, "automatic_refilling_facilities"))).toHaveCount(1);
+  // A catalogue wording is refused too.
+  const comments = rowOf(page, "comments");
+  await comments.getByRole("button", { name: "Add new remark" }).click();
+  await comments.getByRole("textbox", { name: /^New remark for Comments/ }).fill("25mm ball valve spoilt");
+  await comments.getByRole("button", { name: "Save & use" }).click();
+  await expect(comments.getByRole("status")).toContainText("standard remarks");
+  await expect(sectionOptions(comments)).toHaveCount(0);
+  // Invalid text is refused with a reason; the editor stays open for correction.
+  await comments.getByRole("textbox", { name: /^New remark for Comments/ }).fill("ab");
+  await comments.getByRole("button", { name: "Save & use" }).click();
+  await expect(comments.getByRole("status")).toContainText("at least 3 characters");
+  await comments.getByRole("button", { name: "Cancel" }).click();
+  await expect(comments.getByRole("button", { name: "Add new remark" })).toBeVisible();
+});
+
+test("a second technician of the same customer sees the remark after a refresh, in its own section only", async ({ browser, page, context }) => {
+  const server = createServer();
+  server.rows.push(
+    { id: "76000000-0000-4000-8000-0000000000a1", customerId, systemKey: "automatic_sprinkler", sectionKey: "checklist.waterTank.saj_main_water_supply", wording: "Added by the first technician" },
+    { id: "76000000-0000-4000-8000-0000000000a2", customerId: otherCustomerId, systemKey: "automatic_sprinkler", sectionKey: "checklist.waterTank.saj_main_water_supply", wording: "Another customer's remark" }
+  );
+  await wire(context, server);
+  await open(page);
+  const sajRow = rowOf(page, "saj_main_water_supply");
+  await expect(sectionOptions(sajRow)).toHaveText(["Added by the first technician"]);
+  await expect(sectionOptions(rowOf(page, "water_level"))).toHaveCount(0);
+  await expect(page.locator("#form").getByText("Another customer's remark")).toHaveCount(0);
+  expect(server.gets).toBeGreaterThanOrEqual(1);
+  // A second, separate browser profile (own IndexedDB) adds its own remark; the first sees it after a fresh open.
+  const secondContext = await browser.newContext();
+  await wire(secondContext, server);
+  const secondPage = await secondContext.newPage();
+  await open(secondPage);
+  await addRemark(rowOf(secondPage, "saj_main_water_supply"), "Added by the second technician");
+  expect(await secondPage.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync())).toMatchObject({ confirmed: 1 });
+  await secondContext.close();
+  expect(server.rows.filter((row) => row.customerId === customerId)).toHaveLength(2);
+  const thirdContext = await browser.newContext();
+  await wire(thirdContext, server);
+  const thirdPage = await thirdContext.newPage();
+  await open(thirdPage);
+  await expect(sectionOptions(rowOf(thirdPage, "saj_main_water_supply"))).toHaveText(["Added by the first technician", "Added by the second technician"]);
+  await thirdContext.close();
+});
+
+test("a local remark typed on two phones merges onto one server row and the field text is unchanged", async ({ page, context }) => {
+  const server = createServer();
+  server.rows.push({ id: "76000000-0000-4000-8000-0000000000b1", customerId, systemKey: "automatic_sprinkler", sectionKey: "comments", wording: "Pump room door needs repair" });
+  await wire(context, server);
+  await open(page);
+  // Offline-first use: the server list has not been fetched yet on this phone, so the technician adds the same text.
+  await page.reload(); await page.locator("body[data-harness-ready='1']").waitFor({ state: "attached" });
+  server.offline = true; await context.setOffline(true);
+  await page.evaluate(() => (window as unknown as { harness: { mount: (options: object) => Promise<void> } }).harness.mount({}));
+  const comments = rowOf(page, "comments");
+  await addRemark(comments, "pump room DOOR needs repair");
+  await expect(comments.getByRole("list", { name: "Selected remarks" })).toContainText("pump room DOOR needs repair");
+  server.offline = false; await context.setOffline(false);
+  const run = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync());
+  expect(run.confirmed).toBe(1);
+  expect(server.rows).toHaveLength(1);
+  await expect(sectionOptions(comments)).toHaveText(["Pump room door needs repair"]);
+  await expect(comments.getByRole("list", { name: "Selected remarks" })).toContainText("pump room DOOR needs repair");
+});
+
+test("375 px: 44 px targets, a full-width Add new remark button, 16 px text entry and no horizontal scroll", async ({ page, context }) => {
+  const server = createServer();
+  await wire(context, server);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await open(page);
+  const row = rowOf(page, "saj_main_water_supply");
+  const add = row.getByRole("button", { name: "Add new remark" });
+  await add.scrollIntoViewIfNeeded();
+  const rowBox = (await row.boundingBox())!;
+  const addBox = (await add.boundingBox())!;
+  expect(addBox.height).toBeGreaterThanOrEqual(44);
+  expect(addBox.width).toBeGreaterThanOrEqual(rowBox.width - 2 * 16 - 4);
+  await add.click();
+  const box = async (locator: Locator) => (await locator.boundingBox())!;
+  const save = row.getByRole("button", { name: "Save & use" });
+  const cancel = row.getByRole("button", { name: "Cancel" });
+  await row.getByRole("textbox", { name: /^New remark for / }).fill(wording);
+  for (const button of [save, cancel]) {
+    const target = await box(button);
+    expect(target.height).toBeGreaterThanOrEqual(44);
+    expect(target.width).toBeGreaterThanOrEqual(44);
+  }
+  expect((await box(cancel)).y).toBeGreaterThan((await box(save)).y + 40);
+  const fontSize = await row.getByRole("textbox", { name: /^New remark for / }).evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+  expect(fontSize).toBeGreaterThanOrEqual(16);
+  const overflow = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, width: window.innerWidth }));
+  expect(overflow.doc).toBeLessThanOrEqual(overflow.width);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.width);
+  const editor = await box(row.locator(".section-remark-editor"));
+  expect(editor.x + editor.width).toBeLessThanOrEqual(375);
+  await save.click();
+  await expect(row.getByRole("list", { name: "Selected remarks" })).toContainText(wording);
+  const afterSave = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, width: window.innerWidth }));
+  expect(afterSave.doc).toBeLessThanOrEqual(afterSave.width);
+});
+
+test("the form offers Add new remark on all 24 remark sites while editable, and none when read-only", async ({ page, context }) => {
+  const server = createServer();
+  await wire(context, server);
+  await open(page);
+  await expect(page.getByRole("button", { name: "Add new remark" })).toHaveCount(24);
+  await page.evaluate(() => (window as unknown as { harness: { mount: (options: object) => Promise<void> } }).harness.mount({ syncStatus: "Pending" }));
+  await expect(page.getByRole("button", { name: "Add new remark" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Remark", exact: true })).toHaveCount(0);
+  await expect(page.locator("#sprinkler-saj_main_water_supply").getByText("Remark", { exact: true })).toBeVisible();
+});

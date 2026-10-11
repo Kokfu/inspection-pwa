@@ -26,6 +26,7 @@ import { managerComplianceRemindersRouter } from "./routes/managerComplianceRemi
 import { managerCorrectionsRouter } from "./routes/managerCorrections.js";
 import { reportApprovalsRouter } from "./routes/reportApprovals.js";
 import { locationProposalsRouter } from "./routes/locationProposals.js";
+import { sectionRemarksRouter } from "./routes/sectionRemarks.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -54,6 +55,7 @@ app.use(managerCompanyProfileRouter);
 app.use(managerTechniciansRouter);
 app.use(managerRemindersRouter);
 app.use(serviceCommonRemarksRouter);
+app.use(sectionRemarksRouter);
 app.use(managerCorrectionsRouter);
 app.use(reportApprovalsRouter);
 app.use(locationProposalsRouter);

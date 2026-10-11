@@ -1606,6 +1606,20 @@ a, button, summary, input, select, textarea, label, [role="button"], [role="tab"
 /* (8) The technician Add Customer form wraps its fields in a bare fieldset inside the card: no second border. */
 .customer-form-card > fieldset:not(.manager-service-picker) { display: grid; gap: var(--space-5); min-width: 0; margin: 0; padding: 0; border: 0; }
 
+/* CR-07: technician-added section remarks (Automatic Sprinkler pilot). One appended block; tokens only; phone first. */
+.common-remarks-picker .section-remark-add { justify-self: stretch; width: 100%; min-height: var(--tap); border: 1px solid var(--border-strong); }
+.section-remark-editor { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px solid var(--brand-border); border-radius: var(--radius-sm); background: var(--surface-muted); }
+.section-remark-editor > label { font-weight: 700; overflow-wrap: anywhere; }
+.section-remark-editor textarea { box-sizing: border-box; width: 100%; min-height: calc(var(--tap) * 2); font-size: var(--text-base); resize: vertical; }
+.section-remark-counter { margin: 0; justify-self: end; color: var(--muted-on-sunken); font-size: var(--text-sm); }
+.section-remark-note { margin: 0; color: var(--ink); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.section-remark-actions { display: grid; gap: var(--space-2); }
+.common-remarks-picker .section-remark-actions button { justify-self: stretch; width: 100%; min-height: var(--tap); }
+@media (min-width: 521px) {
+  .section-remark-actions { grid-template-columns: repeat(2, max-content); }
+  .common-remarks-picker .section-remark-actions button { width: auto; }
+}
+
 /* CR-01: optional photo slot under a Good / N.A. result. One appended block; tokens only; phone first. */
 .optional-photo-slot { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-muted); }
 .optional-photo-slot__title { font-size: var(--text-sm); }

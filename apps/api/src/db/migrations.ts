@@ -149,6 +149,9 @@ const stagedEvidenceCaptureSourceMigrationUrl = new URL(
 const customerLocationProposalsMigrationUrl = new URL(
   "../../migrations/048_customer_location_proposals.sql", import.meta.url
 );
+const serviceSectionRemarksMigrationUrl = new URL(
+  "../../migrations/049_service_section_remarks.sql", import.meta.url
+);
 
 export type ServiceVisitMigrationTarget = 10 | 11 | 12 | 15;
 export type FinalServiceReportMigrationTarget = 13 | 14;
@@ -630,6 +633,13 @@ export async function runMigrations(
   );
   if (!customerLocationProposals.rows[0]?.exists) {
     await database.query(await readFile(customerLocationProposalsMigrationUrl, "utf8"));
+  }
+  // Migration 049 creates `service_section_remarks`; the table's presence is the replay marker.
+  const serviceSectionRemarks = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.service_section_remarks') IS NOT NULL AS exists`
+  );
+  if (!serviceSectionRemarks.rows[0]?.exists) {
+    await database.query(await readFile(serviceSectionRemarksMigrationUrl, "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

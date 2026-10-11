@@ -46,7 +46,7 @@ export type DeviceAuthState = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "technicianCustomer" | "technicianLocationProposal";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal";
   entityId: string;
   action: "create";
   payload: unknown;

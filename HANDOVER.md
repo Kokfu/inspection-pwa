@@ -3,11 +3,21 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-10 — **CR-01 Phase 0+1: optional photo on Good / N.A. — server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical).**
+**Last updated:** 2026-10-10 — **CR-07 Phase 1 built: technician section remarks (Automatic Sprinkler pilot); owner phone test pending.**
+A technician adds a free-text remark in one Sprinkler section (each checklist/measurement row, or Comments); it is stored per customer + system + section on the phone first (offline OK), synced idempotently, and offered only in that section for every technician of the customer. Add-only. Migration **049** (new table only), 2 new API routes, no Dexie version/stores change, nothing in inspection payloads/templates/reports.
+API 12/12 + contract 1/1 on the disposable DB; web 19 node + 7 browser cases + 24 existing browser regressions pass. Web and API typecheck pass (the API one was briefly red mid-session from another task's untracked `rollerShutterReport.test.ts`, then cleared). Uncommitted. Decision for the owner: keep the "Others" option in the Sprinkler form? Details: [CR07_SECTION_REMARKS_P1](docs/testing/CR07_SECTION_REMARKS_P1.md).
+
+**Earlier checkpoint:** 2026-10-10 — **CR-01 Phase 0+1: optional photo on Good / N.A. — server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical).**
 Server: each V7 adapter now derives `{ required, optional }` photo paths; the manifest must satisfy `required ⊆ manifest ⊆ required ∪ optional` with a response-derived
 size bound (the fixed 250 cap is gone); the Final Report accepts `required ⊆ rows ⊆ required ∪ optional`. No migration, no Dexie change, no new template version.
 Web: Good / N.A. rows of CO2 and Wet Chemical show "Photo (optional)" (capture, replace, Remove while Draft); a Poor photo flipped to Good / N.A. is kept; Submit never needs one.
 The web slot was then rolled out to Fire Alarm, Hydrant, Hose Reel, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter and FM200 (**Automatic Sprinkler still pending**: wait for the CR-07 commit, then add the slot to its form). Committed (pilot and rollout; the rollout was checked in a real-stack browser run, a phone retest is still pending). **P0-FR1 fixed afterwards (committed):** the Final Report now embeds Dry/Wet Riser evidence (required and optional photos), with a regression test that failed before the fix; verified on the phone after the owner rebuilt (riser report lists its photo; 4 JPEGs in the PDF). Also on the phone: CR-01 CO2 offline Good/N.A. photos -> sync -> Accepted Detail -> report. Phone proxy Origin rewritten to https (I-56). Details: [tracker CR-01](docs/client-format-request/CLIENT_CHANGE_REQUESTS_2026-10.md).
+
+**Earlier checkpoint:** 2026-10-10 — **Phone-testing round: I-42 fixed, committed (`0415ffd`) and phone-verified; I-45/I-46/I-49/I-50/I-51 fixed in source, phone retest pending.**
+I-42: the header chip follows `navigator.onLine`. I-45/I-46: Roller Shutter report fields read "No. N (Zone — Location)", rows and photos are grouped by zone for display
+(stored order unchanged), photo captions name the shutter (API + web + PDF). I-49: a 409 already-pending layout proposal is retired calmly, not retried. I-50: the layout note survives
+a reload. I-51: a 403 from `/api/sync` no longer says "Sign in". Needs the proxy AND API rebuild to reach the phone (the API image would also carry other sessions' uncommitted work,
+including `migrations.ts`). Register, evidence and test list: [PHONE_TESTING_STATUS](docs/testing/PHONE_TESTING_STATUS.md). Mine to commit: not done (the classifier refused staging).
 
 **Earlier checkpoint:** 2026-10-10 — **CR-06 form "jumps to top" reproduced and fixed (scroll continuity); verified on the phone.**
 Cause: a network hand-over re-verifies the session and hides the open form (by design), collapsing the page to the top.

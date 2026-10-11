@@ -11,6 +11,7 @@ import { PhotoEvidenceField } from "../attachments/PhotoEvidenceField";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
+import { checklistRemarkSectionKey, commentsSectionKey, measurementRemarkSectionKey } from "../inspectionControls/remarkSections";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
   controlsForAutomaticSprinklerSnapshot
@@ -61,6 +62,8 @@ export function AutomaticSprinklerInspectionForm({
   const [showValidation, setShowValidation] = useState(false);
   const [attachments, setAttachments] = useState<InspectionAttachmentRecord[]>([]);
   const isV7 = record.masterTemplate.version === 7;
+  // CR-07: section remarks are shared per customer; the frozen job snapshot names the customer.
+  const remarkCustomerId = record.inspectionSnapshot.customer.id;
   // Display-only: the frozen per-customer label for one canonical tree path,
   // else the definition label. Reads the non-synced `record.displayLabelOverrides`
   // and never `controls` - every response key, evidence `fieldPath`, submit-gate
@@ -174,6 +177,7 @@ export function AutomaticSprinklerInspectionForm({
         onChange={(result) => updateChecklist(section, key, { result })}
       />
       <RemarksField systemKey="automatic_sprinkler"
+        customerId={remarkCustomerId} sectionKey={checklistRemarkSectionKey(section, key)} sectionLabel={shownLabel} jobId={record.jobId}
         label="Remarks"
         definition={definition.remarks}
         value={response.remarks}
@@ -232,6 +236,7 @@ export function AutomaticSprinklerInspectionForm({
         onChange={(result) => updateMeasurement(measurementKey, { result })}
       />
       <RemarksField systemKey="automatic_sprinkler"
+        customerId={remarkCustomerId} sectionKey={measurementRemarkSectionKey(measurementKey)} sectionLabel={shownLabel} jobId={record.jobId}
         label="Remarks"
         definition={definition.remarks}
         value={response.remarks}
@@ -338,6 +343,7 @@ export function AutomaticSprinklerInspectionForm({
     <fieldset id="sprinkler-comments" className={invalidTargets.has("sprinkler-comments") ? "field-invalid" : ""} disabled={readOnly}>
       <legend>Comments</legend>
       <RemarksField systemKey="automatic_sprinkler"
+        customerId={remarkCustomerId} sectionKey={commentsSectionKey} sectionLabel="Comments" jobId={record.jobId}
         label="Comments"
         definition={controls.comments}
         value={responses.comments}

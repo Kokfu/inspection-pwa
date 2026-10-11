@@ -25,6 +25,7 @@
     "test:service-visits": "tsx --test src/jobs/serviceVisits.test.ts",
     "test:service-visits-integration": "tsx --test src/jobs/serviceVisits.integration.test.ts",
     "test:customer-creation-integration": "tsx --test src/routes/customerCreation.integration.test.ts",
+    "test:section-remarks-integration": "tsx --test src/routes/sectionRemarks.integration.test.ts && tsx --test src/routes/sectionRemarksWebContract.integration.test.ts",
     "test:final-report": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/reports/finalServiceReport.test.ts",
     "test:final-report-v6": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/reports/fireAlarmV6FinalReport.integration.test.ts",
     "test:final-report-integration": "node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/reports/finalServiceReport.integration.test.ts && node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test src/reports/reportCoverFields.integration.test.ts",

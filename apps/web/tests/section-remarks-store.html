@@ -1,0 +1,212 @@
+<!doctype html><html><body><button id="run">Run section remark store and sync checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import {
+  addSectionRemark, cachedSectionRemarks, refreshSectionRemarks, sectionRemarkCacheKey, SectionRemarkInputError
+} from "/src/inspectionControls/sectionRemarks.ts";
+import { syncPendingRecords, syncPendingSectionRemarks } from "/src/sync/syncEngine.ts";
+
+// CR-07 store + sync checks against REAL IndexedDB (no fake-indexeddb in this project) with a scripted fetch.
+const id = (n) => `5c000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customer = id(1), otherCustomer = id(2), job = id(3);
+const sectionA = "checklist.waterTank.saj_main_water_supply", sectionB = "checklist.waterTank.water_level";
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const realFetch = window.fetch, realSetTimeout = window.setTimeout;
+const outboxItems = () => localDatabase.syncOutbox.where("entityType").equals("sectionRemark").toArray();
+const cache = async (customerId = customer) => (await localDatabase.referenceData.get(sectionRemarkCacheKey(customerId)))?.payload;
+const reset = async () => { await localDatabase.syncOutbox.clear(); await localDatabase.referenceData.clear(); window.fetch = realFetch; };
+const rejection = async (run) => { try { await run(); } catch (error) { return error; } return undefined; };
+const base = (wording, extra = {}) => ({ customerId: customer, systemKey: "automatic_sprinkler", sectionKey: sectionA, wording, jobId: job, ...extra });
+const echo = (sent, extra = {}) => ({ requestedId: sent.id, duplicate: false, merged: false, remark: { id: sent.id, customerId: sent.customerId, systemKey: sent.systemKey, sectionKey: sent.sectionKey, wording: sent.wording }, ...extra });
+const readSent = (init) => JSON.parse(init.body);
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(9003);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: 9003, username: "sr-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    // The 30 s request timeout is real code; shorten only the timer so the abort path runs in milliseconds.
+    window.setTimeout = (handler, delay, ...rest) => realSetTimeout(handler, delay === 30000 ? 25 : delay, ...rest);
+
+    // ---- 1. add: cache entry + outbox item written together, offline-safe, normalised.
+    await reset();
+    let changed = 0; window.addEventListener("service-section-remarks-changed", () => { changed += 1; });
+    Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+    const first = await addSectionRemark(base("  Main   supply valve needs repair "));
+    check("add works with navigator.onLine === false", navigator.onLine === false && first.wording === "Main supply valve needs repair");
+    check("the remark carries a crypto.randomUUID() id and the requested scope", /^[0-9a-f-]{36}$/.test(first.id) && first.customerId === customer && first.sectionKey === sectionA && first.systemKey === "automatic_sprinkler");
+    const cachedFirst = await cache();
+    const queued = await outboxItems();
+    check("the cache holds exactly the new remark", cachedFirst.length === 1 && cachedFirst[0].id === first.id);
+    check("one Pending outbox item names the same uuid", queued.length === 1 && queued[0].entityId === first.id && queued[0].status === "Pending" && queued[0].action === "create" && queued[0].attempts === 0);
+    check("the outbox payload is the remark plus the visit id", queued[0].payload.jobId === job && queued[0].payload.wording === first.wording);
+    check("the change event fired", changed >= 1);
+    check("no inspection payload or other store was touched", (await localDatabase.masterSystemInspections.count()) === 0);
+
+    // ---- 2. duplicates and the section cap.
+    const duplicate = await rejection(() => addSectionRemark(base("MAIN supply   VALVE needs repair")));
+    check("a case/spacing duplicate in the same section is refused", duplicate instanceof SectionRemarkInputError && duplicate.code === "DUPLICATE");
+    const catalogDuplicate = await rejection(() => addSectionRemark(base("25mm ball valve spoilt", { catalogWordings: ["25MM Ball Valve Spoilt"] })));
+    check("a wording equal to a catalogue entry is refused", catalogDuplicate instanceof SectionRemarkInputError && catalogDuplicate.code === "DUPLICATE_CATALOG");
+    const otherSection = await addSectionRemark(base("Main supply valve needs repair", { sectionKey: sectionB }));
+    const otherCustomerRemark = await addSectionRemark(base("Main supply valve needs repair", { customerId: otherCustomer }));
+    check("the same text in another section, or for another customer, is a separate remark", otherSection.id !== first.id && otherCustomerRemark.id !== first.id && (await cache(otherCustomer)).length === 1);
+    const invalid = await Promise.all(["ab", "line\nbreak", `zero${String.fromCharCode(0x200b)}width`, "x".repeat(301)].map((wording) => rejection(() => addSectionRemark(base(wording)))));
+    check("short, multi-line, hidden-character and over-long text are refused", invalid.every((error) => error instanceof SectionRemarkInputError && error.code === "INVALID"));
+    const badScope = await rejection(() => addSectionRemark(base("Valid wording here", { sectionKey: "checklist.waterTank.nope" })));
+    const badSystem = await rejection(() => addSectionRemark(base("Valid wording here", { systemKey: "hose_reel" })));
+    check("an unknown section or system is refused", badScope instanceof SectionRemarkInputError && badSystem instanceof SectionRemarkInputError);
+    check("refusals stored nothing", (await outboxItems()).length === 3 && (await cache()).length === 2);
+
+    await reset();
+    for (let index = 0; index < 50; index += 1) await addSectionRemark(base(`Cap remark number ${index}`, { sectionKey: "comments" }));
+    const capped = await rejection(() => addSectionRemark(base("One remark too many", { sectionKey: "comments" })));
+    check("the 51st remark in a section is refused locally", capped instanceof SectionRemarkInputError && capped.code === "LIMIT" && (await cache()).length === 50 && (await outboxItems()).length === 50);
+
+    // ---- 3. atomic: the second write fails -> the first is rolled back.
+    await reset();
+    await addSectionRemark(base("Already saved remark"));
+    const before = JSON.stringify(await cache());
+    const realPut = localDatabase.syncOutbox.put.bind(localDatabase.syncOutbox);
+    localDatabase.syncOutbox.put = async () => { throw new Error("simulated outbox failure"); };
+    const failed = await rejection(() => addSectionRemark(base("This write must roll back")));
+    localDatabase.syncOutbox.put = realPut;
+    check("the failed add reports the error", failed instanceof Error && /simulated outbox failure/.test(failed.message));
+    check("the cache write was rolled back with the failed outbox write", JSON.stringify(await cache()) === before);
+    check("no outbox item was left behind", (await outboxItems()).length === 1);
+
+    // ---- 4. refresh: merge keeps pending items; dedupes by text; malformed input fails closed.
+    await reset();
+    const pending = await addSectionRemark(base("Pending on this device"));
+    const pendingTwin = await addSectionRemark(base("Also typed on the server"));
+    const server = [
+      { id: id(10), customerId: customer, systemKey: "automatic_sprinkler", sectionKey: sectionA, wording: "Server remark one" },
+      { id: id(11), customerId: customer, systemKey: "automatic_sprinkler", sectionKey: sectionA, wording: "also TYPED on the server" }
+    ];
+    let requested = "";
+    window.fetch = async (url) => { requested = String(url); return json({ remarks: server }); };
+    const merged = await refreshSectionRemarks(customer);
+    check("refresh asks for this customer only", requested === `/api/customers/${customer}/section-remarks`);
+    check("refresh keeps the pending remark the server lacks", merged.some((item) => item.id === pending.id));
+    check("refresh does not list a pending remark twice when the server holds the same text", merged.filter((item) => item.wording.toLowerCase() === "also typed on the server").length === 1 && !merged.some((item) => item.id === pendingTwin.id));
+    check("the pending outbox items are untouched by a refresh", (await outboxItems()).length === 2 && (await outboxItems()).every((item) => item.status === "Pending"));
+    check("the merged list is what the cache now holds", JSON.stringify(await cache()) === JSON.stringify(merged));
+    const good = JSON.stringify(await cache());
+    const malformed = [
+      ["missing remarks", json({})], ["remarks not an array", json({ remarks: {} })], ["a malformed row", json({ remarks: [{ ...server[0], extra: true }] })],
+      ["a foreign customer row", json({ remarks: [{ ...server[0], customerId: otherCustomer }] })], ["an unknown section", json({ remarks: [{ ...server[0], sectionKey: "checklist.nope.nope" }] })],
+      ["a repeated id", json({ remarks: [server[0], server[0]] })], ["a non-normalised wording", json({ remarks: [{ ...server[0], wording: "  padded  " }] })],
+      ["an HTTP 500", json({ remarks: server }, 500)], ["an HTTP 404", json({ error: "SECTION_REMARK_SCOPE_NOT_FOUND" }, 404)], ["not JSON", new Response("<html>", { status: 200 })]
+    ];
+    for (const [name, response] of malformed) {
+      window.fetch = async () => response.clone();
+      const error = await rejection(() => refreshSectionRemarks(customer));
+      check(`a refresh with ${name} fails closed and keeps the previous cache`, error instanceof Error && JSON.stringify(await cache()) === good);
+    }
+    window.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    check("a refresh while the network is down fails and keeps the cache", (await rejection(() => refreshSectionRemarks(customer))) instanceof TypeError && JSON.stringify(await cache()) === good);
+    check("a cache that was never fetched is simply empty (offline first use)", (await cachedSectionRemarks(id(99))).length === 0);
+
+    // ---- 5. sync: only the exact echoed uuid completes.
+    await reset();
+    const sent = await addSectionRemark(base("Remark to sync"));
+    let calls = [];
+    const script = (handler) => { window.fetch = async (url, init) => { calls.push({ url: String(url), init }); return handler(url, init); }; };
+    const only = async () => { const items = await outboxItems(); return items.length === 1 ? items[0] : undefined; };
+
+    script(() => json({}));
+    let result = await syncPendingSectionRemarks();
+    let item = await only();
+    check("HTTP 200 with no echoed id is NOT Completed", item.status === "Failed" && /did not confirm/.test(item.lastError) && result.confirmed === 0);
+    check("the request went to this customer's technician route with only the allowed keys", calls[0].url === `/api/technician/customers/${customer}/systems/automatic_sprinkler/section-remarks` && calls[0].init.method === "POST"
+      && JSON.stringify(Object.keys(readSent(calls[0].init)).sort()) === JSON.stringify(["id", "jobId", "sectionKey", "wording"]) && readSent(calls[0].init).id === sent.id);
+
+    script(() => json({ ...echo(sent), requestedId: id(77) }));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a reply echoing a DIFFERENT uuid is NOT Completed", item.status === "Failed");
+
+    // A network drop mid-request: unknown result -> back to Pending (not Failed), same single outbox item.
+    script(() => { throw new TypeError("Failed to fetch"); });
+    const attemptsBefore = (await only()).attempts;
+    await syncPendingSectionRemarks(); item = await only();
+    check("a dropped connection returns the item to Pending with a retry message", item.status === "Pending" && /will be sent again/.test(item.lastError) && item.attempts === attemptsBefore + 1);
+
+    // A request that never answers: the real timeout aborts it -> Pending again.
+    script((url, init) => new Promise((resolve, reject) => init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a timeout (no answer) is treated as unknown: Pending, not Failed", item.status === "Pending" && /will be sent again/.test(item.lastError));
+
+    for (const status of [503, 500, 429, 408]) {
+      script(() => json({ message: "busy" }, status));
+      await syncPendingSectionRemarks(); item = await only();
+      check(`HTTP ${status} retries (Pending)`, item.status === "Pending");
+    }
+    script(() => json({ error: "INVALID_SECTION_REMARK", message: "The remark must be at least 3 characters." }, 400));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a 4xx validation rejection is Failed with the server's reason", item.status === "Failed" && item.lastError === "The remark must be at least 3 characters.");
+    script(() => json({ error: "SECTION_REMARK_SCOPE_NOT_FOUND" }, 404));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a 404 without a message is Failed with a readable reason", item.status === "Failed" && /refused this remark \(HTTP 404\)/.test(item.lastError));
+    script(() => json({ error: "UNAUTHENTICATED" }, 401));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a 401 is Failed asking for sign-in", item.status === "Failed" && /Sign in required/.test(item.lastError));
+    script(() => json({ message: "Cross-origin write denied" }, 403));
+    await syncPendingSectionRemarks(); item = await only();
+    check("a 403 is Failed naming the refusal", item.status === "Failed" && /HTTP 403/.test(item.lastError));
+
+    // The retry then succeeds: exactly one outbox item ever existed for this uuid, now Completed.
+    calls = [];
+    script(() => json(echo(sent), 201));
+    result = await syncPendingSectionRemarks(); item = await only();
+    check("a retry that echoes the exact uuid completes the SAME outbox item", item.status === "Completed" && item.entityId === sent.id && item.activeKey === undefined && result.confirmed === 1);
+    check("timeouts and retries never created a second outbox item", (await outboxItems()).length === 1);
+    calls = [];
+    result = await syncPendingSectionRemarks();
+    check("a Completed item is not sent again", calls.length === 0 && result.attempted === 0);
+
+    // A duplicate reply (the server already had this uuid) also confirms.
+    await reset();
+    const dup = await addSectionRemark(base("Server already has this"));
+    script(() => json(echo(dup, { duplicate: true }), 200));
+    await syncPendingSectionRemarks();
+    check("duplicate:true with the echoed uuid confirms", (await only()).status === "Completed");
+
+    // ---- 6. merged reply: the local id is swapped for the canonical one together with Completed.
+    await reset();
+    const local = await addSectionRemark(base("Typed on two phones"));
+    const canonical = { id: id(40), customerId: customer, systemKey: "automatic_sprinkler", sectionKey: sectionA, wording: "typed on two PHONES".replace("typed", "Typed").replace("PHONES", "phones") };
+    script((url) => url.includes("/section-remarks") && !url.endsWith("section-remarks?") ? json({ requestedId: local.id, duplicate: false, merged: true, remark: canonical }) : json({ remarks: [canonical] }));
+    await syncPendingSectionRemarks();
+    const swapped = await cache();
+    check("a merged reply completes the item", (await only()).status === "Completed");
+    check("the cache now holds the canonical id and no longer the local id", swapped.some((entry) => entry.id === canonical.id) && !swapped.some((entry) => entry.id === local.id) && swapped.length === 1);
+
+    // ---- 7. the generic /api/sync loop never takes a sectionRemark item - even one its own route could not send.
+    await reset();
+    const generic = await addSectionRemark(base("Must not go to the generic loop"));
+    calls = [];
+    script((url) => url === "/api/sync" ? json({ acceptedIds: [generic.id], duplicateIds: [], failed: [] }) : json({ message: "busy" }, 503));
+    await syncPendingRecords(9003);
+    check("the remark was offered to its own route and left Pending by the 503", calls.some((call) => call.url.endsWith("/section-remarks")) && (await only()).status === "Pending");
+    check("syncPendingRecords never posted a leftover sectionRemark to /api/sync", calls.every((call) => call.url !== "/api/sync"));
+    check("the item was not marked anything by the generic loop", (await only()).status === "Pending" && (await outboxItems()).length === 1);
+    calls = [];
+    script((url) => url === "/api/sync" ? json({ acceptedIds: [generic.id], duplicateIds: [], failed: [] }) : json(echo(generic)));
+    const run = await syncPendingRecords(9003);
+    check("a later syncPendingRecords completes it through its own route", run.started === true && (await only()).status === "Completed" && calls.every((call) => call.url !== "/api/sync"));
+
+    // ---- 8. unsynced remarks survive a simulated restart (they live in IndexedDB, not memory).
+    await reset();
+    const survivor = await addSectionRemark(base("Survives a restart"));
+    deviceDatabase.close(); localDatabase.close(); await deviceDatabase.open(); await localDatabase.open();
+    check("a queued remark and its cache survive closing and reopening the database", (await outboxItems()).length === 1 && (await cache())[0].id === survivor.id);
+
+    window.setTimeout = realSetTimeout; window.fetch = realFetch;
+    out.textContent = JSON.stringify({ status: checks.every((entry) => entry.ok) ? "PASS" : "FAIL", checks }, null, 2);
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), checks }, null, 2);
+  }
+};
+document.body.dataset.harnessReady = "1";
+</script></body></html>
