@@ -24,7 +24,7 @@ document.querySelector("#run").onclick=async()=>{
     reject("P1-2 A. duplicate configured identity rejects",value=>{value.responses.rows=[value.responses.rows[0],{...value.responses.rows[0],rowUuid:uuid(6),sortOrder:2},{...value.responses.rows[1],sortOrder:3}]});
     reject("P1-2 C. configured ordinal above maximum rejects",value=>value.responses.rows[0].configuredRowOrdinal=251);
     reject("P1-2 D. configured ordinal zero rejects",value=>value.responses.rows[0].configuredRowOrdinal=0);
-    reject("P1-2 E. configured location text differing from snapshot rejects",value=>value.responses.rows[0].locationText="Forged location");
+    check("P1-2 E (I-63). configured location text differing from the snapshot name is a saved-layout row and accepts (the server checked it against the frozen layout; see acceptedDetailSavedLayout.test.ts)",(()=>{const value=structuredClone(server);value.responses.rows[0].locationText="Saved layout text";return parseServerHydrantDetail(value)!==undefined})());
     reject("1. invalid performedAt rejects",value=>value.performedAt="2026-02-30T00:00:00.000000Z");
     reject("2. invalid receivedAt rejects",value=>value.receivedAt="invalid");
     reject("3. configured row missing configuredLocationId rejects",value=>value.responses.rows[0].configuredLocationId=null);

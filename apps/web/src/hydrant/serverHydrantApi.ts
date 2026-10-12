@@ -48,7 +48,7 @@ function parseRows(value: unknown, v7 = false) {
         || !Number.isSafeInteger(row.configuredRowOrdinal) || Number(row.configuredRowOrdinal) < 1 || Number(row.configuredRowOrdinal) > 250
         || !snapshot(row.locationSnapshot, row.configuredLocationId)
         || !(row.zoneSnapshot === null || snapshot(row.zoneSnapshot))
-        || row.locationText !== row.locationSnapshot.displayName
+        // I-63: the text is the saved layout's ('Lobby'), not the location's name ('General'); the server checked it against the frozen layout.
         || configuredIdentities.has(`${row.configuredLocationId}:${row.configuredRowOrdinal}`)) return undefined;
       configuredIdentities.add(`${row.configuredLocationId}:${row.configuredRowOrdinal}`);
     } else {
