@@ -64,14 +64,14 @@ const countLabel = (count: number, noun: string) => `${count} ${count === 1 ? no
 
 /** What a card says about the layout of a service whose layout a technician enters on a visit (an Admin approves it):
  *  Hose Reel, Hydrant and Dry/Wet Riser. A Hydrant / Riser customer may instead have zones and locations a Manager typed. */
-const FIRST_VISIT_LAYOUT_CHIP: Chip = { label: "Layout set on first visit", tone: "unset" };
+const NO_LAYOUT_CHIP: Chip = { label: "No layout saved yet", tone: "unset" };
 function savedLayoutChip(key: string, system: ManagerServiceEntry["enabledSystem"]): Chip {
   const locations = locationRows(system?.locations);
-  if (key === "hose_reel") return locations[0] ? { label: `General layout: ${rowsLabel(locations[0].presetRowCount)}`, tone: "set" } : FIRST_VISIT_LAYOUT_CHIP;
+  if (key === "hose_reel") return locations[0] ? { label: `General layout: ${rowsLabel(locations[0].presetRowCount)}`, tone: "set" } : NO_LAYOUT_CHIP;
   const zones = system?.zones.length ?? 0;
   if (isGeneralLayout(key, system?.zones ?? [], locations)) return { label: `General layout: ${rowsLabel(locations[0]!.presetRowCount)}`, tone: "set" };
   if (locations.length > 0) return { label: `${countLabel(locations.length, "location")} set`, tone: "set" };
-  return zones > 0 ? { label: `${countLabel(zones, "zone")}, no locations yet`, tone: "unset" } : FIRST_VISIT_LAYOUT_CHIP;
+  return zones > 0 ? { label: `${countLabel(zones, "zone")}, no locations yet`, tone: "unset" } : NO_LAYOUT_CHIP;
 }
 
 /**

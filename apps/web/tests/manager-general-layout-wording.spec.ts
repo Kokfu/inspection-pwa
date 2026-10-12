@@ -21,10 +21,10 @@ test("a saved General layout reads 'General layout: N rows' on the Hose Reel, Hy
   }
 });
 
-test("a customer with no layout says it is set on the first visit, not 'General location in new visits'", async ({ page }) => {
+test("a customer with no layout says no layout is saved yet, not 'General location in new visits'", async ({ page }) => {
   await open(page, "view=cards&mode=empty");
   for (const service of ["Hose Reel System", "Hydrant System", "Dry / Wet Riser System"]) {
-    expect(await chipTexts(page, service), service).toContain("Layout set on first visit");
+    expect(await chipTexts(page, service), service).toContain("No layout saved yet");
     expect(await chipTexts(page, service), service).not.toContain("General location in new visits");
   }
   // A service the Manager types locations for keeps its own wording (CO2, Wet Chemical, FM200 really use a General location).
@@ -58,9 +58,9 @@ test("a Hydrant / Riser that is not assigned yet is not told 'new visits use Gen
   for (const system of ["hydrant", "dry_wet_riser"]) {
     await open(page, `view=notassigned&system=${system}`);
     const banner = page.locator(".operational-message--warning");
-    await expect(banner, system).toContainText("If no layout is saved, a technician enters it on the first visit and an Admin approves it.");
+    await expect(banner, system).toContainText("If no layout is saved, a technician enters it on a visit and an Admin approves it.");
     await expect(banner, system).not.toContainText("new visits use General");
-    await expect(page.getByText("No layout saved yet. A technician enters it on the first visit and an Admin approves it.")).toBeVisible();
+    await expect(page.getByText("No layout saved yet. A technician enters it on a visit and an Admin approves it.")).toBeVisible();
   }
   await open(page, "view=notassigned&system=fm200_fire_suppression");
   await expect(page.locator(".operational-message--warning")).toContainText("If no location is configured, new visits use General.");

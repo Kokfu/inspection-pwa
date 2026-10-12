@@ -31,9 +31,9 @@ for (const system of ["hydrant", "dry_wet_riser"]) {
     expect((await calls(page)).authority).toBe(0);
   });
 
-  test(`${system}: a customer with no layout yet is told a technician enters it on the first visit`, async ({ page }) => {
+  test(`${system}: a customer with no layout yet is told a technician enters it on a visit`, async ({ page }) => {
     await open(page, system, "none");
-    await expect(page.getByText("No layout saved yet. A technician enters it on the first visit and an Admin approves it. To set it up yourself, add zones and locations below instead.")).toBeVisible();
+    await expect(page.getByText("No layout saved yet. A technician enters it on a visit and an Admin approves it. To set it up yourself, add zones and locations below instead.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Add zone" })).toBeVisible();
     await expect(page.getByText("General layout:")).toHaveCount(0);
     expect((await calls(page)).authority).toBe(0);

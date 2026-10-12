@@ -57,7 +57,7 @@ document.querySelector("#run").onclick = async () => {
     render(co2Job);
     check("switching back shows the CO2 job's own saved draft", await until(() => nameInput()?.value === "Annex Room" || nameInput()?.value === ""));
     render(noEligibleJob);
-    check("a job with no location-configurable system shows the empty state", await until(() => document.body.textContent.includes("no zone/location-configurable systems")));
+    check("a job with no location-configurable system shows the empty state", await until(() => document.body.textContent.includes("no system that can take a new named location")));
     check("no page error after all switches", !pageError);
 
     out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks, pageError });

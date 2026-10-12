@@ -617,7 +617,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
   const [loadedSnapshot, setLoadedSnapshot] = useState("");
   // Hydrant / Dry-Wet-Riser customers whose layout is the General layout saved from inspections: shown, not edited here.
   const [generalLayoutRows, setGeneralLayoutRows] = useState<number | null>(null);
-  // Hydrant / Dry-Wet-Riser customer with neither zones nor a saved layout yet: the technician enters it on the first visit.
+  // Hydrant / Dry-Wet-Riser customer with neither zones nor a saved layout yet: the technician enters it on a visit.
   const [noLayoutYet, setNoLayoutYet] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -707,7 +707,7 @@ export function ManagerLocationsEditor({ customerId, systemKey, systemLabel, onS
         </div>
       </> : null}
       {loaded && generalLayoutRows === null ? <>
-        {noLayoutYet ? <p className="support-metadata">No layout saved yet. A technician enters it on the first visit and an Admin approves it. To set it up yourself, add zones and locations below instead.</p> : null}
+        {noLayoutYet ? <p className="support-metadata">No layout saved yet. A technician enters it on a visit and an Admin approves it. To set it up yourself, add zones and locations below instead.</p> : null}
         <h5>Zones</h5>
         <ul className="manager-locations-zone-list">
           {zoneRows.map((zone) => (

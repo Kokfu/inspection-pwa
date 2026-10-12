@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/src/styles/app.css"></head><body><div id="app"></div><script type="module">
+// Technician job screen: "Add a New Location" is offered only when a service can take a named location. A Hydrant / Dry-Wet-Riser
+// whose layout is the one General layout takes none (it would mix the two shapes and the server refuses it at approval).
+// ?system=hydrant|dry_wet_riser|hose_reel|co2_fire_extinguisher&shape=general|empty|zoned[&view=proposal]
+// view=proposal renders the Add-a-New-Location screen itself (the second place that filters with offersAddLocation).
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { TechnicianHome } from "/src/jobs/TechnicianHome.tsx";
+import { TechnicianLocationProposal } from "/src/jobs/TechnicianLocationProposal.tsx";
+const params = new URLSearchParams(location.search);
+const systemKey = params.get("system") ?? "hydrant";
+const shape = params.get("shape") ?? "general";
+const jobId = "30000000-0000-4000-8000-000000000201";
+const enabledSystemId = "30000000-0000-4000-8000-000000000202";
+const zone = { id: "30000000-0000-4000-8000-000000000203", enabledSystemId, key: "zone-a", displayName: "Zone A", sortOrder: 1 };
+const makeLocation = (key, zoneId) => ({ id: "30000000-0000-4000-8000-000000000204", enabledSystemId, zoneId, key, displayName: key, presetRowCount: 2, rowPreset: {}, sortOrder: 1 });
+const shapes = {
+  general: { zones: [], locations: [makeLocation("general", null)] },
+  empty: { zones: [], locations: [] },
+  zoned: { zones: [zone], locations: [makeLocation("lobby", zone.id)] }
+};
+const system = { enabledSystemId, systemKey, displayName: systemKey, sortOrder: 1, definitionStatus: "confirmed", ...shapes[shape] };
+const job = {
+  id: jobId, reference: "VISIT-OFFER", title: "Visit", status: "open", createdAt: "2026-10-12T00:00:00.000Z",
+  configurationSnapshot: {
+    schemaVersion: 1, customer: { id: "30000000-0000-4000-8000-000000000205", code: "C", displayName: "Customer" },
+    configuration: { revisionId: "30000000-0000-4000-8000-000000000206", revisionNumber: 1 },
+    template: { id: "30000000-0000-4000-8000-000000000207", code: "MFE-FSSR", name: "Master", version: 7 }, enabledSystems: [system]
+  },
+  completion: { jobId, jobStatus: "open", eligible: false, checkedAt: "2026-10-12T00:00:00.000Z", requiredUnitCount: 1, acceptedUnitCount: 0, completedAt: null, completedBy: null, systems: [] }
+};
+const noop = () => {}, asyncNoop = async () => {};
+window.opened = [];
+const root = createRoot(document.querySelector("#app"));
+if (params.get("view") === "proposal") {
+  root.render(React.createElement(TechnicianLocationProposal, { job, actorUserId: 1, canUseServer: false, onBack: noop }));
+} else root.render(React.createElement(TechnicianHome, {
+  jobs: [job], authState: { status: "verified", user: { id: 1, username: "tech", role: "inspector" } }, inspections: [],
+  masterSystemInspections: [], masterSystemInspectionGroups: [], masterSystemFormInstances: [], inspectionAttachments: [],
+  serverMasterSystemInspections: [], serverMasterSystemProgressState: "loaded", loading: false, message: "", selectedJobId: jobId,
+  onRefresh: asyncNoop, onSync: asyncNoop, onCloseJob: asyncNoop, onDeleteJob: asyncNoop, onViewFinalReport: noop, onNewServiceVisit: noop,
+  onSelectJob: noop, onSelectSystem: noop, onBackToJobs: noop, onBackToSystems: noop, onOpenHoseReel: noop, onOpenCo2: noop, onOpenFm200: noop,
+  onOpenAutomaticSprinkler: noop, onOpenDryWetRiser: noop, onOpenFireAlarm: noop, onOpenHydrant: noop, onOpenPortableFireExtinguisher: noop,
+  onOpenSmokeVentilation: noop, onOpenFireIntercom: noop, onOpenFireRatedRollerShutter: noop,
+  onOpenLocationProposal: (item) => window.opened.push(item.id)
+}));
+</script></body></html>

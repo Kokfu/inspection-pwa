@@ -124,7 +124,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
       </div>
     </div>
     {eligibleSystems.length === 0 ? (
-      <p className="empty-state">This service visit has no zone/location-configurable systems (CO2, Wet Chemical, or FM200).</p>
+      <p className="empty-state">This service visit has no system that can take a new named location.</p>
     ) : <>
       <label>System<select value={systemKey ?? ""} onChange={(event) => setPickedSystemKey(event.target.value || undefined)}>
         <option value="">Select a system…</option>
