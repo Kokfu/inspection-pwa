@@ -1,0 +1,74 @@
+<!doctype html><html><body>
+<div id="view"></div>
+<script type="module">
+// Manager wording for the services whose layout comes from a technician's inspection (Hose Reel, Hydrant, Dry/Wet Riser).
+// ?view=cards&mode=general|empty|zoned|retired  - the customer page: service cards + the Assigned Services list
+// ?view=intro                                    - the "Zones & locations" intro
+// ?view=notassigned&system=hydrant|fm200_fire_suppression - the service editor of a service that is not assigned yet
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ManagerCustomerConfigurationDetail, ManagerCustomerLocations } from "/src/manager/ManagerCustomerConfiguration.tsx";
+import { ManagerServiceEditor } from "/src/manager/ManagerServiceEditor.tsx";
+
+const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const params = new URLSearchParams(location.search);
+const view = params.get("view") ?? "cards";
+const mode = params.get("mode") ?? "general";
+const json = (payload, status = 200) => new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+window.__calls = { authority: 0, saved: 0 };
+window.fetch = async (input) => {
+  const url = typeof input === "string" ? input : input.url;
+  if (url.includes("/api/manager/service-visits")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
+  if (url.includes("/locations")) return json({ systemKey: params.get("system") ?? "hydrant", templateVersion: 7, zones: [], locations: [] });
+  return json({});
+};
+
+const generalLocation = (n, rows) => ({ id: id(n), key: "general", displayName: "General", zoneId: null, presetRowCount: rows });
+const zone = (n, name) => ({ id: id(n), key: `zone-${n}`, displayName: name });
+const namedLocation = (n, zoneId, rows) => ({ id: id(n), key: `loc-${n}`, displayName: `Location ${n}`, zoneId, presetRowCount: rows });
+const system = (key, displayName, sortOrder, zones, locations) => ({ key, displayName, sortOrder, zones, locations });
+
+const states = {
+  general: [
+    system("hose_reel", "Hose Reel System", 1, [], [generalLocation(10, 2)]),
+    system("hydrant", "Hydrant System", 2, [], [generalLocation(11, 3)]),
+    system("dry_wet_riser", "Dry / Wet Riser System", 3, [], [generalLocation(12, 1)])
+  ],
+  empty: [
+    system("hose_reel", "Hose Reel System", 1, [], []),
+    system("hydrant", "Hydrant System", 2, [], []),
+    system("dry_wet_riser", "Dry / Wet Riser System", 3, [], [])
+  ],
+  zoned: [
+    system("hydrant", "Hydrant System", 2, [zone(20, "Block A")], [namedLocation(21, id(20), 4), namedLocation(22, id(20), 2)]),
+    system("dry_wet_riser", "Dry / Wet Riser System", 3, [zone(23, "Block B")], [])
+  ],
+  retired: [system("hose_reel", "Hose Reel System", 1, [], [])]
+};
+const supportedSystems = [
+  { key: "hose_reel", displayName: "Hose Reel System", sortOrder: 1, assignable: true },
+  { key: "hydrant", displayName: "Hydrant System", sortOrder: 2, assignable: mode !== "retired", ...(mode === "retired" ? { unavailableReason: "This service is retired and cannot be newly assigned" } : {}) },
+  { key: "dry_wet_riser", displayName: "Dry / Wet Riser System", sortOrder: 3, assignable: true },
+  { key: "fm200_fire_suppression", displayName: "FM200 System", sortOrder: 4, assignable: true }
+];
+const customer = (enabledSystems) => ({
+  customer: { id: id(1), code: "C1", displayName: "Wording Customer" },
+  sites: [{ id: id(2), code: "S", displayName: "Main Site" }],
+  configuration: { id: id(3), revision: 4, enabledSystems },
+  supportedSystems
+});
+
+const root = createRoot(document.querySelector("#view"));
+const callbacks = { onSaved: () => { window.__calls.saved += 1; }, onAuthorityFailure: () => { window.__calls.authority += 1; } };
+if (view === "intro") {
+  root.render(React.createElement(ManagerCustomerLocations, { customer: customer([]), ...callbacks }));
+} else if (view === "notassigned") {
+  root.render(React.createElement(ManagerServiceEditor, { customer: customer([]), systemKey: params.get("system") ?? "hydrant", onBack: () => {}, ...callbacks }));
+} else {
+  root.render(React.createElement(ManagerCustomerConfigurationDetail, {
+    customer: customer(states[mode] ?? states.general), onBack: () => {}, onViewServiceVisit: () => {}, onViewFinalReport: () => {},
+    onDownloadFinalReport: async () => {}, ...callbacks
+  }));
+}
+</script></body></html>

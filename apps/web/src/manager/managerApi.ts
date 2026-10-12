@@ -1004,6 +1004,10 @@ function isManagerLocationShape(value: unknown): value is Omit<ManagerLocation, 
 
 const generalLayoutSystemKeys: ReadonlySet<string> = new Set(["hydrant", "dry_wet_riser"]);
 
+/** True for the systems whose customer layout may be the one General layout a technician enters on a visit (Admin-approved),
+ *  instead of zones and locations a Manager types. Manager-facing wording only; the rules above stay the authority. */
+export const savesGeneralLayout = (systemKey: string): boolean => generalLayoutSystemKeys.has(systemKey);
+
 /** Hydrant and Dry/Wet Riser may hold ONE zone-free "General layout" (saved from the inspection form, approved by an Admin)
  *  instead of named zones and locations. Mirrors `isGeneralLayoutShape` on the server. */
 export function isGeneralLayout(systemKey: string, zones: readonly unknown[], locations: ReadonlyArray<{ key: string; zoneId: unknown }>): boolean {

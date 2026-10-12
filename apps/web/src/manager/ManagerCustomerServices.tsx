@@ -1,8 +1,10 @@
 import "./managerServiceEditor.css";
 import {
   evidencePolicyAssignableSystemKeys,
+  isGeneralLayout,
   labelOverrideSystemKeys,
   locationConfigurableSystemKeys,
+  savesGeneralLayout,
   systemConfigurationSystemKeys,
   type ManagerCustomer
 } from "./managerApi";
@@ -53,6 +55,25 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 
 type Chip = { label: string; tone: "set" | "unset" | "na" | "attention" };
 
+type LocationRow = { key: string; zoneId: unknown; presetRowCount: number };
+const locationRows = (value: readonly unknown[] | undefined): LocationRow[] => (value ?? []).filter(isPlainRecord).map((row) => ({
+  key: typeof row.key === "string" ? row.key : "", zoneId: row.zoneId ?? null, presetRowCount: typeof row.presetRowCount === "number" ? row.presetRowCount : 0
+}));
+const rowsLabel = (count: number) => `${count} ${count === 1 ? "row" : "rows"}`;
+const countLabel = (count: number, noun: string) => `${count} ${count === 1 ? noun : `${noun}s`}`;
+
+/** What a card says about the layout of a service whose layout a technician enters on a visit (an Admin approves it):
+ *  Hose Reel, Hydrant and Dry/Wet Riser. A Hydrant / Riser customer may instead have zones and locations a Manager typed. */
+const FIRST_VISIT_LAYOUT_CHIP: Chip = { label: "Layout set on first visit", tone: "unset" };
+function savedLayoutChip(key: string, system: ManagerServiceEntry["enabledSystem"]): Chip {
+  const locations = locationRows(system?.locations);
+  if (key === "hose_reel") return locations[0] ? { label: `General layout: ${rowsLabel(locations[0].presetRowCount)}`, tone: "set" } : FIRST_VISIT_LAYOUT_CHIP;
+  const zones = system?.zones.length ?? 0;
+  if (isGeneralLayout(key, system?.zones ?? [], locations)) return { label: `General layout: ${rowsLabel(locations[0]!.presetRowCount)}`, tone: "set" };
+  if (locations.length > 0) return { label: `${countLabel(locations.length, "location")} set`, tone: "set" };
+  return zones > 0 ? { label: `${countLabel(zones, "zone")}, no locations yet`, tone: "unset" } : FIRST_VISIT_LAYOUT_CHIP;
+}
+
 /**
  * Summary chips for one service card, read straight off the customer payload
  * (no extra fetch): custom label count, preset rows, settings state.
@@ -69,7 +90,9 @@ export function managerServiceChips(entry: ManagerServiceEntry): Chip[] {
       chips.push({ label: "Wording not customisable", tone: "na" });
     }
   }
-  if (locationConfigurableSystemKeys.has(entry.key)) {
+  if ((entry.enabled && entry.key === "hose_reel") || savesGeneralLayout(entry.key)) {
+    chips.push(savedLayoutChip(entry.key, system));
+  } else if (locationConfigurableSystemKeys.has(entry.key)) {
     const zones = system?.zones.length ?? 0;
     const locations = system?.locations.length ?? 0;
     chips.push(locations > 0

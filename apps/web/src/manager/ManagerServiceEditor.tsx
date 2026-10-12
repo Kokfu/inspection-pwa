@@ -10,6 +10,7 @@ import {
   loadManagerLabelOverrides,
   ManagerApiError,
   saveManagerLabelOverrides,
+  savesGeneralLayout,
   systemConfigurationSystemKeys,
   type ManagerCustomer,
   type ManagerLabelFormField,
@@ -113,7 +114,7 @@ export function ManagerServiceEditor({ customer, systemKey, onBack, onSaved, onA
       <span className={`status-badge ${entry.enabled ? "status-badge--complete" : "status-badge--waiting"}`}>{entry.enabled ? "Assigned" : "Not assigned yet"}</span>
     </div>
     <p className="operational-message">{MANAGER_SERVICE_VERSION_COPY}</p>
-    {!entry.enabled ? <p className="operational-message operational-message--warning">This service is not assigned to {customer.customer.displayName} yet. Tick it under Assigned Services on the customer page. If no location is configured, new visits use General.</p> : null}
+    {!entry.enabled ? <p className="operational-message operational-message--warning">This service is not assigned to {customer.customer.displayName} yet. Tick it under Assigned Services on the customer page. {savesGeneralLayout(entry.key) ? "If no layout is saved, a technician enters it on the first visit and an Admin approves it." : "If no location is configured, new visits use General."}</p> : null}
     <div className="job-tabs manager-service-tabs" role="tablist" aria-label={`${entry.displayName} settings`}>
       {tabs.map((value) => <button
         key={value} type="button" role="tab" id={`service-tab-${value}`}

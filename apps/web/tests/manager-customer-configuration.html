@@ -138,10 +138,10 @@ document.querySelector("#run").onclick = async () => {
 
     // 2. One card per service; chips read straight off enabledSystems (no extra fetch).
     // 4 enabled services + the location-configurable service not assigned yet (Hydrant), which still gets a card so its preset rows can be prepared.
-    ok("one card per enabled service", view.querySelectorAll(".manager-service-card").length === 5 && chipsFor("Hydrant System").join("|") === "General location in new visits");
+    ok("one card per enabled service", view.querySelectorAll(".manager-service-card").length === 5 && chipsFor("Hydrant System").join("|") === "Layout set on first visit");
     ok("co2 card: 1 custom label + locations set", chipsFor("CO2 Fire Extinguisher System").join("|") === "1 custom label|1 location set");
     ok("sprinkler card: standard wording + evidence policy set", chipsFor("Automatic Sprinkler System").join("|") === "Standard wording|Evidence policy set");
-    ok("riser card: wording not customisable + settings need attention", chipsFor("Dry / Wet Riser System").join("|") === "Wording not customisable|General location in new visits|Settings need attention");
+    ok("riser card: wording not customisable + settings need attention", chipsFor("Dry / Wet Riser System").join("|") === "Wording not customisable|Layout set on first visit|Settings need attention");
     ok("lone-zone wet_chemical uses General while showing saved zone", chipsFor("Wet Chemical System").includes("1 zone, General location in new visits"));
     ok("attention chips carry the attention tone class", view.querySelectorAll(".manager-service-card .manager-config-flag--attention").length === 1);
     ok("no per-service fetch on mount", !requested.some((url) => url.includes("/systems/")));

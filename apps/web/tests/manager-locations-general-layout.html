@@ -3,7 +3,7 @@
 <script type="module">
 // I-62: the Manager's Zones & locations editor for Hydrant / Dry-Wet-Riser. A customer whose layout is the single zone-free
 // General location (saved from inspections) is SHOWN, not edited; a zoned customer still gets the full editor; anything else
-// without a zone is an authority failure. ?system=hydrant|dry_wet_riser&mode=general|zoned|mixed|annex
+// without a zone is an authority failure. ?system=hydrant|dry_wet_riser&mode=general|zoned|mixed|annex|none
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { ManagerLocationsEditor } from "/src/manager/ManagerCustomerConfiguration.tsx";
@@ -21,7 +21,8 @@ const bodies = {
   general: { zones: [], locations: [generalLocation] },
   zoned: { zones: [zone], locations: [zoned] },
   mixed: { zones: [zone], locations: [zoned, { ...generalLocation, sortOrder: 2 }] },
-  annex: { zones: [], locations: [{ ...generalLocation, key: "annex" }] }
+  annex: { zones: [], locations: [{ ...generalLocation, key: "annex" }] },
+  none: { zones: [], locations: [] }
 };
 window.__calls = { get: 0, put: 0, authority: 0, saved: 0 };
 window.fetch = async (input, init) => {

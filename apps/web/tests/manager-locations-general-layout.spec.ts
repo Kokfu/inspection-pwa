@@ -11,6 +11,9 @@ for (const system of ["hydrant", "dry_wet_riser"]) {
   test(`${system}: a General layout is shown as a note, with no zone or location editing and no authority failure`, async ({ page }) => {
     await open(page, system, "general");
     await expect(page.getByText("General layout: 3 rows saved from technician inspections")).toBeVisible();
+    await expect(page.getByText("A technician proposes changes from a visit; an Admin approves them.")).toBeVisible();
+    await expect(page.getByText("a technician updates the layout from the next visit")).toHaveCount(0);
+    await expect(page.getByText("No layout saved yet.")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add zone" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add location" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Save zones & locations" })).toHaveCount(0);
@@ -23,6 +26,15 @@ for (const system of ["hydrant", "dry_wet_riser"]) {
     await expect(page.getByRole("button", { name: "Add zone" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save zones & locations" })).toBeVisible();
     await expect(page.getByLabel("Zone name for zone-a")).toHaveValue("Zone A");
+    await expect(page.getByText("General layout:")).toHaveCount(0);
+    await expect(page.getByText("No layout saved yet.")).toHaveCount(0);
+    expect((await calls(page)).authority).toBe(0);
+  });
+
+  test(`${system}: a customer with no layout yet is told a technician enters it on the first visit`, async ({ page }) => {
+    await open(page, system, "none");
+    await expect(page.getByText("No layout saved yet. A technician enters it on the first visit and an Admin approves it. To set it up yourself, add zones and locations below instead.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add zone" })).toBeVisible();
     await expect(page.getByText("General layout:")).toHaveCount(0);
     expect((await calls(page)).authority).toBe(0);
   });
