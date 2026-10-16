@@ -148,7 +148,7 @@ export function RepairList({ actorId, canUseServer, suspended = false, jobId, sy
                 <div className="repair-comparison"><RepairBefore finding={f} refreshKey={refreshKey} />
                   {record ? <RepairEditor key={record.clientUuid} record={record} onDirty={onDirty} suspended={suspended} photo={snapshot.photos.find(p => p.photoUuid === record.photoUuid)} /> : <section className="repair-after" aria-label="Latest repair"><h4>After</h4>{last ? <><p>Latest repair: cycle {last.cycle_sequence} — {reviewLabel(last.review_state)}.</p><p className="repair-remark">{last.remark}</p></> : <p>Start a repair to add this part's own After photo and remark.</p>}</section>}
                 </div>
-                {marker ? <p className="repair-not-done" role="status"><strong>Not Done</strong> — {marker.reason || "no reason given"} ({formatClientDateTime(marker.markedAt)}). Saved on this device only; the part stays Open.</p> : null}
+                {marker && openOf(f) ? <p className="repair-not-done" role="status"><strong>Not Done</strong> — {marker.reason || "no reason given"} ({formatClientDateTime(marker.markedAt)}). Saved on this device only; the part stays Open.</p> : null}
                 {!current && !waiting && !unrefreshedSubmission && activeOrder ? <div className="repair-actions">
                   <button type="button" disabled={busy} onClick={() => void run(async () => {
                     const finish = beginWorkspaceActivity();
