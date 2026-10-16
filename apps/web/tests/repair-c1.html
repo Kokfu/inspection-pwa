@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>C1 production App browser harness</title></head>
+<body><div id="root"></div><script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {App} from '/src/App.tsx';
+import * as db from '/src/db/localDatabase.ts';
+import * as repo from '/src/repairs/repairRepository.ts';
+import * as ui from '/src/repairs/repairUiRepository.ts';
+import '/src/styles/app.css';
+window.c1={db,repo,ui};
+await navigator.serviceWorker.register('/tests/repair-b3-worker.js');
+await navigator.serviceWorker.ready;
+createRoot(document.getElementById('root')).render(React.createElement(React.StrictMode, null, React.createElement(App)));
+window.c1Ready=true;
+</script></body></html>

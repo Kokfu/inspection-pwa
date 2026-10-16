@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
+import type { RepairFinding, RepairWorkOrder, RepairRecord, RepairAttachment, RepairBeforePhoto } from "../repairs/repairTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
@@ -46,7 +47,7 @@ export type DeviceAuthState = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal" | "repairEvidence" | "repairRecord";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -116,6 +117,11 @@ const localDatabase = new Dexie(name) as Dexie & {
   referenceData: EntityTable<ReferenceCacheEntry, "key">;
   authState: EntityTable<DeviceAuthState, "key">;
   inspectionAttachments: EntityTable<InspectionAttachmentRecord, "photoUuid">;
+  repairFindings: EntityTable<RepairFinding, "findingId">;
+  repairWorkOrders: EntityTable<RepairWorkOrder, "workOrderId">;
+  repairRecords: EntityTable<RepairRecord, "clientUuid">;
+  repairAttachments: EntityTable<RepairAttachment, "photoUuid">;
+  repairBeforePhotos: EntityTable<RepairBeforePhoto, "findingId">;
 };
 
 localDatabase.version(1).stores({
@@ -237,6 +243,16 @@ localDatabase.version(9).stores({
   referenceData: "key, version, fetchedAt, expiresAt",
   authState: "key",
   inspectionAttachments: "photoUuid, &[inspectionClientUuid+fieldPath], inspectionClientUuid, systemKey, syncStatus, localUpdatedAt, serverAttachmentId"
+});
+
+// Dexie retains every v9 store/index when an additive version declares only new stores.
+// No upgrade callback rewrites inspection data, queued payloads or Blobs.
+localDatabase.version(10).stores({
+  repairFindings: "findingId, [original.jobId+original.systemKey], fetchedAt",
+  repairWorkOrders: "workOrderId, [jobId+systemKey], assignedToUserId, status",
+  repairRecords: "clientUuid, findingId, workOrderId, [jobId+systemKey], syncStatus, localUpdatedAt",
+  repairAttachments: "photoUuid, &repairUuid, syncStatus",
+  repairBeforePhotos: "findingId, photoUuid, sourceFingerprint"
 });
 
 return localDatabase;

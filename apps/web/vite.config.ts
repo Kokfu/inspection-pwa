@@ -7,6 +7,15 @@ export default defineConfig(({ mode }) => {
   const buildIdentifier = loadEnv(mode, ".", "VITE_").VITE_APP_BUILD_ID || packageJson.version;
 
   return {
+    build: {
+      rollupOptions: {
+        output: {
+          // Keep the application and React below the per-file precache limit.
+          // Both chunks remain covered by the app-shell glob below.
+          manualChunks: { react: ["react", "react-dom", "react-dom/client"] }
+        }
+      }
+    },
     define: {
       __APP_BUILD_ID__: JSON.stringify(buildIdentifier)
     },

@@ -4,6 +4,7 @@ import { completeSectionRemark, parseSectionRemarkConfirmation, parseSectionRema
 import { outboxHasAutoSyncWork, type AutoSyncReason } from "./autoSync";
 import { readRefusalBody, syncRefusalMessage } from "./syncRefusal";
 import { syncPendingTechnicianCustomers, technicianCustomerSyncIdle } from "../jobs/technicianCustomerDraft";
+import { dispatchPendingRepairs, isRepairOperation, recoverInterruptedRepairs } from "../repairs/repairSync";
 import { locationProposalSyncIdle, syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
@@ -352,6 +353,7 @@ export async function pruneCompletedOutboxItems(now = Date.now()) {
 }
 
 export async function recoverInterruptedSync() {
+  await recoverInterruptedRepairs();
   const interruptedAt = new Date().toISOString();
   const syncingItems = await localDatabase.syncOutbox
     .where("status")
@@ -580,6 +582,7 @@ export async function syncPendingRecords(actorUserId?: number) {
     // reset it under that live request and lose its completion (found by I-03 auto-sync, I-19).
     await Promise.all([technicianCustomerSyncIdle(), locationProposalSyncIdle()]);
     await recoverInterruptedSync();
+    const repairs = await dispatchPendingRepairs();
 
     if (syncActorId !== undefined) await syncPendingTechnicianCustomers(syncActorId);
     if (syncActorId !== undefined) await syncPendingLocationProposals(syncActorId);
@@ -595,7 +598,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
+        !isRepairOperation(item) && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
@@ -608,7 +611,8 @@ export async function syncPendingRecords(actorUserId?: number) {
       const evidence = await syncPendingAttachments();
       return {
         started: true,
-        message: commonRemarks.attempted || sectionRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
+        message: repairs.confirmed || repairs.failed ? `Repair sync: ${repairs.confirmed} operations confirmed, ${repairs.failed} failed`
+          : commonRemarks.attempted || sectionRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
           ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${sectionRemarks.confirmed} section remarks confirmed, ${sectionRemarks.failed} section remarks failed, ${evidence.accepted} attachments confirmed`
           : "No pending records"
       };

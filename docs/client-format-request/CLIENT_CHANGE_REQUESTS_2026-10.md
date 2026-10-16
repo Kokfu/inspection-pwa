@@ -6,7 +6,7 @@
 > "Today" notes below come from a read-only look at the code on 2026-10-10 (branch `phase-8e-client-demo-polish`).
 > Treat them as pointers, not a finished design — re-inspect before changing code (see `AGENTS.md` workflow).
 
-## 0. STATUS BOARD (updated 2026-10-10 evening) — read this first
+## 0. STATUS BOARD (CR-09/10 updated 2026-10-12) — read this first
 
 **Branch** `phase-8e-client-demo-polish`. Commits so far (newest first): `d0c371a` CR-09 Phase A · `194550b` + `11570ea` CR-06 ·
 `ce5a5db` CR-08 · `101aa51` CR-03/04 · `d422ab4` CR-11 · `2874caa` CR-05.
@@ -18,16 +18,16 @@
 | CR-03/04 | Remove Departure; Arrival automatic | **Done, committed** | `101aa51` | not yet | Report-cover label / PDF check → see [FINAL_CHECKS](CLIENT_CHANGE_REQUESTS_FINAL_CHECKS.md) §A |
 | CR-06 | Form jumps to top | **Done, committed** (scroll restored after a network hand-over) | `11570ea`, `194550b` | **verified on phone** | Optional "option B" (keep the form mounted while re-verifying, Level 2) — **not needed now**; only if the client still complains about the keyboard closing |
 | CR-08 | Photo date/time stamp | **Done, committed** | `ce5a5db` | not yet | Phone retest steps in `docs/testing/CR08_PHOTO_WATERMARK.md` |
-| CR-09 | Remove Repair + Repair List | **Phase A done, committed** (Complete Repair hidden, recoverable). Phases B/C/D **planned, not built** | `d0c371a` (A) | — | Needs plan answers (§0.2) then 3 build phases. Migration **051** |
+| CR-09 | Remove Repair + Repair List | **Phase A done, committed** (Complete Repair hidden, recoverable). Owner decisions confirmed 2026-10-12; B/C/D **planned, not built** | `d0c371a` (A) | — | Start **B1**, then B2/B3/C1/C2; [plan](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md) + [prompts](../testing/CR09_CR10_REPAIR_BUILD_PROMPTS.md). Proposed migration **051**, recheck availability |
 | CR-07 | Per-section free-text remarks | **Phase 1 done, committed** (Automatic Sprinkler pilot; migration **049**) | `1f466b9` | not yet | Phone steps in `docs/testing/CR07_SECTION_REMARKS_P1.md`. Phase 2 = other systems + edit/delete. Owner question: keep the "Others" option in the Sprinkler form (kept for now) |
 | CR-02 | Manual site + Admin approval | **Phase 1 done (API + DB only; migration **050**)** — defaults D1–D7 applied | see git log | — | Web UI = Phase 2 (`NewServiceVisit.tsx`, Admin review screen, add `siteApproval` to `InspectionJob`). Report: `docs/testing/CR02_P1_SITE_PROPOSALS_API.md` |
 | CR-01 | Optional photo on Good / N.A. | **Phase 0+1 done, committed** (`31f18f4`): server contract for all 11 V7 systems + web pilot (CO2, Wet Chemical). Web rollout (committed 2026-10-11, real-stack browser check passed; phone-tested on 3 forms 2026-10-11, see below) to Fire Alarm, Hydrant, Hose Reel, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter, FM200 done 2026-10-11; **Automatic Sprinkler slot added 2026-10-11 (`127da11`, after the CR-07 commit; unit 497/497, specs pass, build OK; every V7 form now has the slot)**; **rollout phone-tested 2026-10-11 on a second phone** (Automatic Sprinkler, Hydrant, Fire Alarm: real camera, offline submit, sync, Final Report + approved PDF with all 4 photos; I-57 and I-58 logged as P3, not fixed) | `31f18f4` | **verified on phone 2026-10-10** (CO2: required + Good + N.A. photos offline -> sync -> Accepted Detail -> Final Report + PDF; Wet Chemical not retested on the phone) | No migration. Next: roll the web slot out system by system (same `OptionalPhotoSlot`); P0-FR1 (Dry/Wet Riser evidence missing from the Final Report) **fixed 2026-10-10** (committed) and verified on the phone (the riser's report lists its photo) |
-| CR-10 | Repair-only PDF | **Not planned yet** | — | — | After CR-09 Phase C. Plan-only prompt ready |
+| CR-10 | Repair-only PDF | **Planned, not built**; separate PDF with approved subset | — | — | Step **D**, after reviewed CR-09 Phase C; [plan/prompts](../testing/CR09_CR10_REPAIR_BUILD_PROMPTS.md) |
 
 ### 0.1 Order from here
 1. **CR-07 Phase 1** (migration 049) → 2. **CR-02** (050) → 3. **CR-01** (server contract, then pilot CO2/Wet Chemical, then the rest) →
 4. **CR-09 B → C** (051) → 5. **CR-10** → 6. second-pass checks ([FINAL_CHECKS](CLIENT_CHANGE_REQUESTS_FINAL_CHECKS.md)).
-**Migration numbers must be exactly 049 / 050 / 051 in that order** (three plans each proposed "049"; latest existing is 048).
+**Migration allocation:** 049 (CR-07) and 050 (CR-02) already exist; 051 is reserved for CR-09 Phase B, subject to a fresh availability check. Never renumber/edit applied migrations. CR-10 export history uses the next free forward number (provisionally 052); see the repair plan.
 
 ### 0.2 Decisions taken (defaults accepted unless you change them)
 - **CR-07:** one remark list per slot (drum/detector/device rows share it); the technician's global "Add to common remarks" is replaced by the
@@ -36,9 +36,12 @@
   report approval not blocked in v1; no name edit on approve; own pending sites not listed; "Add New Customer" unchanged).
 - **CR-01:** Good only gets the optional photo; a Poor→Good photo is kept with a Remove button; optional photos appear in the client PDF; accept the
   rollback caveat (deploy server first); Portable Fire Extinguisher out; raise the 250 manifest cap; fix the Dry/Wet Riser final-report bug (P0-FR1) first if still open.
-- **CR-09 B/C/D (to confirm before building B):** After photo required (one); one repair per finding; only the job's technician repairs, Admin read-only;
-  Repair List only (normal Final Report unchanged); a repair is independent of any visit. Technicians **cannot record repairs between Phase A and Phase C** —
-  hold Phase A out of the client release until Phase C ships.
+- **CR-09/10 (owner confirmed 2026-10-12; replaces earlier defaults):** After photo + repair remark required, one photo per part; repeat repairs allowed;
+  another assigned technician may repair; Technician nav + Admin/Manager review; approval **per part, grouped per service**; historical missing Before photo
+  explicitly labelled; administrative corrections require a reviewer eligibility decision; separate service-format PDF may contain an approved subset.
+  Original inspection and normal Final Report stay unchanged; repairs do not require a new visit. Build **B1 -> B2 -> B3 -> C1 -> C2 -> D** using
+  [the specification](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md) and [copyable prompts](../testing/CR09_CR10_REPAIR_BUILD_PROMPTS.md).
+  Technicians **cannot record repairs between Phase A and Phase C**; Phase C closes that release workflow gap.
 
 ### 0.3 Not CR work, still uncommitted in the tree (the older phone-fix batch — yours to commit)
 I-34/I-37/I-41/I-44/I-47/I-48 etc.: `app.css`, Roller Shutter form/setup prompt, `NewServiceVisit.tsx` (site hint), `referenceDataApi.ts` (incl. the one CR-11 "Tell your Admin" string),
@@ -199,11 +202,11 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
 - **Risks / notes:**
   - **Old accepted records may already contain `complete_repair`.** Read-only/accepted/PDF views must still render
     them; only *new entry* should disappear. Do not break historic template immutability.
-  - The server must stop (or keep tolerating) accepting `complete_repair` — decide and test explicitly.
+  - Phase A is UI-only: the server **keeps tolerating** `complete_repair` under the frozen contract. Preserve and test that compatibility in B/C/D.
   - Repair List is a new record type: Dexie store + Postgres tables + sync + attachments → **protected scope**,
     needs its own plan/brief (`.agents/skills/codex-task-brief/SKILL.md`). Split into phases:
     (a) disable Complete Repair safely, (b) Repair List data + sync, (c) Repair List UI + before/after, (d) CR-10.
-- **Open question → Q8.**
+- **Q8 resolved by owner 2026-10-12.** Repeat repairs, alternate assigned technician, per-part/service-group approval, historical missing Before photo, correction eligibility review and approved-subset PDF are specified in [the build plan](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md). B/C/D remain unbuilt.
 
 ### CR-10 — Repair form PDF (repair section only)
 - [ ] Done — Result: _
@@ -212,7 +215,7 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
   whole service report.
 - **Today:** Report PDF generated from `apps/api/src/reports/` using the approved HTML template
   (`docs/report-template/`). Depends on CR-09 data existing.
-- **Risks / notes:** Is it a separate PDF, or a section of the normal report that can be exported on its own? (Q8)
+- **Owner decision (2026-10-12):** Separate repair PDF, using service-visit appearance; only selected approved parts, even when other parts await approval. Original service PDF unchanged. Build as step D in [the plan](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md).
 
 ### CR-11 — Supervisor → Admin (name only)
 - [x] Done — Result: commit d422ab4, 2026-10-10 (wording only; one string in referenceDataApi.ts left for the I-44 batch)
@@ -244,7 +247,7 @@ Size: S = small, M = medium, L = large, XL = a project of its own.
 | Q5 | CR-06 | Which system(s)/form(s), which phone/browser, and does it happen after tapping Not Good specifically (remark/photo box appears)? | Reproduce with the technician on the phone first |
 | Q6 | CR-07 | Is a new remark private to that technician/device, shared per customer, or shared for everyone? Can it be edited/deleted later? | Shared per customer + section, add-only for now |
 | Q7 | CR-08 | Watermark text format (e.g. `10 Oct 2026 14:32`)? Add site/technician name? Stamp gallery photos too? | Date + time only, Malaysia time, camera **and** gallery |
-| Q8 | CR-09/10 | Repair List opened from where (new nav item for technician only?). Is the repair photo "after" required? Repair PDF: separate file or exportable section? | Technician nav item; "after" photo required; separate PDF |
+| Q8 | CR-09/10 | **Closed 2026-10-12 by owner.** Technician nav + Admin/Manager review; required After photo/remark, one photo per part; repeat repairs and another assigned technician allowed; approval per part within service; historical missing Before photo labelled; corrections require review; approved-subset PDF allowed. | Separate service-format repair PDF; [build plan](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md) |
 | Q9 | CR-11 | ~~Existing Admin (Manager card) vs Supervisor~~ **Closed 2026-10-10:** label-only rename; Admin still signs in via the Manager card. | — |
 
 ---

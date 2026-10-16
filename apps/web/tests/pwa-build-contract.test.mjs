@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
 const dist = path.resolve("dist");
 const file = (name) => path.join(dist, name);
+
+test("every production JavaScript chunk fits the default limit and is precached", () => {
+  const serviceWorker = readFileSync(file("sw.js"), "utf8");
+  const chunks = readdirSync(file("assets")).filter(name => name.endsWith(".js"));
+  assert.ok(chunks.length > 1, "application dependencies must be split into precached chunks");
+  for (const chunk of chunks) {
+    assert.ok(statSync(file(`assets/${chunk}`)).size <= 2 * 1024 * 1024, `${chunk} exceeds the default Workbox limit`);
+    assert.ok(serviceWorker.includes(`assets/${chunk}`), `${chunk} is absent from the precache manifest`);
+  }
+});
 
 test("production build uses explicit prompt registration and preserves the offline shell", () => {
   assert.equal(existsSync(file("index.html")), true, "missing production index.html");

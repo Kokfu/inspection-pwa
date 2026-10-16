@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>C2 production App browser harness</title></head>
+<body><div id="root"></div><script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {App} from '/src/App.tsx';
+import * as db from '/src/db/localDatabase.ts';
+import * as review from '/src/repairs/repairReviewRepository.ts';
+import '/src/styles/app.css';
+window.c2={db,review};
+createRoot(document.getElementById('root')).render(React.createElement(React.StrictMode, null, React.createElement(App)));
+window.c2Ready=true;
+</script></body></html>

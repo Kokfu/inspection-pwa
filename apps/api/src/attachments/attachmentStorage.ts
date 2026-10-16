@@ -242,15 +242,23 @@ export async function reconcileAttachmentStorage() {
 
   const rows = await pool.query<{
     storage_relative_path: string;
-    stored_size_bytes: number;
+    stored_size_bytes: unknown;
     stored_sha256: string;
   }>(
-    `SELECT storage_relative_path, stored_size_bytes, stored_sha256
-       FROM inspection_attachments`
+    // Fire Alarm V6 and V7 evidence photos live in staged_inspection_evidence,
+    // in the same uploads/inspections tree, and back accepted Final Reports.
+    `SELECT storage_relative_path, to_jsonb(stored_size_bytes) AS stored_size_bytes, stored_sha256::text AS stored_sha256
+       FROM inspection_attachments
+     UNION
+     SELECT storage_relative_path, to_jsonb(stored_size_bytes), stored_sha256::text
+       FROM staged_inspection_evidence
+     UNION
+     SELECT storage_relative_path, metadata->'storedSizeBytes', stored_sha256::text
+       FROM staged_repair_evidence`
   );
   const expected = new Set(rows.rows.map((row) => row.storage_relative_path));
   const inspectionRoot = path.join(uploadsRoot, "inspections");
-  const storedFiles = await walkFiles(inspectionRoot);
+  const storedFiles = [...await walkFiles(inspectionRoot), ...await walkFiles(path.join(uploadsRoot, "repairs"))];
   const orphanFiles = storedFiles
     .map((file) => path.relative(uploadsRoot, file).split(path.sep).join("/"))
     .filter((relativePath) => !expected.has(relativePath));
@@ -258,6 +266,12 @@ export async function reconcileAttachmentStorage() {
   const wrongSizeFiles: string[] = [];
   const wrongHashFiles: string[] = [];
   for (const row of rows.rows) {
+    // Malformed repair JSON must be diagnosed per row, never abort startup's reconciliation.
+    if (typeof row.stored_size_bytes !== "number" || !Number.isSafeInteger(row.stored_size_bytes)
+      || row.stored_size_bytes <= 0 || row.stored_size_bytes > attachmentMaxBytes) {
+      wrongSizeFiles.push(row.storage_relative_path);
+      continue;
+    }
     const integrity = await verifyAttachmentFile({
       storageRelativePath: row.storage_relative_path,
       storedSizeBytes: row.stored_size_bytes,

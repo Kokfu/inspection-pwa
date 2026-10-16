@@ -8,6 +8,25 @@ import { headerSyncSummary } from "../src/sync/headerSyncSummary.js";
 
 const none = { inspectionStatuses: [], attachmentStatuses: [], proposalStatuses: [] } as const;
 
+test("unread repair state cannot claim all synced; known work keeps its existing priority", () => {
+  assert.deepEqual(headerSyncSummary({ ...none, repairStatuses: ["Loading"] }), { text: "Checking submitted changes…", needsAttention: false, running: false });
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: [] }).text, "All submitted changes synced");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Loading"], inspectionStatuses: ["Pending"] }).text, "1 inspection waiting to sync");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Loading"], proposalStatuses: ["Syncing"] }).text, "Syncing…");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Loading"], attachmentStatuses: ["Failed"] }).text, "Sync needs attention");
+});
+
+test("repair summaries include waiting, running and attention without counting drafts", () => {
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Draft", "Synced"] }).text, "All submitted changes synced");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Pending"] }).text, "1 repair waiting to sync");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Pending", "Pending"] }).text, "2 repairs waiting to sync");
+  assert.equal(headerSyncSummary({ ...none, repairStatuses: ["Syncing"] }).text, "Syncing…");
+  for (const status of ["Failed", "Conflict"]) {
+    assert.deepEqual(headerSyncSummary({ ...none, repairStatuses: [status, "Syncing"] }), { text: "Sync needs attention", needsAttention: true, running: true });
+  }
+  assert.equal(headerSyncSummary({ ...none, inspectionStatuses: ["Pending"], proposalStatuses: ["Pending"], repairStatuses: ["Pending"] }).text, "1 inspection and 1 location proposal and 1 repair waiting to sync");
+});
+
 test("L-5: no unsynced work of any kind keeps the synced message", () => {
   assert.deepEqual(headerSyncSummary(none), { text: "All submitted changes synced", needsAttention: false, running: false });
   assert.equal(headerSyncSummary({ ...none, inspectionStatuses: ["Draft", "Synced"], proposalStatuses: [] }).text, "All submitted changes synced");

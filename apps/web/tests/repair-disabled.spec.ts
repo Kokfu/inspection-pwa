@@ -6,7 +6,15 @@ for (const system of systems) {
     await page.waitForFunction(() => typeof (window as any).openSystem === "function");
     expect(await page.evaluate((key) => (window as any).openSystem(key), system)).toBe(true);
     const start = page.getByRole("button", { name: "Start Inspection" });
-    if (await start.count()) { if (await page.getByLabel("Locations in each zone").count()) await page.getByLabel("Locations in each zone").fill("2"); await start.click(); }
+    // A fresh Hose Reel fixture requires row setup. Startup reconciliation can
+    // briefly unmount it; an immediate count must not skip this required step.
+    if (system === "hose_reel") {
+      await expect(start).toBeVisible();
+      await start.click();
+    } else if (await start.count()) {
+      if (await page.getByLabel("Locations in each zone").count()) await page.getByLabel("Locations in each zone").fill("2");
+      await start.click();
+    }
     await expect(page.getByRole("button", { name: "Save Draft", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Complete Repair", exact: true })).toHaveCount(0);
     await expect(page.locator('option[value="complete_repair"]')).toHaveCount(0);
@@ -26,8 +34,11 @@ for (const system of systems) {
     expect(await saved()).toBe("complete_repair");
     await page.context().setOffline(true);
     const retired = page.getByText("Complete Repair (no longer selectable)", {exact:true});
+    // Offline reconciliation can briefly unmount the ordinary form. Do not
+    // infer its control type from an immediate count during that transition.
+    await expect(retired).toBeVisible();
     const group = retired.locator('xpath=..');
-    if (await group.locator("select").count()) await group.locator("select").selectOption("good");
+    if (system === "fire_alarm_detector") await group.locator("select").selectOption("good");
     else await group.getByRole("button", {name:"Good",exact:true}).click();
     await page.getByRole("button", {name:"Save Draft",exact:true}).click();
     await expect.poll(saved).toBe("good");

@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>B3 data harness</title></head>
+<body><label>Repair remark <textarea id="remark"></textarea></label><input id="photo" type="file" accept="image/*"><button id="save">Save local</button><button id="submit">Submit local</button><output id="result"></output>
+<script type="module">
+import * as db from '/src/db/localDatabase.ts';
+import * as repo from '/src/repairs/repairRepository.ts';
+import * as contract from '/src/repairs/repairContract.ts';
+import * as sync from '/src/sync/syncEngine.ts';
+window.b3={db,repo,contract,sync};
+const selected=()=>sessionStorage.getItem('b3-selected');
+const result=document.querySelector('#result');
+document.querySelector('#save').onclick=async()=>{try{await repo.saveRepairDraft(selected(),document.querySelector('#remark').value,'2026-10-13T01:02:03.123Z');result.textContent='saved';}catch(e){result.textContent=e.message;}};
+document.querySelector('#photo').onchange=async(e)=>{try{await repo.captureRepairPhoto(selected(),e.target.files[0],'gallery');result.textContent='captured';}catch(e){result.textContent=e.message;}};
+document.querySelector('#submit').onclick=async()=>{try{await repo.submitRepairLocal(selected());result.textContent='submitted';}catch(e){result.textContent=e.message;}};
+await navigator.serviceWorker.register('/tests/repair-b3-worker.js');
+await navigator.serviceWorker.ready;
+window.b3Ready=true;
+</script></body></html>

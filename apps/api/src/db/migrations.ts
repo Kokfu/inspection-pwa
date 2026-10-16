@@ -651,6 +651,18 @@ export async function runMigrations(
   if (!customerSiteProposals.rows[0]?.exists) {
     await database.query(await readFile(customerSiteProposalsMigrationUrl, "utf8"));
   }
+  const repairFoundation = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.repair_findings') IS NOT NULL AS exists`
+  );
+  if (!repairFoundation.rows[0]?.exists) {
+    await database.query(await readFile(new URL("../../migrations/051_repair_foundation.sql", import.meta.url), "utf8"));
+  }
+  const repairExports = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.repair_exports') IS NOT NULL AS exists`
+  );
+  if (!repairExports.rows[0]?.exists) {
+    await database.query(await readFile(new URL("../../migrations/052_repair_exports.sql", import.meta.url), "utf8"));
+  }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

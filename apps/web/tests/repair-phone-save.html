@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Isolated repair save harness</title></head>
+<body><div id="root"></div><script type="module">
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import Dexie, {liveQuery} from 'dexie';
+import * as db from '/src/db/localDatabase.ts';
+import * as repo from '/src/repairs/repairRepository.ts';
+import {repairStorageTransaction} from '/src/repairs/repairStorageTransaction.ts';
+import {RepairEditor} from '/src/repairs/RepairPartView.tsx';
+import {waitForWorkspaceIdle} from '/src/db/workspaceActivity.ts';
+import '/src/styles/app.css';
+const root=createRoot(document.getElementById('root'));
+window.phoneSave={db,repo,Dexie,repairStorageTransaction,waitForWorkspaceIdle,dirty:false,unmount:()=>root.unmount(),mount(uuid){
+ function Editor(){const [snapshot,setSnapshot]=React.useState();React.useEffect(()=>{
+   const workspace=db.localDatabase;
+   const sub=liveQuery(async()=>{const record=await workspace.repairRecords.get(uuid);return {record,photo:record.photoUuid?await workspace.repairAttachments.get(record.photoUuid):undefined};}).subscribe(setSnapshot);
+   return ()=>sub.unsubscribe();
+ },[]);return snapshot?React.createElement(RepairEditor,{...snapshot,onDirty:(_,dirty)=>{window.phoneSave.dirty=dirty;}}):null;}
+ root.render(React.createElement(React.StrictMode,null,React.createElement(Editor)));
+}};
+window.phoneSaveReady=true;
+</script></body></html>

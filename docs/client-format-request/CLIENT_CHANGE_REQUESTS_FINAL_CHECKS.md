@@ -71,9 +71,19 @@ The API, DB columns and report code were **not** changed.
 - [ ] Generated PDFs created before the change still say "Reviewed by Supervisor" (not rewritten). Confirm the client accepts.
 
 ## E. CR-09 / CR-10 — Repair (when built)
+Specification and step gates: [REPAIR_BUILD_PLAN](../testing/CR09_CR10_REPAIR_BUILD_PLAN.md). Owner decisions confirmed 2026-10-12; B/C/D are not built yet.
+
 - [ ] Old accepted records containing Complete Repair still render in accepted detail and the PDF.
 - [ ] Phones running an old app build can still offer Complete Repair until the service worker updates; the server
   must keep accepting it.
+- [ ] Technician Repair List records only selected failed parts, with one After photo and a remark per part; offline capture/save/Submit survives actual phone force-close/reopen at the Level 3 checkpoint.
+- [ ] Manager assigns another technician a service repair; that technician can read the required Before data and submit, while unassigned technicians cannot.
+- [ ] Different parts of one service are independently approved/rejected by Admin/Manager; synchronization alone does not mean approval.
+- [ ] A previously approved finding can receive another repair cycle with new UUIDs; original Before and earlier repair/photo/decision history remain unchanged.
+- [ ] Historical legitimate missing Before photo is labelled; missing/corrupt required V7 evidence fails closed.
+- [ ] Source administrative correction requires explicit repair eligibility review; original Before is preserved and stale review actions are refused.
+- [ ] Separate service-format PDF exports only the selected approved subset, embeds Before/After image bytes, and preserves export identity/history. Pending parts need not block it.
+- [ ] Ordinary service Report/PDF/completion/approval remains unchanged; repair upload files survive restart and reconciliation.
 
 ---
 

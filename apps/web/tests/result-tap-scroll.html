@@ -5,7 +5,8 @@ import * as React from "react";
 import * as ReactDomClient from "react-dom/client";
 import "/src/styles/app.css";
 import { App } from "/src/App.tsx";
-import { localDatabase } from "/src/db/localDatabase.ts";
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import { cacheCanonicalInspectionJob } from "/src/referenceData/referenceDataCache.ts";
 import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
 import { masterServiceReportV5 } from "../../api/src/inspections/templates/masterServiceReportV5.ts";
 import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
@@ -91,11 +92,11 @@ window.openSystem = async (systemKey) => {
     catalog.template = catalog.templates[0];
     currentJob = job;
     await storeVerifiedIdentity(user);
-    root = ReactDomClient.createRoot(mount); root.render(React.createElement(App));
-    await waitFor(() => [...mount.querySelectorAll("button")].some((b) => b.textContent.startsWith("Technician")), "Technician role button");
-    [...mount.querySelectorAll("button")].find((b) => b.textContent.startsWith("Technician")).click();
-    await waitFor(() => localDatabase.name === `inspection-pwa:user:${user.id}`, "user workspace");
+    // Seed the user's workspace before App restores it. Seeding after mount
+    // races startup reads and can replace the form's initial responses.
+    await activateUserWorkspace(user.id);
     await Promise.all([localDatabase.masterSystemInspections.clear(), localDatabase.masterSystemFormInstances.clear(), localDatabase.masterSystemInspectionGroups.clear(), localDatabase.syncOutbox.clear()]);
+    await cacheCanonicalInspectionJob(user.id, job);
     const creator = creators[systemKey];
     let record;
     if (creator.group) { const { instances } = await creator.group(job, system, catalog, user); record = instances[0]; }
@@ -109,10 +110,15 @@ window.openSystem = async (systemKey) => {
         }
       };
       window.__repairPath = setFirst(record.responses);
+      if (!window.__repairPath) throw new Error("No result field found for retired-draft fixture");
       for (const table of [localDatabase.masterSystemInspections, localDatabase.masterSystemFormInstances]) {
         if (await table.get(record.clientUuid)) await table.update(record.clientUuid, { responses: record.responses });
       }
     }
+    root = ReactDomClient.createRoot(mount); root.render(React.createElement(App));
+    await waitFor(() => [...mount.querySelectorAll("button")].some((b) => b.textContent.startsWith("Technician")), "Technician role button");
+    [...mount.querySelectorAll("button")].find((b) => b.textContent.startsWith("Technician")).click();
+    await waitFor(() => mount.querySelector(".app-account-name")?.textContent === user.username, "restored technician workspace");
     window.location.hash = creator.route(record);
     await waitFor(() => [...mount.querySelectorAll("button")].some((b) => b.textContent.trim() === "Save Draft") || mount.querySelector(".result-option, .result-options") || [...mount.querySelectorAll("button")].some((b) => b.textContent.trim() === "Start Inspection"), "form to render");
     window.__clientUuid = record.clientUuid;

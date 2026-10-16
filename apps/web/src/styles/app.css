@@ -101,6 +101,43 @@ body {
   margin: 0;
 }
 
+/* CR-09 C1: scoped repair screens; ordinary inspection/report styles unchanged. */
+.repair-page { width: 100%; max-width: var(--page-width); min-width: 0; overflow-wrap: anywhere; }
+.repair-page header { margin-bottom: var(--space-5); }
+.repair-page h3, .repair-page h4, .repair-page h5 { margin-block: var(--space-3); text-wrap: pretty; }
+.repair-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.repair-page button, .repair-link, .repair-photo-link, .repair-page summary, .repair-part h4 a { min-height: var(--tap); min-width: var(--tap); touch-action: manipulation; }
+.repair-link, .repair-part h4 a { display: inline-flex; align-items: center; padding: var(--space-2); color: var(--brand-dark); }
+.repair-link { border: 1px solid var(--border-strong); border-radius: var(--radius-xs); }
+.repair-page :is(a, button, textarea, summary):focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }
+.repair-group { margin-block: var(--space-5); }
+.repair-service-card, .repair-part { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface); margin-block: var(--space-3); min-width: 0; }
+.repair-comparison { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin-block: var(--space-4); }
+.repair-before, .repair-after { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.repair-before { background: var(--surface-sunken); color: var(--ink); }
+.repair-remark { white-space: pre-wrap; overflow-wrap: anywhere; }
+.repair-photo-link { display: block; margin-block: var(--space-3); }
+.repair-photo-link img { display: block; width: 100%; height: auto; max-height: var(--customer-form-width); object-fit: contain; border-radius: var(--radius-xs); }
+.repair-after label { display: block; margin-bottom: var(--space-2); font-weight: 600; }
+.repair-after textarea { font-size: var(--text-base); }
+.repair-file { display: none; }
+.repair-history { margin-top: var(--space-4); }
+.repair-history summary { display: list-item; cursor: pointer; padding: var(--space-2); color: var(--brand-dark); }
+.repair-history-item { border-top: 1px solid var(--border); padding-block: var(--space-3); }
+.repair-save-actions { padding-bottom: env(safe-area-inset-bottom); }
+/* C2 online review forms reuse the C1 comparison and project form tokens. */
+.repair-review-page label { display: block; margin-block: var(--space-2); }
+.repair-review-page :is(textarea, select) { width: 100%; min-width: 0; min-height: var(--tap); font-size: var(--text-base); }
+.repair-review-page :is(select, textarea):focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }
+.repair-review-page .action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+@media (min-width: 768px) {
+  .repair-comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .repair-service-card, .repair-part { padding: var(--space-5); }
+}
+@media (hover: hover) {
+  .repair-link:hover, .repair-part h4 a:hover { background: var(--brand-soft); }
+}
+
 button {
   min-height: 44px;
   border: 0;
@@ -1624,6 +1661,15 @@ a, button, summary, input, select, textarea, label, [role="button"], [role="tab"
 .section-remark-note { margin: 0; color: var(--ink); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .section-remark-actions { display: grid; gap: var(--space-2); }
 .common-remarks-picker .section-remark-actions button { justify-self: stretch; width: 100%; min-height: var(--tap); }
+
+/* D: explicit cycle selection and contained landscape report preview. */
+.repair-export { overflow-wrap: anywhere; min-width: 0; }
+.repair-export fieldset { min-width: 0; margin-block: var(--space-4); }
+.repair-export-choice { display: flex; align-items: center; gap: var(--space-2); min-height: var(--tap); padding: var(--space-2); margin-block: var(--space-2); cursor: pointer; }
+.repair-export-choice input { width: var(--tap); height: var(--tap); flex-shrink: 0; }
+.repair-export-choice span { min-width: 0; }
+.repair-export-preview { width: 100%; height: calc(var(--tap) * 12); border: 1px solid var(--border); margin-block: var(--space-4); }
+.repair-export button { min-height: var(--tap); min-width: var(--tap); }
 @media (min-width: 521px) {
   .section-remark-actions { grid-template-columns: repeat(2, max-content); }
   .common-remarks-picker .section-remark-actions button { width: auto; }
@@ -1636,4 +1682,35 @@ a, button, summary, input, select, textarea, label, [role="button"], [role="tab"
 .optional-photo-slot__remove { width: 100%; min-height: var(--tap); }
 @media (min-width: 521px) {
   .optional-photo-slot__remove { width: auto; justify-self: start; }
+}
+
+/* Technician self-service repairs: Not Done, filter and the offline comparison sheet. */
+.repair-filter { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--tap); }
+.repair-filter input { width: 22px; height: 22px; }
+.repair-not-done { padding: var(--space-3); border-left: 4px solid var(--border-strong); background: var(--surface-sunken); }
+.repair-not-done-form textarea { width: 100%; min-width: 0; font-size: var(--text-base); }
+.repair-visit { margin-block: var(--space-2); font-weight: 600; }
+.repair-compare-controls { margin-bottom: var(--space-4); }
+.repair-compare-select { list-style: none; padding: 0; margin: 0; }
+.repair-compare-select label { display: flex; align-items: center; gap: var(--space-2); min-height: var(--tap); }
+.repair-compare-part { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); margin-block: var(--space-3); min-width: 0; background: var(--surface); }
+.repair-compare-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+.repair-compare-photo { display: block; width: 100%; height: auto; max-height: 320px; object-fit: contain; }
+.repair-badge { display: inline-block; padding: 2px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-weight: 700; }
+@media (min-width: 768px) {
+  .repair-compare-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body.print-repair-compare .app-header,
+  body.print-repair-compare .app-sidebar,
+  body.print-repair-compare .app-mobile-navigation,
+  body.print-repair-compare .no-print,
+  body.print-repair-compare .status-panel,
+  body.print-repair-compare button { display: none !important; }
+  body.print-repair-compare, body.print-repair-compare .app-shell, body.print-repair-compare .app-shell-split, body.print-repair-compare .app-shell-content { display: block; background: #fff; color: #000; }
+  body.print-repair-compare .repair-compare-part { page-break-inside: avoid; break-inside: avoid; border: 1px solid #000; box-shadow: none; }
+  body.print-repair-compare .repair-compare-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.print-repair-compare .repair-compare-photo, body.print-repair-compare .repair-photo-link img { max-height: 200px; }
+  body.print-repair-compare .repair-badge { border: 1px solid #000; }
 }

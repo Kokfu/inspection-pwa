@@ -88,6 +88,30 @@ function validResponses(responses: Value, controls: ReturnType<typeof resolveFir
   return true;
 }
 
+/** Reuse the full acceptance validator for repair reads, including the independent detector controls. */
+export function validateFireAlarmV7AcceptedResponses(responses: unknown, definition: unknown) {
+  if (!record(responses)) return false;
+  try {
+    const controls=resolveFireAlarmV6Controls(definition,7);
+    const legacy=controls.chargerAndBatteries.some(field=>field.result.options.some(option=>option.value==="poor"));
+    if (!legacy) return validResponses(responses,controls);
+    // Only the registry-recognized pre-refinement contract has scalar detector states.
+    // Adapt a validation-only copy; never rewrite the frozen accepted response.
+    if (!Array.isArray(responses.primaryDeviceRows)) return false;
+    const primaryDeviceRows=[];
+    for (const row of responses.primaryDeviceRows) {
+      if (!record(row)) return false;
+      const converted={...row};
+      for (const key of ["manualCallPoint","flowSwitch","heatDetector","smokeDetector"]) {
+        if (typeof row[key]!=="string" || !deviceStates.includes(row[key] as typeof deviceStates[number])) return false;
+        converted[key]=[row[key]];
+      }
+      primaryDeviceRows.push(converted);
+    }
+    return validResponses({...responses,primaryDeviceRows},controls);
+  } catch { return false; }
+}
+
 export function isFireAlarmV7Payload(item: SyncItem) { return record(item.payload) && record(item.payload.masterTemplate) && item.payload.masterTemplate.version === 7; }
 
 export async function acceptFireAlarmV7Inspection(item: SyncItem, actorUserId?: number): Promise<SyncResult> {
