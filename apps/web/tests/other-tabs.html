@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Other tabs presence</title></head>
+  <body>
+    <pre id="result">Waiting</pre>
+    <script type="module">
+      import { startTabPresence } from "/src/pwa/otherTabs.ts";
+      window.presence = startTabPresence(navigator.locks, crypto.randomUUID());
+      window.otherTabs = () => window.presence.readOtherTabs();
+      window.tabsReady = true;
+      document.querySelector("#result").textContent = "ready";
+    </script>
+  </body>
+</html>

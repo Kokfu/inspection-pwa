@@ -217,6 +217,8 @@ import { headerConnectionChip, useBrowserOnline } from "./pwa/browserOnline";
 import { useServerUnreachable } from "./jobs/serverHealth";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
+import { OtherTabsNotice } from "./pwa/OtherTabsNotice";
+import { useOtherTabCount } from "./pwa/useOtherTabs";
 import { AutosaveStatusLine } from "./inspectionControls/AutosaveStatusLine";
 import { isRouteRefresh, mergeResolvedRecord, routeRefreshKey } from "./jobs/routeRefresh";
 import { isSafeForAppUpdate } from "./pwa/updateRoutePolicy";
@@ -390,6 +392,7 @@ export function App() {
   const [roleMessage, setRoleMessage] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
+  const otherTabs = useOtherTabCount();
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
   // T5: the accepted records of the visit on screen, for review and correction.
@@ -2344,6 +2347,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         safeToUpdate={safeToUpdate}
         onUpdate={pwaUpdate.requestUpdate}
       />
+
+      <OtherTabsNotice otherTabs={otherTabs} />
 
       <AutosaveStatusLine />
 
