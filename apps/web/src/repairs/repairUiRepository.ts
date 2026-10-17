@@ -150,7 +150,7 @@ export const reviewLabel = (state: string) => ({ unsubmitted: "Not submitted to 
 export function repairRecovery(code: string) {
   if (code === "REPAIR_LOCAL_STORAGE_OUTCOME_UNKNOWN") return "Device storage completion could not be confirmed. This work may already be saved; rollback is not confirmed. Keep this form open and retry the available local action to confirm current work. Internet is not required.";
   if (code === "REPAIR_PHOTO_VERIFICATION_TIMEOUT") return "Stored photo verification took too long. Your committed remark and photo are retained. Retry Submit Locally on this device; internet is not required.";
-  if (code === "REPAIR_LOCAL_STORAGE_TIMEOUT") return "Device storage took too long. Keep this form open and retry Save Draft. Your visible edits are not confirmed saved; previous saved work and photos are retained. Internet is not required.";
+  if (code === "REPAIR_LOCAL_STORAGE_TIMEOUT") return "Device storage took too long. Keep this form open and retry. If it keeps failing, another open Inspection tab may be holding device storage: close the other tabs or restart the browser, then retry. Your visible edits are not confirmed saved; previous saved work and photos are retained. Internet is not required.";
   if (/AUTH|IDENTITY|401|403|FORBIDDEN/.test(code)) return "Verify Sign-in, then refresh authority and retry Sync. Your local work and photos are retained.";
   if (/SOURCE|ELIGIBILITY/.test(code)) return "Ask Admin or Manager to review the source eligibility. Refresh authority, then retry the exact submission. Local work is retained.";
   if (/ORDER|ASSIGN|NOT_FOUND/.test(code)) return "Ask Manager to confirm or restore your repair assignment. Refresh authority and retry Sync. Local work is retained.";
