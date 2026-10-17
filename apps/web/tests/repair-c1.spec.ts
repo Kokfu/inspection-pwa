@@ -236,7 +236,7 @@ test("C1 source Needs Review and revoked/expired cache still allow independent o
   const snapshot = await page.evaluate(() => (window as any).c1.db.localDatabase.syncOutbox.toArray()); expect(snapshot.filter(o => o.entityType.startsWith("repair"))).toHaveLength(2);
 });
 
-test("C1 cached revoked order blocks new drafts and Start Repairs but existing draft stays editable offline", async ({ page, context }) => {
+test("C1 cached revoked order blocks new drafts but existing draft stays editable offline; Start Repairs stays available to ask the server", async ({ page, context }) => {
   const s = fixture(); await boot(page, s); await open(page, s);
   // Active order: unchanged behavior, Start Repair offered, Start Repairs hidden.
   await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toHaveCount(0);
@@ -248,7 +248,7 @@ test("C1 cached revoked order blocks new drafts and Start Repairs but existing d
   await expect(page.getByRole("button", { name: "Start Repair", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start Another Repair", exact: true })).toHaveCount(0);
   await expect(part(page, 1).getByRole("button", { name: "Not Done", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toHaveCount(1);
   // Existing local draft stays editable and Save Draft works.
   await part(page).getByLabel("Repair Remark (Required)").fill("Edited after revoke");
   await part(page).getByRole("button", { name: "Save Draft" }).click();
@@ -259,7 +259,7 @@ test("C1 cached revoked order blocks new drafts and Start Repairs but existing d
   await expect(page.getByRole("alert").filter({ hasText: "Ask Manager to restore access" })).toBeVisible();
   await expect(part(page).getByLabel("Repair Remark (Required)")).toHaveValue("Edited after revoke");
   await expect(page.getByRole("button", { name: "Start Repair", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toHaveCount(1);
 });
 
 test("C1 list authority adapter rejects malformed lists and suppresses old in-flight replacement", async ({ page }) => {
@@ -688,4 +688,30 @@ test("Self-service: comparison sheet renders from IndexedDB with the network blo
   expect(await a.evaluate(el => getComputedStyle(el).breakInside)).toBe("avoid");
   await page.emulateMedia({ media: "screen" });
   expect(requests).toEqual([]);
+});
+
+test("Self-service: a technician whose order was only reassigned away can start repairs again; a truly revoked one is refused by the server", async ({ page }) => {
+  const s = fixture(); await boot(page, s); await open(page, s);
+  await start(page, 0);
+  s.workOrders.length = 0; // the server no longer lists the order for this technician
+  await page.getByRole("button", { name: "Refresh Authority", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Ask Manager to restore access" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Repair", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Repairs", exact: true })).toBeEnabled();
+  // First the server refuses (a real revocation): the technician is told to ask the Manager and nothing is created.
+  let revoked = true; const requests: any[] = [];
+  await fixtureRoute(page, "**/api/repairs/work-orders/self-start", async r => {
+    const b = r.request().postDataJSON(); requests.push(b);
+    if (revoked) return r.fulfill({ status: 403, json: { error: "WORK_ORDER_REVOKED" } });
+    s.workOrders.push({ workOrderId: b.workOrderId, jobId: s.jobId, systemKey: s.systemKey, assignedToUserId: 71, revision: 1, status: "active" });
+    await r.fulfill({ json: { ...b, requestFingerprint: fingerprint({ actorId: 71, mode: "self", ...b }), assignedToUserId: 71, revision: 1, status: "active" } });
+  });
+  await page.getByRole("button", { name: "Start Repairs", exact: true }).click();
+  await expect(page.locator(".repair-page")).toContainText("WORK_ORDER_REVOKED");
+  await expect(page.getByRole("button", { name: "Start Repair", exact: true })).toHaveCount(0);
+  // Then it was only a reassignment: the server accepts, the same persisted request is reused, and drafting works again.
+  revoked = false;
+  await page.getByRole("button", { name: "Start Repairs", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Start Repair", exact: true }).first()).toBeVisible();
+  expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]);
 });

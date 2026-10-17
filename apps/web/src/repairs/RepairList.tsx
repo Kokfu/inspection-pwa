@@ -121,12 +121,12 @@ export function RepairList({ actorId, canUseServer, suspended = false, jobId, sy
           <p>{selected ? `${selected.sourceJob.reference} · ${selected.systemLabel} · ${selected.site?.displayName ?? "No site label"}` : "Reconnect and refresh this service to download its authorized findings."}</p>
           <div className="repair-actions">
             <button type="button" disabled={busy} onClick={() => void run(() => downloadRepairService(jobId, systemKey, true), "Service authority and original Before photos downloaded. Local work is retained.")}>Download for Offline</button>
-            {!activeOrder && !revokedOrder ? <button type="button" disabled={busy} onClick={() => void run(() => prepareOwnRepairService(jobId, systemKey), "Repairs started for you. You can now repair parts offline.")}>Start Repairs</button> : null}
+            {!activeOrder ? <button type="button" disabled={busy} onClick={() => void run(() => prepareOwnRepairService(jobId, systemKey), "Repairs started for you. You can now repair parts offline.")}>Start Repairs</button> : null}
             {serviceFindings.length ? <a className="repair-link" href={repairCompareHref(jobId, systemKey)}>Before / After Comparison (Print / PDF)</a> : null}
           </div>
           {activeOrder || revokedOrder ? (o => <p>Work order assigned to Technician #{o.assignedToUserId}: {o.status}, revision {o.revision}. Cached {o.fetchedAt ? formatClientDateTime(o.fetchedAt) : "date unavailable"}.</p>)((activeOrder ?? revokedOrder)!)
             : <p>Start Repairs once while online to take this service for yourself. A Manager may still assign it to you instead. Starting cannot be done offline.</p>}
-          {revokedOrder ?<p role="alert">Cached assignment is revoked. Ask Manager to restore access, then refresh and retry Sync. Local work remains editable.</p> : null}
+          {revokedOrder ?<p role="alert">Cached assignment is revoked. Ask Manager to restore access, then refresh and retry Sync. If it was only reassigned, Start Repairs takes the service back for you. Local work remains editable.</p> : null}
           {serviceFindings.length && !findingId ? <div className="repair-actions"><label className="repair-filter"><input type="checkbox" checked={showCompleted} onChange={e => setShowCompleted(e.target.checked)} /> Show completed</label>
             <span role="status">Open parts: {openCount} of {serviceFindings.length}{showCompleted ? "" : "; approved and awaiting-approval parts are hidden"}.</span></div> : null}
           {!serviceFindings.length ? <p>{findingId ? "This failed part is not downloaded or no longer authorized. Refresh authority; retained work is not deleted." : "No failed parts downloaded for this service."}</p> : !findings.length ? <p>All parts are repaired and awaiting or past approval. Turn on Show completed to review them.</p> : null}
