@@ -7,6 +7,7 @@ import { formatClientDateTime } from "../uiPresentation";
 import { captureRepairPhoto, errorMessage, repairBeforePhotoState, saveRepairDraft, submitRepairLocal, verifyRepairBlob } from "./repairRepository";
 import { readHistoryAfter, repairRecovery, reviewLabel } from "./repairUiRepository";
 import type { RepairAttachment, RepairFinding, RepairHistory, RepairRecord } from "./repairTypes";
+const SYNCED_MESSAGE = "Synced with the server. The content and photo are immutable.";
 
 export function RepairPhoto({ blob, alt }: { blob: Blob; alt: string }) {
   const [url, setUrl] = useState("");
@@ -52,12 +53,16 @@ export function LocalAfter({ photo }: { photo?: RepairAttachment }) {
 
 export function RepairEditor({ record, photo, onDirty, suspended = false }: { record: RepairRecord; photo?: RepairAttachment; onDirty: (clientUuid: string, dirty: boolean) => void; suspended?: boolean }) {
   const [remark, setRemark] = useState(record.remark);
-  const [message, setMessage] = useState("Saved on this device.");
+  const [message, setMessage] = useState(record.syncStatus === "Synced" ? SYNCED_MESSAGE : "Saved on this device.");
   const [error, setError] = useState("");
   const [remarkError, setRemarkError] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [busy, setBusy] = useState(false);
   const [camera, setCamera] = useState(false);
+  // I-68: once the server confirms the exact record, the submit-time "Pending Sync" line must not stay on screen.
+  useEffect(() => {
+    if (record.syncStatus === "Synced") setMessage(prev => prev.startsWith("Submitted on this device") ? SYNCED_MESSAGE : prev);
+  }, [record.syncStatus]);
   const workspace = useRef({ db: localDatabase, actorId: record.actorId });
   const writer = useRef<ReturnType<typeof repairDraftWriter<string>> | undefined>(undefined);
   if (!writer.current) {

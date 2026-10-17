@@ -715,3 +715,22 @@ test("Self-service: a technician whose order was only reassigned away can start 
   await expect(page.getByRole("button", { name: "Start Repair", exact: true }).first()).toBeVisible();
   expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0]);
 });
+
+test("I-68: the submit-time Pending Sync line is replaced once the server confirms the record", async ({ page }) => {
+  const s = fixture(); await boot(page, s); await open(page, s); await start(page); await fill(page);
+  const calls = await reconnectReceipts(page);
+  await page.route("**/api/sync", r => r.abort()); // nothing else may sync here
+  await part(page).getByRole("button", { name: "Submit Locally" }).click();
+  const status = part(page).locator(".repair-after").getByRole("status");
+  await expect(status).toContainText(/Submitted on this device|Synced with the server/);
+  await expect(page.getByRole("button", { name: "Sync / Retry" })).toBeEnabled(); await page.getByRole("button", { name: "Sync / Retry" }).click();
+  // Once confirmed the part is awaiting approval, so the Open filter hides it; showing completed parts remounts its editor.
+  await page.getByLabel("Show completed").check();
+  await expect(status).toHaveText("Synced with the server. The content and photo are immutable.");
+  await expect(status).not.toContainText("Pending Sync");
+  expect(calls.some(c => c.startsWith("parent:"))).toBe(true);
+  // A reload of the already synced record starts from the same honest line, not "Saved on this device."
+  await page.reload(); await chooseTechnician(page);
+  await page.getByLabel("Show completed").check();
+  await expect(part(page).locator(".repair-after").getByRole("status")).toHaveText("Synced with the server. The content and photo are immutable.");
+});
