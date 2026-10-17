@@ -341,3 +341,61 @@ test('B3 remediation: corrupted Before identity metadata fails closed without lo
   for(const result of proof.results)expect(result,errorLabel(result)).toMatchObject({error:'REPAIR_PHOTO_INTEGRITY',retained:true});
   expect(proof).toMatchObject({healthy:'cached',exact:true});
 });
+
+test('I-69: authority refresh hashes before its write transaction, so a stalled hash cannot lock repairRecords for another page',async({page,context})=>{
+  await ready(page);await login(page);const s=fixture();await download(page,s);const u=await draft(page,s);await fill(page,u);
+  await page.evaluate(async u=>(window as any).b3.db.localDatabase.repairRecords.update(u,{syncStatus:'Synced',reviewState:'awaiting_approval'}),u);
+  const local=await row(page,u);
+  s.findings[0].history.push({client_uuid:u,cycle_sequence:1,predecessor_uuid:null,remark:local.remark,performed_at:local.performedAt,submitted_by_user_id:71,review_state:'awaiting_approval'} as never);
+  await download(page,s); // matching history: the refresh now has a local frozen row to verify
+  // Hold the first SHA-256 of the next refresh, as a hidden or throttled page can on a phone.
+  await page.evaluate(()=>{
+    const original=crypto.subtle.digest.bind(crypto.subtle);let release!:()=>void;const gate=new Promise<void>(r=>{release=r;});
+    const w=window as any;w.releaseHash=release;w.hashHeld=false;
+    crypto.subtle.digest=async(...args:any[])=>{w.hashHeld=true;await gate;return (original as any)(...args);};
+  });
+  await page.evaluate(s=>{(window as any).refresh=(window as any).b3.repo.downloadRepairService(s.jobId,s.systemKey,false).then(()=> 'ok',(e:Error)=>e.message);},s);
+  await expect.poll(()=>page.evaluate(()=>(window as any).hashHeld)).toBe(true);
+  // A second page of the same workspace must still get a read-write transaction on repairRecords.
+  const other=await context.newPage();
+  try {
+    await other.goto('/tests/repair-b3.html');await other.waitForFunction(()=>(window as any).b3Ready);await login(other);
+    const outcome=await other.evaluate(async()=>{
+      const db=(window as any).b3.db.localDatabase,start=performance.now();
+      const write=db.transaction('rw',db.repairRecords,()=>db.repairRecords.count()).then(()=>Math.round(performance.now()-start));
+      return Promise.race([write,new Promise(r=>setTimeout(()=>r('BLOCKED by another page'),2500))]);
+    });
+    expect(typeof outcome).toBe('number');
+  } finally {
+    await page.evaluate(()=>(window as any).releaseHash());
+    expect(await page.evaluate(()=>(window as any).refresh)).toBe('ok');
+    await other.close();
+  }
+  // The held hash is still verified: the local frozen row is untouched and the refresh accepted it.
+  expect(await row(page,u)).toMatchObject({clientUuid:u,syncStatus:'Synced',reviewState:'awaiting_approval'});
+});
+
+test('I-69: sync never hashes or decodes photo bytes inside a repair write transaction',async({page})=>{
+  await ready(page);await login(page);const s=fixture();await download(page,s);const u=await draft(page,s);await fill(page,u);
+  await page.route('**/api/repairs/evidence/stage',async route=>{
+    const raw=route.request().postDataBuffer()!.toString();const input=JSON.parse(raw.match(/name="metadata"\r\n\r\n([^\r]+)/)![1]);
+    await route.fulfill({json:{photoUuid:input.photoUuid,repairUuid:input.repairUuid,requestFingerprint:serverFingerprint({actorId:71,...input}),sourceSha256:input.sourceSha256,storedSha256:'f'.repeat(64),findingId:input.findingId,workOrderId:input.workOrderId,jobId:input.jobId,systemKey:input.systemKey}});
+  });
+  await page.route('**/api/repairs/submissions',async route=>{const body=route.request().postDataJSON(),p=body.parts[0];
+    await route.fulfill({json:{jobId:body.jobId,systemKey:body.systemKey,results:[{clientUuid:p.clientUuid,outcome:'submitted',receipt:{clientUuid:p.clientUuid,requestFingerprint:serverFingerprint({actorId:71,...p}),findingId:p.findingId,workOrderId:p.workOrderId,jobId:p.jobId,systemKey:p.systemKey,cycleSequence:p.cycleSequence,predecessorUuid:p.predecessorUuid,sourceRevision:p.expectedSourceRevision}}]}});
+  });
+  await page.evaluate(()=>{
+    // Record whether each slow non-IndexedDB step runs while a Dexie transaction is open on this page.
+    const w=window as any,Dexie=w.b3.db.localDatabase.constructor as any;w.slowSteps=[] as Array<{kind:string;inTx:boolean}>;
+    const note=(kind:string)=>w.slowSteps.push({kind,inTx:!!Dexie.currentTransaction});
+    const digest=crypto.subtle.digest.bind(crypto.subtle);crypto.subtle.digest=((...a:any[])=>{note('digest');return (digest as any)(...a);}) as any;
+    const buffer=Blob.prototype.arrayBuffer;Blob.prototype.arrayBuffer=function(this:Blob){note('arrayBuffer');return buffer.call(this);};
+    const bitmap=window.createImageBitmap.bind(window);window.createImageBitmap=((...a:any[])=>{note('decode');return (bitmap as any)(...a);}) as any;
+  });
+  await sync(page);
+  expect((await row(page,u)).syncStatus).toBe('Synced');
+  const steps=await page.evaluate(()=>(window as any).slowSteps as Array<{kind:string;inTx:boolean}>);
+  expect(steps.length).toBeGreaterThan(6); // hooks really observed fingerprints, byte reads and a decode
+  expect(new Set(steps.map(x=>x.kind))).toEqual(new Set(['digest','arrayBuffer','decode']));
+  expect(steps.filter(x=>x.inTx)).toEqual([]);
+});

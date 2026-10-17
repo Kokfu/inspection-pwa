@@ -1,4 +1,3 @@
-import Dexie from "dexie";
 import { localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { canonical, fingerprint, hash, object, requireRepair } from "./repairContract";
 import { errorMessage, repairContext, repairRequest, verifyRepairBlob, type RepairContext } from "./repairRepository";
@@ -23,7 +22,10 @@ async function currentOperation(ctx: RepairContext, op: SyncOutboxItem, status: 
   requireRepair(current && current.status === status && current.activeKey === op.activeKey && current.entityType === op.entityType
     && current.entityId === op.entityId && canonical(current.payload) === canonical(op.payload), "REPAIR_STALE_DISPATCH");
 }
-async function validateFrozen(ctx: RepairContext, op: SyncOutboxItem, checkBlob: boolean) {
+/** Inputs whose hashes were verified outside any transaction. Awaiting crypto or image decode inside a Dexie rw
+ * transaction keeps the repair stores locked for every other tab when this page is hidden or throttled (I-69). */
+type VerifiedFrozen = { r: string; a: string };
+async function validateFrozen(ctx: RepairContext, op: SyncOutboxItem, checkBlob: boolean, trusted?: VerifiedFrozen) {
   const photo = op.entityType === "repairEvidence";
   requireRepair(op.activeKey === `${op.entityType}:create:${op.entityId}` && op.action === "create");
   const a = photo ? await ctx.db.repairAttachments.get(op.entityId) : undefined;
@@ -34,7 +36,9 @@ async function validateFrozen(ctx: RepairContext, op: SyncOutboxItem, checkBlob:
     && r.frozen.cycleSequence === r.cycleSequence && r.frozen.predecessorUuid === r.predecessorUuid
     && r.frozen.findingId === r.findingId && r.frozen.workOrderId === r.workOrderId && r.frozen.jobId === r.jobId && r.frozen.systemKey === r.systemKey
     && r.frozen.manifest.length === 1 && r.frozen.manifest[0].photoUuid === r.photoUuid, "REPAIR_FROZEN_INVALID");
-  requireRepair(await Dexie.waitFor(fingerprint({ actorId: ctx.actorId, ...r.frozen })) === r.requestFingerprint, "REPAIR_FROZEN_INVALID");
+  const rInput = canonical({ actorId: ctx.actorId, ...r.frozen });
+  // Inside a transaction (trusted given) the rows are only compared with what was already hashed.
+  requireRepair(trusted ? trusted.r === rInput : await fingerprint({ actorId: ctx.actorId, ...r.frozen }) === r.requestFingerprint, "REPAIR_FROZEN_INVALID");
   const attachment = a ?? await ctx.db.repairAttachments.get(r.photoUuid!);
   requireRepair(attachment?.frozen && attachment.requestFingerprint && attachment.repairUuid === r.clientUuid
     && attachment.photoUuid === r.photoUuid && attachment.frozen.photoUuid === attachment.photoUuid
@@ -44,9 +48,11 @@ async function validateFrozen(ctx: RepairContext, op: SyncOutboxItem, checkBlob:
     && attachment.sourceSha256 === r.frozen.manifest[0].sourceSha256, "REPAIR_FROZEN_INVALID");
   for (const key of ["findingId", "workOrderId", "jobId", "systemKey", "expectedWorkOrderRevision", "expectedSourceRevision", "sourceFingerprint"] as const)
     requireRepair(attachment.frozen[key] === r.frozen[key], "REPAIR_FROZEN_INVALID");
-  requireRepair(await Dexie.waitFor(fingerprint({ actorId: ctx.actorId, ...attachment.frozen })) === attachment.requestFingerprint, "REPAIR_FROZEN_INVALID");
-  if (checkBlob) await Dexie.waitFor(verifyRepairBlob(attachment.blob, attachment, attachment.sourceSha256));
-  return { r, a: attachment };
+  const aInput = canonical({ actorId: ctx.actorId, ...attachment.frozen });
+  requireRepair(trusted ? trusted.a === aInput : await fingerprint({ actorId: ctx.actorId, ...attachment.frozen }) === attachment.requestFingerprint, "REPAIR_FROZEN_INVALID");
+  if (trusted) requireRepair(attachment.blob instanceof Blob && attachment.blob.size === attachment.sizeBytes, "REPAIR_FROZEN_INVALID");
+  if (checkBlob) await verifyRepairBlob(attachment.blob, attachment, attachment.sourceSha256);
+  return { r, a: attachment, verified: { r: rInput, a: aInput } satisfies VerifiedFrozen };
 }
 function validatePhotoReceipt(value: unknown, input: RepairPhotoInput, expected: string): asserts value is Record<string, unknown> {
   requireRepair(object(value) && Object.keys(value).sort().join() === "findingId,jobId,photoUuid,repairUuid,requestFingerprint,sourceSha256,storedSha256,systemKey,workOrderId"
@@ -82,7 +88,7 @@ export async function dispatchPendingRepairs() {
   for (const op of ordered) {
     try {
       await currentOperation(ctx, op, op.status);
-      const { r, a } = await validateFrozen(ctx, op, true);
+      const { r, a, verified } = await validateFrozen(ctx, op, true);
       const photo = op.entityType === "repairEvidence";
       if (!photo) {
         const dependency = await ctx.db.syncOutbox.where("activeKey").equals(`repairEvidence:create:${a.photoUuid}`).first();
@@ -90,7 +96,7 @@ export async function dispatchPendingRepairs() {
         validatePhotoReceipt(a.receipt, a.frozen!, a.requestFingerprint!);
       }
       await ctx.db.transaction("rw", tables(ctx), async () => {
-        await currentOperation(ctx, op, op.status); await validateFrozen(ctx, op, false);
+        await currentOperation(ctx, op, op.status); await validateFrozen(ctx, op, false, verified);
         await ctx.db.syncOutbox.update(op.operationId, { status: "Syncing", attempts: op.attempts + 1, lastAttemptAt: new Date().toISOString() });
         if (photo) await ctx.db.repairAttachments.update(a.photoUuid, { syncStatus: "Uploading" });
         else await ctx.db.repairRecords.update(r.clientUuid, { syncStatus: "Syncing" });
@@ -111,8 +117,10 @@ export async function dispatchPendingRepairs() {
         requireRepair(part.outcome === "submitted" && Object.keys(part).sort().join() === "clientUuid,outcome,receipt", "REPAIR_RECEIPT_MISMATCH");
         receipt = part.receipt; validateParentReceipt(receipt, r.frozen!, r.requestFingerprint!);
       }
+      // Re-verify the stored bytes and fingerprints now, outside any transaction; the transaction only compares rows.
+      const completion = await validateFrozen(ctx, op, true);
       await ctx.db.transaction("rw", tables(ctx), async () => {
-        await currentOperation(ctx, op, "Syncing"); await validateFrozen(ctx, op, true);
+        await currentOperation(ctx, op, "Syncing"); await validateFrozen(ctx, op, false, completion.verified);
         const at = new Date().toISOString();
         await ctx.db.syncOutbox.update(op.operationId, { status: "Completed", activeKey: undefined, completedAt: at, lastError: undefined });
         if (photo) await ctx.db.repairAttachments.update(a.photoUuid, { syncStatus: "Synced", receipt: receipt as Record<string, unknown>, lastSyncError: undefined });

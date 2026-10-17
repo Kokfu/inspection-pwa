@@ -61,6 +61,15 @@ export async function downloadRepairService(jobId: string, systemKey: string, do
     const service = parseRepairService(value, jobId, systemKey);
     requireRepair(downloadGenerations.get(key) === generation, "REPAIR_REFRESH_SUPERSEDED");
     const fetchedAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    // I-69: hash every already-stored local match BEFORE the write transaction. Awaiting crypto inside a Dexie rw
+    // transaction kept repairRecords locked for every other tab whenever this page was hidden or throttled mid-hash.
+    const localSnapshot = await repairStorageTransaction(ctx.db, "r", [ctx.db.repairRecords],
+      () => Promise.all(service.findings.flatMap(f => f.history.map(h => ctx.db.repairRecords.get(h.client_uuid)))));
+    const hashed = new Map<string, { input: string; fingerprint: string }>();
+    for (const local of localSnapshot) if (local?.frozen) {
+      const input = { actorId: local.actorId, ...local.frozen };
+      hashed.set(local.clientUuid, { input: canonical(input), fingerprint: await fingerprint(input) });
+    }
     await repairStorageTransaction(ctx.db, "rw", [ctx.db.repairFindings, ctx.db.repairWorkOrders, ctx.db.repairRecords], async () => {
       await ctx.assert();
       requireRepair(downloadGenerations.get(key) === generation, "REPAIR_REFRESH_SUPERSEDED");
@@ -76,7 +85,9 @@ export async function downloadRepairService(jobId: string, systemKey: string, do
         for (const h of f.history) {
           const local = await ctx.db.repairRecords.get(h.client_uuid);
           if (local) {
-            const frozen = local.frozen;
+            // A local row that appeared after the pre-transaction snapshot was never hashed: retry the refresh.
+            requireRepair(hashed.has(local.clientUuid) || !local.frozen, "REPAIR_REFRESH_SUPERSEDED");
+            const frozen = local.frozen, verified = hashed.get(local.clientUuid);
             requireRepair(frozen && local.findingId === f.findingId && local.jobId === service.jobId && local.systemKey === service.systemKey
               && local.actorId === ctx.actorId && local.actorId === Number(h.submitted_by_user_id)
               && local.clientUuid === h.client_uuid && local.cycleSequence === h.cycle_sequence && local.predecessorUuid === h.predecessor_uuid
@@ -86,7 +97,7 @@ export async function downloadRepairService(jobId: string, systemKey: string, do
               && frozen.predecessorUuid === local.predecessorUuid && frozen.remark === local.remark && frozen.performedAt === local.performedAt
               && frozen.sourceFingerprint === f.sourceFingerprint && frozen.manifest.length === 1
               && frozen.manifest[0].photoUuid === local.photoUuid && frozen.manifest[0].fieldPath === f.original.fieldPath
-              && await Dexie.waitFor(fingerprint({ actorId: local.actorId, ...frozen })) === local.requestFingerprint,
+              && verified?.input === canonical({ actorId: local.actorId, ...frozen }) && verified.fingerprint === local.requestFingerprint,
               "REPAIR_HISTORY_MISMATCH");
           }
           // Sync state is confirmed exclusively by exact write receipts, never by review history.
