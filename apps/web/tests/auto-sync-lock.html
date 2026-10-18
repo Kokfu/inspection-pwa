@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Auto sync single sender</title></head>
+  <body>
+    <pre id="result">Waiting</pre>
+    <script type="module">
+      import { runAsSingleSender } from "/src/sync/autoSyncLock.ts";
+      window.hold = () => { let release; const gate = new Promise((r) => { release = r; }); window.release = release; window.first = runAsSingleSender(navigator.locks, () => gate); };
+      window.attempt = () => runAsSingleSender(navigator.locks, async () => undefined);
+      window.ready = true;
+    </script>
+  </body>
+</html>

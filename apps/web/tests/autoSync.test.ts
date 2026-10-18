@@ -5,6 +5,8 @@ import test from "node:test";
 import {
   AUTO_SYNC_FAILED_BACKOFF_MS,
   AutoSyncCoordinator,
+  REPAIR_FAILED_BACKOFF_MS,
+  failedBackoffFor,
   outboxHasAutoSyncWork,
   type AutoSyncReason
 } from "../src/sync/autoSync.js";
@@ -109,4 +111,32 @@ test("App wires the coordinator to launch/reconnect, visibility and the interval
   assert.match(app, /function handleSync\(\) \{ return runSync\(false\); \}/, "Sync Now stays a plain manual call");
   const engine = readFileSync(join(import.meta.dirname, "../src/sync/syncEngine.ts"), "utf8");
   assert.match(engine, /if \(syncInProgress\) \{/, "engine single-flight guard is untouched");
+});
+
+// I-67: repair operations retry sooner than the generic 5 minutes; every other form is unchanged.
+test("repair operations back off 1 min, 2 min, then 5 min by attempt; other items keep 5 min", () => {
+  assert.deepEqual([...REPAIR_FAILED_BACKOFF_MS], [60_000, 120_000, AUTO_SYNC_FAILED_BACKOFF_MS]);
+  const failed = (entityType: string, attempts: number, agoMs: number) => [{ status: "Failed", entityType, attempts, lastAttemptAt: ago(agoMs) }];
+  for (const entityType of ["repairEvidence", "repairRecord"]) {
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 1, 30_000), "interval", now), false, "30 s after the first failure: still waiting");
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 1, 60_000), "interval", now), true, "1 min after the first failure: retried");
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 2, 90_000), "interval", now), false);
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 2, 120_000), "interval", now), true, "2 min after the second");
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 3, 4 * 60_000), "interval", now), false);
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 3, 5 * 60_000), "interval", now), true, "the cap is the usual 5 min");
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 40, 4 * 60_000), "interval", now), false, "never faster than the cap after many attempts");
+    assert.equal(outboxHasAutoSyncWork(failed(entityType, 1, 1_000), "online", now), true, "reconnect still retries at once");
+  }
+  // Inspection forms are unchanged.
+  assert.equal(outboxHasAutoSyncWork(failed("masterSystemFormInstance", 1, 2 * 60_000), "interval", now), false);
+  assert.equal(outboxHasAutoSyncWork(failed("masterSystemFormInstance", 1, 5 * 60_000), "interval", now), true);
+});
+
+test("failedBackoffFor tolerates a missing or odd attempts count", () => {
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord" }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: Number.NaN }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 0 }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 2.9 }, 300_000), 120_000);
+  assert.equal(failedBackoffFor({ status: "Failed" }, 300_000), 300_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 3 }, 30_000), 30_000, "a smaller caller fallback is respected");
 });

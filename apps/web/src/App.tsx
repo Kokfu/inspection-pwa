@@ -206,6 +206,7 @@ import {
   hasAutoSyncWork, syncPendingTestRecords, waitForSyncIdle
 } from "./sync/syncEngine";
 import { AUTO_SYNC_INTERVAL_MS, AutoSyncCoordinator } from "./sync/autoSync";
+import { runAsSingleSender, type SingleSenderLocks } from "./sync/autoSyncLock";
 import { runAttachmentCleanupIfDue } from "./attachments/attachmentRetention";
 import { announceSyncFinished } from "./sync/syncEvents";
 import { headerSyncSummary } from "./sync/headerSyncSummary";
@@ -1184,7 +1185,7 @@ export function App() {
   autoSync.current ??= new AutoSyncCoordinator({
     isEligible: () => autoSyncLatest.current.eligible && navigator.onLine !== false,
     hasWork: hasAutoSyncWork,
-    run: () => autoSyncLatest.current.run()
+    run: async () => { await runAsSingleSender((navigator as { locks?: SingleSenderLocks }).locks, () => autoSyncLatest.current.run()); }
   });
   useEffect(() => {
     if (!canUseServer || !databaseReady) return;
