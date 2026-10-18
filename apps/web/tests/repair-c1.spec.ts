@@ -92,7 +92,10 @@ async function boot(page: Page, s: Service, actor = 71, deep = "") {
   await chooseTechnician(page);
 }
 async function chooseTechnician(page: Page) {
-  await page.getByRole("button", { name: /^Technician/ }).click();
+  // I-66: a reload by the same inspector goes straight back to the Technician view; only a fresh tab shows the chooser.
+  const card = page.getByRole("button", { name: /^Technician/ }), shell = page.locator(".app-sidebar:visible, .app-mobile-navigation:visible").first();
+  // The chooser can flash while verification finishes; give the restore a moment before choosing by hand.
+  if (await expect(shell).toBeVisible({ timeout: 4000 }).then(() => false, () => true)) await card.click();
   await expect(page.locator(".app-sidebar")).toBeVisible().catch(async () => { await expect(page.locator(".app-mobile-navigation")).toBeVisible(); });
 }
 async function open(page: Page, s: Service, part?: string) {

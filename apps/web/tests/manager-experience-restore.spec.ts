@@ -97,14 +97,53 @@ test("a fail-closed exit to the chooser is not undone by a reload", async ({ pag
   await expect(chooser(page)).toBeVisible();
 });
 
-test("technician choice is not remembered (unchanged behaviour)", async ({ page }) => {
-  const api = await installFakeApi(page);
-  api.user = { id: 901, username: "technician-one", role: "inspector" };
+const rememberedTechnician = (page: Page) => page.evaluate(() => sessionStorage.getItem("technician-experience:v1"));
+async function enterTechnician(page: Page, api: Awaited<ReturnType<typeof installFakeApi>>, id = 901) {
+  api.user = { id, username: `technician-${id}`, role: "inspector" };
   await page.goto("/tests/manager-service-editor.html#/jobs");
   await page.getByRole("button", { name: /^Technician Complete/ }).click();
   await expect(chooser(page)).toHaveCount(0);
-  expect(await rememberedChoice(page)).toBeNull();
+  await expect.poll(() => rememberedTechnician(page)).toBe(String(id));
+}
+
+// I-66: a reload (service-worker update, or Chrome reloading a discarded tab) must not bounce a technician to the chooser.
+test("technician choice survives a reload for the same verified inspector, in this tab only", async ({ page, context }) => {
+  const api = await installFakeApi(page);
+  await enterTechnician(page, api);
+  await page.reload();
+  await expect(chooser(page)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "My Service Jobs" })).toBeVisible();
+  await page.reload(); // a second reload still restores it
+  await expect(chooser(page)).toHaveCount(0);
+  // A NEW tab has its own sessionStorage, so it starts at the chooser.
+  const other = await context.newPage();
+  await other.goto("/tests/manager-service-editor.html#/jobs");
+  await expect(chooser(other)).toBeVisible();
+  expect(await rememberedTechnician(other)).toBeNull();
+});
+
+test("a different inspector after a reload gets the role chooser", async ({ page }) => {
+  const api = await installFakeApi(page);
+  await enterTechnician(page, api, 901);
+  api.user = { id: 902, username: "technician-902", role: "inspector" };
   await page.reload();
   await expect(chooser(page)).toBeVisible();
-  expect(await rememberedChoice(page)).toBeNull();
+});
+
+test("sign-out clears the remembered technician choice", async ({ page }) => {
+  const api = await installFakeApi(page);
+  await enterTechnician(page, api);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(chooser(page)).toBeVisible();
+  expect(await rememberedTechnician(page)).toBeNull();
+  await page.reload();
+  await expect(chooser(page)).toBeVisible();
+});
+
+test("an admin never gets the Technician view from a remembered technician id", async ({ page }) => {
+  const api = await installFakeApi(page);
+  await enterTechnician(page, api, 901);
+  api.user = { id: 901, username: "now-admin", role: "admin" }; // same id, different role
+  await page.reload();
+  await expect(chooser(page)).toBeVisible();
 });

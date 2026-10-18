@@ -133,6 +133,7 @@ import { allowManagerHashChange, clearManagerLeaveGuard, confirmManagerLeave } f
 import { deleteManagerServiceVisit, ManagerApiError, loadAcceptedRecords, loadManagerCustomer, loadManagerCustomers, loadManagerServiceVisit, loadManagerServiceVisits, type ManagerAcceptedRecord, type ManagerCustomer, type ManagerServiceVisit } from "./manager/managerApi";
 import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
+import { forgetTechnicianExperience, isTechnicianExperienceRemembered, rememberTechnicianExperience } from "./auth/technicianExperience";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
 import { activateUserWorkspace, currentWorkspaceUserId, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
@@ -922,6 +923,7 @@ export function App() {
       if (!managerChoiceRestoreAttempted.current) {
         managerChoiceRestoreAttempted.current = true;
         if (isManagerRole(decision.user.role) && readManagerExperience()) setSelectedExperience((current) => current ?? (decision.user.role === "supervisor" ? "supervisor" : "manager"));
+        else if (decision.user.role === "inspector" && isTechnicianExperienceRemembered(decision.user.id)) setSelectedExperience((current) => current ?? "technician");
       }
       await loadCachedJobs(decision.user.id, operation, undefined, isCurrentReconciliation);
       if (!isCurrentReconciliation()) return undefined;
@@ -962,6 +964,8 @@ export function App() {
         user: decision.identity.user,
         lastVerifiedAt: decision.identity.lastVerifiedAt
       });
+      // An offline reload by the same cached inspector returns to the Technician view, as a verified one does.
+      if (decision.identity.user.role === "inspector" && isTechnicianExperienceRemembered(decision.identity.user.id)) setSelectedExperience((current) => current ?? "technician");
       setJobMessage("Using jobs saved on this device while the service is unavailable.");
       return decision.kind;
     }
@@ -1220,6 +1224,7 @@ export function App() {
   const supervisorExperience = managerExperience && selectedExperience === "supervisor";
   // Remember the operations choice for this tab only while the verified experience is active.
   useEffect(() => { if (managerExperience) rememberManagerExperience(true); }, [managerExperience]);
+  useEffect(() => { if (technicianExperience && currentUser) rememberTechnicianExperience(currentUser.id); }, [technicianExperience, currentUser?.id]);
   const managerReturn = managerExperience && (route.name === "manager-final-report" || route.name === "manager-service-visit")
     ? readManagerReturn(route.jobId)
     : null;
@@ -1228,7 +1233,7 @@ export function App() {
     setRoleMessage("");
     if (currentUser && !productRoleMatches(role, currentUser)) {
       setSelectedExperience(undefined);
-      rememberManagerExperience(false);
+      rememberManagerExperience(false); forgetTechnicianExperience();
       setRoleMessage(`This signed-in account does not have ${role === "manager" ? "Manager" : role === "supervisor" ? "Admin" : "Technician"} access. Choose the role for this account to continue.`);
       return;
     }
@@ -1261,7 +1266,7 @@ export function App() {
     // Server-derived Manager views are unusable when their authority cannot
     // be refreshed. This does not alter verified session state by itself.
     setSelectedExperience(undefined);
-    rememberManagerExperience(false);
+    rememberManagerExperience(false); forgetTechnicianExperience();
     setRoleMessage(message);
     if (revalidate) void revalidateAuthentication();
   }
@@ -1278,7 +1283,7 @@ export function App() {
       // A protected Manager endpoint rejected the session. Do not retain a
       // selected Manager presentation while the authoritative session check runs.
       setSelectedExperience(undefined);
-      rememberManagerExperience(false);
+      rememberManagerExperience(false); forgetTechnicianExperience();
       setRoleMessage(message);
     }
     failClosedManagerOperations(message, error instanceof ManagerApiError && error.kind === "authorization");
@@ -1286,7 +1291,7 @@ export function App() {
 
   function handleManagerReportAuthorizationFailure(message: string) {
     setSelectedExperience(undefined);
-    rememberManagerExperience(false);
+    rememberManagerExperience(false); forgetTechnicianExperience();
     setRoleMessage(message);
     failClosedManagerOperations(message);
   }
@@ -1599,6 +1604,7 @@ export function App() {
       // A credential login starts a fresh Manager session before any verified render, even when the
       // previous identity ended without a logout (expired session, reload).
       clearManagerSession();
+      forgetTechnicianExperience();
       claimManagerSession(user.id);
       const authorityReplacement = prepareVerifiedAuthority(user, true);
       await prepareLocalWorkspace(user);
@@ -1643,6 +1649,7 @@ export function App() {
     const operation = beginExplicitAuthOperation();
     try {
       clearManagerSession();
+      forgetTechnicianExperience();
       revokeVerifiedAuthority();
       setAuthState({ status: "logged-out", message: "Signed out locally" });
       setSelectedExperience(undefined);

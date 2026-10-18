@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("technician sidebar opens all five destinations at phone and desktop widths", async ({ page }) => {
+// I-66: after a reload the same inspector returns to the Technician view; only a fresh tab shows the role chooser.
+async function continueAsTechnician(page: import("@playwright/test").Page) {
+  const card = page.getByRole("button", { name: /^Technician/ }), shell = page.getByLabel("Primary navigation");
+  // The chooser can flash while verification finishes; give the restore a moment before choosing by hand.
+  if (await expect(shell).toBeVisible({ timeout: 4000 }).then(() => false, () => true)) await card.click();
+}
+
+test("technician sidebar opens all six destinations at phone and desktop widths", async ({ page }) => {
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     let json: unknown = {};
@@ -18,11 +25,12 @@ test("technician sidebar opens all five destinations at phone and desktop widths
   const destinations = [
     ["Home", "jobs", "My Service Jobs"],
     ["New Service Visit", "new-service-visit", "New Service Visit"],
+    ["Repair List", "repair-list", "Repair List"],
     ["Add Customer", "technician-add-customer", "Add Customer"],
     ["Completed Services", "technician-completed-services", "Completed Services"],
     ["Upcoming Services", "technician-upcoming-services", "Upcoming Services"]
   ] as const;
-  await expect(sidebar.getByRole("button")).toHaveCount(5);
+  await expect(sidebar.getByRole("button")).toHaveCount(6);
   await expect(sidebar.getByRole("button")).toHaveText(destinations.map(([label]) => label));
   for (const [label, route, heading] of destinations) {
     const link = sidebar.getByRole("button", { name: label, exact: true });
@@ -94,7 +102,7 @@ test("standalone customer form retries the exact creation identity after an unce
   await expect(page.getByText(/Customer sync needs attention: Response unavailable/)).toBeVisible();
   await expect(page.getByLabel("Customer display name")).toBeDisabled();
   await page.reload();
-  await page.getByRole("button", { name: /^Technician/ }).click();
+  await continueAsTechnician(page);
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Add Customer" }).click();
   await expect(page.getByRole("heading", { name: "Retry Customer created" })).toBeVisible();
   expect(submissions).toHaveLength(2);
@@ -130,7 +138,7 @@ test("technician customer details and queued creation survive offline navigation
   await expect(page.getByText("Customer draft saved on this device.")).toBeVisible();
   await context.setOffline(false);
   await page.reload();
-  await page.getByRole("button", { name: /^Technician/ }).click();
+  await continueAsTechnician(page);
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Add Customer" }).click();
   await expect(page.getByLabel("Customer display name")).toHaveValue("Offline Customer");
   await expect(page.getByLabel("Hose Reel")).toBeChecked();
