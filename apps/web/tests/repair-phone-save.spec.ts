@@ -434,7 +434,7 @@ for(const phase of ['bytes','hash','decode','fingerprint']) test(`P1 held stored
   await expect(page.getByRole('status')).toContainText('Submitted on this device');
 });
 
-for(const change of ['late-only','account','logout','token','unmount']) test(`P1 stored verification cannot continue after ${change}`,async({page})=>{
+for(const change of ['late-only','account','logout','username','role','pending-logout','unmount']) test(`P1 stored verification cannot continue after ${change}`,async({page})=>{
   await setup(page);await retainedPhoto(page);await page.getByLabel('Repair Remark (Required)').fill('Retained committed remark');
   await expect(page.getByRole('status')).toHaveText('Saved on this device.');await holdStoredRead(page);
   await page.getByRole('button',{name:'Submit Locally',exact:true}).click();await page.waitForFunction(()=>(window as any).phoneSave.verificationHeld);
@@ -442,15 +442,35 @@ for(const change of ['late-only','account','logout','token','unmount']) test(`P1
   await page.evaluate(async change=>{const h=(window as any).phoneSave;h.oldVerificationDb=h.db.localDatabase;
     if(change==='unmount')h.unmount();
     if(change==='logout')await h.db.deviceDatabase.authState.update('device-auth',{explicitLogout:true});
-    if(change==='token')await h.db.deviceDatabase.authState.update('device-auth',{cachedAt:'2026-10-14T01:00:00.000Z'});
+    if(change==='username')await h.db.deviceDatabase.authState.update('device-auth',{username:'renamed-account'});
+    if(change==='role')await h.db.deviceDatabase.authState.update('device-auth',{role:'admin'});
+    if(change==='pending-logout')await h.db.deviceDatabase.authState.update('device-auth',{serverLogoutPending:true});
     if(change==='account'){await h.db.deviceDatabase.authState.put({key:'device-auth',userId:72,role:'inspector',username:'other'});await h.db.activateUserWorkspace(72);await h.db.localDatabase.repairRecords.put({clientUuid:h.uuid,actorId:72,syncStatus:'Draft',remark:'Other workspace sentinel'});}
     h.restoreVerification();h.releaseVerification();
   },change);
   await page.waitForFunction(()=>(window as any).phoneSave.verificationReleased);
   await page.evaluate(()=>(window as any).phoneSave.waitForWorkspaceIdle());
-  if(change==='logout'||change==='token'||change==='account')await expect(page.getByRole('alert')).toContainText('REPAIR_IDENTITY_CHANGED');
+  if(['logout','username','role','pending-logout','account'].includes(change))await expect(page.getByRole('alert')).toContainText('REPAIR_IDENTITY_CHANGED');
   const retained=await page.evaluate(async()=>{const h=(window as any).phoneSave;return {r:await h.oldVerificationDb.repairRecords.get(h.uuid),ops:await h.oldVerificationDb.syncOutbox.count()};});
   expect(retained.r.syncStatus).toBe('Draft');expect(retained.r.frozen).toBeUndefined();expect(retained.r.remark).toBe('Retained committed remark');expect(retained.ops).toBe(0);
   if(change==='account')expect((await row(page)).remark).toBe('Other workspace sentinel');
   if(change!=='unmount'){await expect(page.getByRole('status')).not.toContainText('Submitted on this device');await expect(page.getByRole('button',{name:'Submit Locally',exact:true})).toBeEnabled();}
 });
+
+// I-71: another tab re-verifying the same session only rewrites the verification timestamps. That is not an identity
+// change, so an in-flight local submit must continue and freeze (it used to abort with REPAIR_IDENTITY_CHANGED).
+test('I-71: a timestamp-only re-verification by another tab does not abort the local submit',async({page})=>{
+  await setup(page);await retainedPhoto(page);await page.getByLabel('Repair Remark (Required)').fill('Retained committed remark');
+  await expect(page.getByRole('status')).toHaveText('Saved on this device.');await holdStoredRead(page);
+  await page.getByRole('button',{name:'Submit Locally',exact:true}).click();await page.waitForFunction(()=>(window as any).phoneSave.verificationHeld);
+  await page.evaluate(async()=>{const h=(window as any).phoneSave;h.oldVerificationDb=h.db.localDatabase;
+    await h.db.deviceDatabase.authState.update('device-auth',{lastVerifiedAt:'2026-10-14T01:00:00.000Z',cachedAt:'2026-10-14T01:00:00.000Z'});
+    h.restoreVerification();h.releaseVerification();});
+  await page.waitForFunction(()=>(window as any).phoneSave.verificationReleased);
+  await page.evaluate(()=>(window as any).phoneSave.waitForWorkspaceIdle());
+  await expect(page.getByRole('status')).toContainText('Submitted on this device');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  const done=await page.evaluate(async()=>{const h=(window as any).phoneSave;return {r:await h.oldVerificationDb.repairRecords.get(h.uuid),ops:await h.oldVerificationDb.syncOutbox.count()};});
+  expect(done.r.syncStatus).toBe('Pending');expect(done.r.frozen).toBeDefined();expect(done.ops).toBe(2);
+});
+

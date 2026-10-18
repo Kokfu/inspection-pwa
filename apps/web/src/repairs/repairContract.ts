@@ -21,6 +21,25 @@ export function canonical(v: unknown): string {
   requireRepair(v === null || typeof v === "string" || typeof v === "boolean" || typeof v === "number" && Number.isFinite(v));
   return JSON.stringify(v);
 }
+/**
+ * Identity token for the sign-in record that a repair operation is pinned to (I-71). It is the WHOLE device auth record
+ * (user id, username, role, logout flags, schema version, and any field added later) MINUS the two verification
+ * timestamps. Another tab re-verifying the same session only rewrites `lastVerifiedAt` / `cachedAt`; that is not an
+ * identity change and must not abort an in-flight sync (it did: `REPAIR_IDENTITY_CHANGED` with several tabs open).
+ * Excluding by name, not allow-listing, keeps it fail-closed: a changed or new identity-bearing field still differs.
+ * A missing or non-object record has no token and never matches.
+ */
+const VERIFICATION_TIMESTAMPS = ["lastVerifiedAt", "cachedAt"] as const;
+export function authIdentityToken(auth: unknown): string | undefined {
+  if (!object(auth)) return undefined;
+  const identity: Record<string, unknown> = {};
+  for (const key of Object.keys(auth)) if (!(VERIFICATION_TIMESTAMPS as readonly string[]).includes(key)) identity[key] = auth[key];
+  return canonical(identity);
+}
+export function sameAuthIdentity(a: unknown, b: unknown): boolean {
+  const left = authIdentityToken(a), right = authIdentityToken(b);
+  return left !== undefined && left === right;
+}
 export async function sha256(bytes: ArrayBuffer) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(b => b.toString(16).padStart(2, "0")).join("");
 }

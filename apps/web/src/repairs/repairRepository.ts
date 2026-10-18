@@ -3,7 +3,7 @@ import { repairStorageTransaction } from "./repairStorageTransaction";
 import { repairVerification } from "./repairVerification";
 import { currentWorkspaceUserId, deviceDatabase, localDatabase } from "../db/localDatabase";
 import { processInspectionPhoto, requestPersistentAttachmentStorage } from "../attachments/imageProcessing";
-import { canonical, fingerprint, hash, object, parseRepairService, requireRepair, sha256, timestamp, uuid } from "./repairContract";
+import { canonical, fingerprint, hash, object, parseRepairService, requireRepair, sameAuthIdentity, sha256, timestamp, uuid } from "./repairContract";
 import type { RepairAttachment, RepairFinding, RepairIdentity, RepairPart, RepairPhotoInput, RepairRecord } from "./repairTypes";
 
 /** Pin the database object as well as the account. A late response cannot write into a new workspace. */
@@ -11,7 +11,6 @@ export async function repairContext() {
   const db = localDatabase, actorId = currentWorkspaceUserId();
   const auth = await readRepairAuth();
   requireRepair(actorId && auth?.userId === actorId && auth.role === "inspector" && !auth.explicitLogout && !auth.serverLogoutPending, "REPAIR_IDENTITY_CHANGED");
-  const token = canonical(auth);
   return { db, actorId, async assert() {
     // The owning repair transaction has a native abort deadline. Keep the auth
     // read implicit here: never spin a device transaction while awaiting auth,
@@ -19,7 +18,7 @@ export async function repairContext() {
     // result cannot mutate anything after its owning workspace is aborted.
     const now = await Dexie.waitFor(Dexie.currentTransaction?.db === db
       ? deviceDatabase.authState.get("device-auth") : readRepairAuth());
-    requireRepair(db === localDatabase && currentWorkspaceUserId() === actorId && now && canonical(now) === token, "REPAIR_IDENTITY_CHANGED");
+    requireRepair(db === localDatabase && currentWorkspaceUserId() === actorId && sameAuthIdentity(now, auth), "REPAIR_IDENTITY_CHANGED");
   } };
 }
 function readRepairAuth() {

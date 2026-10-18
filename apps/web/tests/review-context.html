@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Review context identity checks</title></head>
+  <body>
+    <script type="module">
+      import * as db from "/src/db/localDatabase.ts";
+      import * as review from "/src/repairs/repairReviewRepository.ts";
+      window.rc = { db, review };
+      window.rcReady = true;
+    </script>
+  </body>
+</html>

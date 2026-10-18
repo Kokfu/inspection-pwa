@@ -201,6 +201,28 @@ test("C2 technician / cached identity cannot unlock review", async ({ page }) =>
   const denied = await page.evaluate(async () => { const x = (window as any).c2; try { await x.review.reviewContext({ id: 81, username: "cached", role: "supervisor" }, () => false); return "unexpected"; } catch(e: any) { return e.message; } });
   expect(denied).toBe("REPAIR_REVIEW_AUTHORITY_REQUIRED");
 });
+// I-71 (review path): re-verification by another tab only rewrites the timestamps; a real identity change still aborts.
+test("C2 review context survives a timestamp-only re-verification but not a real identity change", async ({ page }) => {
+  await page.goto("/tests/review-context.html"); await page.waitForFunction(() => (window as any).rcReady);
+  const outcomes = await page.evaluate(async () => {
+    const x = (window as any).rc, auth = x.db.deviceDatabase.authState;
+    const admin = { key: "device-auth", schemaVersion: 1, userId: 81, username: "reviewer", role: "admin", lastVerifiedAt: "2026-10-18T10:00:00.000Z", cachedAt: "2026-10-18T10:00:00.000Z", explicitLogout: false, serverLogoutPending: false };
+    const attempt = async (change: Record<string, unknown> | "delete") => {
+      await x.db.deviceDatabase.open(); await auth.put(admin); await x.db.activateUserWorkspace(81);
+      const ctx = await x.review.reviewContext({ id: 81, username: "reviewer", role: "admin" }, () => true);
+      if (change === "delete") await auth.delete("device-auth"); else await auth.update("device-auth", change);
+      try { await ctx.assert(); return "continued"; } catch (e: any) { return e.message; }
+    };
+    return {
+      timestamps: await attempt({ lastVerifiedAt: "2026-10-18T10:07:00.000Z", cachedAt: "2026-10-18T10:07:00.000Z" }),
+      username: await attempt({ username: "renamed" }), role: await attempt({ role: "supervisor" }),
+      pendingLogout: await attempt({ serverLogoutPending: true }), explicitLogout: await attempt({ explicitLogout: true }),
+      deleted: await attempt("delete")
+    };
+  });
+  expect(outcomes.timestamps).toBe("continued");
+  for (const key of ["username", "role", "pendingLogout", "explicitLogout", "deleted"] as const) expect(outcomes[key], key).toBe("REPAIR_REVIEW_AUTHORITY_CHANGED");
+});
 test("C2 Admin cannot assign, self-start or use technician repositories", async ({ page }) => {
   const f = await boot(page, "supervisor");
   const refusals = await page.evaluate(async service => {

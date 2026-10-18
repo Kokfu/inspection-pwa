@@ -399,3 +399,38 @@ test('I-69: sync never hashes or decodes photo bytes inside a repair write trans
   expect(new Set(steps.map(x=>x.kind))).toEqual(new Set(['digest','arrayBuffer','decode']));
   expect(steps.filter(x=>x.inTx)).toEqual([]);
 });
+
+async function syncWithMidRunAuthChange(page: Page, change: Record<string, unknown>) {
+  await ready(page); await login(page); const s = fixture(); await download(page, s); const u = await draft(page, s); await fill(page, u);
+  let changed = false;
+  await page.route('**/api/repairs/evidence/stage', async route => {
+    // Another tab changes the shared sign-in record while this tab's sync is in flight.
+    if (!changed) { changed = true; await page.evaluate(async c => { await (window as any).b3.db.deviceDatabase.authState.update('device-auth', c); }, change); }
+    const raw = route.request().postDataBuffer()!.toString(), input = JSON.parse(raw.match(/name="metadata"\r\n\r\n([^\r]+)/)![1]);
+    await route.fulfill({ json: { photoUuid: input.photoUuid, repairUuid: input.repairUuid, requestFingerprint: serverFingerprint({ actorId: 71, ...input }), sourceSha256: input.sourceSha256, storedSha256: 'f'.repeat(64), findingId: input.findingId, workOrderId: input.workOrderId, jobId: input.jobId, systemKey: input.systemKey } });
+  });
+  await page.route('**/api/repairs/submissions', async route => {
+    const body = route.request().postDataJSON(), p = body.parts[0];
+    await route.fulfill({ json: { jobId: body.jobId, systemKey: body.systemKey, results: [{ clientUuid: p.clientUuid, outcome: 'submitted', receipt: { clientUuid: p.clientUuid, requestFingerprint: serverFingerprint({ actorId: 71, ...p }), findingId: p.findingId, workOrderId: p.workOrderId, jobId: p.jobId, systemKey: p.systemKey, cycleSequence: p.cycleSequence, predecessorUuid: p.predecessorUuid, sourceRevision: p.expectedSourceRevision } }] } });
+  });
+  await sync(page);
+  return u;
+}
+
+test('I-71: a verification-timestamp refresh by another tab during sync does not fail the record', async ({ page }) => {
+  const u = await syncWithMidRunAuthChange(page, { lastVerifiedAt: '2026-10-18T10:05:00.000Z', cachedAt: '2026-10-18T10:05:00.000Z' });
+  const r = await row(page, u);
+  expect(r.syncStatus).toBe('Synced'); expect(r.lastSyncError).toBeUndefined();
+});
+
+for (const [label, change] of [['username', { username: 'renamed-account' }], ['role', { role: 'admin' }], ['pending logout', { serverLogoutPending: true }], ['explicit logout', { explicitLogout: true }]] as const) {
+  test(`I-71: a real identity change (${label}) during sync still stops it and retains the record`, async ({ page }) => {
+    const u = await syncWithMidRunAuthChange(page, change as Record<string, unknown>);
+    const r = await row(page, u);
+    expect(r.syncStatus).not.toBe('Synced');
+    expect(['Pending', 'Failed']).toContain(r.syncStatus);
+    expect(r.frozen).toBeDefined(); // the immutable submission is retained for a later retry
+    const err = await page.evaluate(async uu => { const db = (window as any).b3.db.localDatabase; const rec = await db.repairRecords.get(uu); const a = await db.repairAttachments.get(rec.photoUuid); return `${rec.lastSyncError ?? ''}|${a.lastSyncError ?? ''}`; }, u);
+    expect(err).toContain('REPAIR_IDENTITY_CHANGED');
+  });
+}

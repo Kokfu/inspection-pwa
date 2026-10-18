@@ -2,7 +2,7 @@ import Dexie from "dexie";
 import type { AuthUser } from "../auth/authApi";
 import { currentWorkspaceUserId, deviceDatabase, localDatabase } from "../db/localDatabase";
 import { beginWorkspaceActivity } from "../db/workspaceActivity";
-import { actorId, canonical, fingerprint, hash, isVisitDate, object, parseRepairService, positive, requireRepair, sha256, timestamp, uuid } from "./repairContract";
+import { actorId, canonical, fingerprint, hash, isVisitDate, object, parseRepairService, positive, requireRepair, sameAuthIdentity, sha256, timestamp, uuid } from "./repairContract";
 import { verifyRepairBlob } from "./repairRepository";
 import type { RepairFinding, RepairHistory, RepairService, RepairWorkOrder } from "./repairTypes";
 import type { RepairServiceSummary } from "./repairUiRepository";
@@ -14,11 +14,10 @@ export async function reviewContext(user: AuthUser, isCurrent: () => boolean) {
   requireRepair(isCurrent() && navigator.onLine && (user.role === "admin" || user.role === "supervisor")
     && currentWorkspaceUserId() === user.id && auth?.userId === user.id && auth.role === user.role
     && !auth.explicitLogout && !auth.serverLogoutPending, "REPAIR_REVIEW_AUTHORITY_REQUIRED");
-  const token = canonical(auth);
   const ctx = { db, user, async assert() {
     const now = await Dexie.waitFor(deviceDatabase.authState.get("device-auth"));
     requireRepair(isCurrent() && navigator.onLine && db === localDatabase && currentWorkspaceUserId() === user.id
-      && now && canonical(now) === token, "REPAIR_REVIEW_AUTHORITY_CHANGED");
+      && sameAuthIdentity(now, auth), "REPAIR_REVIEW_AUTHORITY_CHANGED");
   } };
   await ctx.assert(); return ctx;
 }
