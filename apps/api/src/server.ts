@@ -26,6 +26,8 @@ import { managerComplianceRemindersRouter } from "./routes/managerComplianceRemi
 import { managerCorrectionsRouter } from "./routes/managerCorrections.js";
 import { reportApprovalsRouter } from "./routes/reportApprovals.js";
 import { repairsRouter } from "./routes/repairs.js";
+import { repairVisitReadsRouter } from "./routes/repairVisitReads.js";
+import { repairVisitWritesRouter } from "./routes/repairVisitWrites.js";
 import { locationProposalsRouter } from "./routes/locationProposals.js";
 import { sectionRemarksRouter } from "./routes/sectionRemarks.js";
 import { siteProposalsRouter } from "./routes/siteProposals.js";
@@ -62,6 +64,8 @@ app.use(siteProposalsRouter);
 app.use(managerCorrectionsRouter);
 app.use(reportApprovalsRouter);
 app.use(repairsRouter);
+app.use(repairVisitReadsRouter);
+app.use(repairVisitWritesRouter);
 app.use(locationProposalsRouter);
 app.use(masterSystemInspectionsRouter);
 app.use(inspectionAttachmentsRouter);

@@ -74,7 +74,7 @@ test('v9 additive upgrade preserves all stores, indexes, pending/failed data and
     for(const s of schemas){const t=db.table(s.name),r=await t.get(keys[s.name]);out.push({name:s.name,preserved:r.sentinel===`preserve-${s.name}`,
       primary:t.schema.primKey.src===s.primary,indexes:JSON.stringify(t.schema.indexes.map(i=>i.src))===JSON.stringify(s.indexes)});}
     return {version:db.verno,out,blob:await (await db.inspectionAttachments.get(keys.inspectionAttachments)).blob.text(),operation:await db.syncOutbox.get(keys.syncOutbox)};},legacy);
-  expect(proof.version).toBe(10);expect(proof.out.every(x=>x.preserved&&x.primary&&x.indexes)).toBe(true);expect(proof.blob).toBe('retained pending bytes');expect(proof.operation.status).toBe('Pending');expect(proof.operation.attempts).toBe(3);
+  expect(proof.version).toBe(11);expect(proof.out.every(x=>x.preserved&&x.primary&&x.indexes)).toBe(true);expect(proof.blob).toBe('retained pending bytes');expect(proof.operation.status).toBe('Pending');expect(proof.operation.attempts).toBe(3);
   // This synthetic legacy operation intentionally has no inspection parent; do not dispatch it in this test.
   const s=fixture();await download(page,s);const u=await draft(page,s);
   await context.setOffline(true);await fill(page,u);

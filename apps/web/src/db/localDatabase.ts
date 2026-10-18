@@ -1,4 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
+import type { LocalOfflineServiceVisit } from "../jobs/offlineServiceVisitTypes";
+import type { LocalRepairVisit, LocalRepairVisitItem, LocalRepairVisitPhoto, CachedRepairPreviousVisit, CachedRepairBeforePhoto } from "../repairVisits/repairVisitTypes";
 import type { RepairFinding, RepairWorkOrder, RepairRecord, RepairAttachment, RepairBeforePhoto } from "../repairs/repairTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
@@ -47,7 +49,7 @@ export type DeviceAuthState = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal" | "repairEvidence" | "repairRecord";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal" | "repairEvidence" | "repairRecord" | "offlineServiceVisit" | "rvVisit" | "rvPhoto";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -102,8 +104,14 @@ export type TestRecord = {
   lastSyncError?: string;
 };
 
-function createLocalDatabase(name: string) {
+export function createLocalDatabase(name: string) {
 const localDatabase = new Dexie(name) as Dexie & {
+  offlineServiceVisits: EntityTable<LocalOfflineServiceVisit, "clientJobUuid">;
+  rvVisits: EntityTable<LocalRepairVisit, "clientUuid">;
+  rvItems: EntityTable<LocalRepairVisitItem, "clientUuid">;
+  rvPhotos: EntityTable<LocalRepairVisitPhoto, "photoUuid">;
+  rvPreviousVisits: EntityTable<CachedRepairPreviousVisit, "cacheKey">;
+  rvBeforePhotos: EntityTable<CachedRepairBeforePhoto, "cacheKey">;
   drafts: EntityTable<LocalDraft, "id">;
   testRecords: EntityTable<TestRecord, "clientUuid">;
   inspectionRecords: EntityTable<InspectionRecord, "clientUuid">;
@@ -253,6 +261,17 @@ localDatabase.version(10).stores({
   repairRecords: "clientUuid, findingId, workOrderId, [jobId+systemKey], syncStatus, localUpdatedAt",
   repairAttachments: "photoUuid, &repairUuid, syncStatus",
   repairBeforePhotos: "findingId, photoUuid, sourceFingerprint"
+});
+
+// Additive: Dexie inherits ALL v10 stores and indexes. No rewrite of pending
+// records, frozen payloads, active outbox keys or attachment Blobs.
+localDatabase.version(11).stores({
+  offlineServiceVisits: "clientJobUuid, createdByUserId, syncStatus, localUpdatedAt",
+  rvVisits: "clientUuid, customerId, siteId, createdByUserId, status, syncStatus, localUpdatedAt",
+  rvItems: "clientUuid, visitUuid, [visitUuid+identity.systemKey], sortOrder",
+  rvPhotos: "photoUuid, visitUuid, itemUuid, syncStatus, localUpdatedAt",
+  rvPreviousVisits: "cacheKey, [customerId+siteId], createdByUserId, fetchedAt, expiresAt",
+  rvBeforePhotos: "cacheKey, photoUuid, fetchedAt"
 });
 
 return localDatabase;

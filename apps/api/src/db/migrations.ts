@@ -251,6 +251,8 @@ export async function runMigrations(
     finalServiceReportMigrationTarget?: FinalServiceReportMigrationTarget;
     /** Test-only: prepare schema/migrations without publishing deterministic fixtures. */
     seed?: boolean;
+    /** Test-only: stop before/within the offline repair-visit foundation. */
+    repairVisitMigrationTarget?: 52 | 53 | 54;
   } = {}
 ) {
   await database.query(`
@@ -662,6 +664,12 @@ export async function runMigrations(
   );
   if (!repairExports.rows[0]?.exists) {
     await database.query(await readFile(new URL("../../migrations/052_repair_exports.sql", import.meta.url), "utf8"));
+  }
+  if ((options.repairVisitMigrationTarget ?? 54) >= 53) {
+    await database.query(await readFile(new URL("../../migrations/053_offline_service_visits.sql", import.meta.url), "utf8"));
+  }
+  if ((options.repairVisitMigrationTarget ?? 54) >= 54) {
+    await database.query(await readFile(new URL("../../migrations/054_repair_visits.sql", import.meta.url), "utf8"));
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
