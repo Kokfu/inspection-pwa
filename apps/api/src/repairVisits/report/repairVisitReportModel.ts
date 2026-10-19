@@ -12,6 +12,8 @@ export type RepairVisitReportItem = {
 };
 export type RepairVisitReportModel = {
   company: CompanyProfile;
+  /** Resolved by the PDF boundary, never read from disk by the pure HTML renderer. */
+  companyLogo?: { content: Buffer; mime: "image/png" | "image/svg+xml" } | null;
   cover: {
     visitUuid: string; visitNumber: string; visitDate: string; arrivalTime: string;
     customer: string; site: string; siteAddress: string | null; contactPerson: string | null;

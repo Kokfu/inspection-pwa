@@ -1,4 +1,5 @@
 import { technicianOwns, ownsExistingSyncIdentity, jobNotFound, requireExpectedActor } from "../jobs/technicianOwnership.js";
+import { visitDoesNotExist, visitNotYetCreated } from "../jobs/offlineServiceVisitSync.js";
 import { Router } from "express";
 import { auditLog } from "../audit/auditLog.js";
 import { requireRole } from "../middleware/requireRole.js";
@@ -74,7 +75,18 @@ syncRouter.post(
       }
 
       // Authorize every job before any idempotent replay or batch write.
+      const missingVisitItems = new Set<unknown>();
+      const missingVisitFailures: Array<{ id: string; code: string; message: string }> = [];
       for (const item of items) {
+        if (item && typeof item === "object" && jobBoundEntityTypes.has(item.entityType)
+          && await ownsExistingSyncIdentity(request, item.entityId)
+          && await ownsExistingSyncIdentity(request, item.payload?.clientUuid)
+          && await visitDoesNotExist(item.payload?.jobId)) {
+          missingVisitItems.add(item);
+          missingVisitFailures.push({ id: typeof item.entityId === "string" ? item.entityId : "unknown",
+            code: visitNotYetCreated.error, message: visitNotYetCreated.message });
+          continue;
+        }
         if (item && typeof item === "object" && jobBoundEntityTypes.has(item.entityType)
           && (!await technicianOwns(request, "job", item.payload?.jobId)
             || !await ownsExistingSyncIdentity(request, item.entityId)
@@ -84,7 +96,7 @@ syncRouter.post(
           response.status(404).json(jobNotFound); return;
         }
       }
-      const guarded = await guardCompletedJobSyncItems(items);
+      const guarded = await guardCompletedJobSyncItems(items.filter(item => !missingVisitItems.has(item)));
       const dispatchableItems = guarded.dispatchable;
       const testRecordItems = dispatchableItems.filter(
         (item): item is Parameters<typeof syncTestRecords>[0][number] =>
@@ -180,6 +192,7 @@ syncRouter.post(
         acceptedIds: [...testRecordResult.acceptedIds, ...inspectionResult.acceptedIds, ...hoseReelResult.acceptedIds, ...automaticSprinklerResult.acceptedIds, ...dryWetRiserResult.acceptedIds, ...fireAlarmResult.acceptedIds, ...hydrantResult.acceptedIds, ...smokeVentilationResult.acceptedIds, ...fireIntercomResult.acceptedIds, ...rollerShutterResult.acceptedIds, ...portableFireExtinguisherResult.acceptedIds, ...masterSystemFormInstanceResult.acceptedIds, ...fm200FormInstanceResult.acceptedIds],
         duplicateIds: [...guarded.duplicateIds, ...closeRaceGuard.duplicateIds, ...testRecordResult.duplicateIds, ...inspectionResult.duplicateIds, ...hoseReelResult.duplicateIds, ...automaticSprinklerResult.duplicateIds, ...dryWetRiserResult.duplicateIds, ...fireAlarmResult.duplicateIds, ...hydrantResult.duplicateIds, ...smokeVentilationResult.duplicateIds, ...fireIntercomResult.duplicateIds, ...rollerShutterResult.duplicateIds, ...portableFireExtinguisherResult.duplicateIds, ...masterSystemFormInstanceResult.duplicateIds, ...fm200FormInstanceResult.duplicateIds],
         failed: [
+          ...missingVisitFailures,
           ...guarded.failed,
           ...closeRaceGuard.failed,
           ...handlerFailed.filter((failure) => !reclassifiedIds.has(failure.id)),

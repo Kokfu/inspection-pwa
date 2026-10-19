@@ -14,7 +14,7 @@ export function isOfflineServiceVisitCreateRequest(v: unknown): v is OfflineServ
   return rvObject(v) && rvKeys(v, ["clientJobUuid", "customerId", "siteId", "systemKeys", "configurationRevisionId", "configurationRevision", "deviceCreatedAt", "visitDate", "arrivalTime", "serviceCallNumber"])
     && [v.clientJobUuid, v.customerId, v.siteId, v.configurationRevisionId].every(rvUuid) && rvPositive(v.configurationRevision)
     && rvTimestamp(v.deviceCreatedAt) && rvDate(v.visitDate) && rvTime(v.arrivalTime)
-    && (v.serviceCallNumber === null || rvText(v.serviceCallNumber, 100))
+    && (v.serviceCallNumber === null || rvText(v.serviceCallNumber, 80))
     && Array.isArray(v.systemKeys) && v.systemKeys.length > 0 && new Set(v.systemKeys).size === v.systemKeys.length
     && v.systemKeys.every(key => typeof key === "string" && [...repairVisitSystems, "portable_fire_extinguisher"].includes(key));
 }

@@ -28,7 +28,7 @@ stagedEvidenceRouter.post("/v6-evidence/stage", requireRole("admin", "inspector"
 });
 stagedEvidenceRouter.post("/v7-evidence/stage", requireRole("admin", "inspector"), requireExpectedActor("v7_evidence_stage", "stagedEvidence"), async (request, response, next) => {
   try {
-    const result = await stageV7Evidence(await ownedMultipart(request, "job"), request.currentUser!.id);
+    const result = await stageV7Evidence(await ownedMultipart(request, "job", true), request.currentUser!.id);
     await auditLog({ actorUserId: request.currentUser!.id, action: "v7_evidence_stage", entityType: "stagedEvidence", entityId: result.photoUuid, result: "success", reason: result.outcome });
     response.status(result.outcome === "staged" ? 201 : 200).json(result);
   } catch (error) {

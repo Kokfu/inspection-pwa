@@ -4,14 +4,15 @@ import type { Request } from "express";
 import { attachmentMaxBytes } from "../attachments/attachmentStorage.js";
 import { pool } from "../db/pool.js";
 import { technicianOwns } from "./technicianOwnership.js";
+import { visitDoesNotExist } from "./offlineServiceVisitSync.js";
 
 export class OwnershipUploadError extends Error {
   constructor(public status: number, public code: string) { super(code); }
 }
 
 /** Bounded preflight preserves the historical multipart validators unchanged. */
-export async function ownedMultipart(request: Request, kind: "job" | "form"): Promise<Request> {
-  if (request.currentUser?.role === "admin") return request;
+export async function ownedMultipart(request: Request, kind: "job" | "form", offlineVisit = false): Promise<Request> {
+  if (request.currentUser?.role === "admin" && !offlineVisit) return request;
   const bodyLimit = attachmentMaxBytes + (kind === "form" ? 32 : 64) * 1024;
   const oversized = () => new OwnershipUploadError(kind === "form" ? 413 : 400, "VALIDATION_ERROR");
   const contentLength = Number(request.headers["content-length"]);
@@ -55,8 +56,9 @@ export async function ownedMultipart(request: Request, kind: "job" | "form"): Pr
     });
   } catch { throw new OwnershipUploadError(400, "VALIDATION_ERROR"); }
   if (invalid) throw new OwnershipUploadError(400, "VALIDATION_ERROR");
-  if (!await technicianOwns(request, kind, identity)) throw new OwnershipUploadError(404, "JOB_NOT_FOUND");
-  if (photoUuid && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(photoUuid)) {
+  // Keep historical V6/attachment authorization order unchanged.
+  if (!offlineVisit && !await technicianOwns(request, kind, identity)) throw new OwnershipUploadError(404, "JOB_NOT_FOUND");
+  if (request.currentUser?.role !== "admin" && photoUuid && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(photoUuid)) {
     const existing = await pool.query(`SELECT job.id FROM inspection_jobs job JOIN (
       SELECT job_id FROM staged_inspection_evidence WHERE photo_uuid=$1
       UNION SELECT parent.job_id FROM inspection_attachments photo
@@ -65,5 +67,11 @@ export async function ownedMultipart(request: Request, kind: "job" | "form"): Pr
     ) evidence ON evidence.job_id=job.id WHERE job.created_by_user_id IS DISTINCT FROM $2`,[photoUuid,request.currentUser!.id]);
     if (existing.rows.length) throw new OwnershipUploadError(404, "JOB_NOT_FOUND");
   }
+  if (offlineVisit && kind === "job" && photoUuid
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(photoUuid)
+    && await visitDoesNotExist(identity)) {
+    throw new OwnershipUploadError(409, "VISIT_NOT_YET_CREATED");
+  }
+  if (offlineVisit && !await technicianOwns(request, kind, identity)) throw new OwnershipUploadError(404, "JOB_NOT_FOUND");
   return Object.assign(Readable.from([body]), { headers: request.headers, currentUser: request.currentUser }) as Request;
 }

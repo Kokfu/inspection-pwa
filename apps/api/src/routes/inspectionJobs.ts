@@ -10,6 +10,7 @@ import {
   loadJobCompletion
 } from "../jobs/jobCompletion.js";
 import { createServiceVisit, ServiceVisitError, type CreateServiceVisitInput } from "../jobs/serviceVisits.js";
+import { createOfflineServiceVisit } from "../jobs/offlineServiceVisits.js";
 import { normaliseSiteAddress, normaliseSiteDisplayName, siteApprovalSql } from "../inspections/siteProposal.js";
 import { requireRole } from "../middleware/requireRole.js";
 import {
@@ -288,6 +289,27 @@ export function createServiceVisitHandler({
   writeAudit = auditLog
 }: ServiceVisitRouteDependencies = {}) {
   return async (request: Request, response: Response, next: NextFunction) => {
+    if (!request.currentUser) { response.status(401).json({ error: "AUTH_REQUIRED", message: "Sign in required" }); return; }
+    if (request.body && typeof request.body === "object" && "clientJobUuid" in request.body) {
+      const client = await database.connect();
+      try {
+        const actor = request.currentUser;
+        const expected = request.header("x-expected-user-id");
+        if (expected !== undefined && expected !== String(actor.id)) {
+          throw new ServiceVisitError("IDENTITY_MISMATCH", "The signed-in technician changed. Sign in as the visit creator before syncing.", 409);
+        }
+        const receipt = await createOfflineServiceVisit(client, request.body, actor.id, actor.role);
+        await writeAudit({ actorUserId: actor.id, action: receipt.idempotent ? "service_visit_create_replay" : "service_visit_create",
+          entityType: "inspectionJob", entityId: receipt.jobId, result: "success" });
+        response.status(receipt.idempotent ? 200 : 201).json(receipt);
+      } catch (error) {
+        if (!(error instanceof ServiceVisitError)) { next(error); return; }
+        await writeAudit({ actorUserId: request.currentUser.id, action: "service_visit_create",
+          entityType: "inspectionJob", result: "failure", reason: error.code });
+        response.status(error.status).json({ error: error.code, message: error.message });
+      } finally { client.release(); }
+      return;
+    }
     const input = parseCreateServiceVisit(request.body);
     if (!input) {
       response.status(400).json({ error: "INVALID_SERVICE_VISIT_REQUEST", message: "A request ID, customer, site, and one or more supported systems are required. Service visit creation time is recorded by the server." });

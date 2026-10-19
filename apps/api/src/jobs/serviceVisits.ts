@@ -95,7 +95,7 @@ function sameReplay(row: Record<string, unknown>, input: CreateServiceVisitInput
     && row.departureTime === cover.departureTime;
 }
 
-async function activeConfiguration(client: Queryable, customerId: string) {
+export async function activeConfiguration(client: Queryable, customerId: string) {
   const result = await client.query<ConfigurationRow>(`
     SELECT revision.id AS "revisionId", revision.revision AS "revisionNumber",
       template.id AS "templateId", template.code AS "templateCode",
@@ -107,7 +107,7 @@ async function activeConfiguration(client: Queryable, customerId: string) {
   return result.rows[0];
 }
 
-async function selectedSystems(client: Queryable, revisionId: string, selected: string[]) {
+export async function selectedSystems(client: Queryable, revisionId: string, selected: string[]) {
   const result = await client.query<SystemRow>(`
     SELECT enabled.id AS "enabledSystemId", enabled.system_key AS "systemKey",
       system.display_name AS "displayName", enabled.sort_order AS "sortOrder",
@@ -142,7 +142,7 @@ async function selectedSystems(client: Queryable, revisionId: string, selected: 
   return result.rows;
 }
 
-async function buildSnapshot(
+export async function buildSnapshot(
   client: Queryable, customer: CustomerRow, site: SiteRow,
   configuration: ConfigurationRow, systems: SystemRow[]
 ) {
