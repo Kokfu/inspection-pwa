@@ -29,6 +29,20 @@ export async function heldJobIds(): Promise<Set<string>> {
   return new Set(keys.filter((key): key is string => typeof key === "string"));
 }
 
+/**
+ * True when the job is a visit created on this device that the server has not confirmed yet. The server cannot already hold an
+ * inspection for it, so open paths must skip the server lookup (which would only fail offline) and work from the device.
+ * Once the receipt is stored (status Synced) this is false and the normal server lookup applies again. Unreadable storage is false.
+ */
+export async function isUnconfirmedLocalVisit(jobId: string): Promise<boolean> {
+  try {
+    const visit = await localDatabase.offlineServiceVisits.get(jobId);
+    return visit !== undefined && (unconfirmedVisitStatuses as readonly string[]).includes(visit.syncStatus);
+  } catch {
+    return false;
+  }
+}
+
 export type LocalVisitPresentation = {
   label: "Pending sync" | "Syncing" | "Needs attention" | "Synced";
   tone: "pending" | "syncing" | "attention" | "synced";

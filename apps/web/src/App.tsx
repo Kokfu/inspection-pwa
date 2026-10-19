@@ -154,6 +154,7 @@ import { TechnicianAddCustomer } from "./jobs/TechnicianAddCustomer";
 import { TechnicianLocationProposal } from "./jobs/TechnicianLocationProposal";
 import { ManagerLocationProposals } from "./manager/ManagerLocationProposals";
 import { syncPendingTechnicianCustomers } from "./jobs/technicianCustomerDraft";
+import { isUnconfirmedLocalVisit } from "./jobs/offlineServiceVisitStore";
 import { TechnicianUpcomingServices } from "./jobs/TechnicianUpcomingServices";
 import { loadServiceFormatOptions } from "./referenceData/referenceDataApi";
 import { NewServiceVisit } from "./jobs/NewServiceVisit";
@@ -1720,7 +1721,7 @@ export function App() {
     try {
 
     try {
-      if (authState.status === "verified") {
+      if (authState.status === "verified" && !await isUnconfirmedLocalVisit(job.id)) {
         const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
         if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
       }

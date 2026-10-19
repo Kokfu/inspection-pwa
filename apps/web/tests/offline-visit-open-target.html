@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Unconfirmed offline visit open-target harness</title></head>
+  <body>
+    <button id="run" type="button">Run unconfirmed visit open-target checks</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { localDatabase } from "/src/db/localDatabase.ts";
+      import { isUnconfirmedLocalVisit } from "/src/jobs/offlineServiceVisitStore.ts";
+      import { resolveAutomaticSprinklerOpenTarget } from "/src/automaticSprinkler/automaticSprinklerResolution.ts";
+
+      const checks = [];
+      const check = (name, passed, detail = "") => checks.push({ name, passed: Boolean(passed), detail });
+      const user = { id: 1, username: "tech", role: "inspector" };
+      const unreachable = () => Promise.reject(new TypeError("Failed to fetch"));
+      const none = () => Promise.resolve(undefined);
+      const jobId = (n) => `33000000-0000-4000-8000-00000000000${n}`;
+      const visit = (id, syncStatus) => ({ clientJobUuid: id, createdByUserId: 1, request: {}, job: { id }, syncStatus, localCreatedAt: new Date().toISOString(), localUpdatedAt: new Date().toISOString() });
+
+      document.querySelector("#run").addEventListener("click", async () => {
+        const result = document.querySelector("#result");
+        try {
+          const ids = [1, 2, 3, 4, 5, 6].map(jobId);
+          await localDatabase.offlineServiceVisits.bulkDelete(ids);
+          const statuses = ["Pending", "Syncing", "Failed", "Conflict", "Synced"];
+          for (let i = 0; i < statuses.length; i += 1) await localDatabase.offlineServiceVisits.put(visit(ids[i], statuses[i]));
+
+          for (let i = 0; i < statuses.length; i += 1) {
+            check(`guard: ${statuses[i]} visit -> ${i < 4}`, (await isUnconfirmedLocalVisit(ids[i])) === (i < 4));
+          }
+          check("guard: a job with no local visit row is not unconfirmed", (await isUnconfirmedLocalVisit(ids[5])) === false);
+
+          // Automatic Sprinkler open target, verified session, server unreachable.
+          const system = { systemKey: "automatic_sprinkler" };
+          let created = 0;
+          const create = async () => { created += 1; return { created: true }; };
+          const open = (id, status, find = unreachable) => { created = 0; return resolveAutomaticSprinklerOpenTarget({ id, status: "open" }, system, {}, user, status, find, create); };
+
+          for (let i = 0; i < 4; i += 1) {
+            let lookups = 0;
+            const r = await open(ids[i], true, () => { lookups += 1; return unreachable(); });
+            check(`sprinkler: verified + ${statuses[i]} local visit opens locally with no server lookup`, r.kind === "local" && created === 1 && lookups === 0, JSON.stringify(r));
+          }
+          // Confirmed (Synced) visit and a job that is not a local visit: unchanged, fail closed with the network error, no blind draft.
+          for (const [label, id] of [["Synced visit", ids[4]], ["non-local job", ids[5]]]) {
+            let message = "";
+            try { await open(id, true); } catch (error) { message = String(error); }
+            check(`sprinkler: verified + ${label} + unreachable server still fails closed`, message.includes("Failed to fetch") && created === 0, message);
+          }
+          const found = await open(ids[4], true, () => Promise.resolve({ clientUuid: "server-uuid" }));
+          check("sprinkler: Synced visit uses the server lookup again", found.kind === "server" && found.clientUuid === "server-uuid", JSON.stringify(found));
+
+          await localDatabase.offlineServiceVisits.bulkDelete(ids);
+          result.textContent = JSON.stringify({ status: checks.every((item) => item.passed) ? "PASS" : "FAIL", checks }, null, 2);
+        } catch (error) {
+          result.textContent = JSON.stringify({ status: "ERROR", message: String(error), checks }, null, 2);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,6 +1,7 @@
 import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
+import { isUnconfirmedLocalVisit } from "../jobs/offlineServiceVisitStore";
 import { isServerUnreachable } from "../jobs/serverReachability";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -71,8 +72,11 @@ export async function resolveAutomaticSprinklerOpenTarget(
   user: AuthUser | undefined,
   verified: boolean,
   findServer = findServerMasterSystemInspection,
-  createLocal = getOrCreateAutomaticSprinklerInspection
+  createLocal = getOrCreateAutomaticSprinklerInspection,
+  isUnconfirmedVisit = isUnconfirmedLocalVisit
 ): Promise<SprinklerOpenTarget> {
+  // A visit created on this device and not yet confirmed cannot have a server inspection: work from the device, no lookup.
+  if (verified && await isUnconfirmedVisit(job.id)) verified = false;
   const jobSystemKey = `${job.id}:${system.systemKey}`;
   if (job.status === "closed" && verified) {
     try {

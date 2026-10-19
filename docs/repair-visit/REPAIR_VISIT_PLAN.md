@@ -284,3 +284,50 @@ before committing.
 - Old Repair List fully removed; no old repair tables, stores, routes or tests left.
 - All standard gates pass; V1–V6 untouched; `git diff --check` clean; P0 = 0, P1 = 0.
 - Level 3 phone test done by you (not claimed by any agent).
+
+---
+
+## 10. Final integration check results (step 6A, 2026-10-19)
+
+**Cold gates:** every standard gate and every test added in steps 1A–5A passed from cold, except one
+flaky web spec (below). Disposable Postgres on 127.0.0.1:55432 for all integration suites. No skips.
+
+**Live end-to-end (disposable Postgres :55433, real API, production web build, desktop Chromium via
+Playwright with the API blocked for "offline" and a persistent profile closed/reopened for "force-close"):**
+- Offline service visit: create (placeholder, Pending sync, no POST) → fill → submit → close/reopen →
+  reconnect → create, evidence stage, form sync in that order → `SV-20261019-2`, exact client UUID, one row.
+- Offline repair visit, previous = approved service visit: field list Not Good first; Done Repair + Not Done
+  with remark + photo; submit offline; close/reopen; reconnect → create, 2 photos, submit → `RV-20261019-1`.
+- Admin Return with a reason (empty-reason refusal not exercised live) → technician sees Returned with reason,
+  edits one field, resubmits (revision 2) → Admin Approve → `MFE/RR/2026/0001`. Final PDF (3 pages, A4
+  landscape) matches the approved mock-up layout; re-downloaded PDF is byte-identical and stored hash matches.
+- New repair visit with that repair visit as previous: Not Done field first, Before = its After result,
+  remark and photo (confirmed in the PDF); approved as `MFE/RR/2026/0002`.
+
+**Findings**
+- P0: 0. P1: 0.
+- P2-1 `offline-service-visit-app.spec.ts` is intermittent (failed 2 of 9 viewport runs across 3 file runs: once at 360px, once at 768px).
+  After the create is confirmed, the test's mock never lists the new job, so the local visit leaves the Home
+  list until a server refresh; the "SV-…-41" assertion then times out. Test-mock gap; code read ([TechnicianHome.tsx](apps/web/src/jobs/TechnicianHome.tsx) merge filter) shows a synced local visit is shown only if the server list contains it, so a refresh that started before the create could briefly hide an open visit (not reproduced live). No
+  data loss seen. Needs a decision: fix the mock to return the created job.
+- P2-2 In the New Repair Visit form, going offline after choosing customer/site resets the selection.
+- P2-3 After submit, "Submitted. Sending to the server…" can remain beside "Sent to the server".
+- P2-4 Admin review showed "Unknown technician (ID 1)" for the seeded technician (likely missing technician
+  directory entry in the disposable seed; not confirmed).
+- Seed-only: the seeded fixture's system display name is the raw key, so the PDF shows `AUTOMATIC_SPRINKLER`;
+  real snapshots carry display names. Not an app defect.
+
+**Not proven:** real airplane mode, the installed PWA, Service Worker offline serving (the app did not register
+its Service Worker automatically in the test browser; I registered `/sw.js` by hand and could not get it to
+control the page, so offline was simulated by blocking `/api`), phone camera, phone PDF viewer, HTTPS via the
+real proxy, multi-system PDFs, a manager-created repair of other systems. The in-app browser pane could not be
+used (no Service Worker support, screenshots timed out). The test proxy dropped the `Origin` header because the
+API only accepts HTTPS origins. The repo was not modified.
+
+**Phone run (2026-10-19, agent on the owner's phone, disposable stack, production bundle with a real Service Worker):**
+see the Result section of `PHONE_TEST_CHECKLIST.md`. All flows passed on the real phone (offline create, camera,
+force-close, reconnect, return, resubmit, approve, PDF) except **P1-A**: the system form of a service visit created
+offline in the same session will not open until the app is reopened. The earlier desktop note that the Service Worker
+"did not register" was my own `NODE_ENV=test` web build, not an app defect.
+
+READY FOR OWNER PHONE TEST: Y (checklist: docs/repair-visit/PHONE_TEST_CHECKLIST.md); P1-A FIXED (covered by tests/offline-visit-open-form.spec.ts and offline-visit-open-target.spec.ts; phone re-test PASSED 2026-10-19)
