@@ -115,3 +115,12 @@ Performed on a physical phone: submit online, withdraw, revise and resubmit, off
 | Technician saw the original name for "Approved with changes" | P3 | Shows "Approved as: <applied name> in <zone>" |
 
 Not fixed, noted: the add-location screen also resets its system picker on a remount (the saved draft is kept); the revision panel has extra blank space above its heading; one first online submit took about a minute from claim to request and did not repeat. Test data left on the "28/9/2026 All Services" customer: FM200 location "Retest Approve Room (edited)" in zone "Retest Zone".
+
+### Follow-up: "1-2 minute sync delay after a revision submit" (20 October 2026)
+
+Investigated on the phone; **not reproduced and no code change made.**
+
+- Code path checked: a revision submit syncs at once only when `connected` (online and a verified session); otherwise the item waits for the next automatic trigger. The app triggers a sync as soon as the session is verified again ("launch" trigger) and every 60 seconds (`AUTO_SYNC_INTERVAL_MS`), and the sync engine also sends proposals. So a delay can only mean the session was not verified yet.
+- Measured on a freshly started Chrome with a single app tab: after Wi-Fi off then on, the app left "Reconnecting" within about 0.2 s of the online event, and a revision submitted straight afterwards reached **Completed in 1.1 s** (outbox `Pending` to `Completed`, one attempt).
+- The slow runs happened with dozens of Chrome tabs open on the same app (every tab re-verifies the session on every offline/online event and shares the same storage), and the longest one with a fetch-logging hook injected by the tester. One such tab stayed on "Reconnecting for technician-demo..." for over six minutes until Chrome was force-stopped. That state was not reproduced after the force-stop and is recorded here as an unconfirmed observation, not a defect.
+- If it is seen again on a normally used phone, capture: number of open app tabs, the header text at the time, and the outbox item's `status`, `attempts` and `lastAttemptAt`.
