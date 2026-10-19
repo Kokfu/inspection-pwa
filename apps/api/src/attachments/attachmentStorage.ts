@@ -254,7 +254,10 @@ export async function reconcileAttachmentStorage() {
        FROM staged_inspection_evidence
      UNION
      SELECT storage_relative_path, metadata->'storedSizeBytes', stored_sha256::text
-       FROM staged_repair_evidence`
+       FROM staged_repair_evidence
+     UNION
+     SELECT storage_relative_path, to_jsonb(size_bytes), stored_sha256::text
+       FROM repair_visit_photos`
   );
   const expected = new Set(rows.rows.map((row) => row.storage_relative_path));
   const inspectionRoot = path.join(uploadsRoot, "inspections");
