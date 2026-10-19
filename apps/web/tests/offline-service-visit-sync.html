@@ -1,0 +1,235 @@
+<!doctype html><html><body><button id="run">Run offline service visit sync checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { syncPendingRecords, recoverInterruptedSync } from "/src/sync/syncEngine.ts";
+import { createLocalServiceVisit, deleteUnsyncedLocalVisit, requeueOfflineServiceVisit } from "/src/jobs/offlineServiceVisitLocal.ts";
+import { LOCAL_VISIT_REFERENCE, presentLocalVisit, heldJobIds } from "/src/jobs/offlineServiceVisitStore.ts";
+import { loadInspectionJobs } from "/src/jobs/jobApi.ts";
+import { getCachedInspectionJobs } from "/src/referenceData/referenceDataCache.ts";
+import { getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "/src/hoseReel/hoseReelRepository.ts";
+
+// Level 2: ordering (create first, forms wait), exact-UUID confirmation, refusal -> Needs attention with all data kept,
+// interrupted sync, retry after the cause is fixed, local delete rules, no data loss. Real engine + real Dexie, faked server.
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const userId = 9101;
+const ids = { customer: "00000000-0000-4000-8000-000000009101", site: "00000000-0000-4000-8000-000000009102",
+  revision: "00000000-0000-4000-8000-000000009103", template: "00000000-0000-4000-8000-000000009104",
+  enabled: "00000000-0000-4000-8000-000000009105", zone: "00000000-0000-4000-8000-000000009106", location: "00000000-0000-4000-8000-000000009107" };
+const customer = { id: ids.customer, code: "C-9101", displayName: "Offline Customer", isDemo: false };
+const site = { id: ids.site, customerId: ids.customer, code: "S-1", displayName: "Main Site" };
+const configuration = { customer, configuration: { configurationId: ids.revision, revision: 4, templateId: ids.template, templateCode: "MFE-FSSR", templateName: "Service Report", templateVersion: 1, selectionPolicy: "preset_only",
+  enabledSystems: [{ id: ids.enabled, key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", zones: [{ id: ids.zone, enabledSystemId: ids.enabled, key: "z1", displayName: "Zone 1", sortOrder: 1 }],
+    locations: [{ id: ids.location, enabledSystemId: ids.enabled, zoneId: ids.zone, key: "l1", displayName: "Level 1", presetRowCount: 2, rowPreset: {}, sortOrder: 1 }] },
+    { id: "00000000-0000-4000-8000-000000009108", key: "co2_fire_extinguisher", displayName: "CO2", sortOrder: 2, definitionStatus: "confirmed", zones: [], locations: [] }] } };
+
+let server;
+function resetServer() { server = { calls: [], createMode: "ok", createCount: 0, receiptsByUuid: new Map(), syncBodies: [] }; }
+function receiptFor(request, idempotent) {
+  return { clientJobUuid: request.clientJobUuid, jobId: request.clientJobUuid, visitNumber: `SV-${request.visitDate.replaceAll("-", "")}-77`,
+    configurationRevisionId: request.configurationRevisionId, deviceCreatedAt: request.deviceCreatedAt, visitDate: request.visitDate, arrivalTime: request.arrivalTime, idempotent };
+}
+async function fakeFetch(url, init) {
+  const path = String(url);
+  if (path.includes("/api/inspection-jobs/service-visits")) {
+    const request = JSON.parse(init.body);
+    server.calls.push({ kind: "create", uuid: request.clientJobUuid, header: init.headers["X-Expected-User-Id"] });
+    server.createCount += 1;
+    if (server.onCreate) await server.onCreate(request);
+    if (server.createMode === "offline") throw new TypeError("Failed to fetch");
+    if (server.createMode === "503") return reply(503, { error: "UNAVAILABLE" });
+    if (server.createMode === "refuse") return reply(409, { error: "CONFIGURATION_CHANGED", message: "Customer configuration has changed." });
+    if (server.createMode === "wrongUuid") return reply(201, { ...receiptFor(request, false), clientJobUuid: "00000000-0000-4000-8000-00000000dead", jobId: "00000000-0000-4000-8000-00000000dead" });
+    const known = server.receiptsByUuid.has(request.clientJobUuid);
+    server.receiptsByUuid.set(request.clientJobUuid, request);
+    return reply(known ? 200 : 201, receiptFor(request, known));
+  }
+  if (path.includes("/api/sync")) {
+    const body = JSON.parse(init.body);
+    server.calls.push({ kind: "sync", ids: body.items.map((item) => item.entityId) });
+    return reply(200, { acceptedIds: body.items.map((item) => item.entityId), duplicateIds: [], failed: [] });
+  }
+  return reply(404, {});
+}
+async function reset() {
+  for (const table of ["offlineServiceVisits", "syncOutbox", "inspectionRecords", "masterSystemInspections", "masterSystemInspectionGroups", "masterSystemFormInstances", "referenceData"]) await localDatabase[table].clear();
+  resetServer();
+}
+async function newVisit(overrides = {}) {
+  return createLocalServiceVisit({ customer, site, configuration, systemKeys: ["hose_reel"], serviceCallNumber: " SC-1 ", arrivalTime: "09:15", ...overrides });
+}
+// A submitted form of that visit, queued like any other (the engine is entity-type agnostic for ordering).
+async function queueForm(jobId) {
+  const clientUuid = crypto.randomUUID();
+  await localDatabase.inspectionRecords.put({ clientUuid, jobId, templateId: "t", templateVersion: 1, templateSnapshot: {}, header: {}, responses: [], localCreatedAt: new Date().toISOString(), localUpdatedAt: new Date().toISOString(), syncStatus: "Pending" });
+  await localDatabase.syncOutbox.put({ operationId: crypto.randomUUID(), entityType: "inspection", entityId: clientUuid, action: "create", payload: { clientUuid, jobId }, createdAt: new Date().toISOString(), attempts: 0, status: "Pending", activeKey: `inspection:create:${clientUuid}` });
+  return clientUuid;
+}
+const visitRow = (uuid) => localDatabase.offlineServiceVisits.get(uuid);
+const createOp = async (uuid) => (await localDatabase.syncOutbox.where("entityId").equals(uuid).toArray()).find((item) => item.entityType === "offlineServiceVisit");
+const syncCalls = () => server.calls.filter((call) => call.kind === "sync");
+
+document.querySelector("#run").onclick = async () => {
+  const originalFetch = window.fetch;
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(userId);
+    await deviceDatabase.authState.put({ key: "device-auth", userId, username: "offline-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    window.fetch = fakeFetch;
+
+    // 1. Local-first creation: everything is in IndexedDB before any request; the job has the shape forms already use.
+    await reset();
+    const job = await newVisit();
+    check("no request was made while creating", server.calls.length === 0);
+    const row = await visitRow(job.id);
+    const op = await createOp(job.id);
+    check("job id is a client UUID and equals the stored visit key", /^[0-9a-f-]{36}$/.test(job.id) && row?.clientJobUuid === job.id);
+    check("placeholder reference is shown until synced", job.reference === LOCAL_VISIT_REFERENCE && LOCAL_VISIT_REFERENCE === "SV number given when synced");
+    check("request carries the device date/time and configuration revision used", row?.request.configurationRevisionId === ids.revision && row.request.configurationRevision === 4 && row.request.arrivalTime === "09:15" && row.request.serviceCallNumber === "SC-1" && /^\d{4}-\d{2}-\d{2}T/.test(row.request.deviceCreatedAt) && /^\d{4}-\d{2}-\d{2}$/.test(row.request.visitDate));
+    check("one Pending create operation with the same UUID and active key", op?.status === "Pending" && op.entityId === job.id && op.payload.clientJobUuid === job.id && op.activeKey === `offlineServiceVisit:create:${job.id}`);
+    const snapshot = job.configurationSnapshot;
+    check("snapshot has the configured system, zone and location ids from the downloaded setup", snapshot.enabledSystems.length === 1 && snapshot.enabledSystems[0].systemKey === "hose_reel" && snapshot.enabledSystems[0].enabledSystemId === ids.enabled && snapshot.enabledSystems[0].locations[0].id === ids.location && snapshot.configuration.revisionId === ids.revision);
+    check("the job is cached so the app opens it from the device", (await getCachedInspectionJobs(userId)).some((cached) => cached.id === job.id));
+    check("double tap with the same UUID makes no second visit", (await newVisit({ clientJobUuid: job.id })).id === job.id && await localDatabase.offlineServiceVisits.count() === 1 && await localDatabase.syncOutbox.count() === 1);
+    let refused = "";
+    try { await newVisit({ systemKeys: ["co2_fire_extinguisher"] }); } catch (error) { refused = String(error.message); }
+    check("a suppression system with no configured locations is refused offline (server invents its General ids)", /connected to the server/.test(refused) && await localDatabase.offlineServiceVisits.count() === 1);
+    check("a refresh listing keeps an unsynced local visit", await (async () => { window.fetch = async () => reply(200, { jobs: [] }); const jobs = await loadInspectionJobs(); window.fetch = fakeFetch; return jobs.some((listed) => listed.id === job.id); })());
+
+    // 2. Ordering: the form is filled while offline; with the server unreachable nothing but the create is attempted.
+    const formUuid = await queueForm(job.id);
+    check("held until confirmed", (await heldJobIds()).has(job.id));
+    server.createMode = "offline";
+    await syncPendingRecords(userId);
+    check("unreachable server: only the create was attempted, forms were not sent", server.calls.length === 1 && server.calls[0].kind === "create" && syncCalls().length === 0);
+    check("unreachable server: visit and form stay Pending with all data kept", (await visitRow(job.id)).syncStatus === "Pending" && (await localDatabase.inspectionRecords.get(formUuid)).syncStatus === "Pending" && (await createOp(job.id)).status === "Pending");
+    server.createMode = "503";
+    await syncPendingRecords(userId);
+    check("HTTP 503 is an unknown result: retried later, still Pending", (await visitRow(job.id)).syncStatus === "Pending" && syncCalls().length === 0);
+
+    // 3. A reply that does not echo the exact UUID is not a confirmation.
+    server.createMode = "wrongUuid";
+    await syncPendingRecords(userId);
+    let state = await visitRow(job.id);
+    check("a different UUID in the reply is never accepted as Synced", state.syncStatus === "Failed" && !state.receipt && syncCalls().length === 0);
+    await requeueOfflineServiceVisit(job.id);
+
+    // 4. Reconnect: create first, then the form in the same run, then the real SV number replaces the placeholder.
+    server.createMode = "ok";
+    await syncPendingRecords(userId);
+    state = await visitRow(job.id);
+    check("reconnect sends the create, then the form, in that order", server.calls.at(-2).kind === "create" && server.calls.at(-1).kind === "sync");
+    check("create request names the owner header and the exact UUID", server.calls.at(-2).uuid === job.id && server.calls.at(-2).header === String(userId));
+    check("the form was sent only after the visit was confirmed, with its exact UUID", syncCalls().length === 1 && syncCalls()[0].ids[0] === formUuid);
+    check("visit is Synced only with the server receipt for that exact UUID", state.syncStatus === "Synced" && state.receipt.clientJobUuid === job.id && state.receipt.visitNumber.startsWith("SV-") && state.job.reference === state.receipt.visitNumber);
+    check("the form is Synced and the create operation Completed", (await localDatabase.inspectionRecords.get(formUuid)).syncStatus === "Synced" && (await createOp(job.id)).status === "Completed");
+    check("the cached job carries the real SV number", (await getCachedInspectionJobs(userId)).find((cached) => cached.id === job.id)?.reference === state.receipt.visitNumber);
+    check("a synced visit no longer holds anything back", !(await heldJobIds()).has(job.id));
+    const before = server.createCount;
+    await syncPendingRecords(userId);
+    check("a second sync sends nothing more for a Synced visit", server.createCount === before);
+
+    // 5. Refusal: Needs attention with the reason; every local record kept; retry after the cause is fixed.
+    await reset();
+    const refusedJob = await newVisit();
+    const refusedForm = await queueForm(refusedJob.id);
+    server.createMode = "refuse";
+    await syncPendingRecords(userId);
+    state = await visitRow(refusedJob.id);
+    const presentation = presentLocalVisit(state);
+    check("refusal shows Needs attention with the reason", presentation.label === "Needs attention" && /setup changed/i.test(presentation.reason) && state.lastSyncErrorCode === "CONFIGURATION_CHANGED");
+    check("refusal keeps the visit, its operation and its form untouched", state.syncStatus === "Failed" && (await createOp(refusedJob.id)).status === "Failed" && (await localDatabase.inspectionRecords.get(refusedForm)).syncStatus === "Pending" && (await localDatabase.syncOutbox.count()) === 2);
+    check("the refused visit's form is never sent", syncCalls().length === 0);
+    const attempts = server.createCount;
+    await syncPendingRecords(userId);
+    check("an automatic run does not repeat a refusal inside the backoff", server.createCount === attempts);
+    server.createMode = "ok";
+    await requeueOfflineServiceVisit(refusedJob.id);
+    check("Retry puts the visit back in the queue without changing it", (await visitRow(refusedJob.id)).syncStatus === "Pending" && (await createOp(refusedJob.id)).status === "Pending");
+    await syncPendingRecords(userId);
+    check("after the cause is fixed the retry syncs the same UUID and releases the form", (await visitRow(refusedJob.id)).syncStatus === "Synced" && syncCalls().length === 1 && syncCalls()[0].ids[0] === refusedForm && server.receiptsByUuid.size === 1);
+
+    // 6. Interrupted sync: app killed after the create was sent. Recovery re-queues the same UUID; the replay is idempotent.
+    await reset();
+    const interrupted = await newVisit();
+    await queueForm(interrupted.id);
+    server.createMode = "ok";
+    server.onCreate = async (request) => { server.receiptsByUuid.set(request.clientJobUuid, request); };
+    await localDatabase.transaction("rw", localDatabase.offlineServiceVisits, localDatabase.syncOutbox, async () => {
+      await localDatabase.offlineServiceVisits.update(interrupted.id, { syncStatus: "Syncing" });
+      const op = await createOp(interrupted.id); await localDatabase.syncOutbox.update(op.operationId, { status: "Syncing", attempts: 1 });
+    });
+    await recoverInterruptedSync();
+    check("recovery re-queues an interrupted create as Pending (not Failed, nothing lost)", (await visitRow(interrupted.id)).syncStatus === "Pending" && (await createOp(interrupted.id)).status === "Pending");
+    await syncPendingRecords(userId);
+    state = await visitRow(interrupted.id);
+    check("the replay of the same UUID is confirmed once and the server holds one visit", state.syncStatus === "Synced" && state.receipt.idempotent === true && server.receiptsByUuid.size === 1);
+
+    // 7. Stale caller: the queued operation changed while the request was in flight; the late reply is ignored.
+    await reset();
+    const stale = await newVisit();
+    server.onCreate = async () => { await localDatabase.offlineServiceVisits.update(stale.id, { request: { ...(await visitRow(stale.id)).request, serviceCallNumber: "CHANGED" } }); };
+    await syncPendingRecords(userId);
+    state = await visitRow(stale.id);
+    check("a reply for a request that no longer matches is not applied as Synced", state.syncStatus !== "Synced" && !state.receipt);
+    await recoverInterruptedSync();
+    check("such a visit stays recoverable and keeps its data", (await visitRow(stale.id)).syncStatus === "Pending" && (await localDatabase.offlineServiceVisits.count()) === 1);
+
+    // 8. Delete rules.
+    await reset();
+    const unstarted = await newVisit();
+    await deleteUnsyncedLocalVisit(unstarted.id);
+    check("an unsynced, unstarted visit is deleted locally with its create and cached job", !(await visitRow(unstarted.id)) && !(await createOp(unstarted.id)) && !(await getCachedInspectionJobs(userId)).some((cached) => cached.id === unstarted.id));
+    const started = await newVisit();
+    const startedForm = await queueForm(started.id);
+    let startedError = "";
+    try { await deleteUnsyncedLocalVisit(started.id); } catch (error) { startedError = String(error.message); }
+    check("a visit with inspection work is refused and nothing is deleted", /work has started/i.test(startedError) && !!(await visitRow(started.id)) && !!(await localDatabase.inspectionRecords.get(startedForm)));
+    const syncing = await newVisit();
+    await localDatabase.offlineServiceVisits.update(syncing.id, { syncStatus: "Syncing" });
+    let syncingError = "";
+    try { await deleteUnsyncedLocalVisit(syncing.id); } catch (error) { syncingError = String(error.message); }
+    check("a visit being sent cannot be deleted under the request", /being sent/i.test(syncingError) && !!(await visitRow(syncing.id)));
+    const remarked = await newVisit();
+    await localDatabase.syncOutbox.put({ operationId: crypto.randomUUID(), entityType: "sectionRemark", entityId: crypto.randomUUID(), action: "create", payload: { jobId: remarked.id }, createdAt: new Date().toISOString(), attempts: 0, status: "Pending", activeKey: `sectionRemark:create:${crypto.randomUUID()}` });
+    let remarkError = "";
+    try { await deleteUnsyncedLocalVisit(remarked.id); } catch (error) { remarkError = String(error.message); }
+    check("a visit with a queued remark is refused and nothing is deleted", /queued/i.test(remarkError) && !!(await visitRow(remarked.id)) && !!(await createOp(remarked.id)));
+
+    // 9. A real form (Hose Reel) built from the local job shape: fill + submit offline, then reconnect.
+    await reset();
+    const item = (key, sortOrder) => ({ key, label: key, sortOrder, control: "good_poor", allowedValues: ["good", "poor"] });
+    const hoseDefinition = { key: "hose_reel", sections: [{ key: "water_tank", blocks: [{ key: "water_tank_checks", items: [item("water_level", 1)] }] },
+      { key: "pump_house", blocks: [{ key: "pump_house_checks", items: [item("pump_house_clean", 1)] }, { key: "pump_pressure_measurements", items: [
+        { key: "jockey_pump_pressure", label: "Jockey", sortOrder: 1, measurements: [{ key: "cut_in", label: "In", unit: "PSI" }, { key: "cut_out", label: "Out", unit: "PSI" }], result: { control: "good_poor", allowedValues: ["good", "poor"] } },
+        { key: "standby_pump_cut_in", label: "Standby", sortOrder: 2, measurements: [{ key: "value", label: "Value", unit: "PSI" }], result: { control: "good_poor", allowedValues: ["good", "poor"] } }] }] },
+      { key: "hose_reel_drum", blocks: [{ key: "hose_reel_rows", columns: ["drum", "hose", "nozzle", "valve", "nozzle_box"].map((key, index) => ({ key, label: key, sortOrder: index + 1, control: "good_poor", allowedValues: ["good", "poor"] })) }, { key: "comments", field: { control: "remarks" } }] }] };
+    const hoseCatalog = { id: ids.template, code: "MFE-FSSR", name: "Test", version: 1, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", definition: hoseDefinition }] };
+    const complete = (record) => { const x = structuredClone(record.responses); for (const v of Object.values(x.checklist)) v.result = "good";
+      Object.assign(x.measurements.jockey_pump_pressure, { values: { cut_in: 10, cut_out: 11 }, result: "good" }); Object.assign(x.measurements.standby_pump_cut_in, { values: { value: 12 }, result: "good" });
+      for (const row of x.rows) Object.assign(row, { drumResult: "good", hoseResult: "good", nozzleResult: "good", valveResult: "good", nozzleBoxResult: "good" }); return x; };
+    const hoseJob = await newVisit();
+    const hoseRecord = await getOrCreateHoseReelInspection(hoseJob, hoseJob.configurationSnapshot.enabledSystems[0], hoseCatalog);
+    check("the form opens from the local job: configured rows come from the downloaded setup", hoseRecord.jobId === hoseJob.id && hoseRecord.responses.rows.length === 2 && hoseRecord.responses.rows.every((row) => row.source === "configured" && row.configuredLocationId === ids.location));
+    const draft = await saveHoseReelDraft(hoseRecord, complete(hoseRecord));
+    await submitLocalHoseReel(draft, complete(draft));
+    const hoseOps = (await localDatabase.syncOutbox.where("entityId").equals(hoseRecord.clientUuid).toArray());
+    check("fill + submit offline queues the form as Pending, held behind the visit", hoseOps.length === 1 && hoseOps[0].status === "Pending" && (await heldJobIds()).has(hoseJob.id));
+    server.createMode = "offline";
+    await syncPendingRecords(userId);
+    check("unreachable: the Hose Reel submission is not sent and stays Pending after the attempt", syncCalls().length === 0 && (await localDatabase.masterSystemInspections.get(hoseRecord.clientUuid)).syncStatus === "Pending");
+    await queueForm(hoseJob.id); // a second, unrelated queued form of the same visit is also held
+    server.createMode = "ok";
+    await syncPendingRecords(userId);
+    const hoseSync = syncCalls();
+    check("after reconnect the visit is confirmed first, then the form goes with its exact UUID", server.calls.findIndex((call) => call.kind === "create" && call.uuid === hoseJob.id && server.calls.indexOf(call) >= server.calls.length - 2) !== -1 && hoseSync.length === 1 && hoseSync[0].ids.includes(hoseRecord.clientUuid));
+    check("the Hose Reel is Synced and the visit holds nothing back", (await localDatabase.masterSystemInspections.get(hoseRecord.clientUuid)).syncStatus === "Synced" && !(await heldJobIds()).has(hoseJob.id));
+
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) {
+    window.fetch = originalFetch;
+    out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error), checks });
+  }
+};
+</script></body></html>

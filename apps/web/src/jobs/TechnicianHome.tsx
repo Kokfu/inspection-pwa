@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ClientAuthState } from "../auth/authStateTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
@@ -27,6 +27,9 @@ import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
 import { KpiTiles } from "../manager/KpiTiles";
 import { ServiceJobCard, completedServiceJobs } from "./ServiceJobCard";
+import { isLocalVisitReference, presentLocalVisit, withConfirmedReference } from "./offlineServiceVisitStore";
+import { deleteUnsyncedLocalVisit, prefetchCustomerSitesForOffline, requeueOfflineServiceVisit } from "./offlineServiceVisitLocal";
+import { useOfflineServiceVisits } from "./useOfflineServiceVisits";
 import { TechnicianCompletedServices } from "./TechnicianCompletedServices";
 import { offersAddLocation } from "../manager/managerApi";
 import type {
@@ -116,7 +119,7 @@ type TechnicianHomeProps = {
 export function TechnicianHome({
   completedOnly = false,
   authState,
-  jobs,
+  jobs: serverJobs,
   inspections,
   masterSystemInspections,
   masterSystemInspectionGroups,
@@ -148,6 +151,35 @@ export function TechnicianHome({
   const selectTab = (value: "progress" | "completed") => {
     setTab(value); sessionStorage.setItem(tabKey, value);
   };
+  const { visits: localVisits, loaded: localVisitsLoaded } = useOfflineServiceVisits();
+  const localById = useMemo(() => new Map(localVisits.map((visit) => [visit.clientJobUuid, visit])), [localVisits]);
+  // Visits made on this device appear (and show the server's SV number once confirmed) without waiting for a server list.
+  const jobs = useMemo(() => {
+    const merged = serverJobs
+      .filter((job) => !isLocalVisitReference(job.reference) || !localVisitsLoaded || localById.has(job.id))
+      .map((job) => withConfirmedReference(job, localById.get(job.id)));
+    const known = new Set(merged.map((job) => job.id));
+    for (const visit of localVisits) if (visit.syncStatus !== "Synced" && !known.has(visit.clientJobUuid)) merged.push(visit.job);
+    return merged;
+  }, [serverJobs, localVisits, localVisitsLoaded, localById]);
+  const [localMessage, setLocalMessage] = useState("");
+  useEffect(() => {
+    // Keep each customer's sites on the device so a visit can be started later with no signal.
+    if (authState.status === "verified") void prefetchCustomerSitesForOffline().catch(() => undefined);
+  }, [authState.status]);
+  const localPresentation = (jobId: string) => {
+    const visit = localById.get(jobId);
+    return visit && visit.syncStatus !== "Synced" ? presentLocalVisit(visit) : undefined;
+  };
+  async function retryLocalVisit(job: InspectionJob) {
+    setLocalMessage("");
+    await requeueOfflineServiceVisit(job.id);
+    if (canUseServer) void onSync();
+  }
+  async function deleteLocalVisit(job: InspectionJob) {
+    try { setLocalMessage(""); await deleteUnsyncedLocalVisit(job.id); onBackToJobs(); }
+    catch (error) { setLocalMessage(error instanceof Error ? error.message : "The visit could not be deleted."); }
+  }
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
     .filter((system) => system.definitionStatus === "confirmed")
@@ -276,8 +308,10 @@ export function TechnicianHome({
   const serviceHistory = completedServiceJobs(jobs);
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
+    const local = localPresentation(job.id);
     return <ServiceJobCard key={job.id} job={job} progress={progress} canViewReport={canUseServer}
-      offlineReady={offlineReadyJobIds ? offlineReadyJobIds.has(job.id) : undefined}
+      offlineReady={local ? undefined : offlineReadyJobIds ? offlineReadyJobIds.has(job.id) : undefined}
+      localVisit={local} onRetryLocalVisit={(candidate) => void retryLocalVisit(candidate)}
       onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
   };
 
@@ -292,7 +326,7 @@ export function TechnicianHome({
         <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
       </div></div>
       <div className="home-utility-actions">
-        <button type="button" className="new-service-primary" onClick={onNewServiceVisit} disabled={!canUseServer || loading}>+ New Service Visit</button>
+        <button type="button" className="new-service-primary" onClick={onNewServiceVisit} disabled={(!canUseServer && authState.status !== "offline-unverified") || loading}>+ New Service Visit</button>
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
           {loading ? "Refreshing\u2026" : "Refresh"}
         </button>
@@ -361,7 +395,19 @@ export function TechnicianHome({
               <div className="inline-actions"><button type="button" onClick={() => onViewFinalReport(selectedJob)}>View Final Report</button></div>
             </div>
           ) : null}
-          {selectedJob.status === "open" ? <div className="inline-actions">
+          {selectedJob.status === "open" && localPresentation(selectedJob.id) ? <div className="local-visit-panel">
+            <p role="status" className={`operational-message operational-message--${localPresentation(selectedJob.id)?.tone === "attention" ? "warning" : "info"}`}>
+              <strong>{localPresentation(selectedJob.id)?.label}</strong>{localPresentation(selectedJob.id)?.reason ? `: ${localPresentation(selectedJob.id)?.reason}` : ". This visit is saved on this device and is sent when you are connected."}
+            </p>
+            <div className="inline-actions">
+              {localPresentation(selectedJob.id)?.tone === "attention" ? <button type="button" className="secondary-command" onClick={() => void retryLocalVisit(selectedJob)}>Retry sync</button> : null}
+              <button type="button" className="secondary-command danger-command" disabled={selectedHasDeviceWork || localById.get(selectedJob.id)?.syncStatus === "Syncing"}
+                aria-describedby={selectedHasDeviceWork ? "delete-local-visit-note" : undefined}
+                onClick={() => { if (window.confirm("Delete this visit from this device? It has not been sent to the server.")) void deleteLocalVisit(selectedJob); }}>Delete unsynced visit</button>
+              {selectedHasDeviceWork ? <span className="support-metadata" id="delete-local-visit-note">Inspection work has started on this visit, so it is kept and will sync.</span> : null}
+            </div>
+            {localMessage ? <p role="alert" className="operational-message operational-message--warning">{localMessage}</p> : null}
+          </div> : selectedJob.status === "open" ? <div className="inline-actions">
             <button type="button" className="secondary-command danger-command" disabled={!canDeleteSelectedJob} aria-describedby={canDeleteSelectedJob ? undefined : "delete-visit-unavailable-note"} onClick={() => {
               if (window.confirm(`Permanently delete service visit ${selectedJob.reference}? This cannot be undone.`)) void onDeleteJob(selectedJob);
             }}>Delete unfinished visit</button>

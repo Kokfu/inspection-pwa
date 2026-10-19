@@ -7,9 +7,14 @@ import {
   loadServiceFormatOptions,
   type ServiceFormatOption
 } from "../referenceData/referenceDataApi";
+import { getCachedCustomerConfiguration, getCachedReferenceCustomers } from "../referenceData/referenceDataCache";
 import type { CustomerConfigurationResponse, ReferenceCustomer, ReferenceSite } from "../referenceData/referenceDataTypes";
 import { createServiceVisit } from "./jobApi";
 import type { InspectionJob } from "./jobTypes";
+import { cacheCustomerSites, createLocalServiceVisit, getCachedCustomerSites, OfflineVisitUnavailableError } from "./offlineServiceVisitLocal";
+import { isServerUnreachable } from "./serverReachability";
+
+export const offlineAddCustomerMessage = "Adding a new customer needs a connection to the server. Connect, then try again.";
 
 export function serviceAvailabilityMessage({
   customerSelected,
@@ -68,6 +73,10 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   // Keep the same mutation identity for a retry after a lost response. It is
   // not a job identity; the server alone allocates the job and reference.
   const [requestId] = useState(() => crypto.randomUUID());
+  // Offline creation: the visit's identity is generated on the device and never changes across taps or retries.
+  const [localJobUuid] = useState(() => crypto.randomUUID());
+  // True when the server cannot be reached; the screen then works from the customers, sites and setup saved on the device.
+  const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
   // Captured on the first Create tap and reused by retries, so a retry after a
   // lost response replays the identical request instead of an IDEMPOTENCY_MISMATCH.
   const deviceStartTime = useRef<string | undefined>(undefined);
@@ -76,27 +85,64 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    // Follow the connection while this screen is open. Back online, Create uses the server again (same requestId, so a
+    // create whose reply was lost is replayed, not duplicated).
+    const goOnline = () => setOffline(false);
+    const goOffline = () => setOffline(true);
+    window.addEventListener("online", goOnline); window.addEventListener("offline", goOffline);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); };
+  }, []);
+
+  useEffect(() => {
     let active = true;
+    async function fromDevice() {
+      const cached = await getCachedReferenceCustomers().catch(() => []);
+      if (!active) return;
+      setCustomers(cached);
+      if (cached.length === 0) setMessage("No customers are saved on this device yet. Connect to the server once to download them.");
+      setLoading(false);
+    }
+    if (offline) { void fromDevice(); return () => { active = false; }; }
     void loadReferenceCustomers().then((values) => {
       if (!active) return;
       setCustomers(values);
       setLoading(false);
-    }).catch(() => { if (active) { setMessage("Connect to the server to create a new service visit."); setLoading(false); } });
+    }).catch((error) => {
+      if (!active) return;
+      if (isServerUnreachable(error)) { setOffline(true); return; }
+      setMessage("Connect to the server to create a new service visit."); setLoading(false);
+    });
     return () => { active = false; };
-  }, []);
+  }, [offline]);
 
   useEffect(() => {
     if (!customerId) return;
     let active = true;
-    void Promise.all([loadCustomerSites(customerId), loadCustomerConfiguration(customerId)])
-      .then(([nextSites, nextConfiguration]) => {
+    async function fromDevice() {
+      const [cachedSites, cachedConfiguration] = await Promise.all([getCachedCustomerSites(customerId), getCachedCustomerConfiguration(customerId)]);
+      if (!active) return;
+      setSites(cachedSites);
+      setSiteId((current) => cachedSites.some((site) => site.id === current) ? current : "");
+      if (!cachedConfiguration) { setConfiguration(undefined); setConfigurationCustomerId(undefined); setMessage("Customer service configuration is not saved on this device. Connect to the server once to download it."); return; }
+      setConfiguration(cachedConfiguration); setConfigurationCustomerId(customerId);
+      if (cachedSites.length === 0) setMessage("No sites are saved on this device for this customer. Connect to the server once to download them.");
+    }
+    async function load() {
+      try {
+        if (offline) { await fromDevice(); return; }
+        const [nextSites, nextConfiguration] = await Promise.all([loadCustomerSites(customerId), loadCustomerConfiguration(customerId)]);
         if (!active) return;
         setSites(nextSites); setConfiguration(nextConfiguration); setConfigurationCustomerId(customerId);
-      })
-      .catch(() => { if (active) { setSites([]); setConfiguration(undefined); setConfigurationCustomerId(undefined); setMessage("Customer service configuration is unavailable."); } })
-      .finally(() => { if (active) setLoading(false); });
+        void cacheCustomerSites(customerId, nextSites).catch(() => undefined);
+      } catch (error) {
+        if (!active) return;
+        if (!offline && isServerUnreachable(error)) { setOffline(true); return; }
+        setSites([]); setConfiguration(undefined); setConfigurationCustomerId(undefined); setMessage("Customer service configuration is unavailable.");
+      } finally { if (active) setLoading(false); }
+    }
+    void load();
     return () => { active = false; };
-  }, [customerId]);
+  }, [customerId, offline]);
 
   const configurationMatchesCustomer = Boolean(customerId) && configurationCustomerId === customerId && configuration !== undefined;
   const systems = configurationMatchesCustomer ? configuration.configuration.enabledSystems : [];
@@ -118,6 +164,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
 
   async function beginAddCustomer() {
     setMessage("");
+    if (offline) { setMessage(offlineAddCustomerMessage); return; }
     if (!addingCustomer) setNewCustomerRequestId(crypto.randomUUID());
     setAddingCustomer(true);
     if (serviceFormatOptions.length) return;
@@ -154,10 +201,32 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
     } finally { setCreating(false); }
   }
 
+  async function submitOffline() {
+    const customer = customers.find((candidate) => candidate.id === customerId);
+    const site = sites.find((candidate) => candidate.id === siteId);
+    if (!customer || !site || !configuration) throw new OfflineVisitUnavailableError("The customer, site and setup must be saved on this device first.");
+    const job = await createLocalServiceVisit({
+      customer, site, configuration, systemKeys, serviceCallNumber, arrivalTime: deviceStartTime.current ?? deviceClockTime(), clientJobUuid: localJobUuid
+    });
+    try { await onCreated(job); }
+    catch {
+      // The app shell only accepts a new job while the session is verified with the server. The visit is already
+      // saved on the device, so open it from there; every form works from local data exactly as for a synced visit.
+      window.location.hash = `#/job/${encodeURIComponent(job.id)}`;
+      window.location.reload();
+    }
+  }
+
   async function submit() {
     if (!canCreate) return;
     setCreating(true); setMessage("");
     deviceStartTime.current ??= deviceClockTime();
+    if (offline) {
+      try { await submitOffline(); }
+      catch (error) { setMessage(error instanceof Error ? error.message : "The visit could not be saved on this device."); }
+      finally { setCreating(false); }
+      return;
+    }
     try {
       const job = await createServiceVisit({
         requestId, customerId, siteId, systemKeys,
@@ -167,7 +236,10 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
       if (!hasRealJobId(job)) throw new Error("Service visit could not be created.");
       await onCreated(job);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Service visit could not be created.");
+      if (isServerUnreachable(error) && configurationMatchesCustomer) {
+        setOffline(true);
+        setMessage("The server could not be reached, and the visit may already have been created. Check your job list first. If it is not there, tap Create again to save this visit on this device; it is sent when you are connected.");
+      } else setMessage(error instanceof Error ? error.message : "Service visit could not be created.");
     } finally { setCreating(false); }
   }
 
@@ -176,7 +248,9 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
     <div className="setup-card">
       <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
       <div className="setup-fields">
-        <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created. Your arrival time is taken from this device's clock when you tap Create.</p>
+        {offline
+          ? <p className="offline-notice" role="status">Offline — this visit is saved on this device with this device's date and time, and gets its SV number when it syncs. Adding a new customer needs a connection.</p>
+          : <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created. Your arrival time is taken from this device's clock when you tap Create.</p>}
         <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label><select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select></div>
       </div>

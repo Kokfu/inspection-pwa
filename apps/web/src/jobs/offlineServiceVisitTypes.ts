@@ -38,5 +38,7 @@ export type LocalOfflineServiceVisit = {
   job: import("./jobTypes").InspectionJob;
   syncStatus: "Pending" | "Syncing" | "Synced" | "Failed" | "Conflict";
   localCreatedAt: string; localUpdatedAt: string; lastSyncedAt?: string; lastSyncError?: string;
+  /** Machine-readable server refusal (for example CONFIGURATION_CHANGED). Absent for transient failures. */
+  lastSyncErrorCode?: string;
   receipt?: OfflineServiceVisitCreateResponse;
 };

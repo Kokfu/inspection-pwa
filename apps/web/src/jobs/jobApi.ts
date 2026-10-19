@@ -1,4 +1,5 @@
 import type { InspectionJob, JobCompletion } from "./jobTypes";
+import { unsyncedLocalVisitJobs } from "./offlineServiceVisitStore";
 
 function responseMessage(data: unknown, fallback: string) {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return fallback;
@@ -26,7 +27,11 @@ export async function loadInspectionJobs() {
   }
 
   const data = (await response.json()) as { jobs?: InspectionJob[] };
-  return Array.isArray(data.jobs) ? data.jobs : [];
+  const serverJobs = Array.isArray(data.jobs) ? data.jobs : [];
+  // Visits created on this device that the server cannot list yet must not vanish from a refresh.
+  const known = new Set(serverJobs.map((job) => job.id));
+  const local = (await unsyncedLocalVisitJobs().catch(() => [])).filter((job) => !known.has(job.id));
+  return local.length ? [...serverJobs, ...local] : serverJobs;
 }
 
 export async function createServiceVisit(input: {

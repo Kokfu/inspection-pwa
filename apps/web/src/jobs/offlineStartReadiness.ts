@@ -55,7 +55,12 @@ export async function loadOfflineStartConfirmation(jobId: string) {
 
 /** Resolver hook: may a never-opened system of this job be started while the server cannot be asked? */
 export async function isOfflineStartConfirmed(jobId: string, systemKey: string) {
-  try { return offlineStartAllowed(await loadOfflineStartConfirmation(jobId), systemKey); } catch { return false; }
+  try {
+    // A visit created on this device does not exist on the server yet, so nothing can already be accepted for it.
+    const visit = await localDatabase.offlineServiceVisits.get(jobId);
+    if (visit && visit.syncStatus !== "Synced") return true;
+    return offlineStartAllowed(await loadOfflineStartConfirmation(jobId), systemKey);
+  } catch { return false; }
 }
 
 /** Ids of the given jobs that were confirmed recently enough to be started offline (job-card indicator). */

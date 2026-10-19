@@ -6,6 +6,8 @@ import { readRefusalBody, syncRefusalMessage } from "./syncRefusal";
 import { syncPendingTechnicianCustomers, technicianCustomerSyncIdle } from "../jobs/technicianCustomerDraft";
 import { dispatchPendingRepairs, isRepairOperation, recoverInterruptedRepairs } from "../repairs/repairSync";
 import { locationProposalSyncIdle, syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
+import { recoverInterruptedOfflineVisits, syncPendingOfflineServiceVisits } from "../jobs/offlineServiceVisitSync";
+import { heldJobIds } from "../jobs/offlineServiceVisitStore";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -57,11 +59,18 @@ function fireAlarmPayloadMatches(record: FireAlarmInspectionRecord | undefined, 
   return JSON.stringify(item.payload) === JSON.stringify(expected);
 }
 
-async function syncPendingV6Evidence() {
+/** An offline-created visit's forms, photos and remarks wait (stay Pending, untouched) until the server confirms the visit's UUID. */
+function payloadJobId(item: SyncOutboxItem) {
+  const jobId = typeof item.payload === "object" && item.payload !== null ? (item.payload as { jobId?: unknown }).jobId : undefined;
+  return typeof jobId === "string" ? jobId : undefined;
+}
+
+async function syncPendingV6Evidence(held: ReadonlySet<string>) {
   const work = (await localDatabase.syncOutbox.where("status").anyOf("Pending", "Failed").toArray()).filter((item) => item.entityType === "v6StagedEvidence");
   let accepted = 0; let failed = 0;
   for (const item of work) {
     const attachment = await localDatabase.inspectionAttachments.get(item.entityId); const record = attachment ? await localDatabase.masterSystemInspections.get(attachment.inspectionClientUuid) : undefined;
+    if (record && held.has(record.jobId)) continue;
     if (!attachment || attachment.systemKey !== "fire_alarm_detector" || attachment.protocolVersion !== 6 || !record || record.systemKey !== "fire_alarm_detector") { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local V6 evidence or inspection is unavailable" }); failed += 1; continue; }
     const at = new Date().toISOString();
     await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
@@ -73,12 +82,13 @@ async function syncPendingV6Evidence() {
   return { accepted, failed, pending: work.length - accepted - failed };
 }
 
-async function syncPendingV7Evidence() {
+async function syncPendingV7Evidence(held: ReadonlySet<string>) {
   const work = (await localDatabase.syncOutbox.where("status").anyOf("Pending", "Failed").toArray()).filter((item) => item.entityType === "v7StagedEvidence");
   let accepted = 0; let failed = 0;
   for (const item of work) {
     const attachment = await localDatabase.inspectionAttachments.get(item.entityId);
     const record = attachment?.systemKey === "fire_alarm_detector" || attachment?.systemKey === "hydrant" || attachment?.systemKey === "hose_reel" || attachment?.systemKey === "automatic_sprinkler" || attachment?.systemKey === "dry_wet_riser" || attachment?.systemKey === "smoke_ventilation" || attachment?.systemKey === "fire_intercom" || attachment?.systemKey === "fire_rated_roller_shutter" ? await localDatabase.masterSystemInspections.get(attachment.inspectionClientUuid) : attachment ? await localDatabase.masterSystemFormInstances.get(attachment.inspectionClientUuid) : undefined;
+    if (record && held.has(record.jobId)) continue;
     if (!attachment || attachment.protocolVersion !== 7 || !record || attachment.systemKey !== record.systemKey || (record.systemKey !== "co2_fire_extinguisher" && record.systemKey !== "wet_chemical" && record.systemKey !== "fm200_fire_suppression" && record.systemKey !== "fire_alarm_detector" && record.systemKey !== "hydrant" && record.systemKey !== "hose_reel" && record.systemKey !== "automatic_sprinkler" && record.systemKey !== "dry_wet_riser" && record.systemKey !== "smoke_ventilation" && record.systemKey !== "fire_intercom" && record.systemKey !== "fire_rated_roller_shutter")) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local V7 evidence or inspection is unavailable" }); failed += 1; continue; }
     const at = new Date().toISOString();
     await localDatabase.transaction("rw", localDatabase.inspectionAttachments, localDatabase.syncOutbox, async () => { await localDatabase.inspectionAttachments.update(attachment.photoUuid, { syncStatus: "Uploading", localUpdatedAt: at, lastSyncError: undefined }); await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: item.attempts + 1, lastAttemptAt: at, lastError: undefined }); });
@@ -266,7 +276,9 @@ const sectionRemarkRequestTimeoutMs = 30_000;
  * is sent again (the server is idempotent). A definite 4xx rejection is Failed with the server's reason.
  */
 export async function syncPendingSectionRemarks() {
-  const items = (await localDatabase.syncOutbox.where("entityType").equals("sectionRemark").toArray()).filter(shouldSync);
+  const held = await heldJobIds();
+  const items = (await localDatabase.syncOutbox.where("entityType").equals("sectionRemark").toArray())
+    .filter((item) => shouldSync(item) && !held.has(payloadJobId(item) ?? ""));
   let confirmed = 0;
   let failed = 0;
   const refreshed = new Set<string>();
@@ -354,6 +366,7 @@ export async function pruneCompletedOutboxItems(now = Date.now()) {
 
 export async function recoverInterruptedSync() {
   await recoverInterruptedRepairs();
+  await recoverInterruptedOfflineVisits();
   const interruptedAt = new Date().toISOString();
   const syncingItems = await localDatabase.syncOutbox
     .where("status")
@@ -582,6 +595,10 @@ export async function syncPendingRecords(actorUserId?: number) {
     // reset it under that live request and lose its completion (found by I-03 auto-sync, I-19).
     await Promise.all([technicianCustomerSyncIdle(), locationProposalSyncIdle()]);
     await recoverInterruptedSync();
+    // Ordering: a visit created on this device is sent first. Its forms and photos are released below only for
+    // visits the server has confirmed (exact UUID); held visits keep every local record and queued operation.
+    const visits = await syncPendingOfflineServiceVisits({ actorUserId: syncActorId, assertIdentity: assertSyncIdentity, headers: expectedActorHeaders() });
+    const held = await heldJobIds();
     const repairs = await dispatchPendingRepairs();
 
     if (syncActorId !== undefined) await syncPendingTechnicianCustomers(syncActorId);
@@ -590,15 +607,15 @@ export async function syncPendingRecords(actorUserId?: number) {
     const commonRemarks = await syncPendingCommonRemarks();
     const sectionRemarks = await syncPendingSectionRemarks();
 
-    const v6Evidence = await syncPendingV6Evidence();
-    const v7Evidence = await syncPendingV7Evidence();
+    const v6Evidence = await syncPendingV6Evidence(held);
+    const v7Evidence = await syncPendingV7Evidence(held);
 
     const candidateItems = (await localDatabase.syncOutbox
       .where("status")
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        !isRepairOperation(item) && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
+        !isRepairOperation(item) && item.entityType !== "offlineServiceVisit" && !held.has(payloadJobId(item) ?? "") && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
@@ -611,7 +628,8 @@ export async function syncPendingRecords(actorUserId?: number) {
       const evidence = await syncPendingAttachments();
       return {
         started: true,
-        message: repairs.confirmed || repairs.failed ? `Repair sync: ${repairs.confirmed} operations confirmed, ${repairs.failed} failed`
+        message: visits.attempted ? `Service visit sync: ${visits.confirmed} confirmed, ${visits.failed} need attention`
+          : repairs.confirmed || repairs.failed ? `Repair sync: ${repairs.confirmed} operations confirmed, ${repairs.failed} failed`
           : commonRemarks.attempted || sectionRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
           ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${sectionRemarks.confirmed} section remarks confirmed, ${sectionRemarks.failed} section remarks failed, ${evidence.accepted} attachments confirmed`
           : "No pending records"
