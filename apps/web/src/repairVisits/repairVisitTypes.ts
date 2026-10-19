@@ -119,6 +119,17 @@ export type LocalRepairVisit = Omit<RepairVisit, "visitNumber"> & {
   localCreatedAt: string; localUpdatedAt: string; lastSyncError?: string; lastSyncedAt?: string;
   frozen?: { visit: Omit<RepairVisit, "visitNumber"> & { visitNumber: string | null }; items: RepairVisitItem[]; revision: number };
   requestFingerprint?: string;
+  // Added in 4A (additive, all optional so Dexie v11 rows stay valid).
+  /** "device" = created here and editable; "server" = imported read-only from the server list. */
+  origin?: "device" | "server";
+  lastSyncErrorCode?: string;
+  /** Admin's latest Return reason, copied from the server's event log on refresh. */
+  returnReason?: string | null;
+  serverRefreshedAt?: string;
+  /** True once the server confirmed the create (RV number assigned). */
+  createConfirmed?: boolean;
+  /** Display names copied when the visit was created, so the list and form work offline. */
+  customerName?: string; siteName?: string; previousVisitLabel?: string;
 };
 export type LocalRepairVisitItem = RepairVisitItem;
 export type LocalRepairVisitPhoto = {
@@ -127,6 +138,8 @@ export type LocalRepairVisitPhoto = {
   captureSource: "camera" | "gallery" | "unknown"; capturedAt: string;
   syncStatus: "Draft" | "Pending" | "Uploading" | "Synced" | "Failed";
   localUpdatedAt: string; lastSyncError?: string;
+  // Added in 4A: the immutable staging request and the server's exact receipt.
+  frozen?: RepairVisitPhotoMetadata; requestFingerprint?: string; storedSha256?: string;
 };
 export type CachedRepairPreviousVisit = {
   cacheKey: string; customerId: string; siteId: string; createdByUserId: number;
@@ -139,3 +152,37 @@ export type CachedRepairPreviousVisit = {
 export type CachedRepairBeforePhoto = {
   cacheKey: string; previousVisit: RepairVisitPrevious; photoUuid: string; storedSha256: string; blob: Blob; fetchedAt: string;
 };
+
+// ---- 4A additions: write-API request bodies and receipts (mirror apps/api repairVisitWriteContract). ----
+export type RepairVisitCreateRequest = {
+  clientUuid: string; customerId: string; siteId: string; configurationRevisionId: string;
+  /** null = created while online: the server supplies the visit day and instant (plan A7). */
+  deviceCreatedAt: string | null; visitDate: string; arrivalTime: string; serviceCallNumber: string | null;
+  previousVisit: RepairVisitPrevious | null; items: Array<{ clientUuid: string; identity: RepairVisitFieldIdentity }>;
+};
+export type RepairVisitPhotoMetadata = {
+  photoUuid: string; itemUuid: string; revision: number; sourceSha256: string; sizeBytes: number; width: number; height: number;
+  captureSource: "camera" | "gallery" | "unknown"; capturedAt: string;
+};
+export type RepairVisitSubmitBody = {
+  operationUuid: string; expectedRevision: number; revision: number;
+  items: Array<{ clientUuid: string; identity: RepairVisitFieldIdentity; outcome: RepairVisitOutcome; remark: string; photoUuid: string; sourceSha256: string }>;
+};
+export type RepairVisitCreateReceipt = {
+  clientUuid: string; visitNumber: string; configurationRevisionId: string; deviceCreatedAt: string;
+  visitDate: string; arrivalTime: string; requestFingerprint: string;
+};
+export type RepairVisitPhotoReceipt = {
+  photoUuid: string; clientUuid: string; itemUuid: string; revision: number; requestFingerprint: string; sourceSha256: string; storedSha256: string;
+};
+export type RepairVisitEventReceipt = {
+  operationUuid: string; clientUuid: string; revision: number; event: "submitted" | "resubmitted" | "returned" | "approved";
+  requestFingerprint: string; occurredAt: string;
+};
+/** One approved visit the technician may pick as "previous visit" (apps/api previousVisits.ts). */
+export type RepairPreviousVisitListItem = RepairVisitPrevious & { visitNumber: string; visitDate: string; createdAt: string; createdByUserId: number };
+export type RepairCatalogField = CachedRepairPreviousVisit["fields"][number];
+export type RepairVisitOutboxPayload =
+  | { kind: "create"; request: RepairVisitCreateRequest; fingerprint: string }
+  | { kind: "submit"; body: RepairVisitSubmitBody; fingerprint: string }
+  | { kind: "photo"; visitUuid: string; metadata: RepairVisitPhotoMetadata; fingerprint: string };

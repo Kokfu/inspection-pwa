@@ -1,0 +1,418 @@
+<!doctype html><html><body><button id="run">Run repair visit sync checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { syncPendingRecords, recoverInterruptedSync } from "/src/sync/syncEngine.ts";
+import { requestFingerprint, sha256Hex } from "/src/repairVisits/repairVisitCanon.ts";
+import {
+  addItem, captureItemPhoto, createLocalRepairVisit, prepareDeleteRepairVisit, removeItem, reopenForEdit, requeueRepairVisit,
+  saveItemDraft, submitRepairVisitLocal
+} from "/src/repairVisits/repairVisitRepository.ts";
+import { refreshRepairVisitsFromServer } from "/src/repairVisits/repairVisitRefresh.ts";
+import { downloadCustomerForOffline, loadCatalog, loadPreviousVisitList, readCachedBeforePhoto } from "/src/repairVisits/repairVisitOffline.ts";
+import { presentRepairVisit } from "/src/repairVisits/repairVisitPresentation.ts";
+import { syncPendingRepairVisits } from "/src/repairVisits/repairVisitSync.ts";
+
+// Level 2: create-first ordering, exact UUID + fingerprint confirmation, refusal -> Needs attention with all data kept,
+// interrupted sync, idempotent retry, stale/concurrent callers, returned -> edit -> resubmit, delete rules, offline catalogs.
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const userId = 9301;
+const u = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const ids = { customer: u(9301), site: u(9302), revision: u(9303), previousSv: u(9304), previousRv: u(9305) };
+const hash = (c) => c.repeat(64);
+const fieldOf = (n, result = "not_good") => ({
+  identity: { systemKey: "automatic_sprinkler", rowUuid: u(9400 + n), locationId: null, zoneId: null, sectionKey: "tank", fieldKey: `f${n}` },
+  systemLabel: "Automatic Sprinkler", unitLabel: "Pump Room", sectionLabel: "Water Tank", fieldLabel: `Valve ${n}`,
+  before: { previousVisit: { kind: "service", visitId: ids.previousSv }, visitNumber: "SV-20261011-94", visitDate: "2026-10-11", result, remark: "Leaking", photo: null }
+});
+const fields = [fieldOf(1), fieldOf(2), fieldOf(3, "good")];
+const keyOf = (identity) => JSON.stringify(identity);
+
+let server;
+const reset = async () => {
+  for (const table of ["rvVisits", "rvItems", "rvPhotos", "rvPreviousVisits", "rvBeforePhotos", "syncOutbox", "referenceData"]) await localDatabase[table].clear();
+  server = { calls: [], visits: new Map(), photos: new Map(), events: new Map(), mode: {}, sequence: 0, onNext: undefined };
+};
+async function fakeFetch(url, init = {}) {
+  const path = new URL(String(url), location.origin).pathname;
+  const method = (init.method ?? "GET").toUpperCase();
+  const actor = init.headers?.["X-Expected-User-Id"];
+  if (actor !== String(userId)) return reply(409, { error: "IDENTITY_MISMATCH" });
+  const rest = path.replace("/api/repair-visits", "");
+  if (server.onNext) { const hook = server.onNext; server.onNext = undefined; await hook(); }
+  if (method === "POST" && rest === "") {
+    const body = JSON.parse(init.body);
+    server.calls.push({ kind: "create", uuid: body.clientUuid });
+    if (server.mode.create === "network") throw new TypeError("Failed to fetch");
+    if (server.mode.create === "503") return reply(503, { error: "UNAVAILABLE" });
+    if (server.mode.create === "refuse" || server.mode.refuseUuid === body.clientUuid) return reply(409, { error: "CONFIGURATION_CHANGED", message: "changed" });
+    const fingerprint = await requestFingerprint({ actorId: userId, ...body });
+    let visit = server.visits.get(body.clientUuid);
+    if (visit && visit.fingerprint !== fingerprint) return reply(409, { error: "IDEMPOTENCY_CONFLICT" });
+    if (!visit) {
+      server.sequence += 1;
+      const instant = body.deviceCreatedAt ?? new Date().toISOString();
+      visit = { body, fingerprint, number: `RV-${body.visitDate.replaceAll("-", "")}-${server.sequence}`, status: "draft", revision: 1, instant, items: body.items, outcomes: new Map(), createdAt: instant };
+      server.visits.set(body.clientUuid, visit);
+    }
+    const receipt = { clientUuid: server.mode.create === "wrongUuid" ? u(1) : body.clientUuid, visitNumber: visit.number, configurationRevisionId: body.configurationRevisionId,
+      deviceCreatedAt: visit.instant, visitDate: body.visitDate, arrivalTime: body.arrivalTime, requestFingerprint: server.mode.create === "badFingerprint" ? hash("0") : fingerprint };
+    return reply(201, receipt);
+  }
+  const photoMatch = /^\/([0-9a-f-]{36})\/photos$/.exec(rest);
+  if (method === "POST" && photoMatch) {
+    const metadata = JSON.parse(init.body.get("metadata"));
+    server.calls.push({ kind: "photo", visit: photoMatch[1], photo: metadata.photoUuid, revision: metadata.revision });
+    if (!server.visits.has(photoMatch[1])) return reply(404, { error: "VISIT_NOT_YET_CREATED" });
+    if (server.mode.photo === "network") { server.mode.photo = undefined; throw new TypeError("Failed to fetch"); }
+    const fingerprint = await requestFingerprint({ actorId: userId, clientUuid: photoMatch[1], ...metadata });
+    server.photos.set(metadata.photoUuid, { visit: photoMatch[1], metadata });
+    return reply(201, { photoUuid: metadata.photoUuid, clientUuid: photoMatch[1], itemUuid: metadata.itemUuid, revision: metadata.revision, requestFingerprint: fingerprint, sourceSha256: metadata.sourceSha256, storedSha256: hash("5") });
+  }
+  const submitMatch = /^\/([0-9a-f-]{36})\/submit$/.exec(rest);
+  if (method === "POST" && submitMatch) {
+    const body = JSON.parse(init.body);
+    server.calls.push({ kind: "submit", visit: submitMatch[1], operation: body.operationUuid, revision: body.revision, expected: body.expectedRevision, photos: body.items.map((item) => item.photoUuid) });
+    const visit = server.visits.get(submitMatch[1]);
+    if (!visit) return reply(404, { error: "VISIT_NOT_YET_CREATED" });
+    if (server.mode.submit === "refuse") return reply(409, { error: "FIELD_NOT_AVAILABLE", message: "gone" });
+    const fingerprint = await requestFingerprint({ action: "submit", actorId: userId, clientUuid: submitMatch[1], ...body });
+    const done = [...(server.events.get(submitMatch[1]) ?? [])].find((event) => event.operation === body.operationUuid);
+    if (!done) {
+      for (const item of body.items) {
+        const staged = server.photos.get(item.photoUuid);
+        const accepted = visit.outcomes.get(item.clientUuid)?.photoUuid === item.photoUuid;
+        if (!accepted && (!staged || staged.metadata.sourceSha256 !== item.sourceSha256 || staged.metadata.itemUuid !== item.clientUuid)) return reply(409, { error: "EVIDENCE_NOT_STAGED" });
+      }
+      visit.status = "awaiting_approval"; visit.revision = body.revision; visit.items = body.items.map((item) => ({ clientUuid: item.clientUuid, identity: item.identity }));
+      visit.outcomes = new Map(body.items.map((item) => [item.clientUuid, item]));
+      server.events.set(submitMatch[1], [...(server.events.get(submitMatch[1]) ?? []), { operation: body.operationUuid, type: visit.revision === 1 ? "submitted" : "resubmitted", revision: body.revision, reason: null }]);
+    }
+    return reply(200, { operationUuid: body.operationUuid, clientUuid: submitMatch[1], revision: body.revision, event: body.revision === 1 ? "submitted" : "resubmitted", requestFingerprint: server.mode.submit === "badFingerprint" ? hash("0") : fingerprint, occurredAt: new Date().toISOString() });
+  }
+  if (method === "GET" && rest === "") {
+    if (server.mode.list === "500") return reply(500, { error: "BOOM" });
+    return reply(200, { visits: [...server.visits.entries()].map(([id, visit]) => wire(id, visit)) });
+  }
+  const detail = /^\/([0-9a-f-]{36})$/.exec(rest);
+  if (method === "GET" && detail) {
+    const visit = server.visits.get(detail[1]);
+    if (!visit) return reply(404, { error: "REPAIR_VISIT_NOT_FOUND" });
+    const events = (server.events.get(detail[1]) ?? []).map((event, index) => ({ clientUuid: u(7000 + index), visitUuid: detail[1], revision: event.revision, type: event.type, actorUserId: event.type === "returned" ? 77 : userId, reason: event.reason, occurredAt: new Date().toISOString(), requestFingerprint: hash("e") }));
+    const items = visit.items.map((item, index) => {
+      const field = [...fields].find((candidate) => keyOf(candidate.identity) === keyOf(item.identity));
+      const outcome = visit.outcomes.get(item.clientUuid);
+      return { clientUuid: item.clientUuid, visitUuid: detail[1], identity: item.identity, systemLabel: field.systemLabel, unitLabel: field.unitLabel, sectionLabel: field.sectionLabel, fieldLabel: field.fieldLabel,
+        before: field.before, outcome: outcome?.outcome ?? null, remark: outcome?.remark ?? "", photoUuid: outcome?.photoUuid ?? null, sortOrder: index };
+    });
+    return reply(200, { visit: wire(detail[1], visit), items, events });
+  }
+  const del = /^\/([0-9a-f-]{36})$/.exec(rest);
+  if (method === "DELETE" && del) { server.calls.push({ kind: "delete", visit: del[1] }); server.visits.delete(del[1]); return reply(200, { clientUuid: del[1], deleted: true }); }
+  return reply(404, { error: "NOT_FOUND" });
+}
+function wire(id, visit) {
+  return { clientUuid: id, visitNumber: visit.number, customerId: visit.body.customerId, siteId: visit.body.siteId, createdByUserId: userId, configurationRevisionId: visit.body.configurationRevisionId,
+    serviceCallNumber: visit.body.serviceCallNumber, arrivalTime: visit.body.arrivalTime, visitDate: visit.body.visitDate, deviceCreatedAt: visit.instant, previousVisit: visit.body.previousVisit,
+    status: visit.status, revision: visit.revision, reportNumber: visit.report ?? null, approvedByUserId: visit.report ? 77 : null, approvedAt: visit.report ? new Date().toISOString() : null,
+    createdAt: visit.createdAt, updatedAt: new Date().toISOString() };
+}
+
+async function png(color) {
+  const canvas = document.createElement("canvas"); canvas.width = 64; canvas.height = 48;
+  const context = canvas.getContext("2d"); context.fillStyle = color; context.fillRect(0, 0, 64, 48); context.fillStyle = "#fff"; context.fillText(color + Math.random(), 2, 20);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+const newVisit = (over = {}) => createLocalRepairVisit({ customerId: ids.customer, customerName: "Phone Customer", siteId: ids.site, siteName: "Main Site", configurationRevisionId: ids.revision,
+  previousVisit: { kind: "service", visitId: ids.previousSv }, previousVisitLabel: "SV-20261011-94", serviceCallNumber: " SC-1 ", arrivalTime: "10:05", fields: fields.slice(0, 2), online: false, ...over });
+async function complete(visit, colors = ["#c00", "#0a0"]) {
+  const items = await localDatabase.rvItems.where("visitUuid").equals(visit.clientUuid).sortBy("sortOrder");
+  for (const [index, item] of items.entries()) {
+    await saveItemDraft(item.clientUuid, { outcome: index === 1 ? "not_done" : "done_repair", remark: index === 1 ? "No access" : "Replaced valve" });
+    await captureItemPhoto(item.clientUuid, await png(colors[index] ?? "#00c"), "gallery");
+  }
+  return items;
+}
+const row = (uuid) => localDatabase.rvVisits.get(uuid);
+const ops = async (uuid) => (await localDatabase.syncOutbox.toArray()).filter((op) => (op.entityType === "rvVisit" || op.entityType === "rvPhoto") && (op.entityId === uuid || op.payload?.visitUuid === uuid));
+const calls = (kind) => server.calls.filter((call) => call.kind === kind);
+const sync = () => syncPendingRecords(userId);
+
+document.querySelector("#run").onclick = async () => {
+  const originalFetch = window.fetch;
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(userId);
+    await deviceDatabase.authState.put({ key: "device-auth", userId, username: "rv-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    window.fetch = fakeFetch;
+
+    // 1. Local-first creation: everything is on the device before any request.
+    await reset();
+    const a = await newVisit();
+    const rowA = await row(a.clientUuid);
+    check("create: visit saved locally as draft revision 1 with no RV number", rowA.status === "draft" && rowA.revision === 1 && rowA.visitNumber === null && rowA.syncStatus === "Pending" && rowA.origin === "device");
+    check("create: both fields saved as unanswered items", (await localDatabase.rvItems.where("visitUuid").equals(a.clientUuid).count()) === 2);
+    const createOps = (await ops(a.clientUuid)).filter((op) => op.payload.kind === "create");
+    check("create: exactly one Pending create operation, offline request carries the device instant and a trimmed call number", createOps.length === 1 && createOps[0].status === "Pending"
+      && createOps[0].payload.request.deviceCreatedAt !== null && createOps[0].payload.request.serviceCallNumber === "SC-1" && createOps[0].payload.request.items.length === 2);
+    check("create: nothing was sent", server.calls.length === 0);
+    const again = await newVisit({ clientUuid: a.clientUuid });
+    check("create: a double tap with the same UUID returns the stored visit", again.clientUuid === a.clientUuid && (await localDatabase.rvVisits.count()) === 1 && (await ops(a.clientUuid)).length === 1);
+    const onlineVisit = await newVisit({ online: true });
+    check("create: an online create asks the server for the date (deviceCreatedAt null)", (await ops(onlineVisit.clientUuid)).find((op) => op.payload.kind === "create").payload.request.deviceCreatedAt === null);
+    await localDatabase.syncOutbox.where("entityId").equals(onlineVisit.clientUuid).delete(); await localDatabase.rvItems.where("visitUuid").equals(onlineVisit.clientUuid).delete(); await localDatabase.rvVisits.delete(onlineVisit.clientUuid);
+
+    // 2. Local Submit freezes; Submit is refused while incomplete.
+    let incomplete = "";
+    try { await submitRepairVisitLocal(a.clientUuid); } catch (error) { incomplete = error.message; }
+    check("submit: an incomplete field blocks Submit and names the missing parts", /not complete/.test(incomplete) && /result/.test(incomplete) && /remark/.test(incomplete) && /photo/.test(incomplete));
+    const itemsA = await complete(a);
+    const itemsBeforeFreeze = JSON.stringify(await localDatabase.rvItems.where("visitUuid").equals(a.clientUuid).sortBy("sortOrder"));
+    const frozenA = await submitRepairVisitLocal(a.clientUuid);
+    const opsA = await ops(a.clientUuid);
+    check("submit: frozen, Pending, one create + two photo + one submit operation", !!frozenA.frozen && frozenA.syncStatus === "Pending" && opsA.length === 4
+      && opsA.filter((op) => op.payload.kind === "photo").length === 2 && opsA.filter((op) => op.payload.kind === "submit").length === 1);
+    const submitOp = opsA.find((op) => op.payload.kind === "submit");
+    check("submit: expectedRevision = revision = 1 and every item carries its photo UUID and hash", submitOp.payload.body.expectedRevision === 1 && submitOp.payload.body.revision === 1
+      && submitOp.payload.body.items.every((item) => item.photoUuid && /^[0-9a-f]{64}$/.test(item.sourceSha256)));
+    let edited = "";
+    try { await saveItemDraft(itemsA[0].clientUuid, { remark: "changed after submit" }); } catch (error) { edited = error.message; }
+    check("submit: a later edit of the frozen visit is refused and the frozen items are unchanged", /can no longer be changed/.test(edited) && JSON.stringify(frozenA.frozen.items.map((item) => item.remark)) === JSON.stringify(["Replaced valve", "No access"]) && itemsBeforeFreeze.includes("Replaced valve"));
+    let twice = "";
+    try { await submitRepairVisitLocal(a.clientUuid); } catch (error) { twice = error.message; }
+    check("submit: a second Submit of a frozen visit is refused", /cannot be submitted again/.test(twice));
+
+    // 3. Ordered sync: create, photos, submit - exact receipts.
+    await sync();
+    check("sync: server saw create, photo, photo, submit in that order", server.calls.map((call) => call.kind).join(",") === "create,photo,photo,submit");
+    const syncedA = await row(a.clientUuid);
+    check("sync: confirmed visit has its RV number, is awaiting approval, Synced, unfrozen", /^RV-\d{8}-1$/.test(syncedA.visitNumber) && syncedA.status === "awaiting_approval" && syncedA.syncStatus === "Synced" && !syncedA.frozen && syncedA.createConfirmed);
+    check("sync: every operation Completed with no active key", (await ops(a.clientUuid)).length === 0 || (await ops(a.clientUuid)).every((op) => op.status === "Completed" && !op.activeKey));
+    check("sync: photos are Synced with the server's stored hash", (await localDatabase.rvPhotos.where("visitUuid").equals(a.clientUuid).toArray()).every((photo) => photo.syncStatus === "Synced" && photo.storedSha256 === hash("5")));
+    check("sync: presentation reads Awaiting approval on the In Progress tab", presentRepairVisit(syncedA).label === "Awaiting approval" && presentRepairVisit(syncedA).tab === "in-progress");
+    await sync();
+    check("sync: a second run sends nothing more (idempotent, nothing pending)", server.calls.length === 4);
+
+    // 4. Returned -> edit -> resubmit with the next revision; the untouched photo is reused, only the changed one is staged.
+    server.visits.get(a.clientUuid).status = "returned";
+    server.events.set(a.clientUuid, [...server.events.get(a.clientUuid), { operation: u(8000), type: "returned", revision: 1, reason: "Photo of valve 2 is blurred" }]);
+    const refreshed = await refreshRepairVisitsFromServer();
+    const returnedA = await row(a.clientUuid);
+    check("refresh: the visit is Returned with the Admin's reason; revision unchanged", returnedA.status === "returned" && returnedA.returnReason === "Photo of valve 2 is blurred" && returnedA.revision === 1 && refreshed.updated === 1);
+    const [item1, item2] = await localDatabase.rvItems.where("visitUuid").equals(a.clientUuid).sortBy("sortOrder");
+    const oldPhoto1 = item1.photoUuid, oldPhoto2 = item2.photoUuid;
+    await saveItemDraft(item1.clientUuid, { remark: "Replaced valve and gasket" });
+    await captureItemPhoto(item2.clientUuid, await png("#06c"), "camera");
+    const reSubmitted = await submitRepairVisitLocal(a.clientUuid);
+    const opsRe = (await ops(a.clientUuid)).filter((op) => op.status !== "Completed");
+    check("resubmit: expectedRevision 1, revision 2; only the replaced photo is queued (revision 2)", reSubmitted.frozen.revision === 2 && opsRe.filter((op) => op.payload.kind === "photo").length === 1
+      && opsRe.find((op) => op.payload.kind === "photo").payload.metadata.revision === 2 && opsRe.find((op) => op.payload.kind === "submit").payload.body.expectedRevision === 1);
+    server.calls.length = 0;
+    await sync();
+    const resubmit = calls("submit")[0];
+    check("resubmit: server got one photo (revision 2) then the submit; the old accepted photo of field 1 is reused", server.calls.map((call) => call.kind).join(",") === "photo,submit" && resubmit.revision === 2 && resubmit.expected === 1 && resubmit.photos.includes(oldPhoto1) && !resubmit.photos.includes(oldPhoto2));
+    const afterRe = await row(a.clientUuid);
+    check("resubmit: confirmed -> awaiting approval at revision 2, reason cleared; superseded photo row removed", afterRe.status === "awaiting_approval" && afterRe.revision === 2 && afterRe.returnReason === null && !(await localDatabase.rvPhotos.get(oldPhoto2)) && !!(await localDatabase.rvPhotos.get(oldPhoto1)));
+
+    // 5. Approved: report number, locked, Completed tab.
+    server.visits.get(a.clientUuid).status = "approved"; server.visits.get(a.clientUuid).report = "MFE/RR/2026/0001";
+    await refreshRepairVisitsFromServer();
+    const approved = await row(a.clientUuid);
+    check("refresh: approved visit shows the report number, Completed tab, not editable", approved.status === "approved" && approved.reportNumber === "MFE/RR/2026/0001" && presentRepairVisit(approved).tab === "completed");
+    let lockedEdit = "";
+    try { await saveItemDraft(item1.clientUuid, { remark: "x" }); } catch (error) { lockedEdit = error.message; }
+    check("approved: editing is refused", /can no longer be changed/.test(lockedEdit));
+
+    // 6. A refused create holds the whole chain and keeps every byte.
+    await reset();
+    server.mode.create = "refuse";
+    const b = await newVisit(); await complete(b); await submitRepairVisitLocal(b.clientUuid);
+    await sync();
+    const refusedB = await row(b.clientUuid);
+    check("refusal: create refused -> only the create was sent; photos and submit waited", server.calls.length === 1 && server.calls[0].kind === "create");
+    check("refusal: Needs attention with the reason; nothing local deleted", refusedB.syncStatus === "Conflict" || refusedB.syncStatus === "Failed");
+    check("refusal: card reads Needs attention with the server's reason", presentRepairVisit(refusedB).label === "Needs attention" && /setup changed/i.test(presentRepairVisit(refusedB).reason));
+    check("refusal: items, photos (with Blobs) and queued operations are all still there", (await localDatabase.rvItems.where("visitUuid").equals(b.clientUuid).count()) === 2
+      && (await localDatabase.rvPhotos.where("visitUuid").equals(b.clientUuid).toArray()).every((photo) => photo.blob.size > 0 && photo.syncStatus === "Pending") && (await ops(b.clientUuid)).length === 4);
+    server.mode.create = undefined; server.calls.length = 0;
+    await sync();
+    check("refusal: the timer-style retry is cooled down, not repeated at once", server.calls.length === 0);
+    await requeueRepairVisit(b.clientUuid);
+    await sync();
+    check("refusal: Retry after the cause is fixed completes the whole chain", server.calls.map((call) => call.kind).join(",") === "create,photo,photo,submit" && (await row(b.clientUuid)).status === "awaiting_approval");
+
+    // 7. A reply that is not the exact confirmation is never a confirmation.
+    for (const [mode, label] of [["wrongUuid", "another visit's UUID"], ["badFingerprint", "a wrong fingerprint"]]) {
+      await reset(); server.mode.create = mode;
+      const c = await newVisit();
+      await sync();
+      const wrong = await row(c.clientUuid);
+      check(`receipt: ${label} is not accepted - Needs attention, no RV number, not marked confirmed`, wrong.syncStatus === "Failed" && !wrong.createConfirmed && wrong.visitNumber === null);
+    }
+    await reset(); server.mode.submit = "badFingerprint";
+    const d = await newVisit(); await complete(d); await submitRepairVisitLocal(d.clientUuid);
+    await sync();
+    const badSubmit = await row(d.clientUuid);
+    check("receipt: a submit receipt with the wrong fingerprint leaves the visit frozen and Failed, not awaiting approval", badSubmit.status === "draft" && !!badSubmit.frozen && badSubmit.syncStatus === "Failed" && badSubmit.createConfirmed === true);
+
+    // 8. No answer is not a refusal: network failure and 503 keep the same payload Pending and the server holds one visit.
+    await reset(); server.mode.create = "network";
+    const e = await newVisit(); await complete(e); await submitRepairVisitLocal(e.clientUuid);
+    const payloadBefore = JSON.stringify((await ops(e.clientUuid)).map((op) => op.payload));
+    await sync();
+    const offlineE = await row(e.clientUuid);
+    check("network: no answer -> still Pending (never Failed), payload unchanged", offlineE.syncStatus === "Pending" && (await ops(e.clientUuid)).every((op) => op.status === "Pending") && JSON.stringify((await ops(e.clientUuid)).map((op) => op.payload)) === payloadBefore);
+    server.mode.create = "503"; await sync();
+    check("503: still Pending", (await row(e.clientUuid)).syncStatus === "Pending");
+    server.mode.create = undefined; server.mode.photo = "network"; await sync();
+    check("network on a photo: create confirmed, photo retried later, submit waits", (await row(e.clientUuid)).createConfirmed && calls("submit").length === 0 && (await row(e.clientUuid)).syncStatus === "Pending");
+    await sync();
+    check("retry: exactly one server visit for the UUID, then submit confirmed", server.visits.size === 1 && (await row(e.clientUuid)).status === "awaiting_approval" && calls("create").filter((call) => call.uuid === e.clientUuid).length >= 2);
+
+    // 9. Force-close mid-request.
+    await reset();
+    const f = await newVisit(); await complete(f); await submitRepairVisitLocal(f.clientUuid);
+    const createOp = (await ops(f.clientUuid)).find((op) => op.payload.kind === "create");
+    await localDatabase.syncOutbox.update(createOp.operationId, { status: "Syncing", attempts: 1 });
+    await localDatabase.rvVisits.update(f.clientUuid, { syncStatus: "Syncing" });
+    await recoverInterruptedSync();
+    const recovered = await row(f.clientUuid);
+    check("recovery: an interrupted create goes back to Pending (retried with the same payload), not Failed", recovered.syncStatus === "Pending" && (await localDatabase.syncOutbox.get(createOp.operationId)).status === "Pending");
+    await sync();
+    check("recovery: the retry completes the visit", (await row(f.clientUuid)).status === "awaiting_approval");
+
+    // 10. Concurrent callers send one create; two visits in one run settle independently.
+    await reset();
+    const g = await newVisit(); await complete(g); await submitRepairVisitLocal(g.clientUuid);
+    const ctx = { actorUserId: userId, assertIdentity: async () => undefined };
+    await Promise.all([syncPendingRepairVisits(ctx), syncPendingRepairVisits(ctx)]);
+    check("concurrency: two simultaneous runs sent exactly one create for the visit", calls("create").length === 1);
+    await sync();
+    check("concurrency: the visit still completes once", (await row(g.clientUuid)).status === "awaiting_approval" && server.visits.size === 1);
+
+    await reset();
+    server.mode.create = undefined;
+    const h1 = await newVisit(), h2 = await newVisit();
+    server.mode.refuseUuid = h2.clientUuid;
+    await syncPendingRepairVisits(ctx);
+    const states = [(await row(h1.clientUuid)).syncStatus, (await row(h2.clientUuid)).syncStatus].sort();
+    check("partial: one visit confirmed and one refused in the same run settle independently", states.join() === "Conflict,Synced" || states.join() === "Failed,Synced");
+
+    // 11. Identity: a different technician's session sends nothing.
+    await reset();
+    const i = await newVisit();
+    await syncPendingRepairVisits({ actorUserId: 9999, assertIdentity: async () => undefined });
+    check("identity: a payload queued by one technician is not sent under another account", server.calls.length === 0 && (await ops(i.clientUuid)).every((op) => op.status === "Failed" || op.status === "Pending"));
+
+    // 12. A submission the server refuses can be reopened; a photo the server already staged stays locked.
+    await reset(); server.mode.submit = "refuse";
+    const j = await newVisit(); const [j1, j2] = await complete(j); await submitRepairVisitLocal(j.clientUuid);
+    await sync();
+    const refusedJ = await row(j.clientUuid);
+    check("refused submit: create and photos confirmed, Submit refused -> Needs attention, frozen and retained", refusedJ.createConfirmed && !!refusedJ.frozen && (refusedJ.syncStatus === "Failed" || refusedJ.syncStatus === "Conflict")
+      && (await localDatabase.rvPhotos.where("visitUuid").equals(j.clientUuid).toArray()).every((photo) => photo.syncStatus === "Synced"));
+    await reopenForEdit(j.clientUuid);
+    const reopened = await row(j.clientUuid);
+    check("reopen: unfrozen and editable again; the failed submit operation is dropped, create stays Completed", !reopened.frozen && reopened.syncStatus === "Synced" && !(await ops(j.clientUuid)).some((op) => op.payload.kind === "submit"));
+    let lockedPhoto = "";
+    try { await captureItemPhoto(j1.clientUuid, await png("#999"), "gallery"); } catch (error) { lockedPhoto = error.message; }
+    check("reopen: a photo the server already staged cannot be replaced (one staged slot per field and revision)", /already sent/.test(lockedPhoto));
+    await saveItemDraft(j2.clientUuid, { remark: "Reason updated" });
+    server.mode.submit = undefined; server.calls.length = 0;
+    await submitRepairVisitLocal(j.clientUuid);
+    await sync();
+    check("reopen: resubmit reuses the staged photos (no second upload) and is confirmed", calls("photo").length === 0 && calls("submit").length === 1 && (await row(j.clientUuid)).status === "awaiting_approval");
+
+    // 13. Delete rules.
+    await reset();
+    const k = await newVisit();
+    const outcomeK = await prepareDeleteRepairVisit(k.clientUuid);
+    check("delete: an unstarted visit the server never received is removed locally with its queued operation", outcomeK.kind === "deleted-local" && !(await row(k.clientUuid)) && (await ops(k.clientUuid)).length === 0 && (await localDatabase.rvItems.count()) === 0);
+    const l = await newVisit();
+    const [l1] = await localDatabase.rvItems.where("visitUuid").equals(l.clientUuid).toArray();
+    await saveItemDraft(l1.clientUuid, { remark: "started" });
+    let startedMessage = "";
+    try { await prepareDeleteRepairVisit(l.clientUuid); } catch (error) { startedMessage = error.message; }
+    check("delete: a started visit cannot be deleted", /has not been started/.test(startedMessage) && !!(await row(l.clientUuid)));
+    await saveItemDraft(l1.clientUuid, { remark: "" });
+    await sync();
+    const outcomeL = await prepareDeleteRepairVisit(l.clientUuid);
+    check("delete: a visit already on the server needs the server to delete it first (revision sent)", outcomeL.kind === "needs-server" && outcomeL.revision === 1 && !!(await row(l.clientUuid)));
+
+    // 14. Returned visits may drop and add fields (A5).
+    await reset();
+    const m = await newVisit(); await complete(m); await submitRepairVisitLocal(m.clientUuid); await sync();
+    server.visits.get(m.clientUuid).status = "returned"; await refreshRepairVisitsFromServer();
+    const [m1, m2] = await localDatabase.rvItems.where("visitUuid").equals(m.clientUuid).sortBy("sortOrder");
+    await removeItem(m2.clientUuid);
+    check("returned: a field can be removed (the other keeps its photo)", (await localDatabase.rvItems.where("visitUuid").equals(m.clientUuid).count()) === 1 && !!(await localDatabase.rvPhotos.get(m1.photoUuid)));
+    let lastField = "";
+    try { await removeItem(m1.clientUuid); } catch (error) { lastField = error.message; }
+    check("returned: the last field cannot be removed", /at least one field/.test(lastField));
+    await addItem(m.clientUuid, fields[2]);
+    let duplicate = "";
+    try { await addItem(m.clientUuid, fields[2]); } catch (error) { duplicate = error.message; }
+    check("returned: a field can be added once", /already on this repair visit/.test(duplicate) && (await localDatabase.rvItems.where("visitUuid").equals(m.clientUuid).count()) === 2);
+    let draftRemove = "";
+    await reset(); const n = await newVisit(); const [n1] = await localDatabase.rvItems.where("visitUuid").equals(n.clientUuid).toArray();
+    try { await removeItem(n1.clientUuid); } catch (error) { draftRemove = error.message; }
+    check("draft: fields are not removable before the visit is returned", /after the visit is returned/.test(draftRemove));
+
+    // 15. A failed refresh never rewrites local state.
+    await reset();
+    const o = await newVisit(); await complete(o); await submitRepairVisitLocal(o.clientUuid); await sync();
+    server.visits.get(o.clientUuid).status = "returned"; server.mode.list = "500";
+    let refreshFailed = false;
+    try { await refreshRepairVisitsFromServer(); } catch { refreshFailed = true; }
+    check("refresh failure: it throws and the visit is still the last known awaiting-approval state", refreshFailed && (await row(o.clientUuid)).status === "awaiting_approval");
+
+    // 16. Field lists and Before photos for offline use.
+    await reset();
+    const beforeBytes = new Blob(["before-photo-bytes"], { type: "image/jpeg" });
+    const beforeHash = await sha256Hex(await beforeBytes.arrayBuffer());
+    const photoMeta = { photoUuid: u(9600), sourceSha256: hash("1"), storedSha256: beforeHash, sizeBytes: beforeBytes.size, width: 10, height: 10 };
+    const withPhoto = { ...fieldOf(1), before: { ...fieldOf(1).before, photo: photoMeta } };
+    const previousRow = { kind: "service", visitId: ids.previousSv, visitNumber: "SV-20261011-94", visitDate: "2026-10-11", createdAt: "2026-10-11T03:00:00.000Z", createdByUserId: userId };
+    const catalogFetch = async (url) => {
+      const path = new URL(String(url), location.origin).pathname;
+      if (path.endsWith("/previous-visits")) return reply(200, { visits: [previousRow] });
+      if (path.endsWith(`/previous-visits/service/${ids.previousSv}/catalog`)) return reply(200, { fields: [withPhoto] });
+      if (path.endsWith(`/photos/${photoMeta.photoUuid}/content`)) return new Response(server.tamper ? new Blob(["tampered"]) : beforeBytes, { status: 200, headers: { "content-type": "image/jpeg" } });
+      if (path.endsWith("/catalog")) return reply(200, { configurationRevisionId: ids.revision, fields: [fieldOf(1)] });
+      if (path.endsWith("/sites")) return reply(200, { sites: [{ id: ids.site, customerId: ids.customer, code: "S", displayName: "Main Site" }] });
+      if (path.endsWith("/configuration")) return reply(200, { customer: { id: ids.customer, code: "C", displayName: "C", isDemo: false }, configuration: { configurationId: ids.revision, revision: 1, templateId: u(1), templateCode: "T", templateName: "T", templateVersion: 7, selectionPolicy: "preset_only", enabledSystems: [] } });
+      return reply(404, {});
+    };
+    window.fetch = catalogFetch;
+    const list = await loadPreviousVisitList(ids.customer, ids.site, true);
+    check("offline lists: the connected list is the server's, filtered to this technician", list.visits.length === 1 && !list.fromDevice);
+    const online = await loadCatalog(ids.customer, ids.site, { kind: "service", visitId: ids.previousSv }, true, previousRow).catch((error) => ({ error: error.message }));
+    check("offline lists: a connected catalog load saves the field list on the device", !online.error && (await localDatabase.rvPreviousVisits.count()) >= 1);
+    window.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    const offlineList = await loadPreviousVisitList(ids.customer, ids.site, false);
+    check("offline lists: offline shows only the visits whose field lists are saved here, labelled as from the device", offlineList.fromDevice && offlineList.visits.length === 1 && offlineList.visits[0].visitNumber === "SV-20261011-94");
+    const offlineCatalog = await loadCatalog(ids.customer, ids.site, { kind: "service", visitId: ids.previousSv }, false).catch((error) => ({ error: error.message }));
+    check("offline lists: the saved field list opens offline", !offlineCatalog.error && offlineCatalog.fromDevice && offlineCatalog.fields.length === 1);
+    const missing = await loadCatalog(ids.customer, ids.site, null, false).catch((error) => error.message);
+    check("offline lists: a field list that was never saved fails with a clear message instead of guessing", typeof missing === "string" && /not saved on this device/.test(missing));
+    await localDatabase.rvPreviousVisits.toCollection().modify({ createdByUserId: 1 });
+    const foreign = await loadPreviousVisitList(ids.customer, ids.site, false);
+    check("offline lists: another technician's saved lists are never shown", foreign.visits.length === 0);
+
+    window.fetch = catalogFetch;
+    await localDatabase.rvPreviousVisits.clear();
+    const report = await downloadCustomerForOffline(ids.customer);
+    check("download: field lists for the 'none' list and the previous visit plus the Before photo are saved", report.sites === 1 && report.fieldLists === 2 && report.photos === 1 && report.failures.length === 0);
+    const cached = await readCachedBeforePhoto({ kind: "service", visitId: ids.previousSv }, photoMeta);
+    check("download: the Before photo is read back from the device after its hash is verified", cached instanceof Blob && cached.size === beforeBytes.size);
+    await localDatabase.rvBeforePhotos.clear(); await localDatabase.rvPreviousVisits.clear(); server.tamper = true;
+    const tampered = await downloadCustomerForOffline(ids.customer);
+    check("download: a photo that fails its SHA-256 check is not saved and is reported", tampered.photos === 0 && tampered.failures.length >= 1 && (await localDatabase.rvBeforePhotos.count()) === 0);
+
+    const failed = checks.filter((entry) => !entry.ok);
+    out.textContent = JSON.stringify({ status: failed.length ? "FAIL" : "PASS", checks }, null, 1);
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: String(error?.stack ?? error), checks }, null, 1);
+  } finally { window.fetch = originalFetch; }
+};
+</script></body></html>

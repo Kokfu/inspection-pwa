@@ -8,6 +8,7 @@ import { dispatchPendingRepairs, isRepairOperation, recoverInterruptedRepairs } 
 import { locationProposalSyncIdle, syncPendingLocationProposals } from "../jobs/technicianLocationProposalDraft";
 import { recoverInterruptedOfflineVisits, syncPendingOfflineServiceVisits } from "../jobs/offlineServiceVisitSync";
 import { heldJobIds } from "../jobs/offlineServiceVisitStore";
+import { recoverInterruptedRepairVisits, syncPendingRepairVisits } from "../repairVisits/repairVisitSync";
 import type { FireAlarmInspectionRecord } from "../fireAlarm/fireAlarmTypes";
 import type { PortableRecord } from "../portableFireExtinguisher/portableFireExtinguisher";
 import { fireAlarmClientDispatch } from "../referenceData/systemContractCompatibility";
@@ -367,6 +368,8 @@ export async function pruneCompletedOutboxItems(now = Date.now()) {
 export async function recoverInterruptedSync() {
   await recoverInterruptedRepairs();
   await recoverInterruptedOfflineVisits();
+  // Repair visit requests are idempotent: an interrupted one is queued again with the same payload, not marked Failed below.
+  await recoverInterruptedRepairVisits();
   const interruptedAt = new Date().toISOString();
   const syncingItems = await localDatabase.syncOutbox
     .where("status")
@@ -600,6 +603,8 @@ export async function syncPendingRecords(actorUserId?: number) {
     const visits = await syncPendingOfflineServiceVisits({ actorUserId: syncActorId, assertIdentity: assertSyncIdentity, headers: expectedActorHeaders() });
     const held = await heldJobIds();
     const repairs = await dispatchPendingRepairs();
+    // Repair visits: create, then photos, then submit, each only after the server echoed the exact UUID and fingerprint.
+    const repairVisits = await syncPendingRepairVisits({ actorUserId: syncActorId, assertIdentity: assertSyncIdentity });
 
     if (syncActorId !== undefined) await syncPendingTechnicianCustomers(syncActorId);
     if (syncActorId !== undefined) await syncPendingLocationProposals(syncActorId);
@@ -615,7 +620,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        !isRepairOperation(item) && item.entityType !== "offlineServiceVisit" && !held.has(payloadJobId(item) ?? "") && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
+        !isRepairOperation(item) && item.entityType !== "offlineServiceVisit" && item.entityType !== "rvVisit" && item.entityType !== "rvPhoto" && !held.has(payloadJobId(item) ?? "") && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
@@ -629,6 +634,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       return {
         started: true,
         message: visits.attempted ? `Service visit sync: ${visits.confirmed} confirmed, ${visits.failed} need attention`
+          : repairVisits.attempted ? `Repair visit sync: ${repairVisits.confirmed} steps confirmed, ${repairVisits.failed} need attention`
           : repairs.confirmed || repairs.failed ? `Repair sync: ${repairs.confirmed} operations confirmed, ${repairs.failed} failed`
           : commonRemarks.attempted || sectionRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
           ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${sectionRemarks.confirmed} section remarks confirmed, ${sectionRemarks.failed} section remarks failed, ${evidence.accepted} attachments confirmed`

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 
 const ICONS: Record<string, ReactNode> = {
   "manager-repairs": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
+  "repair-visits": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "repair-list": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "manager-home": <path d="m3 10 9-7 9 7M5 9v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9" />,
   "manager-technicians": <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />,
