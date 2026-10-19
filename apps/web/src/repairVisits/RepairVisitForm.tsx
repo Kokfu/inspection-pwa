@@ -145,7 +145,7 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
         {!visit.createConfirmed ? <button type="button" className="secondary-command" onClick={() => void discard()}>Discard this repair visit</button> : null}
       </div>
     </section> : null}
-    {state.tone === "pending" || state.tone === "syncing" ? <p className="operational-message" role="status">{state.label === "Syncing" ? "Sending to the server…" : "Saved on this device. It will be sent when you are connected."}{state.reason && state.label === "Pending sync" ? ` ${state.reason}` : ""}</p> : null}
+    {state.tone === "pending" || state.tone === "syncing" ? <p className="operational-message" role="status">{state.label === "Syncing" ? "Sending to the server…" : (visit.frozen ? "Submitted and waiting to sync. It will be sent when you are connected." : "Saved on this device. It will be sent when you are connected.")}{state.reason && state.label === "Pending sync" ? ` ${state.reason}` : ""}</p> : null}
     {refreshError ? <p className="operational-message operational-message--warning" role="alert">Could not check the server: {refreshError} What you see is the last known state on this device.</p> : null}
     {!connected ? <p className="offline-notice" role="status">Offline — everything you enter is saved on this device and sent when you reconnect.</p> : null}
     <p className="rv-help" role="status" aria-live="polite">{notice}</p>

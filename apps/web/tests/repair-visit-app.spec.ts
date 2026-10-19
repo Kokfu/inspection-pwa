@@ -160,6 +160,8 @@ for (const width of widths) {
     await expect(page.getByText("Replaced the leaking gate valve")).toBeVisible();
     await expect(page.getByRole("img", { name: "After photo for this field" })).toBeVisible();
     await expect(page.getByText("Pending sync").first()).toBeVisible();
+    // P3: after reopening, a submitted visit still says Submitted, not Saved.
+    await expect(page.getByText("Submitted and waiting to sync. It will be sent when you are connected.")).toBeVisible();
     expect(server.calls).toHaveLength(0);
 
     // Reconnect: create, then the photo, then the submit - each confirmed by its exact UUID.
