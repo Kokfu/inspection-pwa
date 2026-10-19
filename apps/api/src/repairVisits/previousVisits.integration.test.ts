@@ -17,7 +17,7 @@ import { fingerprint } from "./fieldCatalogSource.js";
 import { listPreviousVisits } from "./previousVisits.js";
 import { readPreviousVisitCatalog } from "./fieldCatalog.js";
 import type { CurrentUser } from "../auth/authTypes.js";
-import { legacyFireAlarmV7Fixture } from "../repairs/historicalFixtures.js";
+import { legacyFireAlarmV7Fixture } from "./historicalFixtures.test-support.js";
 
 const url = process.env.SEED_INTEGRATION_DATABASE_URL;
 assert.ok(url, "Cold disposable database required"); assert.equal(process.env.DATABASE_URL, url); assert.equal(process.env.NODE_ENV, "test");

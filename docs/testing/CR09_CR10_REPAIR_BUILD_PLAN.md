@@ -1,3 +1,5 @@
+> **SUPERSEDED** by [docs/repair-visit/REPAIR_VISIT_PLAN.md](../repair-visit/REPAIR_VISIT_PLAN.md) (2026-10-19). Kept as history only; the old Repair List it describes has been removed.
+
 # CR-09 / CR-10 — Repair List build plan
 
 Date: 2026-10-12 (Asia/Kuala_Lumpur).

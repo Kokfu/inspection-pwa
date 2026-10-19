@@ -3,7 +3,6 @@ import { useState, type ReactNode } from "react";
 const ICONS: Record<string, ReactNode> = {
   "manager-repairs": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "repair-visits": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
-  "repair-list": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "manager-home": <path d="m3 10 9-7 9 7M5 9v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9" />,
   "manager-technicians": <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />,
   "manager-customers": <path d="M3 4h18v16H3zM3 10h18" />,
@@ -33,20 +32,18 @@ export function AppShell<TRouteName extends string>({
   activeRouteName,
   onNavigate,
   mobileNavigation = false,
-  suspended = false,
   children
 }: {
   navLinks: Array<[label: string, routeName: TRouteName]>;
   activeRouteName: string;
   onNavigate: (routeName: TRouteName) => void;
   mobileNavigation?: boolean;
-  suspended?: boolean;
   children: ReactNode;
 }) {
   // I-36: the phone menu closes itself once a destination is chosen, so the new page is not pushed down by an open menu.
   const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <div className="app-shell-split" hidden={suspended} inert={suspended} style={suspended ? { display: "none" } : undefined}>
+    <div className="app-shell-split">
       {mobileNavigation ? <details className="app-mobile-navigation" open={menuOpen} onToggle={(event) => setMenuOpen(event.currentTarget.open)}><summary>Menu</summary><nav aria-label="Mobile navigation">
         {navLinks.map(([label, routeName]) => <button key={routeName} type="button"
           aria-current={routeName === activeRouteName ? "page" : undefined}

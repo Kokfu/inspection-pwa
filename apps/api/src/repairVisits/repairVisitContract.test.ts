@@ -79,7 +79,7 @@ test("API/web portable validators remain identical", async () => {
   const offlineWeb = await readFile(new URL("../../../web/src/jobs/offlineServiceVisitTypes.ts", import.meta.url), "utf8");
   assert.equal(offlineWeb.split("export type LocalOfflineServiceVisit")[0].trim(), offlineApi.replace("../repairVisits/repairVisitContract.js", "../repairVisits/repairVisitTypes").trim());
 });
-test("registered router placeholders: protected 404s and unrelated routes untouched", async () => {
+test("registered routers: unauthenticated callers are refused and unrelated routes untouched", async () => {
   const app = express();
   app.use((req, _res, next) => { if (req.header("x-test-auth")) req.currentUser = { id: 1, username: "test", role: "inspector" }; next(); });
   app.use(repairVisitReadsRouter, repairVisitWritesRouter);
@@ -89,8 +89,9 @@ test("registered router placeholders: protected 404s and unrelated routes untouc
     const address = server.address(); assert.ok(address && typeof address !== "string");
     const base = `http://127.0.0.1:${address.port}`;
     for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) for (const path of ["/repair-visits", "/repair-visits/example"]) {
+      // The 1A placeholders became real routes (2B/3A); their behaviour is covered by the integration tests.
+      // What stays true here: every repair visit route refuses an unauthenticated caller.
       assert.equal((await fetch(base + path, { method })).status, 401);
-      assert.equal((await fetch(base + path, { method, headers: { "x-test-auth": "1" } })).status, 404);
     }
     assert.equal((await fetch(base + "/other")).status, 204);
   } finally { await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); }

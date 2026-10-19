@@ -5,7 +5,7 @@ import { fixture, systems, setResult } from "./fieldCatalogFixtures.test-support
 import { readFindingParts, type R } from "./fieldCatalogReaders.js";
 import { configurationCatalogFields, layoutRowUuid, orderCatalog, serviceCatalogFields } from "./fieldCatalog.js";
 import type { PreviousVisit } from "./previousVisits.js";
-import { legacyFireAlarmV7Fixture } from "../repairs/historicalFixtures.js";
+import { legacyFireAlarmV7Fixture } from "./historicalFixtures.test-support.js";
 
 const visit: PreviousVisit = { kind: "service", visitId: randomUUID(), visitNumber: "SV-20261012-1", visitDate: "2026-10-12", createdAt: "2026-10-12T00:00:00.000Z", createdByUserId: 1 };
 for (const system of systems) test(`${system}: all results, stable repeated units, no measurements or quantities`, () => {

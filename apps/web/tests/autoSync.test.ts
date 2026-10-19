@@ -113,11 +113,11 @@ test("App wires the coordinator to launch/reconnect, visibility and the interval
   assert.match(engine, /if \(syncInProgress\) \{/, "engine single-flight guard is untouched");
 });
 
-// I-67: repair operations retry sooner than the generic 5 minutes; every other form is unchanged.
-test("repair operations back off 1 min, 2 min, then 5 min by attempt; other items keep 5 min", () => {
+// I-67: repair visit operations retry sooner than the generic 5 minutes; every other form is unchanged.
+test("repair visit operations back off 1 min, 2 min, then 5 min by attempt; other items keep 5 min", () => {
   assert.deepEqual([...REPAIR_FAILED_BACKOFF_MS], [60_000, 120_000, AUTO_SYNC_FAILED_BACKOFF_MS]);
   const failed = (entityType: string, attempts: number, agoMs: number) => [{ status: "Failed", entityType, attempts, lastAttemptAt: ago(agoMs) }];
-  for (const entityType of ["repairEvidence", "repairRecord"]) {
+  for (const entityType of ["rvPhoto", "rvVisit"]) {
     assert.equal(outboxHasAutoSyncWork(failed(entityType, 1, 30_000), "interval", now), false, "30 s after the first failure: still waiting");
     assert.equal(outboxHasAutoSyncWork(failed(entityType, 1, 60_000), "interval", now), true, "1 min after the first failure: retried");
     assert.equal(outboxHasAutoSyncWork(failed(entityType, 2, 90_000), "interval", now), false);
@@ -133,10 +133,10 @@ test("repair operations back off 1 min, 2 min, then 5 min by attempt; other item
 });
 
 test("failedBackoffFor tolerates a missing or odd attempts count", () => {
-  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord" }, 300_000), 60_000);
-  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: Number.NaN }, 300_000), 60_000);
-  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 0 }, 300_000), 60_000);
-  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 2.9 }, 300_000), 120_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "rvVisit" }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "rvVisit", attempts: Number.NaN }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "rvVisit", attempts: 0 }, 300_000), 60_000);
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "rvVisit", attempts: 2.9 }, 300_000), 120_000);
   assert.equal(failedBackoffFor({ status: "Failed" }, 300_000), 300_000);
-  assert.equal(failedBackoffFor({ status: "Failed", entityType: "repairRecord", attempts: 3 }, 30_000), 30_000, "a smaller caller fallback is respected");
+  assert.equal(failedBackoffFor({ status: "Failed", entityType: "rvVisit", attempts: 3 }, 30_000), 30_000, "a smaller caller fallback is respected");
 });

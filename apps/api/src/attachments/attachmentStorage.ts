@@ -6,10 +6,12 @@ import {
   readdir,
   readFile,
   rename,
+  rmdir,
   stat,
   unlink
 } from "node:fs/promises";
 import path from "node:path";
+import type { Pool } from "pg";
 import sharp from "sharp";
 import { loadConfig } from "../config/env.js";
 import { pool } from "../db/pool.js";
@@ -233,6 +235,40 @@ async function walkFiles(directory: string): Promise<string[]> {
   return files.flat();
 }
 
+const retiredRepairPhotoPath = /^repairs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/i;
+
+/**
+ * Removes the photo files of the retired Repair List (migration 055). Only the exact paths the old table
+ * named are touched; a path that is malformed, escapes the uploads folder, or is referenced by a repair
+ * visit photo is skipped. Failures never throw: an undeleted file remains an orphan in the
+ * reconciliation report.
+ */
+export async function removeRetiredRepairPhotoFiles(database: Pool, relativePaths: readonly string[]) {
+  const removed: string[] = [];
+  const skipped: string[] = [];
+  let uploadsRoot: string;
+  try { uploadsRoot = path.resolve(loadConfig().uploadsPath); } catch { return { removed, skipped: [...relativePaths] }; }
+  const referenced = new Set((await database.query<{ storage_relative_path: string }>(
+    `SELECT storage_relative_path FROM repair_visit_photos`
+  )).rows.map((row) => row.storage_relative_path));
+  for (const relative of new Set(relativePaths)) {
+    const absolute = path.resolve(uploadsRoot, ...relative.split("/"));
+    if (!retiredRepairPhotoPath.test(relative) || referenced.has(relative) || !absolute.startsWith(uploadsRoot + path.sep)) {
+      skipped.push(relative);
+      continue;
+    }
+    try {
+      await unlink(absolute);
+      removed.push(relative);
+      await rmdir(path.dirname(absolute)).catch(() => undefined);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") removed.push(relative);
+      else skipped.push(relative);
+    }
+  }
+  return { removed, skipped };
+}
+
 export async function reconcileAttachmentStorage() {
   const uploadsRoot = path.resolve(loadConfig().uploadsPath);
   await mkdir(uploadsRoot, { recursive: true });
@@ -252,9 +288,6 @@ export async function reconcileAttachmentStorage() {
      UNION
      SELECT storage_relative_path, to_jsonb(stored_size_bytes), stored_sha256::text
        FROM staged_inspection_evidence
-     UNION
-     SELECT storage_relative_path, metadata->'storedSizeBytes', stored_sha256::text
-       FROM staged_repair_evidence
      UNION
      SELECT storage_relative_path, to_jsonb(size_bytes), stored_sha256::text
        FROM repair_visit_photos`

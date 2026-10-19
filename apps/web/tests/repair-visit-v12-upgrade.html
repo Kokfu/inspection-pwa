@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Repair visit v12 upgrade</title></head><body>
+<script type="module">
+import Dexie from 'dexie';
+import { createLocalDatabase } from '/src/db/localDatabase.ts';
+const name = 'repair-visit-v12-upgrade';
+// Independent, frozen v11 fixture: every store and every index of the build before the old Repair List was removed.
+const kept = {
+  drafts: 'id, entityType, updatedAt',
+  testRecords: 'clientUuid, syncStatus, localUpdatedAt, createdAt',
+  inspectionRecords: 'clientUuid, syncStatus, jobId, systemKey, [jobId+systemKey], templateId, localUpdatedAt',
+  masterSystemInspections: 'clientUuid, &jobSystemKey, jobId, systemKey, syncStatus, localUpdatedAt',
+  masterSystemInspectionGroups: 'groupKey, jobId, systemKey, localUpdatedAt',
+  masterSystemFormInstances: 'clientUuid, &[groupKey+instanceKey], groupKey, jobId, systemKey, configuredLocationId, syncStatus, localUpdatedAt',
+  syncOutbox: 'operationId, entityType, entityId, status, createdAt, &activeKey',
+  referenceData: 'key, version, fetchedAt, expiresAt', authState: 'key',
+  inspectionAttachments: 'photoUuid, &[inspectionClientUuid+fieldPath], inspectionClientUuid, systemKey, syncStatus, localUpdatedAt, serverAttachmentId',
+  offlineServiceVisits: 'clientJobUuid, createdByUserId, syncStatus, localUpdatedAt',
+  rvVisits: 'clientUuid, customerId, siteId, createdByUserId, status, syncStatus, localUpdatedAt',
+  rvItems: 'clientUuid, visitUuid, [visitUuid+identity.systemKey], sortOrder',
+  rvPhotos: 'photoUuid, visitUuid, itemUuid, syncStatus, localUpdatedAt',
+  rvPreviousVisits: 'cacheKey, [customerId+siteId], createdByUserId, fetchedAt, expiresAt',
+  rvBeforePhotos: 'cacheKey, photoUuid, fetchedAt'
+};
+const removed = {
+  repairFindings: 'findingId, [original.jobId+original.systemKey], fetchedAt',
+  repairWorkOrders: 'workOrderId, [jobId+systemKey], assignedToUserId, status',
+  repairRecords: 'clientUuid, findingId, workOrderId, [jobId+systemKey], syncStatus, localUpdatedAt',
+  repairAttachments: 'photoUuid, &repairUuid, syncStatus',
+  repairBeforePhotos: 'findingId, photoUuid, sourceFingerprint'
+};
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+async function normalized(v) {
+  if (v instanceof Blob) return { type: v.type, bytes: Array.from(new Uint8Array(await v.arrayBuffer())) };
+  if (Array.isArray(v)) return Promise.all(v.map(normalized));
+  if (v && typeof v === 'object') return Object.fromEntries(await Promise.all(Object.entries(v).map(async ([k, x]) => [k, await normalized(x)])));
+  return v;
+}
+function schema(table) { return JSON.stringify({ primary: table.schema.primKey, indexes: table.schema.indexes }); }
+let before, schemas;
+const keepOutbox = [['inspection', 'Pending'], ['masterSystemFormInstance', 'Failed'], ['offlineServiceVisit', 'Pending'], ['rvVisit', 'Failed'], ['rvPhoto', 'Pending']];
+window.prepareUpgrade = async () => {
+  await Dexie.delete(name);
+  const old = new Dexie(name); old.version(11).stores({ ...kept, ...removed }); await old.open();
+  before = {}; schemas = {};
+  const uuid = '10000000-0000-4000-8000-000000000001';
+  for (const table of old.tables) {
+    if (table.name in removed) {
+      await table.put({ [table.schema.primKey.keyPath]: uuid, jobId: uuid, repairUuid: uuid, syncStatus: 'Pending', marker: table.name, blob: new Blob([new Uint8Array([9, 9])], { type: 'image/jpeg' }) });
+      continue;
+    }
+    if (table.name === 'syncOutbox') continue;
+    const row = { [table.schema.primKey.keyPath]: uuid, jobId: uuid, systemKey: 'hydrant', syncStatus: 'Pending', localUpdatedAt: '2026-10-19T01:00:00.000Z', marker: table.name };
+    if (table.name === 'inspectionRecords') Object.assign(row, { templateVersion: 7, responses: [{ value: 'not_good', remarks: 'leaking' }], frozen: { manifest: [{ photoUuid: uuid, fieldPath: 'field', sourceSha256: 'a'.repeat(64) }] } });
+    if (['inspectionAttachments', 'rvPhotos', 'rvBeforePhotos'].includes(table.name)) row.blob = new Blob([new Uint8Array([0, 1, 2, 128, 255])], { type: 'image/jpeg' });
+    if (table.name === 'rvVisits') Object.assign(row, { customerId: 'c', siteId: 's', createdByUserId: 7, status: 'draft', visitNumber: null });
+    await table.put(row);
+  }
+  // Outbox: two old repair items (must go) among five live ones (must stay byte-identical).
+  const outbox = old.table('syncOutbox');
+  const items = [['repairRecord', 'Failed'], ['repairEvidence', 'Pending'], ...keepOutbox];
+  let n = 0;
+  for (const [entityType, status] of items) {
+    const id = `20000000-0000-4000-8000-00000000000${++n}`;
+    await outbox.put({ operationId: id, entityType, entityId: id, action: 'create', status, createdAt: `2026-10-19T01:00:0${n}.000Z`, activeKey: `${entityType}:create:${id}`, attempts: 2, payload: { clientUuid: id, nested: { note: 'kept' } }, lastError: 'network failed' });
+  }
+  for (const table of old.tables) {
+    if (table.name in removed) continue;
+    const rows = await table.toArray();
+    before[table.name] = await normalized(table.name === 'syncOutbox' ? rows.filter(r => !r.entityType.startsWith('repair')) : rows);
+    schemas[table.name] = schema(table);
+  }
+  old.close(); return true;
+};
+window.runUpgrade = async () => {
+  const db = createLocalDatabase(name); await db.open();
+  assert(db.verno === 12, 'version must be 12');
+  for (const store of Object.keys(removed)) assert(!db.tables.some(t => t.name === store), store + ': old repair store must be gone');
+  assert(db.tables.length === Object.keys(kept).length, 'exactly the kept stores remain');
+  for (const [table, rows] of Object.entries(before)) {
+    assert(schema(db.table(table)) === schemas[table], table + ': index changed');
+    assert(JSON.stringify(await normalized(await db.table(table).toArray())) === JSON.stringify(rows), table + ': data/Blob changed');
+  }
+  const outbox = await db.syncOutbox.toArray();
+  assert(outbox.length === keepOutbox.length && outbox.every(i => !i.entityType.startsWith('repair')), 'only the old repair outbox items were dropped');
+  const photos = await db.rvPhotos.toArray();
+  assert(photos.length === 1 && (await photos[0].blob.arrayBuffer()).byteLength === 5, 'repair visit photo Blob intact');
+  await db.rvPhotos.put({ photoUuid: 'new-photo', visitUuid: 'visit', itemUuid: 'item', blob: new Blob(['new-after'], { type: 'image/jpeg' }) });
+  db.close(); await db.open();
+  assert(await (await db.rvPhotos.get('new-photo')).blob.text() === 'new-after', 'new Blob survives reopen');
+  for (const [table, rows] of Object.entries(before)) if (table !== 'rvPhotos') assert(JSON.stringify(await normalized(await db.table(table).toArray())) === JSON.stringify(rows), table + ': reopen changed data');
+  db.close();
+  return { keptStores: Object.keys(kept).length, removedStores: Object.keys(removed).length, outboxKept: outbox.length, status: 'PASS' };
+};
+window.ready = true;
+</script></body></html>

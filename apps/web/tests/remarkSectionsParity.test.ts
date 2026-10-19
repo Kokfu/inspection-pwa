@@ -101,7 +101,7 @@ test("no other system's form opts in to section remarks in Phase 1", () => {
 
 test("the generic /api/sync loop excludes sectionRemark outbox items", () => {
   const engine = read("../src/sync/syncEngine.ts");
-  const filter = /\.filter\(\(item\) =>\s*item\.entityType !== "inspectionAttachment"[\s\S]*?shouldSync\(item\)/.exec(engine)?.[0] ?? "";
+  const filter = /\.filter\(\(item\) =>(?:(?!\.filter)[\s\S])*?item\.entityType !== "inspectionAttachment"[\s\S]*?shouldSync\(item\)/.exec(engine)?.[0] ?? "";
   assert.match(filter, /item\.entityType !== "sectionRemark"/, "sectionRemark must be excluded or the generic loop would POST it to /api/sync");
   assert.match(filter, /item\.entityType !== "commonRemark"/);
   assert.match(engine, /await syncPendingSectionRemarks\(\)/);

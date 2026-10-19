@@ -19,7 +19,7 @@ try {
   Run-Gate { npm run test:historical-matrix }
   Run-Gate { npm run test:v6-evidence }
   Run-Gate { npm run test:wet-chemical-definition }
-  Run-Gate { node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts src/repairs/findingReaders.test.ts src/repairs/historicalFindingReaders.test.ts src/repairVisits/fieldCatalog.test.ts }
+  Run-Gate { node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts src/repairVisits/fieldCatalog.test.ts }
   }
   for ($attempt=0; $attempt -lt 30; $attempt++) {
     docker exec $container pg_isready -U inspection_app -d phase6_seed_integration

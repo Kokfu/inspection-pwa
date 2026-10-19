@@ -1,7 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { LocalOfflineServiceVisit } from "../jobs/offlineServiceVisitTypes";
 import type { LocalRepairVisit, LocalRepairVisitItem, LocalRepairVisitPhoto, CachedRepairPreviousVisit, CachedRepairBeforePhoto } from "../repairVisits/repairVisitTypes";
-import type { RepairFinding, RepairWorkOrder, RepairRecord, RepairAttachment, RepairBeforePhoto } from "../repairs/repairTypes";
 import type { InspectionAttachmentRecord } from "../attachments/attachmentTypes";
 import type { AutomaticSprinklerInspectionRecord } from "../automaticSprinkler/automaticSprinklerTypes";
 import type { DryWetRiserInspectionRecord } from "../dryWetRiser/dryWetRiserTypes";
@@ -49,7 +48,7 @@ export type DeviceAuthState = {
 
 export type SyncOutboxItem = {
   operationId: string;
-  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal" | "repairEvidence" | "repairRecord" | "offlineServiceVisit" | "rvVisit" | "rvPhoto";
+  entityType: "testRecord" | "inspection" | "masterSystemInspection" | "masterSystemFormInstance" | "inspectionAttachment" | "v6StagedEvidence" | "v7StagedEvidence" | "commonRemark" | "sectionRemark" | "technicianCustomer" | "technicianLocationProposal" | "offlineServiceVisit" | "rvVisit" | "rvPhoto";
   entityId: string;
   action: "create";
   payload: unknown;
@@ -125,11 +124,6 @@ const localDatabase = new Dexie(name) as Dexie & {
   referenceData: EntityTable<ReferenceCacheEntry, "key">;
   authState: EntityTable<DeviceAuthState, "key">;
   inspectionAttachments: EntityTable<InspectionAttachmentRecord, "photoUuid">;
-  repairFindings: EntityTable<RepairFinding, "findingId">;
-  repairWorkOrders: EntityTable<RepairWorkOrder, "workOrderId">;
-  repairRecords: EntityTable<RepairRecord, "clientUuid">;
-  repairAttachments: EntityTable<RepairAttachment, "photoUuid">;
-  repairBeforePhotos: EntityTable<RepairBeforePhoto, "findingId">;
 };
 
 localDatabase.version(1).stores({
@@ -272,6 +266,20 @@ localDatabase.version(11).stores({
   rvPhotos: "photoUuid, visitUuid, itemUuid, syncStatus, localUpdatedAt",
   rvPreviousVisits: "cacheKey, [customerId+siteId], createdByUserId, fetchedAt, expiresAt",
   rvBeforePhotos: "cacheKey, photoUuid, fetchedAt"
+});
+
+// The old Repair List is gone (replaced by repair visits). Dropping a store discards only that store;
+// every other store, index and Blob is kept. Leftover old repair outbox items are deleted because no
+// code can send them any more; every other outbox item is untouched.
+localDatabase.version(12).stores({
+  repairFindings: null,
+  repairWorkOrders: null,
+  repairRecords: null,
+  repairAttachments: null,
+  repairBeforePhotos: null
+}).upgrade(async (transaction) => {
+  await transaction.table("syncOutbox").filter((item: { entityType?: unknown }) =>
+    item.entityType === "repairEvidence" || item.entityType === "repairRecord").delete();
 });
 
 return localDatabase;

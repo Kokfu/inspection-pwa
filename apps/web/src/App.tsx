@@ -113,10 +113,9 @@ import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerHome, managerNavLinks, type ManagerDashboardRoute } from "./manager/ManagerHome";
 import { AppShell } from "./layout/AppShell";
-import { RepairCompare } from "./repairs/RepairCompare";
-import { RepairList } from "./repairs/RepairList";
 import { RepairVisitsScreen } from "./repairVisits/RepairVisitsScreen";
 import { ManagerOperations } from "./manager/ManagerOperations";
+import { AwaitingRepairVisitsPanel, ManagerRepairVisits } from "./manager/repairVisits/ManagerRepairVisits";
 import { ManagerTechnicians } from "./manager/ManagerTechnicians";
 import { ManagerTechnicianDetail } from "./manager/ManagerTechnicianDetail";
 import { claimManagerSession, clearManagerSession, readManagerExperience, readManagerReturn, rememberManagerExperience, rememberManagerReturn, type ManagerReturnRoute } from "./manager/managerReturnRoute";
@@ -136,7 +135,7 @@ import { RoleSelection, type ProductRole } from "./manager/RoleSelection";
 import { isManagerRole, productRoleMatches, supervisorAllowsRoute } from "./manager/roleAccess";
 import { forgetTechnicianExperience, isTechnicianExperienceRemembered, rememberTechnicianExperience } from "./auth/technicianExperience";
 import { ManagerRequestGuard, type ManagerRequest } from "./manager/managerRequestGuard";
-import { activateUserWorkspace, currentWorkspaceUserId, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
+import { activateUserWorkspace, initializeLocalDatabase, localDatabase, type InspectionRecord } from "./db/localDatabase";
 import { InspectionForm } from "./inspections/InspectionForm";
 import { InspectionList } from "./inspections/InspectionList";
 import {
@@ -212,7 +211,7 @@ import { runAttachmentCleanupIfDue } from "./attachments/attachmentRetention";
 import { announceSyncFinished } from "./sync/syncEvents";
 import { headerSyncSummary } from "./sync/headerSyncSummary";
 import { useLocationProposalOutboxStatuses } from "./sync/useLocationProposalOutboxStatuses";
-import { useRepairSyncStatuses } from "./sync/useRepairSyncStatuses";
+import { useRepairVisitSyncStatuses } from "./sync/useRepairVisitSyncStatuses";
 import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
 import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
 import { offlineReadinessLabel, useOfflineReadiness } from "./pwa/offlineReadiness";
@@ -228,17 +227,14 @@ import { isSafeForAppUpdate } from "./pwa/updateRoutePolicy";
 import { usePwaUpdate } from "./pwa/usePwaUpdate";
 
 type ApiHealth = "Not checked" | "Reachable" | "Unavailable";
-const RepairReview = lazy(() => import("./repairs/RepairReview").then(module => ({ default: module.RepairReview })));
+const RepairVisitReview = lazy(() => import("./manager/repairVisits/RepairVisitReview").then(module => ({ default: module.RepairVisitReview })));
 type AppRoute =
   | { name: "jobs" }
-  | { name: "repair-list" }
   | { name: "repair-visits" }
   | { name: "repair-visit-new" }
   | { name: "repair-visit"; visitId: string }
-  | { name: "repair-service"; jobId: string; systemKey: string; findingId?: string }
-  | { name: "repair-compare"; jobId: string; systemKey: string }
   | { name: "manager-repairs" }
-  | { name: "manager-repair-service"; jobId: string; systemKey: string; findingId?: string }
+  | { name: "manager-repair-visit"; visitId: string }
   | { name: "new-service-visit"; customerId?: string }
   | { name: "technician-add-customer" }
   | { name: "location-proposal"; jobId: string }
@@ -287,10 +283,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "repair-visits" && parts[1] === "new" && !parts[2]) return { name: "repair-visit-new" };
   if (parts[0] === "repair-visits" && parts[1] && !parts[2]) return { name: "repair-visit", visitId: parts[1] };
   if (parts[0] === "repair-visits") return { name: "repair-visits" };
-  if (parts[0] === "repair-list" && parts[1] && parts[2] && parts[3] === "compare" && !parts[4]) return { name: "repair-compare", jobId: parts[1], systemKey: parts[2] };
-  if (parts[0] === "repair-list" && parts[1] && parts[2]) return { name: "repair-service", jobId: parts[1], systemKey: parts[2], findingId: parts[3] };
-  if (parts[0] === "repair-list") return { name: "repair-list" };
-  if (parts[0] === "manager-repairs" && parts[1] && parts[2]) return { name: "manager-repair-service", jobId: parts[1], systemKey: parts[2], findingId: parts[3] };
+  if (parts[0] === "manager-repairs" && parts[1] && !parts[2]) return { name: "manager-repair-visit", visitId: parts[1] };
   if (parts[0] === "manager-repairs") return { name: "manager-repairs" };
   if (parts[0] === "development") return { name: "development" };
   if (parts[0] === "manager-technicians") return { name: "manager-technicians" };
@@ -335,14 +328,11 @@ function routeFromHash(): AppRoute {
 }
 
 function hashForRoute(route: AppRoute) {
-  if (route.name === "repair-list") return "#/repair-list";
   if (route.name === "repair-visits") return "#/repair-visits";
   if (route.name === "repair-visit-new") return "#/repair-visits/new";
   if (route.name === "repair-visit") return `#/repair-visits/${encodeURIComponent(route.visitId)}`;
   if (route.name === "manager-repairs") return "#/manager-repairs";
-  if (route.name === "manager-repair-service") return `#/manager-repairs/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}${route.findingId ? `/${encodeURIComponent(route.findingId)}` : ""}`;
-  if (route.name === "repair-compare") return `#/repair-list/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}/compare`;
-  if (route.name === "repair-service") return `#/repair-list/${encodeURIComponent(route.jobId)}/${encodeURIComponent(route.systemKey)}${route.findingId ? `/${encodeURIComponent(route.findingId)}` : ""}`;
+  if (route.name === "manager-repair-visit") return `#/manager-repairs/${encodeURIComponent(route.visitId)}`;
   if (route.name === "development") return "#/development";
   if (route.name === "manager-technicians") return "#/manager-technicians";
   if (route.name === "manager-technician") return `#/manager-technician/${encodeURIComponent(route.technicianId)}`;
@@ -676,7 +666,7 @@ export function App() {
     setMasterSystemFormInstances(await localDatabase.masterSystemFormInstances.toArray());
     setInspectionAttachments(await localDatabase.inspectionAttachments.toArray());
     setReferenceCache(await getReferenceCacheSummary());
-    if (user.role === "inspector" && routeFromHash().name !== "repair-list" && routeFromHash().name !== "repair-service" && routeFromHash().name !== "repair-compare" && !isRepairVisitRouteName(routeFromHash().name)) navigate({ name: "jobs" });
+    if (user.role === "inspector" && !isRepairVisitRouteName(routeFromHash().name)) navigate({ name: "jobs" });
   }
 
   function prepareVerifiedAuthority(user: AuthUser, forceReplacement = false) {
@@ -1221,14 +1211,6 @@ export function App() {
   const technicianExperience = selectedExperience === "technician"
     && (authState.status === "verified" || authState.status === "offline-unverified")
     && currentUser?.role === "inspector";
-  // Keep only the same account's repair editor mounted, hidden and inert while
-  // verification runs or is unavailable. Failed local saves remain available for retry;
-  // this does not grant verified authority or expose ordinary inspection pages.
-  const suspendedRepairUser = initialAuthRestored && selectedExperience === "technician"
-    && (route.name === "repair-list" || route.name === "repair-service" || route.name === "repair-compare")
-    && (authState.status === "verifying" || authState.status === "online-unavailable")
-    && authState.user?.role === "inspector"
-    && currentWorkspaceUserId() === authState.user.id ? authState.user : undefined;
   // Manager operational data is server-backed. A cached identity alone never
   // unlocks it, even after a previously verified login.
   const managerExperience = (selectedExperience === "manager" || selectedExperience === "supervisor")
@@ -1253,8 +1235,8 @@ export function App() {
     }
     setSelectedExperience(role);
     if ((role === "manager" || role === "supervisor") && authState.status === "verified"
-      && route.name !== "manager-repairs" && route.name !== "manager-repair-service") navigate({ name: "manager-home" });
-    if (role === "technician" && currentUser?.role === "inspector" && route.name !== "repair-list" && route.name !== "repair-service" && route.name !== "repair-compare" && !isRepairVisitRouteName(route.name)) navigate({ name: "jobs" });
+      && route.name !== "manager-repairs" && route.name !== "manager-repair-visit") navigate({ name: "manager-home" });
+    if (role === "technician" && currentUser?.role === "inspector" && !isRepairVisitRouteName(route.name)) navigate({ name: "jobs" });
   }
 
   function beginManagerRequest() {
@@ -1635,7 +1617,7 @@ export function App() {
         return;
       }
       if (selectedExperience === "manager" || selectedExperience === "supervisor") {
-        if (routeFromHash().name !== "manager-repairs" && routeFromHash().name !== "manager-repair-service") navigate({ name: "manager-home" });
+        if (routeFromHash().name !== "manager-repairs" && routeFromHash().name !== "manager-repair-visit") navigate({ name: "manager-home" });
         return;
       }
       // The job list is already rendered while the workspace refreshes. If the user
@@ -1643,7 +1625,7 @@ export function App() {
       const landingHash = window.location.hash;
       await loadCachedJobs(user.id, operation);
       await refreshServerWorkspace(user, operation);
-      if (window.location.hash === landingHash && routeFromHash().name !== "repair-list" && routeFromHash().name !== "repair-service" && routeFromHash().name !== "repair-compare" && !isRepairVisitRouteName(routeFromHash().name)) navigate({ name: "jobs" });
+      if (window.location.hash === landingHash && !isRepairVisitRouteName(routeFromHash().name)) navigate({ name: "jobs" });
     } finally {
       finishExplicitAuthOperation(operation);
     }
@@ -2320,7 +2302,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
     ...masterSystemFormInstances.map((record) => record.syncStatus)
   ];
   const proposalStatuses = useLocationProposalOutboxStatuses(headerUser?.id);
-  const repairStatuses = useRepairSyncStatuses(headerUser?.id);
+  const repairStatuses = useRepairVisitSyncStatuses(headerUser?.id);
   const { text: syncSummary, needsAttention: syncNeedsAttention } = headerSyncSummary({
     inspectionStatuses,
     attachmentStatuses: inspectionAttachments.map((attachment) => attachment.syncStatus),
@@ -2388,25 +2370,16 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         </section>
       ) : null}
 
-      {technicianExperience || suspendedRepairUser ? (
+      {technicianExperience ? (
         <AppShell<"jobs" | "repair-visits" | "new-service-visit" | "technician-add-customer" | "technician-completed-services" | "technician-upcoming-services">
           mobileNavigation
-          suspended={!!suspendedRepairUser}
           navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Repair List", "repair-visits"], ["Add Customer", "technician-add-customer"], ["Completed Services", "technician-completed-services"], ["Upcoming Services", "technician-upcoming-services"]]}
-          activeRouteName={route.name === "repair-service" || route.name === "repair-compare" ? "repair-list" : route.name === "repair-visit-new" || route.name === "repair-visit" ? "repair-visits" : route.name}
+          activeRouteName={route.name === "repair-visit-new" || route.name === "repair-visit" ? "repair-visits" : route.name}
           onNavigate={(name) => navigate({ name })}
         >
-          {route.name === "repair-compare" ? (
-            <RepairCompare key={`${(currentUser ?? suspendedRepairUser)!.id}:${route.jobId}/${route.systemKey}`}
-              actorId={(currentUser ?? suspendedRepairUser)!.id} jobId={route.jobId} systemKey={route.systemKey} />
-          ) : isRepairVisitRouteName(route.name) && currentUser ? (
+          {isRepairVisitRouteName(route.name) && currentUser ? (
             <RepairVisitsScreen actorId={currentUser.id} canUseServer={canUseServer} onSync={handleSync}
               view={route.name === "repair-visit" ? { view: "visit", visitId: route.visitId } : route.name === "repair-visit-new" ? { view: "new" } : { view: "list" }} />
-          ) : route.name === "repair-list" || route.name === "repair-service" ? (
-            <RepairList key={`${(currentUser ?? suspendedRepairUser)!.id}:${route.name === "repair-service" ? `${route.jobId}/${route.systemKey}/${route.findingId ?? ""}` : "list"}`}
-              actorId={(currentUser ?? suspendedRepairUser)!.id} canUseServer={canUseServer} suspended={!!suspendedRepairUser}
-              {...(route.name === "repair-service" ? { jobId: route.jobId, systemKey: route.systemKey, findingId: route.findingId } : {})}
-              onSync={handleSync} onVerify={revalidateAuthentication} />
           ) : route.name === "development" && currentUser?.role === "admin" ? (
             <section className="development-tools" aria-labelledby="development-tools-title">
               <header className="development-header">
@@ -2717,17 +2690,16 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
           mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
-          activeRouteName={route.name === "manager-repair-service" ? "manager-repairs" : route.name}
+          activeRouteName={route.name === "manager-repair-visit" ? "manager-repairs" : route.name}
           onNavigate={(name) => navigate({ name })}
         >
         {!route.name.startsWith("manager-") || (supervisorExperience && !supervisorAllowsRoute(route.name)) ? <p role="status">Opening Manager Home…</p>
         : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} onAuthorityFailure={handleManagerRequestFailure} />
-        : route.name === "manager-repairs" || route.name === "manager-repair-service" ? <Suspense fallback={<p role="status">Loading Repair Review…</p>}><RepairReview
-            key={`${authAuthorityGuard.current.currentGeneration}:${currentUser!.id}:${route.name === "manager-repair-service" ? `${route.jobId}/${route.systemKey}/${route.findingId ?? ""}` : "list"}`}
-            user={currentUser!} isCurrent={() => authAuthorityGuard.current.matches(currentUser!)}
-            jobId={route.name === "manager-repair-service" ? route.jobId : undefined}
-            systemKey={route.name === "manager-repair-service" ? route.systemKey : undefined}
-            findingId={route.name === "manager-repair-service" ? route.findingId : undefined}
+        : route.name === "manager-repairs" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerRepairVisits key={authAuthorityGuard.current.currentGeneration} role={currentUser!.role} onAuthorityFailure={handleManagerRequestFailure} onOpen={(visitId) => navigate({ name: "manager-repair-visit", visitId })} /></>
+        : route.name === "manager-repair-visit" ? <Suspense fallback={<p role="status">Loading repair visit…</p>}><RepairVisitReview
+            key={`${authAuthorityGuard.current.currentGeneration}:${currentUser!.id}:${route.visitId}`}
+            visitId={route.visitId} role={currentUser!.role}
+            onBack={() => navigate({ name: "manager-repairs" })}
             onAuthorityFailure={handleManagerRequestFailure} /></Suspense>
         : route.name === "manager-technicians" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerTechnicians key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(technician) => navigate({ name: "manager-technician", technicianId: String(technician.id) })} /></>
         : route.name === "manager-technician" ? (/^[1-9]\d{0,9}$/.test(route.technicianId)
@@ -2748,7 +2720,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-service-catalog" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServiceCatalog onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-company-profile" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerCompanyProfile onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-email-reminders" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerEmailReminders onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
+        : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewRepairVisit={(visitId) => navigate({ name: "manager-repair-visit", visitId })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-location-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerLocationProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} currentUserRole={currentUser?.role === "admin" || currentUser?.role === "supervisor" ? currentUser.role : undefined} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
@@ -2789,7 +2761,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             }}
           />
         ) : (
-          <>{route.name === "manager-operations" && <button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button>}<ManagerOperations
+          <>{route.name === "manager-operations" && <button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button>}{route.name === "manager-operations" && <AwaitingRepairVisitsPanel key={authAuthorityGuard.current.currentGeneration} role={currentUser!.role} onAuthorityFailure={handleManagerRequestFailure} onOpen={(visitId) => navigate({ name: "manager-repair-visit", visitId })} />}<ManagerOperations
             supervisor={supervisorExperience}
             visits={managerVisits}
             loading={managerLoading}

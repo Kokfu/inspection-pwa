@@ -28,7 +28,7 @@ try {
   Run-Gate { npm run test:historical-matrix }
   Run-Gate { npm run test:v6-evidence }
   Run-Gate { npm run test:wet-chemical-definition }
-  Run-Gate { node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts src/repairs/findingReaders.test.ts src/repairs/historicalFindingReaders.test.ts src/repairVisits/fieldCatalog.test.ts }
+  Run-Gate { node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts src/repairVisits/fieldCatalog.test.ts }
   }
   for ($attempt=0; $attempt -lt 30; $attempt++) {
     docker exec $container pg_isready -U inspection_app -d phase6_seed_integration
@@ -37,7 +37,7 @@ try {
   }
   if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL did not become ready' }
   $files = @('src/repairVisits/repairVisitWrites.integration.test.ts')
-  if (!$Focused) { $files += @('src/repairVisits/previousVisits.integration.test.ts','src/repairs/repairSubmission.integration.test.ts','src/sync/fireAlarmV6Acceptance.integration.test.ts','src/sync/co2V7.integration.test.ts','src/sync/wetChemicalV7.integration.test.ts','src/sync/fireAlarmV7.integration.test.ts','src/sync/v7EvidenceRace.integration.test.ts') }
+  if (!$Focused) { $files += @('src/repairVisits/previousVisits.integration.test.ts','src/sync/fireAlarmV6Acceptance.integration.test.ts','src/sync/co2V7.integration.test.ts','src/sync/wetChemicalV7.integration.test.ts','src/sync/fireAlarmV7.integration.test.ts','src/sync/v7EvidenceRace.integration.test.ts') }
   foreach ($file in $files) {
     Run-Gate { node --import tsx --import ./src/reports/pdf/testLifecycle.ts --test $file }
   }

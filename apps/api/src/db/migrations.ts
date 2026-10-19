@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
+import { removeRetiredRepairPhotoFiles } from "../attachments/attachmentStorage.js";
 import { pool } from "./pool.js";
 import { seedMasterServiceReport } from "./seedMasterServiceReport.js";
 
@@ -244,6 +245,13 @@ async function evidenceRowExistsForSystemOutside(
   return result.rows[0]?.present ?? false;
 }
 
+async function readRetiredRepairPhotoPaths(database: Pool): Promise<string[]> {
+  const present = await database.query<{ exists: boolean }>(`SELECT to_regclass('public.staged_repair_evidence') IS NOT NULL AS exists`);
+  if (!present.rows[0]?.exists) return [];
+  const rows = await database.query<{ storage_relative_path: string }>(`SELECT DISTINCT storage_relative_path FROM staged_repair_evidence`);
+  return rows.rows.map((row) => row.storage_relative_path);
+}
+
 export async function runMigrations(
   database: Pool = pool,
   options: {
@@ -252,7 +260,7 @@ export async function runMigrations(
     /** Test-only: prepare schema/migrations without publishing deterministic fixtures. */
     seed?: boolean;
     /** Test-only: stop before/within the offline repair-visit foundation. */
-    repairVisitMigrationTarget?: 52 | 53 | 54;
+    repairVisitMigrationTarget?: 52 | 53 | 54 | 55;
   } = {}
 ) {
   await database.query(`
@@ -653,23 +661,37 @@ export async function runMigrations(
   if (!customerSiteProposals.rows[0]?.exists) {
     await database.query(await readFile(customerSiteProposalsMigrationUrl, "utf8"));
   }
+  // Migrations 051/052 created the old Repair List tables and 055 drops them. Once Repair Visits (054)
+  // exist those tables are retired, so a startup after 055 must never recreate them.
+  const repairVisitsPresent = (await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.repair_visits') IS NOT NULL AS exists`
+  )).rows[0]?.exists === true;
   const repairFoundation = await database.query<{ exists: boolean }>(
     `SELECT to_regclass('public.repair_findings') IS NOT NULL AS exists`
   );
-  if (!repairFoundation.rows[0]?.exists) {
+  if (!repairFoundation.rows[0]?.exists && !repairVisitsPresent) {
     await database.query(await readFile(new URL("../../migrations/051_repair_foundation.sql", import.meta.url), "utf8"));
   }
   const repairExports = await database.query<{ exists: boolean }>(
     `SELECT to_regclass('public.repair_exports') IS NOT NULL AS exists`
   );
-  if (!repairExports.rows[0]?.exists) {
+  if (!repairExports.rows[0]?.exists && !repairVisitsPresent) {
     await database.query(await readFile(new URL("../../migrations/052_repair_exports.sql", import.meta.url), "utf8"));
   }
-  if ((options.repairVisitMigrationTarget ?? 54) >= 53) {
+  const repairVisitTarget = options.repairVisitMigrationTarget ?? 55;
+  if (repairVisitTarget >= 53) {
     await database.query(await readFile(new URL("../../migrations/053_offline_service_visits.sql", import.meta.url), "utf8"));
   }
-  if ((options.repairVisitMigrationTarget ?? 54) >= 54) {
+  if (repairVisitTarget >= 54) {
     await database.query(await readFile(new URL("../../migrations/054_repair_visits.sql", import.meta.url), "utf8"));
+  }
+  if (repairVisitTarget >= 55) {
+    // The old repair photos are named by the old table, so read them before it is dropped and remove only
+    // those exact, unreferenced files afterwards. A file that cannot be removed stays visible to the
+    // storage reconciliation report as an orphan; nothing is lost silently.
+    const retiredPhotoPaths = await readRetiredRepairPhotoPaths(database);
+    await database.query(await readFile(new URL("../../migrations/055_drop_old_repair_list.sql", import.meta.url), "utf8"));
+    if (retiredPhotoPaths.length > 0) await removeRetiredRepairPhotoFiles(database, retiredPhotoPaths);
   }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);

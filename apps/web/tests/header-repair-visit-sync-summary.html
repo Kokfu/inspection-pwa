@@ -1,17 +1,17 @@
 <!doctype html><html><body>
-<button id="run">Run repair header checks</button><pre id="result">Ready</pre><div id="view"></div>
-<button id="loading">Run repair header loading checks</button>
+<button id="run">Run repair visit header checks</button><pre id="result">Ready</pre><div id="view"></div>
+<button id="loading">Run repair visit header loading checks</button>
 <script type="module">
 import * as React from "react";
 import Dexie from "dexie";
 import { createRoot } from "react-dom/client";
 import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
-import { useRepairSyncStatuses } from "/src/sync/useRepairSyncStatuses.ts";
+import { useRepairVisitSyncStatuses } from "/src/sync/useRepairVisitSyncStatuses.ts";
 import { headerSyncSummary } from "/src/sync/headerSyncSummary.ts";
 const checks = [], out = document.querySelector("#result");
 const root = createRoot(document.querySelector("#view"));
 function Header({ actorId }) {
-  const repairStatuses = useRepairSyncStatuses(actorId);
+  const repairStatuses = useRepairVisitSyncStatuses(actorId);
   return React.createElement("span", { id: "summary" }, headerSyncSummary({ inspectionStatuses: [], attachmentStatuses: [], proposalStatuses: [], repairStatuses }).text);
 }
 async function check(name, text) {
@@ -19,25 +19,26 @@ async function check(name, text) {
   while (Date.now() < end && document.querySelector("#summary")?.textContent !== text) await new Promise(r => setTimeout(r, 20));
   checks.push({ name, ok: document.querySelector("#summary")?.textContent === text });
 }
+const visit = (clientUuid, createdByUserId, syncStatus) => ({ clientUuid, createdByUserId, syncStatus, customerId: "c", siteId: "s", status: "draft" });
 function holdRead(db) {
-  const original = db.repairRecords.toArray.bind(db.repairRecords);
+  const original = db.rvVisits.toArray.bind(db.rvVisits);
   let release, started = false;
   const gate = new Promise(resolve => { release = resolve; });
-  db.repairRecords.toArray = () => { started = true; return Dexie.Promise.resolve(gate).then(original); };
+  db.rvVisits.toArray = () => { started = true; return Dexie.Promise.resolve(gate).then(original); };
   return { async entered() {
     const end = Date.now() + 4000;
     while (!started && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20));
     if (!started) throw new Error("Held read did not start");
-  }, release, restore() { db.repairRecords.toArray = original; } };
+  }, release, restore() { db.rvVisits.toArray = original; } };
 }
 document.querySelector("#loading").onclick = async () => {
   const holds = [];
   try {
-    await activateUserWorkspace(9010);
-    await localDatabase.repairRecords.put({ clientUuid: "startup-pending", actorId: 9010, syncStatus: "Pending" });
+    await activateUserWorkspace(9110);
+    await localDatabase.rvVisits.put(visit("startup-pending", 9110, "Pending"));
     const previous = localDatabase;
     const first = holdRead(previous); holds.push(first);
-    root.render(React.createElement(Header, { actorId: 9010 }));
+    root.render(React.createElement(Header, { actorId: 9110 }));
     await first.entered();
     await check("persisted Pending is not reported synced before initial read", "Checking submitted changes…");
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -45,26 +46,26 @@ document.querySelector("#loading").onclick = async () => {
     first.release();
     await check("initial read resolves to persisted Pending", "1 repair waiting to sync");
     first.restore();
-    await activateUserWorkspace(9011);
-    await localDatabase.repairRecords.put({ clientUuid: "switch-pending", actorId: 9011, syncStatus: "Pending" });
+    await activateUserWorkspace(9111);
+    await localDatabase.rvVisits.put(visit("switch-pending", 9111, "Pending"));
     const second = holdRead(localDatabase); holds.push(second);
-    root.render(React.createElement(Header, { actorId: 9011 }));
+    root.render(React.createElement(Header, { actorId: 9111 }));
     await second.entered();
     await check("account switch does not reuse previous snapshot or claim synced", "Checking submitted changes…");
-    await previous.repairRecords.update("startup-pending", { syncStatus: "Failed" });
+    await previous.rvVisits.update("startup-pending", { syncStatus: "Failed" });
     await new Promise(resolve => setTimeout(resolve, 1000));
     await check("old workspace update cannot replace unread current state", "Checking submitted changes…");
     second.release();
     await check("current account read resolves to its own Pending", "1 repair waiting to sync");
     second.restore();
-    await activateUserWorkspace(9012);
+    await activateUserWorkspace(9112);
     const errorDb = localDatabase;
-    const original = errorDb.repairRecords.toArray;
+    const original = errorDb.rvVisits.toArray;
     try {
-      errorDb.repairRecords.toArray = async () => { throw new Error("Test read failure"); };
-      root.render(React.createElement(Header, { actorId: 9012 }));
+      errorDb.rvVisits.toArray = async () => { throw new Error("Test read failure"); };
+      root.render(React.createElement(Header, { actorId: 9112 }));
       await check("read rejection shows attention", "Sync needs attention");
-    } finally { errorDb.repairRecords.toArray = original; }
+    } finally { errorDb.rvVisits.toArray = original; }
     root.unmount();
     out.textContent = JSON.stringify({ status: checks.every(c => c.ok) ? "PASS" : "FAIL", checks });
   } catch (e) { out.textContent = JSON.stringify({ status: "ERROR", error: String(e), checks }); }
@@ -72,39 +73,39 @@ document.querySelector("#loading").onclick = async () => {
 };
 document.querySelector("#run").onclick = async () => {
   try {
-    await activateUserWorkspace(9006);
-    await localDatabase.repairRecords.clear(); await localDatabase.repairAttachments.clear();
-    root.render(React.createElement(Header, { actorId: 9006 }));
+    await activateUserWorkspace(9106);
+    await localDatabase.rvVisits.clear(); await localDatabase.rvPhotos.clear();
+    root.render(React.createElement(Header, { actorId: 9106 }));
     await check("empty workspace", "All submitted changes synced");
-    await localDatabase.repairRecords.put({ clientUuid: "repair", actorId: 9006, photoUuid: "photo", syncStatus: "Draft" });
-    await localDatabase.repairAttachments.put({ photoUuid: "photo", repairUuid: "repair", syncStatus: "Draft", blob: new Blob(["real IndexedDB test blob"]) });
+    await localDatabase.rvVisits.put(visit("rv", 9106, "Draft"));
+    await localDatabase.rvPhotos.put({ photoUuid: "photo", visitUuid: "rv", itemUuid: "item", syncStatus: "Draft", blob: new Blob(["real IndexedDB test blob"]) });
     await check("unsubmitted draft ignored", "All submitted changes synced");
-    await localDatabase.transaction("rw", localDatabase.repairRecords, localDatabase.repairAttachments, async () => {
-      await localDatabase.repairRecords.update("repair", { syncStatus: "Pending" });
-      await localDatabase.repairAttachments.update("photo", { syncStatus: "Pending" });
+    await localDatabase.transaction("rw", localDatabase.rvVisits, localDatabase.rvPhotos, async () => {
+      await localDatabase.rvVisits.update("rv", { syncStatus: "Pending" });
+      await localDatabase.rvPhotos.update("photo", { syncStatus: "Pending" });
     });
-    await check("local queue change observed without sync event; evidence not double counted", "1 repair waiting to sync");
-    await localDatabase.repairAttachments.update("photo", { syncStatus: "Uploading" });
-    await check("evidence uploading", "Syncing…");
-    await localDatabase.repairAttachments.update("photo", { syncStatus: "Failed" });
-    await check("evidence failure outranks pending parent", "Sync needs attention");
-    await localDatabase.repairAttachments.update("photo", { syncStatus: "Synced" });
-    await check("confirmed evidence still awaits parent", "1 repair waiting to sync");
-    await localDatabase.repairRecords.update("repair", { syncStatus: "Conflict" });
-    await check("parent conflict", "Sync needs attention");
-    await localDatabase.repairRecords.update("repair", { syncStatus: "Synced" });
+    await check("local queue change observed without sync event; photo not double counted", "1 repair waiting to sync");
+    await localDatabase.rvPhotos.update("photo", { syncStatus: "Uploading" });
+    await check("photo uploading", "Syncing…");
+    await localDatabase.rvPhotos.update("photo", { syncStatus: "Failed" });
+    await check("photo failure outranks pending visit", "Sync needs attention");
+    await localDatabase.rvPhotos.update("photo", { syncStatus: "Synced" });
+    await check("confirmed photo still awaits the visit", "1 repair waiting to sync");
+    await localDatabase.rvVisits.update("rv", { syncStatus: "Conflict" });
+    await check("visit conflict", "Sync needs attention");
+    await localDatabase.rvVisits.update("rv", { syncStatus: "Synced" });
     await check("both confirmed", "All submitted changes synced");
-    await localDatabase.repairRecords.update("repair", { syncStatus: "Pending" });
+    await localDatabase.rvVisits.update("rv", { syncStatus: "Pending" });
     await check("pending before account switch", "1 repair waiting to sync");
     const previous = localDatabase;
-    await activateUserWorkspace(9007);
-    await localDatabase.repairRecords.clear(); await localDatabase.repairAttachments.clear();
-    root.render(React.createElement(Header, { actorId: 9007 }));
+    await activateUserWorkspace(9107);
+    await localDatabase.rvVisits.clear(); await localDatabase.rvPhotos.clear();
+    root.render(React.createElement(Header, { actorId: 9107 }));
     await check("previous account status hidden", "All submitted changes synced");
-    await previous.repairRecords.update("repair", { syncStatus: "Failed" });
+    await previous.rvVisits.update("rv", { syncStatus: "Failed" });
     await check("late previous-workspace update ignored", "All submitted changes synced");
-    await localDatabase.repairRecords.put({ clientUuid: "foreign", actorId: 9006, syncStatus: "Failed" });
-    await localDatabase.repairRecords.put({ clientUuid: "current", actorId: 9007, syncStatus: "Pending" });
+    await localDatabase.rvVisits.put(visit("foreign", 9106, "Failed"));
+    await localDatabase.rvVisits.put(visit("current", 9107, "Pending"));
     await check("only current actor counted", "1 repair waiting to sync");
     root.unmount();
     out.textContent = JSON.stringify({ status: checks.every(c => c.ok) ? "PASS" : "FAIL", checks });

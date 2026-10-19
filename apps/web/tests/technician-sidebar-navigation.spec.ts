@@ -25,7 +25,7 @@ test("technician sidebar opens all six destinations at phone and desktop widths"
   const destinations = [
     ["Home", "jobs", "My Service Jobs"],
     ["New Service Visit", "new-service-visit", "New Service Visit"],
-    ["Repair List", "repair-list", "Repair List"],
+    ["Repair List", "repair-visits", "Repair List"],
     ["Add Customer", "technician-add-customer", "Add Customer"],
     ["Completed Services", "technician-completed-services", "Completed Services"],
     ["Upcoming Services", "technician-upcoming-services", "Upcoming Services"]

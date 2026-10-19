@@ -9,9 +9,9 @@ export const AUTO_SYNC_INTERVAL_MS = 60_000;
 export const AUTO_SYNC_FAILED_BACKOFF_MS = 5 * 60_000;
 
 /**
- * I-67: a Failed repair operation used to wait the full 5 minutes before the timer retried it, so a fault that cleared
- * on its own (a dropped response, a brief outage with the connection still up) sat unretried. Repair operations
- * now retry sooner at first: 1 min, 2 min, then the usual 5 min. Other forms keep the 5 minute rule unchanged.
+ * I-67: a Failed repair visit operation used to wait the full 5 minutes before the timer retried it, so a fault that cleared
+ * on its own (a dropped response, a brief outage with the connection still up) sat unretried. Repair visit operations
+ * (outbox types rvVisit / rvPhoto) now retry sooner at first: 1 min, 2 min, then the usual 5 min. Other forms keep the 5 minute rule unchanged.
  * Idempotency is unaffected: a retry re-sends the same immutable UUIDs.
  */
 export const REPAIR_FAILED_BACKOFF_MS = [60_000, 120_000, AUTO_SYNC_FAILED_BACKOFF_MS] as const;
@@ -19,7 +19,7 @@ export const REPAIR_FAILED_BACKOFF_MS = [60_000, 120_000, AUTO_SYNC_FAILED_BACKO
 type OutboxLike = { status: string; lastAttemptAt?: string; entityType?: string; attempts?: number };
 
 export function failedBackoffFor(item: OutboxLike, fallbackMs: number): number {
-  if (typeof item.entityType !== "string" || !item.entityType.startsWith("repair")) return fallbackMs;
+  if (typeof item.entityType !== "string" || !/^rv(Visit|Photo)$/.test(item.entityType)) return fallbackMs;
   const attempts = Number.isFinite(item.attempts) ? Math.max(1, Math.floor(item.attempts as number)) : 1;
   return Math.min(REPAIR_FAILED_BACKOFF_MS[Math.min(attempts, REPAIR_FAILED_BACKOFF_MS.length) - 1], fallbackMs);
 }

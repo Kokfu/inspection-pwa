@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ManagerCustomerServiceHistory, isServiceHistoryFilterValues, type ServiceHistoryFilterValues } from "./ManagerCustomerServiceHistory";
 import { loadManagerCustomers, loadManagerTechnicians, ManagerApiError, type ManagerCustomerSummary, type ManagerTechnician } from "./managerApi";
 import { readManagerSession, writeManagerSession } from "./managerReturnRoute";
+import { CustomerRepairVisits, useRepairVisitList } from "./repairVisits/RepairVisitEntries";
 
 type Props = {
   supervisor?: boolean;
   message?: string;
   onAuthorityFailure: (error: unknown) => void;
   onViewServiceVisit: (jobId: string) => void;
+  onViewRepairVisit: (visitId: string) => void;
   onViewReport: (jobId: string) => void;
   onDownloadReport: (jobId: string) => Promise<void>;
 };
@@ -30,7 +32,7 @@ function isRememberedSelection(value: unknown): value is RememberedSelection {
  * service-history component in its "services-done" variant. The chosen customer and applied
  * filters are remembered for the browser session so Back from a report returns to the same list.
  */
-export function ManagerServicesDone({ supervisor = false, message = "", onAuthorityFailure, onViewServiceVisit, onViewReport, onDownloadReport }: Props) {
+export function ManagerServicesDone({ supervisor = false, message = "", onAuthorityFailure, onViewServiceVisit, onViewRepairVisit, onViewReport, onDownloadReport }: Props) {
   const mounted = useRef(false);
   const [customers, setCustomers] = useState<ManagerCustomerSummary[]>([]);
   const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
@@ -39,6 +41,8 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
   const [searchMessage, setSearchMessage] = useState("");
+  // Both review roles may read repair visits; the verified role is enforced again by the server.
+  const repairVisits = useRepairVisitList(supervisor ? "supervisor" : "admin", onAuthorityFailure);
   const [selection, setSelection] = useState<RememberedSelection | null>(() => readManagerSession(sessionKey, isRememberedSelection));
 
   useEffect(() => {
@@ -58,6 +62,7 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const repairNames = useMemo(() => ({ customers: new Map(customers.map((row) => [row.customer.id, row.customer.displayName])) }), [customers]);
   const selectedCustomer = selection && !loading ? customers.find((row) => row.customer.id === selection.customerId) : undefined;
 
   const choose = (next: RememberedSelection | null) => {
@@ -98,6 +103,8 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
         onDownloadFinalReport={onDownloadReport}
         onAuthorityFailure={onAuthorityFailure}
       />
+      <CustomerRepairVisits customerId={selectedCustomer.customer.id} state={repairVisits.state} onRetry={repairVisits.reload}
+        names={repairNames} onOpen={onViewRepairVisit} />
     </section>;
   }
 

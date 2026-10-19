@@ -26,6 +26,14 @@ const customerSummary = {
   supportedSystems: [{ key: "hydrant", displayName: "Hydrant System", sortOrder: 1 }]
 };
 
+// A valid repair visit (strict parser) awaiting approval for the same customer.
+const repairVisit = {
+  clientUuid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", visitNumber: "RV-20261019-3", customerId: "00000000-0000-4000-8000-000000000831",
+  siteId: "00000000-0000-4000-8000-000000000832", createdByUserId: 21, configurationRevisionId: "44444444-4444-4444-8444-444444444444",
+  serviceCallNumber: null, arrivalTime: "10:05", visitDate: "2026-10-19", deviceCreatedAt: "2026-10-19T02:05:00.000Z", previousVisit: null, status: "awaiting_approval",
+  revision: 1, reportNumber: null, approvedByUserId: null, approvedAt: null, createdAt: "2026-10-19T02:05:00.000Z", updatedAt: "2026-10-19T03:00:00.000Z"
+};
+
 async function installSupervisorApi(page: Page, startLoggedOut = false) {
   const requests: string[] = [];
   let signedIn = !startLoggedOut;
@@ -52,6 +60,8 @@ async function installSupervisorApi(page: Page, startLoggedOut = false) {
     if (path === `/api/manager/service-visits/${visit.id}/accepted-records`) return json({ records: [] });
     if (path === `/api/manager/service-visits/${visit.id}/corrections`) return json({ corrections: [] });
     if (path === "/api/manager/customers") return json({ customers: [customerSummary] });
+    if (path === "/api/repair-visits") return json({ visits: [repairVisit] });
+    if (path === `/api/repair-visits/${repairVisit.clientUuid}`) return json({ error: "UNAVAILABLE" }, 503);
     if (path === "/api/manager/technicians") return json({ technicians: [{ id: 21, username: "technician-one", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [supervisor.id] }] });
     // Every other Manager route is admin-only on the server.
     if (path.startsWith("/api/manager/")) return json({ error: "FORBIDDEN", message: "You do not have permission for this action" }, 403);
@@ -90,7 +100,7 @@ test("dedicated Supervisor login opens the review workspace", async ({ page }) =
 test("supervisor Home shows only the review cards; Services, visit detail and Final Report work", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
-  await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Review", "Current Services Done", "Location Proposals"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
+  await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Visits", "Current Services Done", "Location Proposals"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
   await expect(page.getByText("Admin workspace")).toBeVisible();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
@@ -130,12 +140,34 @@ test("supervisor Services Done searches the customer list without configuration"
   expect(requests.filter((entry) => /\/api\/manager\/customers\/./.test(entry))).toEqual([]);
 });
 
+test("supervisor sees awaiting repair visits from the Repair Visits menu and under the customer in Services Done", async ({ page }) => {
+  const requests = await installSupervisorApi(page);
+  await enterAsSupervisor(page);
+  await sidebar(page).getByRole("button", { name: "Repair Visits", exact: true }).click();
+  await expect(page).toHaveURL(/#\/manager-repairs$/);
+  await expect(page.getByRole("heading", { name: "Repair Visits", exact: true })).toBeVisible();
+  const row = page.getByRole("listitem").filter({ hasText: "RV-20261019-3" });
+  await expect(row).toContainText("Repair");
+  await expect(row).toContainText("Supervisor Review Customer");
+  await row.getByRole("button", { name: /Review repair visit RV-20261019-3/ }).click();
+  await expect(page).toHaveURL(new RegExp(`#/manager-repairs/${repairVisit.clientUuid}$`));
+  await expect.poll(() => requests.includes(`GET /api/repair-visits/${repairVisit.clientUuid}`)).toBe(true);
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Customer name or code").fill("supervisor");
+  await page.getByLabel("Customer name or code").press("Enter");
+  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Supervisor Review Customer/ }).click();
+  const repairRows = page.getByRole("region", { name: "Repair visits", exact: true });
+  await expect(repairRows).toContainText("RV-20261019-3");
+  await repairRows.getByRole("button", { name: /Review repair visit/ }).click();
+  await expect(page).toHaveURL(new RegExp(`#/manager-repairs/${repairVisit.clientUuid}$`));
+});
+
 for (const hash of ["#/manager-customers", "#/manager-technicians", "#/manager-upcoming-services", "#/manager-customer/00000000-0000-4000-8000-000000000831", "#/manager-customer/00000000-0000-4000-8000-000000000831/service/hydrant", "#/manager-technician/21"]) {
   test(`supervisor deep link ${hash} lands on Home without calling admin-only APIs`, async ({ page }) => {
     const requests = await installSupervisorApi(page);
     await enterAsSupervisor(page, hash);
     await expect(page).toHaveURL(/#\/manager$/);
-    await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Review", "Current Services Done", "Location Proposals"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
+    await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Visits", "Current Services Done", "Location Proposals"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
     await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
     expect(requests.filter((entry) => /\/api\/manager\/(customers\/|customers\/upcoming|technicians\/)/.test(entry))).toEqual([]);
   });
