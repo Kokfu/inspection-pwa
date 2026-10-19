@@ -145,4 +145,6 @@ test("P1-A: verified session, offline-created visit opens the Automatic Sprinkle
   await expect.poll(() => server.creates.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
   expect(new Set(server.creates.map((body) => body.clientJobUuid))).toEqual(new Set([uuid]));
   await expect.poll(() => storedVisit(page), { timeout: 20_000 }).toMatch(new RegExp(`"clientJobUuid":"${uuid}".*"syncStatus":"Synced".*"visitNumber":"SV-\[0-9]{8}-51"`));
+  // P2: the open form shows the server's number as soon as it is confirmed, without leaving the form.
+  await expect(page.locator("p.eyebrow").filter({ hasText: /SV-[0-9]{8}-51/ })).toBeVisible({ timeout: 15_000 });
 });

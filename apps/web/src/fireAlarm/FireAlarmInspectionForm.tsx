@@ -1,3 +1,4 @@
+import { VisitReference } from "../jobs/VisitReference";
 import { isRetiredRepair, retiredRepairLabel, selectableResultOptions } from "../inspectionControls/resultEntryPolicy";
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { Fragment, useEffect, useState } from "react";
@@ -95,7 +96,7 @@ export function FireAlarmInspectionForm({ record, actorUserId, canUseServer, onB
   }
   return <section className="fire-alarm-form hose-reel-form" aria-labelledby="fire-alarm-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-    <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="fire-alarm-title">Fire Alarm / Detector System</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
+    <header className="inspection-context"><div><p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p><h2 id="fire-alarm-title">Fire Alarm / Detector System</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
     {message ? <p className="success-message" role="status">{message}</p> : null}{record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{error ? <section className="validation-summary" role="alert"><h3>Fire Alarm action failed</h3><p>{error}</p></section> : null}
     {issues.length ? <section className="validation-summary" role="alert"><h3>Cannot submit yet</h3><ul>{issues.map((issue, index) => <li key={`${issue.section}-${index}`}>{issue.message}</li>)}</ul></section> : null}
     {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed().catch((reason) => setError(reason instanceof Error ? reason.message : "Fire Alarm inspection could not be corrected"))}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />

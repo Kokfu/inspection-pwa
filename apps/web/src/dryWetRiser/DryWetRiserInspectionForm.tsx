@@ -1,3 +1,4 @@
+import { VisitReference } from "../jobs/VisitReference";
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
 import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
@@ -109,7 +110,7 @@ export function DryWetRiserInspectionForm({ record, actorUserId, canUseServer, o
 
   if (setupStep) return <section className="hose-reel-form" aria-labelledby="dry-wet-riser-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-    <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div></header>
+    <header className="inspection-context"><div><p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div></header>
     <RowSetupPrompt step={setupStep} noun={dryWetRiserNouns.noun} plural={dryWetRiserNouns.plural} maxRows={dryWetRiserLayoutLimits.rows} savedRows={savedDryWetRiserLayout(record.inspectionSnapshot.system)}
       onStart={(start) => { setResponses((current) => startDryWetRiserRows(current, start)); setSetup({ uuid: record.clientUuid, done: true }); }} />
   </section>;
@@ -123,7 +124,7 @@ export function DryWetRiserInspectionForm({ record, actorUserId, canUseServer, o
     const v7 = responses;
     return <section className="hose-reel-form" aria-labelledby="dry-wet-riser-title">
       <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-      <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
+      <header className="inspection-context"><div><p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
       {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{message ? <p className="form-message" role="status">{message}</p> : null}{shownLayoutNote ? <p className="form-message" role="status">{shownLayoutNote}</p> : null}
       {show && issues.length ? <section className="validation-summary" role="alert"><h3>Cannot submit yet</h3><ul>{issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></section> : null}
       {["Failed", "Conflict"].includes(record.syncStatus) ? <button type="button" onClick={() => void onEditFailed()}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />
@@ -141,7 +142,7 @@ export function DryWetRiserInspectionForm({ record, actorUserId, canUseServer, o
 
   return <section className="hose-reel-form" aria-labelledby="dry-wet-riser-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
-    <header className="inspection-context"><div><p className="eyebrow">{record.inspectionSnapshot.job.reference}</p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
+    <header className="inspection-context"><div><p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p><h2 id="dry-wet-riser-title">{riserSystemTitle}</h2><p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p><p>{record.inspectionSnapshot.job.title}</p></div><strong role="status">{inspectionSyncMessage(record.syncStatus)}</strong></header>
     {record.lastSyncError ? <p className="error-text">{record.lastSyncError}</p> : null}{message ? <p className="form-message" role="status">{message}</p> : null}{shownLayoutNote ? <p className="form-message" role="status">{shownLayoutNote}</p> : null}
     {show && issues.length ? <section className="validation-summary" role="alert"><h3>Cannot submit yet</h3><ul>{issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul></section> : null}
     {["Failed", "Conflict"].includes(record.syncStatus) ? <button type="button" onClick={() => void onEditFailed()}>Edit Failed Inspection</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />

@@ -1,3 +1,4 @@
+import { VisitReference } from "../jobs/VisitReference";
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
 import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
@@ -320,7 +321,7 @@ export function HoseReelInspectionForm({
         </button>
         <header className="inspection-context">
           <div>
-            <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
+            <p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p>
             <h2 id="hose-reel-form-title">Hose Reel System</h2>
             <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
             <p>{record.inspectionSnapshot.job.title}</p>
@@ -339,7 +340,7 @@ export function HoseReelInspectionForm({
       </button>
       <header className="inspection-context">
         <div>
-          <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
+          <p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p>
           <h2 id="hose-reel-form-title">Hose Reel System</h2>
           <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
           <p>{record.inspectionSnapshot.job.title}</p>

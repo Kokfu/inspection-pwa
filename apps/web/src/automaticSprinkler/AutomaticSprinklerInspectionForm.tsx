@@ -1,3 +1,4 @@
+import { VisitReference } from "../jobs/VisitReference";
 import { CorrectedCopyAction } from "../attachments/CorrectedCopyAction";
 import { useEffect, useMemo, useState } from "react";
 import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
@@ -312,7 +313,7 @@ export function AutomaticSprinklerInspectionForm({
     <button type="button" className="secondary-command" onClick={onBack}>Back to Systems</button>
     <header className="inspection-context">
       <div>
-        <p className="eyebrow">{record.inspectionSnapshot.job.reference}</p>
+        <p className="eyebrow"><VisitReference job={record.inspectionSnapshot.job} /></p>
         <h2 id="sprinkler-form-title">Automatic Sprinkler System</h2>
         <p><strong>{record.inspectionSnapshot.customer.displayName}</strong></p>
         <p>{record.inspectionSnapshot.job.title}</p>
