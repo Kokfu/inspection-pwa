@@ -124,3 +124,13 @@ Investigated on the phone; **not reproduced and no code change made.**
 - Measured on a freshly started Chrome with a single app tab: after Wi-Fi off then on, the app left "Reconnecting" within about 0.2 s of the online event, and a revision submitted straight afterwards reached **Completed in 1.1 s** (outbox `Pending` to `Completed`, one attempt).
 - The slow runs happened with dozens of Chrome tabs open on the same app (every tab re-verifies the session on every offline/online event and shares the same storage), and the longest one with a fetch-logging hook injected by the tester. One such tab stayed on "Reconnecting for technician-demo..." for over six minutes until Chrome was force-stopped. That state was not reproduced after the force-stop and is recorded here as an unconfirmed observation, not a defect.
 - If it is seen again on a normally used phone, capture: number of open app tabs, the header text at the time, and the outbox item's `status`, `attempts` and `lastAttemptAt`.
+
+### P3 fixes (20 October 2026)
+
+| Item | Fix |
+|---|---|
+| Add-location screen reset its system picker when rebuilt by a connection change | The chosen system is kept for the tab (session storage, per visit) and re-checked against the visit's eligible systems |
+| Blank band above the "Revise and resubmit" heading | Heading and paragraph margins removed inside the grid panel |
+| "Approved as" omitted the zone when the visit did not know it | Says "(zone chosen by the reviewer)" when the zone changed to one the visit does not know; a known zone is still named |
+
+Three regression tests added; the full cold gate passed (exit 0, 59 browser cases). Not checked on the phone: it needs a rebuild.

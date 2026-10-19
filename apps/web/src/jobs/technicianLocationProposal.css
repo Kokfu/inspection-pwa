@@ -27,6 +27,9 @@
   border-radius: var(--radius-sm);
 }
 
+/* Grid items do not collapse margins, so the default heading and paragraph margins left a blank band. */
+.proposal-revision :is(h4, p) { margin: 0; }
+
 .technician-location-proposal label:has(input[type="radio"]) {
   display: flex;
   align-items: center;

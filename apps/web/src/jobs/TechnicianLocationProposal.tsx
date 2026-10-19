@@ -32,7 +32,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
   const eligibleSystems = job.configurationSnapshot.enabledSystems.filter(offersAddLocation);
   // The picked system is only a request: it counts only while THIS job still offers it. Route changes between
   // jobs reuse this component instance, so a system chosen for the previous job must never survive the switch.
-  const [pickedSystemKey, setPickedSystemKey] = useState<string | undefined>();
+  const [pickedSystemKey, setPickedSystemKey] = useState<string | undefined>(() => readPickedSystem(job.id));
   const systemKey = pickedSystemKey && eligibleSystems.some((system) => system.systemKey === pickedSystemKey)
     ? pickedSystemKey
     : eligibleSystems.length === 1 ? eligibleSystems[0]!.systemKey : undefined;
@@ -136,7 +136,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
       <p className="empty-state">This service visit has no system that can take a new named location.</p>
     ) : <>
       <p className="offline-notice">You can enter, save and submit on this device without a connection. Requests sync when the server is available.</p>
-      <label>1. Choose system<select value={systemKey ?? ""} onChange={(event) => setPickedSystemKey(event.target.value || undefined)}>
+      <label>1. Choose system<select value={systemKey ?? ""} onChange={(event) => { const value = event.target.value || undefined; setPickedSystemKey(value); rememberPickedSystem(job.id, value); }}>
         <option value="">Select a system…</option>
         {eligibleSystems.map((system) => <option key={system.systemKey} value={system.systemKey}>{system.displayName}</option>)}
       </select></label>
@@ -208,11 +208,26 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
 }
 
 
-/** What the reviewer actually approved, when it differs from what was submitted. */
-function appliedPatchSummary(patch: LocationProposal["payload"], zones: ReadonlyArray<{ key: string; displayName: string }>) {
+/** The system picked on this screen survives the screen being rebuilt by a connection change (this tab only). */
+const pickedSystemStorageKey = (jobId: string) => `location-proposal-system:${jobId}`;
+function readPickedSystem(jobId: string): string | undefined {
+  try { return sessionStorage.getItem(pickedSystemStorageKey(jobId)) ?? undefined; } catch { return undefined; }
+}
+function rememberPickedSystem(jobId: string, systemKey: string | undefined) {
+  try {
+    if (systemKey) sessionStorage.setItem(pickedSystemStorageKey(jobId), systemKey);
+    else sessionStorage.removeItem(pickedSystemStorageKey(jobId));
+  } catch { /* the picker simply starts empty next time */ }
+}
+
+/** What the reviewer actually approved, when it differs from what was submitted. A zone this visit does not know
+ *  (one that was created or chosen after the visit started) is not named; it is said to have been changed instead. */
+function appliedPatchSummary(patch: LocationProposal["payload"], original: LocationProposal["payload"], zones: ReadonlyArray<{ key: string; displayName: string }>) {
   if (patch.kind === "update-format") return `${patch.rows.length} ${patch.rows.length === 1 ? "row" : "rows"} (changed by the reviewer)`;
   const zone = patch.newZone?.displayName ?? zones.find((candidate) => candidate.key === patch.zoneKey)?.displayName;
-  return zone ? `${patch.displayName} in ${zone}` : patch.displayName;
+  if (zone) return `${patch.displayName} in ${zone}`;
+  const zoneChanged = original.kind !== "add-location" || original.zoneKey !== patch.zoneKey || original.newZone !== null;
+  return zoneChanged ? `${patch.displayName} (zone chosen by the reviewer)` : patch.displayName;
 }
 
 function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
@@ -316,7 +331,7 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
           <div><dt>Visit</dt><dd>{proposal.jobReference ?? (job.reference ? <VisitReference job={job} /> : "This visit")}</dd></div></dl>
         {proposal.status === "withdrawn" ? <p>You withdrew this request.</p>
           : proposal.decision ? <p><strong>{reviewerRoleLabel(proposal.decision.decidedByRole)} note: </strong>{proposal.decision.note || "No note provided."}</p> : null}
-        {proposal.status === "approved" && proposal.decision?.appliedPatch ? <p><strong>Approved as: </strong>{appliedPatchSummary(proposal.decision.appliedPatch, job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === proposal.systemKey)?.zones ?? [])}</p> : null}
+        {proposal.status === "approved" && proposal.decision?.appliedPatch ? <p><strong>Approved as: </strong>{appliedPatchSummary(proposal.decision.appliedPatch, proposal.payload, job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === proposal.systemKey)?.zones ?? [])}</p> : null}
         <div className="inline-actions">
           {proposal.status === "pending" ? <button type="button" className="secondary-command" disabled={busy || !authoritative} onClick={() => void act(async () => {
             const requestId = await locationProposalWithdrawalRequestId({ id: proposal.id, jobId: proposal.jobId,

@@ -235,3 +235,50 @@ test("an approval with reviewer changes shows what was actually approved", async
   await expect(page.getByText("Approved with changes")).toBeVisible();
   await expect(page.getByText("Annex Room (edited) in Retest Zone")).toBeVisible();
 });
+
+test("the chosen system survives the screen being rebuilt", async ({ page }) => {
+  await page.evaluate(() => {
+    const h=(window as any).harness;
+    h.job.configurationSnapshot.enabledSystems.push({systemKey:"fm200_fire_suppression",displayName:"FM200 System",zones:[{id:h.id(30),key:"north",displayName:"North"}],locations:[]});
+    h.render(false, true);
+  });
+  const picker=page.getByLabel("1. Choose system");
+  await expect(picker).toHaveValue("");
+  await picker.selectOption("fm200_fire_suppression");
+  await expect(picker).toHaveValue("fm200_fire_suppression");
+  await page.evaluate(() => { (window as any).harness.render(false, true); });
+  await expect(page.getByLabel("1. Choose system")).toHaveValue("fm200_fire_suppression");
+  // Going back to "no system" is remembered too.
+  await page.getByLabel("1. Choose system").selectOption("");
+  await page.evaluate(() => { (window as any).harness.render(false, true); });
+  await expect(page.getByLabel("1. Choose system")).toHaveValue("");
+});
+
+test("an approval that moved the zone to one this visit does not know says the reviewer chose it", async ({ page }) => {
+  const approved = (appliedPatch: Record<string, unknown>) => page.evaluate((applied) => {
+    const h=(window as any).harness;
+    window.fetch = async () => Response.json({proposals:[{...h.base, status:"approved", edited:true,
+      decision:{id:h.id(20), requestId:h.id(21), decision:"approved", note:null, decidedBy:"Review Admin", decidedByRole:"admin", decidedAt:"2026-10-19T02:00:00.000Z", sequence:1, resultingRevisionId:h.id(22), appliedPatch:{...h.patch, ...applied}}}]});
+  }, appliedPatch);
+  await approved({displayName:"Annex Room (edited)", zoneKey:"created-later"});
+  await page.getByRole("button", {name:"Refresh request status"}).click();
+  await expect(page.getByText("Annex Room (edited) (zone chosen by the reviewer)")).toBeVisible();
+  // Same known zone as submitted, only the name changed: the zone is named and nothing says the reviewer chose it.
+  await approved({displayName:"Annex Room (edited)"});
+  await page.getByRole("button", {name:"Refresh request status"}).click();
+  await expect(page.getByText("Approved as: Annex Room (edited) in Ground Floor", {exact:true})).toBeVisible();
+  await expect(page.getByText(/zone chosen by the reviewer/)).toHaveCount(0);
+});
+
+test("the revision panel has no blank band above its heading", async ({ page }) => {
+  await page.evaluate(async () => {
+    const h=(window as any).harness;
+    await h.db.drafts.put({id:`technician-location-proposal:${h.job.id}:${h.base.systemKey}:annex`,entityType:"technicianLocationProposal",payload:{id:h.base.id,jobId:h.job.id,customerId:h.base.customerId,systemKey:h.base.systemKey,patch:h.patch,status:"Synced"},updatedAt:new Date().toISOString()});
+  });
+  await page.getByRole("button", { name: "Revise and resubmit", exact: true }).click();
+  const margins = await page.getByRole("region", { name:"Revise location request" }).evaluate((panel) => {
+    const style = (selector: string) => getComputedStyle(panel.querySelector(selector)!);
+    return [style("h4").marginTop, style("h4").marginBottom, style("p").marginTop, style("p").marginBottom];
+  });
+  expect(margins).toEqual(["0px", "0px", "0px", "0px"]);
+});
