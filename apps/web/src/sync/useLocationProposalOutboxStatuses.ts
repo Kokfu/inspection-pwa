@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { liveQuery } from "dexie";
 import { localDatabase } from "../db/localDatabase";
 import { SYNC_FINISHED_EVENT } from "./syncEvents";
 
@@ -7,10 +8,16 @@ export function useLocationProposalOutboxStatuses(workspaceKey: unknown): string
   const [statuses, setStatuses] = useState<string[]>([]);
   useEffect(() => {
     let active = true;
+    setStatuses([]);
+    const database = localDatabase;
+    const subscription = liveQuery(() => database.syncOutbox.where("entityType").equals("technicianLocationProposal").toArray()).subscribe({
+      next: (items) => { if (active && database === localDatabase) setStatuses(items.filter((item) => item.status !== "Completed").map((item) => item.status)); },
+      error: () => { /* header failures must not interrupt local work */ }
+    });
     async function read() {
       try {
-        const items = await localDatabase.syncOutbox.where("entityType").equals("technicianLocationProposal").toArray();
-        if (active) setStatuses(items.filter((item) => item.status !== "Completed").map((item) => item.status));
+        const items = await database.syncOutbox.where("entityType").equals("technicianLocationProposal").toArray();
+        if (active && database === localDatabase) setStatuses(items.filter((item) => item.status !== "Completed").map((item) => item.status));
       } catch { /* the header summary must never break the app shell */ }
     }
     void read();
@@ -19,6 +26,7 @@ export function useLocationProposalOutboxStatuses(workspaceKey: unknown): string
     window.addEventListener("focus", read);
     return () => {
       active = false;
+      subscription.unsubscribe();
       window.removeEventListener(SYNC_FINISHED_EVENT, read);
       window.removeEventListener("online", read);
       window.removeEventListener("focus", read);

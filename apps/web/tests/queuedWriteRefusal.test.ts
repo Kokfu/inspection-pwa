@@ -9,7 +9,7 @@ import { createTechnicianCustomer, submitTechnicianLocationProposal } from "../s
  */
 
 const proposalId = "84000000-0000-4000-8000-000000000001";
-const input = { id: proposalId, jobId: "job-1", patch: { kind: "update-format" as const, locationKey: "general", rows: [] } };
+const input = { id: proposalId, jobId: "20000000-0000-4000-8000-000000000001", patch: { kind: "update-format" as const, locationKey: "general", rows: [{ assetReference: "RS-1", locationText: "Lobby" }] } };
 const customerInput = { requestId: "84000000-0000-4000-8000-000000000002", displayName: "Retry Customer", siteDisplayName: "Site", systemKeys: ["hose_reel"] };
 
 async function withFetch<T>(reply: () => Response | Promise<Response>, run: () => Promise<T>) {
@@ -18,7 +18,7 @@ async function withFetch<T>(reply: () => Response | Promise<Response>, run: () =
   try { return await run(); } finally { globalThis.fetch = original; }
 }
 const rejection = async (run: () => Promise<unknown>) => { try { await run(); } catch (error) { return error instanceof Error ? error.message : String(error); } return "RESOLVED"; };
-const proposal = () => submitTechnicianLocationProposal("customer-1", "fire_rated_roller_shutter", input, 7);
+const proposal = () => submitTechnicianLocationProposal("10000000-0000-4000-8000-000000000001", "fire_rated_roller_shutter", input, 7);
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 test("I-44: a 403 says the server refused the proposal, with the status, and never 'Connect to the server'", async () => {
@@ -58,7 +58,10 @@ test("I-44: another failure keeps its own message, and a non-JSON error page is 
 });
 
 test("I-44: the server's exact confirmation is still returned on success", async () => {
-  const result = await withFetch(() => json({ proposal: { id: proposalId, status: "pending" } }, 201), proposal);
+  const result = await withFetch(() => json({ proposal: { id: proposalId, status: "pending", customerId: "10000000-0000-4000-8000-000000000001",
+    systemKey: "fire_rated_roller_shutter", systemDisplayName: "Roller Shutter", customerDisplayName: "Customer", jobId: input.jobId,
+    jobReference: "SV-1", submittedByUserId: 7, submittedBy: "Technician", submittedByRole: "inspector",
+    submittedAt: "2026-10-19T00:00:00.000Z", payload: input.patch, decision: null, edited: false } }, 201), proposal);
   assert.deepEqual(result, { id: proposalId, status: "pending" });
 });
 

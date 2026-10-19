@@ -8,17 +8,17 @@ import { ManagerApiError, parseLocationProposalList } from "../src/manager/manag
  * shown, an unreadable one is reported (never approved, rejected or silently dropped), and a malformed envelope still fails closed.
  */
 const good = (id: string, over: Record<string, unknown> = {}) => ({
-  id, customerId: "c-1", customerDisplayName: `Customer ${id}`, systemKey: "smoke_ventilation", jobId: "j-1",
+  id, customerId: "10000000-0000-4000-8000-000000000001", customerDisplayName: `Customer ${id}`, systemKey: "smoke_ventilation", systemDisplayName: "Smoke Ventilation", jobReference: "SV-1", edited: false, jobId: "20000000-0000-4000-8000-000000000001",
   submittedByUserId: 5, submittedBy: "Technician1", submittedByRole: "inspector", submittedAt: "2026-10-08T00:00:00.000Z",
   payload: { kind: "update-format", locationKey: "general", rows: [{ assetReference: "Fan 1" }] }, status: "pending", decision: null, ...over
 });
-const legacy = { id: "p-legacy", customerId: "c-1", customerDisplayName: "28/9/2026 All Services", systemKey: "fm200_fire_suppression", jobId: "j-0",
+const legacy = { id: "p-legacy", customerId: "10000000-0000-4000-8000-000000000001", customerDisplayName: "28/9/2026 All Services", systemKey: "fm200_fire_suppression", jobId: "j-0",
   submittedByUserId: 439, submittedBy: "Technician1", submittedByRole: "inspector", submittedAt: "2026-09-28T18:10:05.637Z",
   payload: { zones: [{ key: "z", sortOrder: 1, displayName: "1" }], locations: [] }, status: "pending", decision: null };
 
 test("readable proposals are returned even when another row is unreadable", () => {
-  const result = parseLocationProposalList([good("p-1"), legacy, good("p-2")]);
-  assert.deepEqual(result.proposals.map((proposal) => proposal.id), ["p-1", "p-2"]);
+  const result = parseLocationProposalList([good("30000000-0000-4000-8000-000000000001"), legacy, good("30000000-0000-4000-8000-000000000002")]);
+  assert.deepEqual(result.proposals.map((proposal) => proposal.id), ["30000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000002"]);
   assert.equal(result.unreadable.length, 1);
   assert.equal(result.unreadable[0]!.id, "p-legacy");
   assert.equal(result.unreadable[0]!.customerDisplayName, "28/9/2026 All Services");

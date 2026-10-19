@@ -79,6 +79,27 @@ async function enterAsSupervisor(page: Page, hash = "#/manager") {
   await page.getByRole("button", { name: /^Admin Review/ }).click();
 }
 
+for (const role of ["admin", "supervisor"]) {
+  test(`${role} Home shows the authoritative pending count`, async ({page}) => {
+    await installSupervisorApi(page);
+    await page.route("**/api/auth/me", route => route.fulfill({json:{user:{...supervisor, role}}}));
+    await page.route("**/api/manager/customers/compliance-reminders", route => route.fulfill({json:{overdue:[], dueSoon:[], dueSoonWindowDays:7}}));
+    await page.route("**/api/manager/location-proposals?status=pending", route => route.fulfill({json:{proposals:[], counts:{pending:7, approved:2, rejected:1, withdrawn:0}}}));
+    await page.goto("/tests/manager-service-editor.html#/manager");
+    await page.getByRole("button", {name:role === "admin" ? /^Manager Monitor/ : /^Admin Review/}).click();
+    await expect(page.locator(".manager-dashboard-card").filter({hasText:"Location Proposals"})).toContainText("Pending: 7");
+  });
+}
+
+test("pending count failure leaves reviewer Home usable", async ({page}) => {
+  const requests = await installSupervisorApi(page);
+  await enterAsSupervisor(page);
+  await expect.poll(() => requests.includes("GET /api/manager/location-proposals")).toBe(true);
+  await expect(page.locator(".manager-dashboard-card").filter({hasText:"Location Proposals"})).toHaveText("Location Proposals");
+  await sidebar(page).getByRole("button", {name:"Services", exact:true}).click();
+  await expect(page.getByRole("button", {name:/SV-SUPERVISOR-830/})).toBeVisible();
+});
+
 test("dedicated Supervisor login opens the review workspace", async ({ page }) => {
   await installSupervisorApi(page, true);
   await page.goto("/tests/manager-service-editor.html#/manager");
@@ -195,6 +216,10 @@ test("a reload restores the Supervisor experience (T3)", async ({ page }) => {
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
+  // Reload the mounted workspace, after its initial requests have completed. The hash changes
+  // before React finishes the navigation, so the URL alone is not a readiness signal.
+  await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search", exact: true })).toBeEnabled();
   await page.reload();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();

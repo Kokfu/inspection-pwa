@@ -1,3 +1,4 @@
+import { isLocationProposal, parseLocationProposalList, type LocationProposal, type LocationProposalList } from "../manager/managerApi";
 import type {
   CustomerConfigurationResponse,
   InspectionCatalog,
@@ -194,11 +195,39 @@ export async function submitTechnicianLocationProposal(
   }
   if (response.status === 409 && data.error === "LOCATION_PROPOSAL_ALREADY_PENDING") throw new LocationProposalAlreadyPendingError();
   if (!response.ok || !data.proposal
-    || typeof data.proposal.id !== "string" || !uuidPattern.test(data.proposal.id)
-    || typeof data.proposal.status !== "string") {
+    || !isLocationProposal(data.proposal) || data.proposal.id !== input.id.toLowerCase()
+    || data.proposal.jobId !== input.jobId.toLowerCase() || data.proposal.customerId !== customerId.toLowerCase()
+    || data.proposal.systemKey !== systemKey || (expectedUserId !== undefined && data.proposal.submittedByUserId !== expectedUserId)) {
     throw new Error(data.message ?? "Location proposal could not be submitted.");
   }
-  return { id: data.proposal.id, status: data.proposal.status };
+  return { id: data.proposal.id!, status: data.proposal.status! };
+}
+
+/** Online read-back only. No authoritative decision is persisted in the local draft. */
+export async function loadTechnicianLocationProposals(jobId: string, signal?: AbortSignal): Promise<LocationProposalList> {
+  const response = await fetch(`/api/technician/location-proposals?jobId=${encodeURIComponent(jobId)}`, {
+    credentials: "same-origin", cache: "no-store", signal
+  });
+  const data = await readJsonBody<{ proposals: unknown; message: unknown }>(response);
+  if (!response.ok) throw new Error(authRefusalMessage(response.status, data, "location proposal", "read your location proposals"));
+  const parsed = parseLocationProposalList(data.proposals);
+  if (parsed.proposals.some((proposal) => proposal.jobId !== jobId.toLowerCase())) throw new Error("Location proposal response is invalid.");
+  return parsed;
+}
+
+/** Server-confirmed withdrawal; callers retain the same requestId after an unknown network outcome. */
+export async function withdrawTechnicianLocationProposal(proposalId: string, requestId: string, expectedUserId?: number): Promise<LocationProposal> {
+  const response = await fetch(`/api/technician/location-proposals/${encodeURIComponent(proposalId)}/withdraw`, {
+    method: "POST", credentials: "same-origin", cache: "no-store",
+    headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) },
+    body: JSON.stringify({ requestId })
+  });
+  const data = await readJsonBody<{ proposal: unknown; message: unknown }>(response);
+  if (!response.ok) throw new Error(authRefusalMessage(response.status, data, "location proposal", "withdraw this location proposal"));
+  if (!isLocationProposal(data.proposal) || data.proposal.id !== proposalId.toLowerCase() || data.proposal.status !== "withdrawn"
+    || data.proposal.decision?.requestId !== requestId.toLowerCase()
+    || (expectedUserId !== undefined && data.proposal.submittedByUserId !== expectedUserId)) throw new Error("Location proposal withdrawal could not be confirmed.");
+  return data.proposal;
 }
 
 export function loadCustomerConfiguration(customerId: string) {

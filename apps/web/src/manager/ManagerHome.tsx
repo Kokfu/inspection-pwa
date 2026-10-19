@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
+import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, loadLocationProposals, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
 import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
@@ -84,6 +84,18 @@ export function ManagerHome({
     return () => controller.abort();
   }, [from, to]);
 
+  // App mounts this Home only for verified Admin/Supervisor users. Keep this
+  // supplementary count independent so even an authorization failure cannot block Home.
+  const [pendingProposals, setPendingProposals] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setPendingProposals(null);
+    void loadLocationProposals("pending", controller.signal)
+      .then(({ counts }) => { if (!controller.signal.aborted) setPendingProposals(counts.pending); })
+      .catch(() => { if (!controller.signal.aborted) setPendingProposals(null); });
+    return () => controller.abort();
+  }, [supervisor]);
+
   // Compliance reminders (Overdue / Due soon), admin-only (matching Next Upcoming Service, whose
   // due-date column this reads). A supervisor never fetches or sees this -- review-only, cannot act on it.
   const [reminders, setReminders] = useState<ComplianceReminders>();
@@ -124,6 +136,8 @@ export function ManagerHome({
     </div> : null}
     {!supervisor && reminders && reminders.overdue.length > 0 ? <section aria-label="Overdue"><h3>Overdue ({reminders.overdue.length})</h3>{reminderList(reminders.overdue)}</section> : null}
     {!supervisor && reminders && reminders.dueSoon.length > 0 ? <section aria-label="Due soon"><h3>Due soon ({reminders.dueSoon.length})</h3>{reminderList(reminders.dueSoon)}</section> : null}
-    <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{label}</button>)}</div>
+    <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{name === "manager-location-proposals" && pendingProposals !== null
+      ? <span style={{ display: "grid", gap: "var(--space-2)" }}>{label}<span className="status-badge status-badge--waiting">Pending: {pendingProposals}</span></span>
+      : label}</button>)}</div>
   </section>;
 }

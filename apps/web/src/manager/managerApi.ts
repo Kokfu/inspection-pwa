@@ -1317,122 +1317,145 @@ export async function submitReportApproval(
  * decisions are terminal -- no withdraw, no re-decision -- unlike report approval.
  * ---------------------------------------------------------------------------------------------- */
 
-export type LocationProposalStatus = "pending" | "approved" | "rejected";
-export type LocationProposalDecision = "approved" | "rejected";
-export type LocationProposalDecisionRole = "admin" | "supervisor";
-
-export type LocationProposalDecisionEvent = {
-  id: string;
-  decision: LocationProposalDecision;
-  note: string | null;
-  decidedBy: string;
-  decidedByRole: LocationProposalDecisionRole;
-  decidedAt: string;
-  sequence: number;
-  requestId: string;
-  resultingRevisionId: string | null;
-};
-
+export type LocationProposalStatus = "pending" | "approved" | "rejected" | "withdrawn";
+export type LocationProposalDecision = "approved" | "rejected" | "withdrawn";
+export type LocationProposalDecisionRole = "admin" | "supervisor" | "inspector";
 export type LocationProposalAddPatch = {
-  kind: "add-location";
-  locationKey: string;
-  displayName: string;
-  zoneKey: string | null;
+  kind: "add-location"; locationKey: string; displayName: string; zoneKey: string | null;
   newZone: { key: string; displayName: string } | null;
 };
-export type LocationProposalFormatPatch = {
-  kind: "update-format";
-  locationKey: string;
-  rows: Array<Record<string, string>>;
-};
+export type LocationProposalFormatPatch = { kind: "update-format"; locationKey: string; rows: Array<Record<string, string>> };
 export type LocationProposalPatch = LocationProposalAddPatch | LocationProposalFormatPatch;
-
-export type LocationProposal = {
-  id: string;
-  customerId: string;
-  customerDisplayName: string;
-  systemKey: string;
-  jobId: string;
-  submittedByUserId: number;
-  submittedBy: string;
-  submittedByRole: "inspector";
-  submittedAt: string;
-  payload: LocationProposalPatch;
-  status: LocationProposalStatus;
-  decision: LocationProposalDecisionEvent | null;
+export type LocationProposalDecisionEvent = {
+  id: string; decision: LocationProposalDecision; note: string | null; decidedBy: string;
+  decidedByRole: LocationProposalDecisionRole; decidedAt: string; sequence: number;
+  requestId: string; resultingRevisionId: string | null; appliedPatch: LocationProposalPatch | null;
 };
-
+export type LocationProposal = {
+  id: string; customerId: string; customerDisplayName: string; systemKey: string; systemDisplayName: string | null;
+  jobId: string; jobReference: string | null; submittedByUserId: number; submittedBy: string;
+  submittedByRole: "inspector"; submittedAt: string; payload: LocationProposalPatch;
+  status: LocationProposalStatus; decision: LocationProposalDecisionEvent | null; edited: boolean;
+};
+export type LocationProposalCurrentLocation = {
+  key: string; displayName: string; zoneId: string | null; presetRowCount: number;
+  rowPreset: Record<string, unknown>; sortOrder: number;
+};
+export type LocationProposalDetail = LocationProposal & {
+  currentLocation: LocationProposalCurrentLocation | null;
+  currentRows: Array<Record<string, string>>;
+  /** Live zones for this proposal's customer and system; keys are patch zoneKey values. */
+  availableZones: Array<{ key: string; displayName: string }>;
+  mergeable: true | { reason: string };
+};
+export type LocationProposalCounts = Record<LocationProposalStatus, number>;
+const proposalUuid = (value: unknown): value is string => typeof value === "string"
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const proposalTime = (value: unknown): value is string => typeof value === "string"
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+const proposalText = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+const proposalKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every((key) => keys.includes(key));
 function isLocationProposalPatch(value: unknown, systemKey: string): value is LocationProposalPatch {
-  return validLocationProposalPatch(value, systemKey);
+  if (!isPlainObject(value) || !validLocationProposalPatch(value, systemKey)
+    || !proposalText(value.locationKey) || value.locationKey.length > 128) return false;
+  if (value.kind === "add-location") {
+    return proposalKeys(value, ["kind", "locationKey", "displayName", "zoneKey", "newZone"])
+      && proposalText(value.displayName) && value.displayName.length <= 300
+      && (value.zoneKey !== null ? proposalText(value.zoneKey) && value.zoneKey.length <= 128 && value.newZone === null
+        : isPlainObject(value.newZone) && proposalKeys(value.newZone, ["key", "displayName"])
+          && proposalText(value.newZone.key) && value.newZone.key.length <= 128
+          && proposalText(value.newZone.displayName) && value.newZone.displayName.length <= 300);
+  }
+  return proposalKeys(value, ["kind", "locationKey", "rows"])
+    && (systemKey !== "dry_wet_riser" || (value.rows as Record<string, string>[]).every((row) => row.locationText!.length <= 250));
 }
-
-function isLocationProposalDecisionEvent(value: unknown): value is LocationProposalDecisionEvent {
-  return isPlainObject(value) && typeof value.id === "string"
-    && (value.decision === "approved" || value.decision === "rejected")
-    && (value.note === null || typeof value.note === "string")
-    && typeof value.decidedBy === "string"
-    && (value.decidedByRole === "admin" || value.decidedByRole === "supervisor")
-    && typeof value.decidedAt === "string" && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1
-    && typeof value.requestId === "string"
-    && (value.resultingRevisionId === null || typeof value.resultingRevisionId === "string");
+function validAppliedPatch(patch: unknown, original: LocationProposalPatch, systemKey: string): patch is LocationProposalPatch {
+  return isLocationProposalPatch(patch, systemKey) && patch.kind === original.kind && patch.locationKey === original.locationKey
+    && !(patch.kind === "update-format" && original.kind === "update-format" && patch.rows.length > original.rows.length);
 }
-
-function isLocationProposal(value: unknown): value is LocationProposal {
-  return isPlainObject(value) && typeof value.id === "string" && typeof value.customerId === "string"
-    && typeof value.customerDisplayName === "string" && typeof value.systemKey === "string"
-    && typeof value.jobId === "string"
-    && Number.isSafeInteger(value.submittedByUserId) && typeof value.submittedBy === "string" && value.submittedByRole === "inspector"
-    && typeof value.submittedAt === "string"
+function isLocationProposalDecisionEvent(value: unknown, original: LocationProposalPatch, systemKey: string): value is LocationProposalDecisionEvent {
+  return isPlainObject(value) && proposalKeys(value, ["id", "decision", "note", "decidedBy", "decidedByRole", "decidedAt", "sequence", "requestId", "resultingRevisionId", "appliedPatch"])
+    && proposalUuid(value.id) && (value.decision === "approved" || value.decision === "rejected" || value.decision === "withdrawn")
+    && (value.note === null || (typeof value.note === "string" && value.note.trim().length >= 3 && value.note.trim().length <= 500))
+    && (value.decision !== "rejected" || value.note !== null) && proposalText(value.decidedBy)
+    && (value.decision === "withdrawn" ? value.decidedByRole === "inspector" : value.decidedByRole === "admin" || value.decidedByRole === "supervisor")
+    && proposalTime(value.decidedAt) && Number.isSafeInteger(value.sequence) && Number(value.sequence) >= 1
+    && proposalUuid(value.requestId)
+    && (value.decision === "approved" ? proposalUuid(value.resultingRevisionId) : value.resultingRevisionId === null)
+    && (value.appliedPatch === null || (value.decision === "approved" && validAppliedPatch(value.appliedPatch, original, systemKey)));
+}
+/** Shared by technician reads and writes. A malformed row never becomes actionable. */
+export function isLocationProposal(value: unknown): value is LocationProposal {
+  return isPlainObject(value) && proposalKeys(value, ["id", "customerId", "customerDisplayName", "systemKey", "systemDisplayName", "jobId", "jobReference", "submittedByUserId", "submittedBy", "submittedByRole", "submittedAt", "payload", "status", "decision", "edited", "currentLocation", "currentRows", "availableZones", "mergeable"])
+    && proposalUuid(value.id) && proposalUuid(value.customerId) && proposalText(value.customerDisplayName)
+    && typeof value.systemKey === "string" && (value.systemDisplayName === null || proposalText(value.systemDisplayName))
+    && proposalUuid(value.jobId) && (value.jobReference === null || proposalText(value.jobReference))
+    && Number.isSafeInteger(value.submittedByUserId) && Number(value.submittedByUserId) > 0
+    && proposalText(value.submittedBy) && value.submittedByRole === "inspector" && proposalTime(value.submittedAt)
     && isLocationProposalPatch(value.payload, value.systemKey)
-    && (value.status === "pending" || value.status === "approved" || value.status === "rejected")
-    && (value.decision === null || isLocationProposalDecisionEvent(value.decision));
+    && (value.status === "pending" ? value.decision === null : isLocationProposalDecisionEvent(value.decision, value.payload, value.systemKey) && value.status === value.decision.decision)
+    && typeof value.edited === "boolean" && value.edited === (isPlainObject(value.decision) && value.decision.appliedPatch !== null);
 }
-
-/** A proposal row this client cannot read (for example one saved before the current payload shape). Shown, never decided. */
 export type UnreadableLocationProposal = { id?: string; customerDisplayName?: string; systemKey?: string; submittedBy?: string; submittedAt?: string };
 export type LocationProposalList = { proposals: LocationProposal[]; unreadable: UnreadableLocationProposal[] };
-
+export type LocationProposalInbox = LocationProposalList & { counts: LocationProposalCounts };
 const plainText = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
-
-/**
- * I-24: each row is checked on its own. A readable row is returned; an unreadable one is reported with only the plain text
- * fields it has (no invented details) so a Manager can see it exists, and it can never be approved or rejected from here.
- * A response that is not a list at all still fails closed.
- */
 export function parseLocationProposalList(data: unknown): LocationProposalList {
   if (!Array.isArray(data)) unavailable();
-  const proposals: LocationProposal[] = [];
-  const unreadable: UnreadableLocationProposal[] = [];
+  const proposals: LocationProposal[] = [], unreadable: UnreadableLocationProposal[] = [];
   for (const row of data as unknown[]) {
     if (isLocationProposal(row)) { proposals.push(row); continue; }
     const record = isPlainObject(row) ? row : {};
-    unreadable.push({
-      id: plainText(record.id), customerDisplayName: plainText(record.customerDisplayName), systemKey: plainText(record.systemKey),
-      submittedBy: plainText(record.submittedBy), submittedAt: plainText(record.submittedAt)
-    });
+    unreadable.push({ id: plainText(record.id), customerDisplayName: plainText(record.customerDisplayName),
+      systemKey: plainText(record.systemKey), submittedBy: plainText(record.submittedBy), submittedAt: plainText(record.submittedAt) });
   }
   return { proposals, unreadable };
 }
-
-export async function loadLocationProposals(status?: LocationProposalStatus, signal?: AbortSignal): Promise<LocationProposalList> {
+export async function loadLocationProposals(status?: LocationProposalStatus, signal?: AbortSignal): Promise<LocationProposalInbox> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const data = await managerRequest<unknown>(`/api/manager/location-proposals${query}`, "GET", "proposals", undefined, signal);
-  return parseLocationProposalList(data);
+  const data = await managerRequest<unknown>(`/api/manager/location-proposals${query}`, "GET", null, undefined, signal);
+  if (!isPlainObject(data) || !proposalKeys(data, ["proposals", "counts"]) || !isPlainObject(data.counts)
+    || Object.keys(data.counts).length !== 4 || !["pending", "approved", "rejected", "withdrawn"].every((key) =>
+      Number.isSafeInteger((data.counts as Record<string, unknown>)[key]) && Number((data.counts as Record<string, unknown>)[key]) >= 0)) unavailable();
+  const envelope = data as { proposals: unknown; counts: LocationProposalCounts };
+  const list = parseLocationProposalList(envelope.proposals);
+  if (list.proposals.some((proposal) => status !== undefined && proposal.status !== status)) unavailable();
+  return { ...list, counts: envelope.counts };
 }
-
-export async function loadLocationProposal(proposalId: string, signal?: AbortSignal): Promise<LocationProposal> {
+function isLocationProposalDetail(value: unknown): value is LocationProposalDetail {
+  if (!isLocationProposal(value) || !isPlainObject(value)) return false;
+  const detail = value as LocationProposal & Record<string, unknown>;
+  const location = detail.currentLocation;
+  const zones = detail.availableZones;
+  if (!Array.isArray(zones) || zones.length > 100 || !zones.every((zone) => isPlainObject(zone)
+    && proposalKeys(zone, ["key", "displayName"]) && proposalText(zone.key) && zone.key.length <= 128
+    && proposalText(zone.displayName) && zone.displayName.length <= 300)
+    || new Set(zones.map((zone) => zone.key)).size !== zones.length) return false;
+  const validLocation = location === null || (isPlainObject(location)
+    && proposalKeys(location, ["key", "displayName", "zoneId", "presetRowCount", "rowPreset", "sortOrder"])
+    && proposalText(location.key) && location.key === value.payload.locationKey && proposalText(location.displayName)
+    && (location.zoneId === null || (proposalText(location.zoneId) && zones.some((zone) => zone.key === location.zoneId)))
+    && Number.isSafeInteger(location.presetRowCount) && Number(location.presetRowCount) >= 1
+    && Number.isSafeInteger(location.sortOrder) && isPlainObject(location.rowPreset));
+  return validLocation && Array.isArray(detail.currentRows)
+    && (detail.currentRows.length === 0 || validLocationProposalPatch({ kind: "update-format", locationKey: value.payload.locationKey, rows: detail.currentRows }, value.systemKey))
+    && JSON.stringify(detail.currentRows) === JSON.stringify(isPlainObject(location) && isPlainObject(location.rowPreset) ? location.rowPreset.rows ?? [] : [])
+    && (detail.mergeable === true || (isPlainObject(detail.mergeable) && proposalKeys(detail.mergeable, ["reason"]) && proposalText(detail.mergeable.reason)))
+    && (value.status === "pending" || detail.mergeable !== true);
+}
+export async function loadLocationProposal(proposalId: string, signal?: AbortSignal): Promise<LocationProposalDetail> {
   const data = await managerRequest<unknown>(`/api/manager/location-proposals/${encodeURIComponent(proposalId)}`, "GET", "proposal", undefined, signal);
-  if (!isLocationProposal(data)) unavailable();
-  return data;
+  if (!isLocationProposalDetail(data) || data.id !== proposalId.toLowerCase()) unavailable();
+  return data as LocationProposalDetail;
 }
-
-/** Approve or reject a proposal. Both decisions are terminal (a second decision attempt is refused). */
 export async function decideLocationProposal(
-  proposalId: string, input: { requestId: string; decision: LocationProposalDecision; note?: string }
+  proposalId: string, input: { requestId: string; decision: "approved" | "rejected"; note?: string; appliedPatch?: LocationProposalPatch }
 ): Promise<LocationProposal> {
   const data = await managerRequest<unknown>(`/api/manager/location-proposals/${encodeURIComponent(proposalId)}/decision`, "POST", "proposal", input);
-  if (!isLocationProposal(data)) unavailable();
-  return data;
+  if (!isLocationProposal(data) || data.id !== proposalId.toLowerCase() || data.status !== input.decision
+    || data.decision?.requestId !== input.requestId.toLowerCase()) unavailable();
+  return data as LocationProposal;
 }
 
 /* ------------------------------------------------------------------------------------------------

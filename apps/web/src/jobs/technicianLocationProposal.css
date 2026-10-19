@@ -1,0 +1,104 @@
+.technician-location-proposal,
+.proposal-format-action {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  width: 100%;
+  max-width: var(--page-width);
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.technician-location-proposal label,
+.proposal-format-action label {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.technician-location-proposal fieldset,
+.proposal-revision {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.technician-location-proposal label:has(input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+}
+
+.technician-location-proposal input[type="radio"] {
+  width: var(--tap);
+  height: var(--tap);
+  margin: 0;
+}
+
+.technician-location-proposal :is(input, select),
+.proposal-format-action input {
+  min-width: 0;
+  min-height: var(--tap);
+  font-size: var(--text-base);
+}
+
+.technician-location-proposal button,
+.proposal-format-action button {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  max-width: 100%;
+  white-space: normal;
+}
+
+.technician-location-proposal :is(button, input, select):focus-visible,
+.proposal-format-action :is(button, input):focus-visible {
+  outline: var(--focus-outline);
+  box-shadow: var(--focus-ring);
+}
+
+.proposal-requests,
+.proposal-request-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.proposal-request-card :is(h4, p) { margin: 0; }
+.proposal-request-card { padding: var(--space-4); }
+.proposal-request-card .job-facts { margin: 0; }
+.proposal-request-card dd { margin: 0; overflow-wrap: anywhere; }
+.proposal-requests .job-card-list { display: grid; gap: var(--space-4); }
+.proposal-skeleton { min-height: calc(var(--tap) * 3); }
+
+.proposal-status {
+  justify-self: start;
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface-sunken);
+  color: var(--muted-on-sunken);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.proposal-status-approved { background: var(--success-soft); color: var(--success-ink); }
+.proposal-status-rejected { background: var(--danger-soft); color: var(--danger-ink); }
+.proposal-status-pending { background: var(--warning-soft); color: var(--warning-ink); }
+
+.technician-location-proposal .inline-actions,
+.proposal-format-action .inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.proposal-actions {
+  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .proposal-requests .job-card-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

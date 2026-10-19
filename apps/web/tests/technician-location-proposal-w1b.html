@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body>
+<main class="app-shell"><div id="view" class="workspace"></div></main>
+<script type="module">
+import React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { TechnicianLocationProposal } from "/src/jobs/TechnicianLocationProposal.tsx";
+import * as store from "/src/jobs/technicianLocationProposalDraft.ts";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+const id = n => `7b000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+await activateUserWorkspace(9010);
+await deviceDatabase.authState.put({key:"device-auth", userId:9010, username:"w1b-tech", role:"inspector", explicitLogout:false, serverLogoutPending:false});
+await localDatabase.drafts.clear(); await localDatabase.syncOutbox.clear();
+const job = {id:id(1), reference:"SV-W1B-101", configurationSnapshot:{customer:{id:id(2),displayName:"Field Inspection Customer"},enabledSystems:[
+  {systemKey:"co2_fire_extinguisher",displayName:"CO2 Fire Extinguisher System",zones:[{id:id(3),key:"ground",displayName:"Ground Floor"}],locations:[]},
+  {systemKey:"smoke_ventilation",displayName:"Smoke Ventilation",zones:[],locations:[]}
+]}};
+const patch = {kind:"add-location",locationKey:"annex",displayName:"Annex Room",zoneKey:"ground",newZone:null};
+const base = {id:id(4), customerId:id(2),customerDisplayName:"Field Inspection Customer",systemKey:"co2_fire_extinguisher",systemDisplayName:"CO2 Fire Extinguisher System",jobId:id(1),jobReference:"SV-W1B-101",submittedByUserId:9010,submittedBy:"Field Technician",submittedByRole:"inspector",submittedAt:"2026-10-19T01:00:00.000Z",payload:patch,status:"pending",decision:null,edited:false};
+const decision = {id:id(6),requestId:id(7),decision:"rejected",note:"Please name the correct wing.",decidedBy:"Review Admin",decidedByRole:"admin",decidedAt:"2026-10-19T02:00:00.000Z",sequence:1,resultingRevisionId:null,appliedPatch:null};
+let proposals=[{...base,status:"rejected",decision}, {...base,id:id(8),payload:{...patch,locationKey:"plant",displayName:"Plant Room"}}];
+let failRead=false, badWithdraw=false, failWithdraw=false, posts=[], withdraws=[];
+window.fetch=async (url,init={})=>{
+  if(String(url).includes("/withdraw")) {
+    const requestId=JSON.parse(init.body).requestId; withdraws.push(requestId);
+    if(failWithdraw) throw new Error("Connection interrupted");
+    const p=proposals.find(p=>String(url).includes(p.id));
+    const withdrawn={...p,status:"withdrawn",decision:{...decision,decision:"withdrawn",decidedByRole:"inspector",requestId,note:null}};
+    if(!badWithdraw) proposals=proposals.map(p=>p.id===withdrawn.id?withdrawn:p);
+    return Response.json({proposal:badWithdraw?{...withdrawn,id:id(99)}:withdrawn});
+  }
+  if(init.method==="POST") { const payload=JSON.parse(init.body); posts.push(payload); return Response.json({proposal:{...base,id:payload.id,jobId:payload.jobId,payload:payload.patch}}); }
+  if(failRead) return Response.json({message:"Cannot refresh right now"},{status:503});
+  return Response.json({proposals});
+};
+const root=createRoot(document.querySelector("#view"));
+let mountKey=0;
+function render(canUseServer=true, remount=false) {if(remount) mountKey++; root.render(React.createElement(TechnicianLocationProposal,{key:mountKey,job,actorUserId:9010,canUseServer,onBack(){}}));}
+window.harness={store,db:localDatabase,job,id,base,patch,render,get posts(){return posts},get withdraws(){return withdraws},
+  setFailRead(v){failRead=v},setBadWithdraw(v){badWithdraw=v},setFailWithdraw(v){failWithdraw=v},
+  async seed(status="Pending", attempts=0){
+    const draft={...store.newAddLocationDraft(job.id,id(2),base.systemKey,["ground"]),patch:{...patch,locationKey:crypto.randomUUID().slice(0,12),displayName:"Local unsent room"}};
+    await store.queueTechnicianLocationProposal(draft);
+    if(status!=="Pending"||attempts) await localDatabase.syncOutbox.update(draft.id,{status,attempts});
+    return draft;
+  }};
+render();
+</script></body></html>

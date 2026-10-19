@@ -7,6 +7,9 @@ import {
 import { proposalAlreadyPendingMessage } from "/src/referenceData/referenceDataApi.ts";
 import { headerSyncSummary } from "/src/sync/headerSyncSummary.ts";
 const id = n => `6b000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const confirmedProposal = body => ({ id: body.id, jobId: body.jobId, customerId, customerDisplayName: "Harness Customer",
+  systemKey, systemDisplayName: "Inspection System", jobReference: "SV-TEST", submittedByUserId: 9003, submittedBy: "Technician",
+  submittedByRole: "inspector", submittedAt: "2026-10-19T00:00:00.000Z", payload: body.patch, status: "pending", decision: null, edited: false });
 const out = document.querySelector("#result"), checks = [];
 const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
 const jobId = id(1), customerId = id(2), systemKey = "fire_rated_roller_shutter";
@@ -54,7 +57,7 @@ document.querySelector("#run").onclick = async () => {
 
     // 3. A held proposal does not block the next layout: the same key is simply overwritten by the next proposal.
     await queueOne("Roof");
-    window.fetch = async (url, init) => { const body = JSON.parse(init.body); return reply(201, { proposal: { id: body.id, status: "pending" } }); };
+    window.fetch = async (url, init) => { const body = JSON.parse(init.body); return reply(201, { proposal: confirmedProposal(body) }); };
     await syncPendingLocationProposals(9003);
     const confirmed = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
     check("after the earlier proposal is decided, the next proposal syncs and reaches Synced", confirmed?.status === "Synced");

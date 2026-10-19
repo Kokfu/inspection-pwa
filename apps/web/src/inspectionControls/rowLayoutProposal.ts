@@ -1,5 +1,5 @@
 import {
-  isProposalHeldBehindPending, loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
+  heldLocationProposalMessage, isProposalHeldBehindPending, loadTechnicianLocationProposalDraft, newUpdateFormatDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals, type TechnicianLocationProposalDraft
 } from "../jobs/technicianLocationProposalDraft";
 import { decideRowLayout, type LayoutLimits, type LayoutRow } from "./rowLayout";
@@ -22,12 +22,14 @@ export async function proposeRowLayoutAfterSubmit(args: RowLayoutProposalArgs): 
     const existing = await loadTechnicianLocationProposalDraft(args.jobId, args.systemKey, args.locationKey);
     const decision = decideRowLayout(args.saved, args.proposed, existing?.status, isProposalHeldBehindPending(existing), args.limits, args.noun);
     if (decision.action === "skip") return { note: "", stored: existing };
-    if (decision.action === "note") return { note: decision.note, stored: existing };
+    if (decision.action === "note") return { note: existing && isProposalHeldBehindPending(existing)
+      ? heldLocationProposalMessage(existing, args.noun) : decision.note, stored: existing };
     const draft = newUpdateFormatDraft(args.jobId, args.customerId, args.systemKey, args.locationKey, args.proposed.map((row) => ({ ...row })));
     await saveTechnicianLocationProposalDraft(draft);
     await queueTechnicianLocationProposal(draft);
     if (args.canUseServer && navigator.onLine) await syncPendingLocationProposals(args.actorUserId);
-    return { note: "", stored: await loadTechnicianLocationProposalDraft(args.jobId, args.systemKey, args.locationKey) };
+    const stored = await loadTechnicianLocationProposalDraft(args.jobId, args.systemKey, args.locationKey);
+    return { note: stored && isProposalHeldBehindPending(stored) ? heldLocationProposalMessage(stored, args.noun) : "", stored };
   } catch (error) {
     return { note: `Inspection submitted. The ${args.noun} layout could not be saved for next visit: ${error instanceof Error ? error.message : "unknown error"}`, stored: undefined };
   }

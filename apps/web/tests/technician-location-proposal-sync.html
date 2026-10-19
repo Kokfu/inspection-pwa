@@ -5,6 +5,9 @@ import {
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals
 } from "/src/jobs/technicianLocationProposalDraft.ts";
 const id = n => `6a000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const confirmedProposal = body => ({ id: body.id, jobId: body.jobId, customerId, customerDisplayName: "Harness Customer",
+  systemKey, systemDisplayName: "Inspection System", jobReference: "SV-TEST", submittedByUserId: 9002, submittedBy: "Technician",
+  submittedByRole: "inspector", submittedAt: "2026-10-19T00:00:00.000Z", payload: body.patch, status: "pending", decision: null, edited: false });
 const out = document.querySelector("#result"), checks = [];
 const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
 const jobId = id(1), customerId = id(2), systemKey = "co2_fire_extinguisher";
@@ -60,7 +63,7 @@ document.querySelector("#run").onclick = async () => {
     window.fetch = async (url, init) => {
       const body = JSON.parse(init.body);
       check("the submitted body carries {id, jobId, patch}", typeof body.id === "string" && body.jobId === jobId && typeof body.patch === "object");
-      return new Response(JSON.stringify({ proposal: { id: body.id, status: "pending" } }), { status: 201 });
+      return new Response(JSON.stringify({ proposal: confirmedProposal(body) }), { status: 201 });
     };
     await syncPendingLocationProposals(9002);
     const afterSuccessFormat = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
@@ -73,7 +76,7 @@ document.querySelector("#run").onclick = async () => {
     const mismatchDraft = newUpdateFormatDraft(jobId, customerId, systemKey, "general", [{ alarmZone: "a", location: "b" }]);
     await saveTechnicianLocationProposalDraft(mismatchDraft);
     await queueTechnicianLocationProposal(mismatchDraft);
-    window.fetch = async () => new Response(JSON.stringify({ proposal: { id: id(999), status: "pending" } }), { status: 201 });
+    window.fetch = async (_url, init) => new Response(JSON.stringify({ proposal: { ...confirmedProposal(JSON.parse(init.body)), id: id(999) } }), { status: 201 });
     await syncPendingLocationProposals(9002);
     const mismatchResult = await loadTechnicianLocationProposalDraft(jobId, systemKey, "general");
     check("a mismatched server-confirmed id never marks the draft Synced", mismatchResult?.status === "Failed");

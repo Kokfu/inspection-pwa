@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadLocationProposals } from "../src/manager/managerApi.js";
 
+const counts = { pending: 11, approved: 0, rejected: 0, withdrawn: 0 };
 const examples = [
   ["co2_fire_extinguisher", "loc-a", { alarmZone: "A", location: "Lobby" }],
   ["fm200_fire_suppression", "loc-a", { alarmZone: "A", location: "Lobby" }],
@@ -19,7 +20,7 @@ const examples = [
 function proposal(systemKey: string, locationKey: string, row: Record<string, string>) {
   return {
     id: crypto.randomUUID(), customerId: crypto.randomUUID(), customerDisplayName: "Test Customer",
-    systemKey, jobId: crypto.randomUUID(), submittedByUserId: 1, submittedBy: "Technician",
+    systemKey, systemDisplayName: "Service", jobReference: "SV-1", edited: false, jobId: crypto.randomUUID(), submittedByUserId: 1, submittedBy: "Technician",
     submittedByRole: "inspector", submittedAt: "2026-09-29T00:00:00.000Z",
     payload: { kind: "update-format", locationKey, rows: [row] }, status: "pending", decision: null
   };
@@ -28,8 +29,8 @@ function proposal(systemKey: string, locationKey: string, row: Record<string, st
 test("Admin inbox accepts every supported proposal row shape together", async () => {
   const oldFetch = globalThis.fetch;
   const proposals = examples.map(([systemKey, locationKey, row]) => proposal(systemKey, locationKey, row));
-  globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
-  try { assert.deepEqual(await loadLocationProposals("pending"), { proposals, unreadable: [] }); }
+  globalThis.fetch = async () => new Response(JSON.stringify({ proposals, counts }), { status: 200 });
+  try { assert.deepEqual(await loadLocationProposals("pending"), { proposals, unreadable: [], counts }); }
   finally { globalThis.fetch = oldFetch; }
 });
 
@@ -38,7 +39,7 @@ test("Admin inbox accepts every supported proposal row shape together", async ()
 test("Admin inbox rejects a row submitted for the wrong Fire Alarm table", async () => {
   const oldFetch = globalThis.fetch;
   const proposals = [proposal("fire_alarm_detector", "general-primary", { assetReference: "FA-02", location: "Guard House" })];
-  globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
+  globalThis.fetch = async () => new Response(JSON.stringify({ proposals, counts }), { status: 200 });
   try {
     const result = await loadLocationProposals("pending");
     assert.deepEqual(result.proposals, [], "the mismatched row is not a proposal");
@@ -52,7 +53,7 @@ test("Admin inbox rejects an unknown system instead of treating it as CO2", asyn
   try {
     for (const systemKey of ["unknown_system", "__proto__"]) {
       const proposals = [proposal(systemKey, "loc-a", { alarmZone: "A", location: "Lobby" })];
-      globalThis.fetch = async () => new Response(JSON.stringify({ proposals }), { status: 200 });
+      globalThis.fetch = async () => new Response(JSON.stringify({ proposals, counts }), { status: 200 });
       const result = await loadLocationProposals("pending");
       assert.deepEqual(result.proposals, [], `${systemKey} is not treated as a known system`);
       assert.equal(result.unreadable.length, 1);
@@ -69,7 +70,7 @@ test("Admin inbox reads a zoned Roller Shutter format and rejects mixed, oversiz
   const mixed = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "Zone 1" }, { assetReference: "", locationText: "Dock" }]);
   const tooLong = withRows("fire_rated_roller_shutter", [{ assetReference: "RS-01", locationText: "Lobby", zoneText: "z".repeat(201) }]);
   const foreign = withRows("smoke_ventilation", [{ assetReference: "Fan 01", zoneText: "Zone 1" }]);
-  globalThis.fetch = async () => new Response(JSON.stringify({ proposals: [zoned, unzoned, mixed, tooLong, foreign] }), { status: 200 });
+  globalThis.fetch = async () => new Response(JSON.stringify({ proposals: [zoned, unzoned, mixed, tooLong, foreign], counts }), { status: 200 });
   try {
     const result = await loadLocationProposals("pending");
     assert.deepEqual(result.proposals.map((entry) => entry.id), [zoned.id, unzoned.id]);

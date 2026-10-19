@@ -28,6 +28,6 @@ export function supervisorAllowsRoute(routeName: string) {
 }
 
 /** User-facing label shared by both existing review roles (CR-11). */
-export function reviewerRoleLabel(role: "admin" | "supervisor" | null): string {
-  return role === null ? "" : "Admin";
+export function reviewerRoleLabel(role: "admin" | "supervisor" | "inspector" | null): string {
+  return role === null ? "" : role === "inspector" ? "Technician" : "Admin";
 }

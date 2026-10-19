@@ -647,6 +647,13 @@ export async function runMigrations(
   if (!customerLocationProposals.rows[0]?.exists) {
     await database.query(await readFile(customerLocationProposalsMigrationUrl, "utf8"));
   }
+  const proposalEdits = await database.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+      AND table_name='customer_location_proposal_decisions' AND column_name='applied_patch') AS exists`
+  );
+  if (!proposalEdits.rows[0]?.exists) {
+    await database.query(await readFile(new URL("../../migrations/056_location_proposal_edit_withdraw.sql", import.meta.url), "utf8"));
+  }
   // Migration 049 creates `service_section_remarks`; the table's presence is the replay marker.
   const serviceSectionRemarks = await database.query<{ exists: boolean }>(
     `SELECT to_regclass('public.service_section_remarks') IS NOT NULL AS exists`

@@ -1,96 +1,80 @@
-import { expect, test } from "@playwright/test";
-
-/**
- * I-24 in the real App: a pending proposal saved before the current payload shape (no `payload.kind`) must not make the
- * whole Location Proposals screen unavailable or throw the Manager back to the role chooser. The readable proposal is
- * shown and can be approved; the unreadable one is listed with a plain explanation and has no Approve / Reject.
- */
-const proposal = (id: string, over: Record<string, unknown>) => ({
-  id, customerId: "customer-1", customerDisplayName: `Customer ${id}`, systemKey: "smoke_ventilation", jobId: "job-1",
+import { expect, test, type Page } from "@playwright/test";
+const id = "10000000-0000-4000-8000-000000000001", legacyId = "678f1e17-34b2-42f5-9674-2bd8d0392524";
+const uuid = "20000000-0000-4000-8000-000000000001";
+const rows = [{ assetReference: "Fan 7" }];
+const proposal = (over: Record<string, unknown> = {}) => ({
+  id, customerId: uuid, customerDisplayName: "Readable Customer", systemKey: "smoke_ventilation", systemDisplayName: "Smoke Ventilation", jobId: uuid, jobReference: "SV-1",
   submittedByUserId: 1, submittedBy: "Technician", submittedByRole: "inspector", submittedAt: "2026-09-29T00:00:00.000Z",
-  payload: { kind: "update-format", locationKey: "general", rows: [{ assetReference: "Fan 7" }] }, status: "pending", decision: null, ...over
+  payload: { kind: "update-format", locationKey: "general", rows }, status: "pending", decision: null, edited: false, ...over
 });
-
-test("I-24: an unreadable legacy proposal is listed but never blocks or bounces the screen", async ({ page }) => {
-  const pending = [
-    proposal("p-legacy", { customerDisplayName: "28/9/2026 All Services", systemKey: "fm200_fire_suppression", payload: { zones: [{ key: "z", sortOrder: 1, displayName: "1" }], locations: [] } }),
-    proposal("p-good", {})
-  ];
-  const decisions: string[] = [];
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: { id: 4, username: "supervisor", role: "supervisor" } } });
-    if (url.pathname === "/api/inspection-jobs") return route.fulfill({ status: 403, json: { error: "FORBIDDEN" } });
-    if (url.pathname === "/api/manager/location-proposals" && route.request().method() === "GET")
-      return route.fulfill({ json: { proposals: url.searchParams.get("status") === "pending" ? pending : [] } });
-    if (url.pathname.endsWith("/decision") && route.request().method() === "POST") {
-      decisions.push(url.pathname);
-      const index = pending.findIndex((item) => url.pathname.includes(item.id));
-      const [approved] = pending.splice(index, 1);
-      return route.fulfill({ status: 201, json: { proposal: { ...approved, status: "approved" } } });
-    }
-    return route.fulfill({ json: {} });
-  });
+async function enter(page: Page) {
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
   await page.getByRole("button", { name: /^Admin/ }).click();
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
+}
+async function install(page: Page, items: ReturnType<typeof proposal>[]) {
+  const decisions: string[] = [];
+  await page.route("**/api/**", async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: { id: 4, username: "supervisor", role: "supervisor" } } });
+    if (url.pathname === "/api/inspection-jobs") return route.fulfill({ status: 403, json: { error: "FORBIDDEN" } });
+    if (url.pathname === "/api/manager/location-proposals") {
+      const counts = { pending: 0, approved: 0, rejected: 0, withdrawn: 0 };
+      items.forEach(item => counts[item.status as keyof typeof counts]++);
+      return route.fulfill({ json: { proposals: items.filter(item => item.status === url.searchParams.get("status")), counts } });
+    }
+    const item = items.find(item => url.pathname.includes(item.id));
+    if (item && url.pathname.endsWith("/decision")) {
+      decisions.push(url.pathname);
+      const body = route.request().postDataJSON();
+      Object.assign(item, { status: "approved", decision: { id: uuid, decision: "approved", note: null, decidedBy: "Reviewer", decidedByRole: "supervisor", decidedAt: "2026-10-19T01:00:00.000Z", sequence: 1, requestId: body.requestId, resultingRevisionId: uuid, appliedPatch: null } });
+      return route.fulfill({ status: 201, json: { proposal: item } });
+    }
+    if (item) return route.fulfill({ json: { proposal: { ...item, currentLocation: { key: "general", displayName: "Fans", zoneId: null, presetRowCount: 1, rowPreset: { rows }, sortOrder: 1 }, currentRows: rows, availableZones: [], mergeable: item.status === "pending" ? true : { reason: "Already decided." } } } });
+    return route.fulfill({ json: {} });
+  });
+  return decisions;
+}
 
-  await expect(page.getByRole("heading", { name: "Location Proposals" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "1 proposal cannot be shown" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("alert").filter({ hasText: "28/9/2026 All Services" })).toContainText("fm200_fire_suppression");
+test("I-24: unreadable legacy proposal remains isolated while a readable proposal can be approved", async ({ page }) => {
+  const decisions = await install(page, [proposal({ id: legacyId, customerDisplayName: "28/9/2026 All Services", systemKey: "fm200_fire_suppression", payload: { zones: [], locations: [] } }), proposal()]);
+  page.on("dialog", dialog => dialog.accept());
+  await enter(page);
+  await expect(page.getByRole("heading", { name: "1 proposal cannot be shown" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("28/9/2026 All Services");
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Customer p-good/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /28\/9\/2026 All Services/ })).toHaveCount(0);
-
-  // the readable proposal still works end to end
-  await page.getByRole("button", { name: /Customer p-good/ }).click();
-  await expect(page.getByText("Fan 7")).toBeVisible();
+  await page.getByRole("button", { name: /Readable Customer/ }).click();
+  await expect(page.getByRole("region", { name: "Proposal review", exact: true })).toContainText("Fan 7");
   await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect.poll(() => decisions.length).toBe(1);
-  expect(decisions[0]).toContain("p-good");
-  expect(decisions.some((path) => path.includes("p-legacy"))).toBe(false);
+  await expect.poll(() => decisions.length).toBe(1); expect(decisions[0]).toContain(id);
+  expect(decisions.some(path => path.includes(legacyId))).toBe(false);
+  await page.getByRole("button", { name: "Back to requests" }).click();
   await expect(page.getByRole("heading", { name: "1 proposal cannot be shown" })).toBeVisible();
 });
 
 test("I-24: a response that is not a list still fails closed", async ({ page }) => {
-  await page.route("**/api/**", async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: { id: 4, username: "supervisor", role: "supervisor" } } });
-    if (url.pathname === "/api/inspection-jobs") return route.fulfill({ status: 403, json: { error: "FORBIDDEN" } });
-    if (url.pathname === "/api/manager/location-proposals") return route.fulfill({ json: { proposals: "not a list" } });
-    return route.fulfill({ json: {} });
-  });
+  await install(page, []);
+  await page.route("**/api/manager/location-proposals?*", route => route.fulfill({ json: { proposals: "not a list", counts: { pending: 0, approved: 0, rejected: 0, withdrawn: 0 } } }));
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
   await page.getByRole("button", { name: /^Admin/ }).click();
-  // a malformed response is not "unreadable rows": the screen fails closed exactly as before (back to the role chooser)
   await expect(page.getByText("Choose how you are signing in")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: /cannot be shown/ })).toHaveCount(0);
 });
 
 test("a rejected legacy row stays isolated beside a readable rejected proposal", async ({ page }) => {
-  const rejected = [
-    proposal("678f1e17-34b2-42f5-9674-2bd8d0392524", { customerDisplayName: "28/9/2026 All Services", systemKey: "fm200_fire_suppression", payload: { zones: [], locations: [] }, status: "rejected", decision: null }),
-    proposal("p-readable-rejected", { status: "rejected", decision: { id: "d1", decision: "rejected", note: "Disposable browser fixture", decidedBy: "admin", decidedByRole: "admin", decidedAt: "2026-10-08T12:00:00.000Z", sequence: 1, requestId: "r1", resultingRevisionId: null } })
-  ];
-  await page.route("**/api/**", async route => {
-    const url = new URL(route.request().url());
-    if (url.pathname === "/api/auth/me") return route.fulfill({ json: { user: { id: 4, username: "supervisor", role: "supervisor" } } });
-    if (url.pathname === "/api/inspection-jobs") return route.fulfill({ status: 403, json: { error: "FORBIDDEN" } });
-    if (url.pathname === "/api/manager/location-proposals") return route.fulfill({ json: { proposals: url.searchParams.get("status") === "rejected" ? rejected : [] } });
-    return route.fulfill({ json: {} });
-  });
-  await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
-  await page.getByRole("button", { name: /^Admin/ }).click();
-  await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
-  await expect(page.getByText("No pending location proposals.")).toBeVisible();
-  await page.getByRole("tab", { name: "Rejected", exact: true }).click();
+  await install(page, [
+    proposal({ id: legacyId, customerDisplayName: "28/9/2026 All Services", payload: { zones: [], locations: [] }, status: "rejected" }),
+    proposal({ status: "rejected", decision: { id: uuid, decision: "rejected", note: "Disposable browser fixture", decidedBy: "admin", decidedByRole: "admin", decidedAt: "2026-10-08T12:00:00.000Z", sequence: 1, requestId: uuid, resultingRevisionId: null, appliedPatch: null } })
+  ]);
+  await enter(page); await expect(page.getByText("No pending location proposals.")).toBeVisible();
+  await page.getByRole("tab", { name: "Rejected (2)", exact: true }).click();
   await expect(page.getByRole("heading", { name: "1 proposal cannot be shown" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("678f1e17");
-  await page.getByRole("button", { name: /Customer p-readable-rejected/ }).click();
-  await expect(page.getByText("Fan 7")).toBeVisible();
+  await page.getByRole("button", { name: /Readable Customer/ }).click();
+  await expect(page.getByRole("region", { name: "Proposal review", exact: true })).toContainText("Fan 7");
   await expect(page.getByText("Disposable browser fixture")).toBeVisible();
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reject", exact: true })).toHaveCount(0);
-  // Fixtures and request interception are disposed with this isolated browser context.
 });

@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
-import { offersAddLocation } from "../manager/managerApi";
+import { useEffect, useRef, useState } from "react";
+import { liveQuery } from "dexie";
+import { offersAddLocation, type LocationProposal } from "../manager/managerApi";
+import { reviewerRoleLabel } from "../manager/roleAccess";
+import { loadTechnicianLocationProposals, withdrawTechnicianLocationProposal } from "../referenceData/referenceDataApi";
+import { currentWorkspaceUserId, localDatabase } from "../db/localDatabase";
+import { SYNC_FINISHED_EVENT } from "../sync/syncEvents";
+import { VisitReference } from "./VisitReference";
+import "./technicianLocationProposal.css";
 import type { InspectionJob } from "./jobTypes";
 import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 import {
+  discardTechnicianLocationProposal, heldLocationProposalMessage, listTechnicianLocationProposalDrafts, locationProposalWithdrawalRequestId, reviseTechnicianLocationProposal,
   isProposalHeldBehindPending, loadLatestAddLocationProposalDraft, loadTechnicianLocationProposalDraft, newAddLocationDraft, queueTechnicianLocationProposal,
   saveTechnicianLocationProposalDraft, syncPendingLocationProposals, type TechnicianLocationProposalDraft
 } from "./technicianLocationProposalDraft";
@@ -114,19 +122,21 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
     [...(selectedSystem.locations ?? []), { displayName: patch.displayName, zoneId: candidateZoneId }]
   ) : [];
 
-  return <section aria-labelledby="technician-location-proposal-title">
+  return <section className="manager-home technician-location-proposal" aria-labelledby="technician-location-proposal-title">
     <button type="button" className="secondary-command back-command" onClick={onBack}>Back to Service Visit</button>
     <div className="workspace-heading">
       <div>
         <p className="eyebrow">{job.configurationSnapshot.customer.displayName}</p>
         <h2 id="technician-location-proposal-title">Add a New Location</h2>
-        <p>Name a location this customer has that isn't set up yet (e.g. a second FM200 system). An Admin reviews it; once approved, your next visit gets a real form for it.</p>
+        <p>Name a location for Admin review. Once approved, it gets a form on your next visit.</p>
+        {job.reference ? <p className="support-metadata">Visit <VisitReference job={job} /></p> : null}
       </div>
     </div>
     {eligibleSystems.length === 0 ? (
       <p className="empty-state">This service visit has no system that can take a new named location.</p>
     ) : <>
-      <label>System<select value={systemKey ?? ""} onChange={(event) => setPickedSystemKey(event.target.value || undefined)}>
+      <p className="offline-notice">You can enter, save and submit on this device without a connection. Requests sync when the server is available.</p>
+      <label>1. Choose system<select value={systemKey ?? ""} onChange={(event) => setPickedSystemKey(event.target.value || undefined)}>
         <option value="">Select a system…</option>
         {eligibleSystems.map((system) => <option key={system.systemKey} value={system.systemKey}>{system.displayName}</option>)}
       </select></label>
@@ -137,6 +147,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
         {isProposalHeldBehindPending(draft) ? (
           <div className="report-summary" role="status">
             <p>{draft.lastError}</p>
+            <p>{heldLocationProposalMessage(draft, selectedSystem.displayName)}</p>
             <div className="inline-actions">
               <button type="button" className="secondary-command" disabled={saving} onClick={() => void startAnother()}>Add another location</button>
             </div>
@@ -146,6 +157,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
             <p>{draft.status === "Pending" ? "New location saved on this device, pending sync." : `Sync needs attention: ${draft.lastError ?? "Retry the original request."}`}</p>
             <div className="inline-actions">
               <button type="button" disabled={!canUseServer || saving} onClick={() => void synchronize()}>{saving ? "Syncing…" : "Retry Sync"}</button>
+              <button type="button" className="secondary-command" disabled={saving} onClick={() => void startAnother()}>Add another location</button>
             </div>
           </div>
         ) : draft.status === "Synced" ? (
@@ -156,36 +168,191 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
             </div>
           </div>
         ) : <>
-          <label>Location name<input maxLength={300} disabled={locked || saving}
+          <label>2. Location name<input maxLength={300} disabled={locked || saving}
             value={patch.displayName} onChange={(event) => updatePatch({ displayName: event.target.value })} /></label>
           <fieldset>
-            <legend>Zone</legend>
+            <legend>3. Zone</legend>
             <label><input type="radio" name="zone-choice" checked={zoneChoice === "existing"} disabled={locked || saving || selectedSystem.zones.length === 0}
               onChange={() => { setZoneChoice("existing"); updatePatch({ zoneKey: selectedSystem.zones[0]?.key ?? null, newZone: null }); }} /> Existing zone</label>
             {zoneChoice === "existing" ? (
               selectedSystem.zones.length === 0
                 ? <p className="empty-state">This system has no existing zones yet — name a new one below.</p>
-                : <select disabled={locked || saving} value={patch.zoneKey ?? ""} onChange={(event) => updatePatch({ zoneKey: event.target.value, newZone: null })}>
+                : <select aria-label="Existing zone" disabled={locked || saving} value={patch.zoneKey ?? ""} onChange={(event) => updatePatch({ zoneKey: event.target.value, newZone: null })}>
                     {selectedSystem.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}
                   </select>
             ) : null}
             <label><input type="radio" name="zone-choice" checked={zoneChoice === "new"} disabled={locked || saving}
               onChange={() => { setZoneChoice("new"); updatePatch({ zoneKey: null, newZone: { key: patch.newZone?.key ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12), displayName: "" } }); }} /> New zone</label>
             {zoneChoice === "new" ? (
-              <input maxLength={300} disabled={locked || saving} placeholder="Zone name" value={patch.newZone?.displayName ?? ""}
-                onChange={(event) => updatePatch({ newZone: { key: patch.newZone?.key ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12), displayName: event.target.value } })} />
+              <label>Zone name<input maxLength={300} disabled={locked || saving} placeholder="Zone name" value={patch.newZone?.displayName ?? ""}
+                onChange={(event) => updatePatch({ newZone: { key: patch.newZone?.key ?? crypto.randomUUID().replace(/-/g, "").slice(0, 12), displayName: event.target.value } })} /></label>
             ) : null}
           </fieldset>
           {nameWarnings.length > 0 ? <div className="offline-notice" role="status">
             <p>{nameWarnings.join(" ")}</p>
             <p>Compared with this visit's saved locations. Repeated names are allowed; consider a distinct name before submitting.</p>
           </div> : null}
-          <div className="inline-actions">
-            <button type="button" className="secondary-command" disabled={locked || saving} onClick={() => { setError(""); setSaved(true); }}>Save Draft</button>
+          <div className="inline-actions proposal-actions">
+            <button type="button" className="secondary-command" disabled={locked || saving} onClick={() => {
+              setError(""); setSaved(false);
+              void saveTechnicianLocationProposalDraft(draft).then(() => setSaved(true)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be saved."));
+            }}>Save Draft</button>
             <button type="button" disabled={locked || saving || !patch.displayName.trim() || (!patch.zoneKey && !patch.newZone?.displayName.trim())} onClick={() => void submit()}>{saving ? "Submitting…" : "Submit for Review"}</button>
           </div>
         </>}
       </>}
     </>}
+    <VisitLocationRequests key={`${actorUserId}:${job.id}`} job={job} actorUserId={actorUserId} canUseServer={canUseServer}
+      onDiscard={(id) => { if (draft?.id === id) void startAnother(); }} />
+  </section>;
+}
+
+
+function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
+  job: InspectionJob; actorUserId: number; canUseServer: boolean; onDiscard: (id: string) => void;
+}) {
+  const [local, setLocal] = useState<TechnicianLocationProposalDraft[]>([]);
+  const [outboxStatuses, setOutboxStatuses] = useState<Record<string, string>>({});
+  const [heldTimes, setHeldTimes] = useState<Record<string, string>>({});
+  const [server, setServer] = useState<LocationProposal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fresh, setFresh] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [error, setError] = useState("");
+  const [localError, setLocalError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [revision, setRevision] = useState<TechnicianLocationProposalDraft>();
+  const [confirmDiscard, setConfirmDiscard] = useState<string>();
+  const [refresh, setRefresh] = useState(0);
+  const generation = useRef(0);
+  const connected = online && navigator.onLine && canUseServer && currentWorkspaceUserId() === actorUserId;
+
+  useEffect(() => {
+    const database = localDatabase;
+    const subscription = liveQuery(() => database.transaction("r", database.drafts, database.syncOutbox, async () => {
+      const drafts = await listTechnicianLocationProposalDrafts(job.id);
+      const items = await database.syncOutbox.where("entityType").equals("technicianLocationProposal").toArray();
+      return { drafts, statuses: Object.fromEntries(items.map((item) => [item.entityId, item.status])),
+        times: Object.fromEntries(items.filter((item) => item.completedAt).map((item) => [item.entityId, item.completedAt!])) };
+    })).subscribe({
+      next: ({ drafts, statuses, times }) => { setLocal(drafts); setOutboxStatuses(statuses); setHeldTimes(times); setLocalError(""); },
+      error: () => setLocalError("Saved requests could not be read. They have been preserved on this device.")
+    });
+    const changed = () => { generation.current++; setFresh(false); setOnline(navigator.onLine); setRefresh((n) => n + 1); };
+    window.addEventListener("online", changed);
+    window.addEventListener("offline", changed);
+    window.addEventListener("focus", changed);
+    window.addEventListener(SYNC_FINISHED_EVENT, changed);
+    return () => {
+      subscription.unsubscribe(); generation.current++;
+      window.removeEventListener("online", changed); window.removeEventListener("offline", changed);
+      window.removeEventListener("focus", changed); window.removeEventListener(SYNC_FINISHED_EVENT, changed);
+    };
+  }, [job.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = ++generation.current;
+    setFresh(false); setError("");
+    if (!connected) { setLoading(false); return () => controller.abort(); }
+    setLoading(true);
+    void loadTechnicianLocationProposals(job.id, controller.signal).then((result) => {
+      if (controller.signal.aborted || generation.current !== run || currentWorkspaceUserId() !== actorUserId) return;
+      if (result.proposals.some((p) => p.submittedByUserId !== actorUserId || p.customerId !== job.configurationSnapshot.customer.id)) throw new Error("Request ownership could not be verified.");
+      setServer(result.proposals); setFresh(true);
+      if (result.unreadable.length) setError("Some requests could not be read. Their decisions are unavailable.");
+    }).catch((reason) => {
+      if (!controller.signal.aborted && generation.current === run) { setFresh(false); setError(reason instanceof Error ? reason.message : "Request status could not be refreshed."); }
+    }).finally(() => { if (!controller.signal.aborted && generation.current === run) setLoading(false); });
+    return () => controller.abort();
+  }, [job.id, actorUserId, connected, refresh]);
+
+  const authoritative = fresh && connected;
+  const shownServer = authoritative ? server : [];
+  const localOnly = local.filter((draft) => !shownServer.some((proposal) => proposal.id === draft.id));
+  async function act(action: () => Promise<void>) {
+    if (busy) return;
+    setBusy(true); setError(""); setNotice("");
+    try { await action(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Request could not be updated."); }
+    finally { setBusy(false); }
+  }
+  async function revise(proposal: LocationProposal) {
+    const next = reviseTechnicianLocationProposal({ ...proposal, patch: proposal.payload });
+    await saveTechnicianLocationProposalDraft(next);
+    setRevision(next);
+  }
+  return <section className="proposal-requests" aria-labelledby="visit-location-requests-title">
+    <h3 id="visit-location-requests-title">Your location requests for this visit</h3>
+    <button type="button" className="secondary-command" disabled={!connected || busy} onClick={() => { generation.current++; setFresh(false); setRefresh((n) => n + 1); }}>Refresh request status</button>
+    {!authoritative ? <p className="offline-notice" role="status">Status needs a connection. Local delivery states are shown; review decisions and notes are unavailable until a successful refresh.</p> : null}
+    {loading ? <div className="report-summary proposal-skeleton" role="status">Loading request statuses…</div> : null}
+    {error || localError ? <p className="form-message" role="alert">{error || localError}</p> : null}
+    {notice ? <p role="status">{notice}</p> : null}
+    {!loading && !local.length && !shownServer.length ? <p className="empty-state">No location requests available for this visit{authoritative ? "." : " on this device. Connect to check for other requests."}</p> : null}
+    <div className="job-card-list">
+      {shownServer.map((proposal) => <article className="report-summary proposal-request-card" key={proposal.id}>
+        <h4>{proposal.customerDisplayName}</h4>
+        <p>{proposal.systemDisplayName ?? job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === proposal.systemKey)?.displayName ?? "Inspection system"}</p>
+        <p>{proposal.payload.kind === "add-location" ? `New location: ${proposal.payload.displayName}` : `Saved format: ${proposal.payload.rows.length} rows`}</p>
+        <span className={`proposal-status proposal-status-${proposal.status}`}>{proposal.status === "approved" ? proposal.edited ? "Approved with changes" : "Approved" : proposal.status === "pending" ? "Pending review" : proposal.status === "rejected" ? "Rejected" : "Withdrawn"}</span>
+        <dl className="job-facts"><div><dt>Submitted</dt><dd>{new Date(proposal.submittedAt).toLocaleString()}</dd></div>
+          <div><dt>Visit</dt><dd>{proposal.jobReference ?? (job.reference ? <VisitReference job={job} /> : "This visit")}</dd></div></dl>
+        {proposal.decision ? <p><strong>{reviewerRoleLabel(proposal.decision.decidedByRole)} note: </strong>{proposal.decision.note || "No note provided."}</p> : null}
+        <div className="inline-actions">
+          {proposal.status === "pending" ? <button type="button" className="secondary-command" disabled={busy || !authoritative} onClick={() => void act(async () => {
+            const requestId = await locationProposalWithdrawalRequestId({ id: proposal.id, jobId: proposal.jobId,
+              customerId: proposal.customerId, systemKey: proposal.systemKey, patch: proposal.payload });
+            // Invalidate read-back before the POST; only a fresh GET can restore displayed decisions.
+            generation.current++; setFresh(false);
+            await withdrawTechnicianLocationProposal(proposal.id, requestId, actorUserId);
+            setRefresh((n) => n + 1);
+          })}>Withdraw</button> : null}
+          {proposal.status === "rejected" || proposal.status === "withdrawn" ? <button type="button" disabled={busy} onClick={() => void act(() => revise(proposal))}>Revise and resubmit</button> : null}
+        </div>
+      </article>)}
+      {localOnly.map((draft) => <article className="report-summary proposal-request-card" key={draft.id}>
+        <h4>{job.configurationSnapshot.customer.displayName}</h4>
+        <p>{job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === draft.systemKey)?.displayName ?? "Inspection system"}</p>
+        <p>{draft.patch.kind === "add-location" ? `New location: ${draft.patch.displayName || "Unnamed draft"}` : `Saved format: ${draft.patch.rows.length} rows`}</p>
+        <span className="proposal-status">{outboxStatuses[draft.id] === "Syncing" ? "Syncing" : isProposalHeldBehindPending(draft) ? "Not sent — waiting for earlier review" : draft.status === "Synced" ? "Submitted; refresh for review status" : draft.status === "Draft" ? "Draft — saved on this device" : draft.status === "Pending" ? "Pending sync" : "Sync needs attention"}</span>
+        {isProposalHeldBehindPending(draft) ? <p>{heldLocationProposalMessage(draft,
+          job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === draft.systemKey)?.displayName ?? "Inspection system",
+          shownServer.find((p) => p.status === "pending" && p.systemKey === draft.systemKey && p.payload.locationKey === draft.patch.locationKey), heldTimes[draft.id])}</p> : draft.lastError ? <p>{draft.lastError}</p> : null}
+        {draft.status === "Draft" && draft.revisionOf ? <button type="button" className="secondary-command" onClick={() => setRevision(draft)}>Continue revision</button> : null}
+        {draft.status === "Pending" || draft.status === "Failed" ? <div className="inline-actions">
+          {confirmDiscard === draft.id ? <><p>Remove this unsent request and its queue item from this device? This cannot be undone.</p>
+            <button type="button" disabled={busy} onClick={() => void act(async () => { await discardTechnicianLocationProposal(draft); setConfirmDiscard(undefined); onDiscard(draft.id); })}>Confirm discard</button>
+            <button type="button" className="secondary-command" onClick={() => setConfirmDiscard(undefined)}>Keep request</button></>
+            : <button type="button" className="secondary-command" disabled={outboxStatuses[draft.id] === "Syncing"} onClick={() => setConfirmDiscard(draft.id)}>Discard before sync</button>}
+        </div> : null}
+      </article>)}
+    </div>
+    {revision ? <section className="report-summary proposal-revision" aria-label="Revise location request">
+      <h4>Revise and resubmit</h4><p>Your original request stays unchanged. This revision has a new request reference.</p>
+      {revision.patch.kind === "add-location" ? <>
+        <label>Location name<input maxLength={300} value={revision.patch.displayName} onChange={(e) => {
+          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, displayName: value } } : r);
+        }} /></label>
+        {revision.patch.newZone ? <label>Zone name<input maxLength={300} value={revision.patch.newZone.displayName} onChange={(e) => {
+          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" && r.patch.newZone ? { ...r, patch: { ...r.patch, newZone: { ...r.patch.newZone, displayName: value } } } : r);
+      }} /></label> : <label>Zone<select value={revision.patch.zoneKey ?? ""} onChange={(e) => {
+          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, zoneKey: value } } : r);
+        }}><option value="">Select a zone…</option>{job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === revision.systemKey)?.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}</select></label>}
+      </> : revision.patch.rows.map((row, index) => <fieldset key={index}><legend>Row {index + 1}</legend>{Object.entries(row).map(([key, value]) => <label key={key}>{key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}{key === "drumType" ? <select name={`revision-${index}-${key}`} value={value} onChange={(e) => {
+        const text = e.target.value; setRevision((r) => r?.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
+      }}><option value="">Not specified</option><option value="swing">Swing</option><option value="fixed">Fixed</option></select> : <input name={`revision-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" || key === "zoneText" ? 200 : revision.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={(e) => {
+        const text = e.target.value; setRevision((r) => r?.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
+      }} />}</label>)}</fieldset>)}
+      <div className="inline-actions proposal-actions">
+        <button type="button" className="secondary-command" disabled={busy} onClick={() => void act(async () => { await saveTechnicianLocationProposalDraft(revision); setNotice("Revision saved on this device."); })}>Save Draft</button>
+        <button type="button" disabled={busy} onClick={() => void act(async () => {
+          await queueTechnicianLocationProposal(revision); setRevision(undefined);
+          if (connected) await syncPendingLocationProposals(actorUserId);
+          setRefresh((n) => n + 1);
+        })}>Submit for Review</button>
+      </div>
+    </section> : null}
   </section>;
 }

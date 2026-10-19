@@ -3,7 +3,91 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-16 — **CR-09 technician self-service Repair List implemented in source (not committed, not phone-tested): any active technician sees every non-sample service with repair findings and can self-start (one ACTIVE order per technician/job/system; retry or second device reuses it; a Manager revocation still blocks self-start; no migration, no Dexie change). Web: Start Repairs, Open filter + Show completed, per-part Done / Not Done (local `repair-ui:status:<findingId>`), offline Before/After comparison at `#/repair-list/:jobId/:systemKey/compare` with Print / Save as PDF. Real-phone, browser force-close and Save-as-PDF on Android Chrome / iOS Safari NOT tested..** · earlier 2026-10-14 — **PHONE-SAVE-01 checkpoint-blocking P2 photo replacement recovery remediated in source; independent review and original-condition OPPO acceptance remain required.**
+**Last updated:** 2026-10-19 — **Location Proposal W2 complete; ready for Sol review.** W0 and W1-A/B/C are reviewed together. W2 fixes three P2 source defects: technician revision controls now enforce the drum-type enum and server text limits; reviewer approval-name errors identify and focus the correct input; phone Back restores inbox focus after rendering. No new W0 or Home-badge source defect identified. No missing `:root` token; app.css remains untouched. User guide now covers decisions, edited approvals, withdraw/discard, revisions and offline status limits.
+
+**Combined gates PASS:** API/web typecheck and build; cold/populated migration; original/W0 routes; standing historical/V6/V7 evidence and race suites; web client/stale-evidence units; 16 focused units; **51 Chromium browser cases**. Overall **157 Node tests + 51 browser cases, zero failures/skips**. P0/P1/P2 remaining in W2 scope: **0/0/0**; all three identified P2 defects fixed. **SAFE FOR SOL RE-REVIEW: Y.**
+
+Full findings, DoD, W2 file list and harness/phone limits: [W2 review](docs/testing/LOCATION_PROPOSAL_W2_REVIEW.md). Read-only handoff: [Sol review brief](docs/testing/LOCATION_PROPOSAL_W2_SOL_BRIEF.md). Reproduce all standing and section 6 gates from cold:
+
+```powershell
+cd C:\PWA_OfflineRecordWebApp
+& .\docs\testing\Verify-LocationProposalsW2.ps1
+```
+
+Only disposable PostgreSQL on `127.0.0.1:55432`; its own container is removed. Browser checks use fixture APIs and real IndexedDB at 360×800, 768×1024 and 1280×800. No physical phone, installed-PWA force-close, production migration/deployment or Level 3 claim. The existing PHONE-SAVE-01 physical-acceptance P1 remains open outside W2. Protected working-tree paths remain clean; strict `e30c649` equality retains the already documented committed `10f3bbb` Fire Alarm V6 uploader-ID exception. No staging or Git mutations.
+
+**Previous W0 checkpoint:** 2026-10-19 - **Location Proposal W0 implemented.** Migration 056 extends decisions with withdrawal and optional applied patches, preserving immutable rows and append-only triggers. Manager inbox uses one SQL statement with SQL status filtering and all-status counts. Detail returns live `currentLocation`, `currentRows`, `availableZones: Array<{ key, displayName }>`, and `mergeable: true | { reason }`. Edited approvals preserve the submission, validate the original system/kind/target and non-increasing row count, fingerprint supplied edits, and merge fresh configuration under the customer lock. Owner-only technician read/withdraw routes share the proposal decision lock with approval, enforce stale-actor protection, audit withdrawal and replay request IDs. System names come from the visit's template catalog; references come from `inspection_jobs.job_reference` (nullable for missing original context). Web APIs validate identities, timestamps, decisions, edits, counts and detail, preserve unreadable list items, and require exact UUID/request confirmations. No React component or Dexie schema changed.
+
+**W0 follow-up, 2026-10-19: zone editor contract gap closed.** The first W0 detail response omitted the named-zone catalog needed by W1-A. `GET /manager/location-proposals/:id` and `LocationProposalDetail` now expose required `availableZones` for the proposal's live customer/system configuration. Each entry contains `key` (the patch's `zoneKey`) and `displayName`; the current location's non-null `zoneId` is also one of these keys. A system without zones returns an empty array. The client fails closed on a missing/malformed catalog, duplicate keys, unknown entry fields, or an unresolved current-location zone. W1-A can use `loadLocationProposal(id).availableZones` without a second configuration API.
+
+| Follow-up gate | Result |
+|---|---|
+| API / web typechecks and builds | PASS |
+| Client API and unreadable-list regressions | PASS, 12 tests, zero skips |
+| Original proposal / W0 proposal / legacy-rejection HTTP regressions | PASS, 3 scenario tests, zero skips; cold disposable PostgreSQL on localhost:55432 removed afterward |
+| Follow-up files | `locationProposals.ts` (live catalog), `managerApi.ts` (type/validator), `locationProposalsW0.integration.test.ts` and `locationProposalApiW0.test.ts` (regressions), `HANDOVER.md` (record) |
+| P0 / P1 / new P2 in this fix | 0 / 0 / 0 identified |
+| Scope and limits | No React component, migration, local schema, production data or Git operation changed by this follow-up. Concurrent W1 edits are preserved. Full working-tree diff check currently reports an unrelated extra EOF blank line in `technicianLocationProposalDraft.ts`; follow-up paths are clean. W1-A implementation/screenshots still belong to W1-A. |
+
+| W0 gate | Result |
+|---|---|
+| API typecheck / build | PASS / PASS |
+| Location configuration/proposal/review units + unchanged legacy rejection | PASS, 30 tests |
+| 056 empty/populated 048 upgrade | PASS; real constraint names verified, original decisions and trigger definitions preserved |
+| Full cold migration/startup | PASS in both proposal integration suites |
+| Original `locationProposals.integration.test.ts` | PASS unchanged, 1 test |
+| New W0 integration suite | PASS, 1 scenario suite: owner/foreign/auth/terminal/replay withdrawal, edited approvals, wrong kind/key/system and added-row refusal, request reuse, identical-patch null storage, resubmission after reject/withdraw, SQL filter/counts, live detail, unreadable refusal/rejection, approve/withdraw races, stale caller, audit-failure transaction rollback |
+| Pure merge failure reasons | PASS in review units; no input mutation |
+| Historical matrix / PDF | PASS, 20 tests |
+| V6 evidence / contracts | PASS, 11 tests |
+| Wet Chemical historical definition | PASS, 2 tests |
+| V7 contracts + configuration | PASS, 38 tests |
+| V6 integration | PASS, 1 test |
+| CO2 / Wet Chemical / Fire Alarm V7 / evidence races | PASS, 4 / 2 / 4 / 1 tests |
+| Web typecheck / production build | PASS / PASS; existing bundle-size warning remains |
+| Web API/auth/role regressions | PASS, 24 tests; complete new response fixtures |
+| Web stale evidence | PASS, 1 test |
+| `git diff --check` | PASS |
+| Protected sources + specified existing API tests unchanged by W0 | PASS; working-tree status for those paths is empty |
+| Strict protected-file equality to `e30c649` | Existing baseline exception: committed `fireAlarmV6Evidence.ts` bigint/string uploader-ID fix predates W0. W0 leaves it untouched; published V1-V6 template files remain unchanged. |
+| P0 / P1 / new P2 in W0 | 0 / 0 / 0 identified |
+| Next checkpoint | Ready for W1-A, W1-B, W1-C and focused review; UI and deployment acceptance remain later work |
+
+Files changed (the already-untracked plan document is untouched):
+
+| File | Reason |
+|---|---|
+| `apps/api/migrations/056_location_proposal_edit_withdraw.sql` | Forward decision DDL |
+| `apps/api/src/db/migrations.ts` | Necessary startup registration of 056 |
+| `apps/api/src/inspections/locationProposal.ts` | Status, metadata, patch and single-query inbox/counts |
+| `apps/api/src/routes/locationProposals.ts` | Live detail and validated/fingerprinted edited approval |
+| `apps/api/src/routes/technicianLocationProposals.ts` | Owner-only reads and idempotent/audited withdrawal |
+| `apps/api/src/server.ts` | Mount technician router |
+| `apps/web/src/manager/managerApi.ts` | Mirrored types and strict response validation |
+| `apps/web/src/referenceData/referenceDataApi.ts` | Technician reads/withdrawal and exact submission confirmation |
+| `apps/web/src/manager/roleAccess.ts` | Necessary non-React type compatibility: withdrawal inspector labelled Technician; reviewer permissions/labels unchanged |
+| `apps/api/src/db/locationProposalMigration.integration.test.ts` | Cold/populated migration and append-only proof |
+| `apps/api/src/routes/locationProposalReview.test.ts` | Withdrawal derivation, each pure merge refusal, scoped edits |
+| `apps/api/src/routes/locationProposalsW0.integration.test.ts` | Level 2 HTTP/database contract, race and rollback proof |
+| `apps/api/src/routes/verifyLocationProposalsW0.ps1` | Reproducible cold DB runner, standing/task gates and cleanup |
+| `apps/web/tests/locationProposalApiW0.test.ts` | Strict new contracts and exact confirmations |
+| `apps/web/tests/locationProposalList.test.ts` | New metadata fixtures; unreadable assertions preserved |
+| `apps/web/tests/locationProposalReviewShape.test.ts` | New metadata/count fixtures; shape assertions preserved |
+| `apps/web/tests/queuedWriteRefusal.test.ts` | Full confirmation fixture; refusal assertions preserved |
+| `HANDOVER.md` | Required checkpoint record |
+
+Necessary supporting scope beyond the plan's original exclusive list: migration-runner registration, the non-React role-label type extension, client API tests, the verification script, and this required handover entry. Prior migrations, lockfiles, Docker Compose, Caddy, `.env`, production data and IndexedDB schema were not edited. Production containers were only listed; all database queries/mutations used disposable PostgreSQL on `127.0.0.1:55432`, and test containers were removed. No staging or Git mutations.
+
+Reproduce (Docker, installed dependencies and Chromium required; port 55432 must be free). The runner starts its own cold database, overrides any inherited `DATABASE_URL`, uses an installed Chromium fallback if Playwright's configured binary is absent, and removes only its own container:
+
+```powershell
+cd C:\PWA_OfflineRecordWebApp
+& .\apps\api\src\routes\verifyLocationProposalsW0.ps1
+```
+
+All selected suites passed with zero skips. The final unreadable-legacy regression was also rerun from a fresh disposable database, and the web production build was explicitly checked with `NODE_ENV=production`. No physical phone, offline-entry, browser/PWA force-close, HTTPS, production migration or deployment acceptance is claimed. Existing unrelated phone-acceptance findings below remain with their prior checkpoint. **SAFE FOR W1 IMPLEMENTATION: Y. Stop before staging.**
+
+**Previous source checkpoint:** 2026-10-16 — **CR-09 technician self-service Repair List implemented in source (not committed, not phone-tested): any active technician sees every non-sample service with repair findings and can self-start (one ACTIVE order per technician/job/system; retry or second device reuses it; a Manager revocation still blocks self-start; no migration, no Dexie change). Web: Start Repairs, Open filter + Show completed, per-part Done / Not Done (local `repair-ui:status:<findingId>`), offline Before/After comparison at `#/repair-list/:jobId/:systemKey/compare` with Print / Save as PDF. Real-phone, browser force-close and Save-as-PDF on Android Chrome / iOS Safari NOT tested..** · earlier 2026-10-14 — **PHONE-SAVE-01 checkpoint-blocking P2 photo replacement recovery remediated in source; independent review and original-condition OPPO acceptance remain required.**
 An exact frozen-candidate negative control proved native replacement committed, old photo absent and abort threw after completion, while the editor falsely claimed previous-photo retention. Only the photo catch now reports an unconfirmed outcome and an offline choose/take retry. Four additive real-editor cases prove commit-only success, native rollback/old-photo retention, idle/enabled controls, preserved dirty remark, newer retry before old delivery, unchanged newer outcome after delivery, immutable Pending and workspace/unmount isolation. Both prior P1 mechanisms and the coalesced writer remain unchanged; original 23 editor tests are byte-preserved. **Final gates PASS: typecheck/build; focused 4/4; units 11/11; repair/C1 49/49; header/proposal/offline 7/7; header/inspection 26/26; zero skips; diff check clean; nine frozen hashes match; six protected anchors and 1,235 unrelated files preserved. P0/P1/P2 source findings: 0/0/0 identified. SAFE FOR FOCUSED INDEPENDENT RE-REVIEW: Y.** Exact negative-control proof, final hashes, DoD, commands and retained earlier re-review bootstrap failure are in the [current photo-outcome checkpoint](docs/testing/CR09_PHONE_SAVE01_REMEDIATION_REPORT.md#current-checkpoint-unconfirmed-photo-replacement-recovery--2026-10-14).
 
 Implementation verification is separate from independent review and physical acceptance. The independent reviewer owns the exact changed candidate; owner/operator owns separately authorized deployment and original-condition OPPO tests. **Original OPPO trigger remains unconfirmed; PHONE-SAVE-01 physical acceptance P1 remains OPEN; OWNER LEVEL 3 ACCEPTANCE PASSED: N.** No deployment, new phone action, production write, PostgreSQL/restore-container access, cleanup, IndexedDB clearing or Git mutation. Protected 051/052, Dexie v10, reviewed D authority, approved 10f3bbb, accepted header/records/photos/PDFs and retained acceptance cycle remain untouched. Stop before staging.

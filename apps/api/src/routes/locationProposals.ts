@@ -29,8 +29,7 @@ import { applyManagerLocationsUpdate, loadConfiguration, ManagerCustomerError } 
  * (`applyLocationProposalPatch`). This is what makes proposing something offline-safe (a technician
  * never needs to know the customer's current full structure) and lets two proposals targeting
  * different locations of the same system be pending, and approved, independently -- keyed by
- * `patch.locationKey`, not just `(customerId, systemKey)`. Both decisions are terminal: no withdraw,
- * no re-decision.
+ * `patch.locationKey`, not just `(customerId, systemKey)`. Approval, rejection and withdrawal are terminal: no re-decision.
  */
 export class LocationProposalError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) { super(message); }
@@ -75,12 +74,12 @@ function submissionFingerprint(customerId: string, systemKey: string, jobId: str
   })).digest("hex");
 }
 
-type ParsedDecisionBody = { requestId: string; decision: "approved" | "rejected"; note: string | undefined };
+type ParsedDecisionBody = { requestId: string; decision: "approved" | "rejected"; note: string | undefined; appliedPatch?: unknown };
 
 function parseDecisionBody(body: unknown): ParsedDecisionBody {
   const invalid = (message: string) => new LocationProposalError("INVALID_LOCATION_PROPOSAL_DECISION_REQUEST", message, 400);
   if (!object(body)) throw invalid("Request body is invalid.");
-  const allowed = ["requestId", "decision", "note"];
+  const allowed = ["requestId", "decision", "note", "appliedPatch"];
   if (Object.keys(body).some((key) => !allowed.includes(key))) throw invalid("Request body is invalid.");
   if (typeof body.requestId !== "string" || !uuidPattern.test(body.requestId)) throw invalid("A request ID is required.");
   if (body.decision !== "approved" && body.decision !== "rejected") throw invalid('decision must be "approved" or "rejected".');
@@ -92,20 +91,23 @@ function parseDecisionBody(body: unknown): ParsedDecisionBody {
     note = body.note.trim();
   }
   if (body.decision === "rejected" && note === undefined) throw invalid("A note is required to reject a location proposal.");
-  return { requestId: body.requestId.toLowerCase(), decision: body.decision, note };
+  if (Object.hasOwn(body, "appliedPatch") && (body.decision !== "approved" || !object(body.appliedPatch))) {
+    throw invalid("appliedPatch is allowed only for approval and must be a patch object.");
+  }
+  return { requestId: body.requestId.toLowerCase(), decision: body.decision, note, appliedPatch: body.appliedPatch };
 }
 
 const publicDecision = ({ requestFingerprint: _fingerprint, ...decision }: LocationProposalDecisionEvent) => decision;
 
-function publicProposal(proposal: LocationProposalRecord & LocationProposalState) {
+export function publicProposal(proposal: LocationProposalRecord & LocationProposalState) {
   const { decision, status } = proposal;
   return {
     id: proposal.id, customerId: proposal.customerId, customerDisplayName: proposal.customerDisplayName,
-    systemKey: proposal.systemKey, jobId: proposal.jobId,
+    systemKey: proposal.systemKey, systemDisplayName: proposal.systemDisplayName, jobId: proposal.jobId, jobReference: proposal.jobReference,
     submittedByUserId: proposal.submittedByUserId, submittedBy: proposal.submittedBy, submittedByRole: proposal.submittedByRole,
     submittedAt: proposal.submittedAt,
     payload: proposal.payload,
-    status, decision: decision ? publicDecision(decision) : null
+    status, decision: decision ? publicDecision(decision) : null, edited: decision?.appliedPatch != null
   };
 }
 
@@ -121,6 +123,11 @@ async function requireProposal(database: Queryable, id: string): Promise<Locatio
  *  resolves to an empty set (an add-location patch, or Roller Shutter's first General format,
  *  gives it authority),
  *  never a 404. */
+function requireLocationRowPreset(value: unknown): Record<string, unknown> {
+  if (!object(value)) throw new LocationProposalError("INVALID_LOCATION_CONFIGURATION", "Current location configuration cannot be read.", 409);
+  return value;
+}
+
 function extractSystemLocations(
   configuration: Awaited<ReturnType<typeof loadConfiguration>>, systemKey: string
 ): LocationConfigurationInput {
@@ -136,10 +143,33 @@ function extractSystemLocations(
         key: location.key, displayName: location.displayName,
         zoneId: location.zoneId ? (zoneKeyById.get(location.zoneId) ?? "") : null,
         presetRowCount: location.presetRowCount,
-        rowPreset: object(location.rowPreset) ? location.rowPreset : {},
+        rowPreset: requireLocationRowPreset(location.rowPreset),
         sortOrder: location.sortOrder
       }))
   };
+}
+
+/** Edits are scoped to the submitted system, kind and target; row count can only shrink. */
+export function validateAppliedLocationProposalPatch(value: unknown, proposal: Pick<LocationProposalRecord, "payload" | "systemKey">): LocationProposalPatch {
+  const original = parseLocationProposalPatch(proposal.payload, proposal.systemKey);
+  const patch = parseLocationProposalPatch(value, proposal.systemKey);
+  if (!original || !patch || patch.kind !== original.kind || patch.locationKey !== original.locationKey
+    || (patch.kind === "update-format" && original.kind === "update-format" && patch.rows.length > original.rows.length)) {
+    throw new LocationProposalError("INVALID_LOCATION_PROPOSAL_DECISION_REQUEST", "Applied patch must retain the submitted kind and location, and cannot add rows.", 400);
+  }
+  return patch;
+}
+
+export function proposalMergeFailureReason(current: LocationConfigurationInput, patch: LocationProposalPatch): string {
+  if (patch.kind === "update-format") {
+    return current.locations.some((location) => location.key === patch.locationKey)
+      ? "The location's table configuration no longer matches this proposal."
+      : "The target location no longer exists or a General layout cannot be created here.";
+  }
+  if (current.locations.some((location) => location.key === patch.locationKey)) return "A location with this key already exists.";
+  if (current.locations.some((location) => location.zoneId === null)) return "A named location cannot be added to a General layout.";
+  if (patch.zoneKey !== null) return "The selected zone no longer exists.";
+  return "A zone with the proposed key already exists.";
 }
 
 export function createLocationProposalsRouter(database: Database = pool) {
@@ -218,39 +248,56 @@ export function createLocationProposalsRouter(database: Database = pool) {
 
   router.get("/manager/location-proposals", requireManagerRole("admin", "supervisor"), async (request, response, next) => {
     try {
+      if (Object.keys(request.query).some((key) => key !== "status")) {
+        throw new LocationProposalError("INVALID_STATUS_FILTER", "Unknown query parameter.", 400);
+      }
       const statusParam = request.query.status;
       let status: LocationProposalStatus | undefined;
       if (statusParam !== undefined) {
-        if (statusParam !== "pending" && statusParam !== "approved" && statusParam !== "rejected") {
-          throw new LocationProposalError("INVALID_STATUS_FILTER", "status must be pending, approved, or rejected.", 400);
+        if (statusParam !== "pending" && statusParam !== "approved" && statusParam !== "rejected" && statusParam !== "withdrawn") {
+          throw new LocationProposalError("INVALID_STATUS_FILTER", "status must be pending, approved, rejected, or withdrawn.", 400);
         }
         status = statusParam;
       }
-      const proposals = await listLocationProposals(database, status);
+      const { proposals, counts } = await listLocationProposals(database, status);
       response.setHeader("Cache-Control", "private, no-store");
-      response.json({ proposals: proposals.map(publicProposal) });
+      response.json({ proposals: proposals.map(publicProposal), counts });
     } catch (error) { next(error); }
   });
 
   router.get("/manager/location-proposals/:id", requireManagerRole("admin", "supervisor"), async (request, response, next) => {
     try {
-      const id = request.params.id;
+      const rawId = request.params.id;
+      const id = typeof rawId === "string" ? rawId.toLowerCase() : rawId;
       if (typeof id !== "string" || !uuidPattern.test(id)) throw new LocationProposalError("INVALID_PROPOSAL_ID", "Proposal id is invalid.", 400);
       const proposal = await requireProposal(database, id);
       const decisions = await loadLocationProposalDecisions(database, id);
       response.setHeader("Cache-Control", "private, no-store");
-      response.json({ proposal: publicProposal({ ...proposal, ...deriveLocationProposalState(decisions) }) });
+      const state = deriveLocationProposalState(decisions);
+      const configuration = await loadConfiguration(database, proposal.customerId);
+      const current = extractSystemLocations(configuration, proposal.systemKey);
+      const patch = parseLocationProposalPatch(proposal.payload, proposal.systemKey);
+      const currentLocation = current.locations.find((location) => location.key === patch?.locationKey) ?? null;
+      const mergeable = state.status !== "pending" ? { reason: "This proposal has already been decided." }
+        : !patch ? { reason: "The submitted proposal cannot be read." }
+        : applyLocationProposalPatch(current, patch, proposal.systemKey) ? true
+        : { reason: proposalMergeFailureReason(current, patch) };
+      response.json({ proposal: { ...publicProposal({ ...proposal, ...state }),
+        currentLocation, currentRows: currentLocation?.rowPreset.rows ?? [],
+        availableZones: current.zones.map(({ key, displayName }) => ({ key, displayName })), mergeable } });
     } catch (error) { next(error); }
   });
 
   router.post("/manager/location-proposals/:id/decision", requireManagerRole("admin", "supervisor"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {
-      const id = request.params.id;
+      const rawId = request.params.id;
+      const id = typeof rawId === "string" ? rawId.toLowerCase() : rawId;
       if (typeof id !== "string" || !uuidPattern.test(id)) throw new LocationProposalError("INVALID_PROPOSAL_ID", "Proposal id is invalid.", 400);
       const input = parseDecisionBody(request.body);
       const fingerprint = createHash("sha256").update(canonicalJson({
-        proposalId: id.toLowerCase(), decision: input.decision, note: input.note ?? null
+        proposalId: id.toLowerCase(), decision: input.decision, note: input.note ?? null,
+        ...(input.appliedPatch === undefined ? {} : { appliedPatch: input.appliedPatch })
       })).digest("hex");
       client = await database.connect();
       await client.query("BEGIN");
@@ -270,6 +317,8 @@ export function createLocationProposalsRouter(database: Database = pool) {
       if (existing.length > 0) {
         throw new LocationProposalError("LOCATION_PROPOSAL_ALREADY_DECIDED", "This location proposal has already been decided.", 409);
       }
+      const appliedPatch = input.appliedPatch === undefined ? undefined
+        : validateAppliedLocationProposalPatch(input.appliedPatch, proposal);
       let resultingRevisionId: string | null = null;
       if (input.decision === "approved") {
         // Serialize the read/merge/write for every proposal on this customer. Locking only the
@@ -281,7 +330,8 @@ export function createLocationProposalsRouter(database: Database = pool) {
         // customer's CURRENT configuration fresh and merge the patch into it, right here, right now.
         const configuration = await loadConfiguration(client, proposal.customerId);
         const currentForSystem = extractSystemLocations(configuration, proposal.systemKey);
-        const merged = applyLocationProposalPatch(currentForSystem, proposal.payload, proposal.systemKey);
+        const patch = appliedPatch ?? parseLocationProposalPatch(proposal.payload, proposal.systemKey);
+        const merged = patch && applyLocationProposalPatch(currentForSystem, patch, proposal.systemKey);
         if (!merged) {
           throw new LocationProposalError("LOCATION_PROPOSAL_TARGET_INVALID", "This proposal's target location is no longer valid against the customer's current configuration.", 409);
         }
@@ -289,9 +339,10 @@ export function createLocationProposalsRouter(database: Database = pool) {
       }
       const decisionId = randomUUID();
       await client.query(`INSERT INTO customer_location_proposal_decisions
-        (id, proposal_id, decision, note, decided_by_user_id, decided_by_role, sequence, resulting_revision_id, request_id, request_fingerprint)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [decisionId, id, input.decision, input.note ?? null, request.currentUser!.id, request.currentUser!.role, existing.length + 1, resultingRevisionId, input.requestId, fingerprint]);
+        (id, proposal_id, decision, note, decided_by_user_id, decided_by_role, sequence, resulting_revision_id, request_id, request_fingerprint, applied_patch)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [decisionId, id, input.decision, input.note ?? null, request.currentUser!.id, request.currentUser!.role, existing.length + 1, resultingRevisionId, input.requestId, fingerprint,
+        appliedPatch && canonicalJson(appliedPatch) !== canonicalJson(proposal.payload) ? JSON.stringify(appliedPatch) : null]);
       await client.query(`INSERT INTO audit_events (actor_user_id, action, entity_type, entity_id, result, reason) VALUES ($1,$2,'customer_location_proposal',$3,'success',$4)`,
         [request.currentUser!.id, input.decision === "approved" ? "location_proposal_approved" : "location_proposal_rejected", id, input.note ?? ""]);
       await client.query("COMMIT");
