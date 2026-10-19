@@ -197,3 +197,41 @@ for (const systemKey of ["hose_reel", "dry_wet_riser", "fire_rated_roller_shutte
     if (systemKey === "hose_reel") expect(queued.payload.patch.rows[0].drumType).toBe("fixed");
   });
 }
+
+test("revision typing is saved as it happens and survives a remount without pressing Save Draft", async ({ page }) => {
+  await page.evaluate(async () => {
+    const h=(window as any).harness;
+    await h.db.drafts.put({id:`technician-location-proposal:${h.job.id}:${h.base.systemKey}:annex`,entityType:"technicianLocationProposal",payload:{id:h.base.id,jobId:h.job.id,customerId:h.base.customerId,systemKey:h.base.systemKey,patch:h.patch,status:"Synced"},updatedAt:new Date().toISOString()});
+  });
+  await page.getByRole("button", { name: "Revise and resubmit", exact: true }).click();
+  const editor=page.getByRole("region", { name:"Revise location request" });
+  await editor.getByLabel("Location name").fill("Typed But Never Saved");
+  // A connection change remounts the screen; nothing was saved by hand.
+  await page.evaluate(() => { (window as any).harness.render(false, true); });
+  await expect(editor).toHaveCount(0);
+  await page.getByRole("button", {name:"Continue revision"}).click();
+  await expect(editor.getByLabel("Location name")).toHaveValue("Typed But Never Saved");
+});
+
+test("a withdrawn request says so instead of showing an empty technician note", async ({ page }) => {
+  await page.evaluate(() => {
+    const h=(window as any).harness;
+    window.fetch = async () => Response.json({proposals:[{...h.base, status:"withdrawn",
+      decision:{id:h.id(20), requestId:h.id(21), decision:"withdrawn", note:null, decidedBy:"Field Technician", decidedByRole:"inspector", decidedAt:"2026-10-19T02:00:00.000Z", sequence:1, resultingRevisionId:null, appliedPatch:null}}]});
+  });
+  await page.getByRole("button", {name:"Refresh request status"}).click();
+  await expect(page.getByText("You withdrew this request.")).toBeVisible();
+  await expect(page.getByText(/Technician note/)).toHaveCount(0);
+});
+
+test("an approval with reviewer changes shows what was actually approved", async ({ page }) => {
+  await page.evaluate(() => {
+    const h=(window as any).harness;
+    window.fetch = async () => Response.json({proposals:[{...h.base, status:"approved", edited:true,
+      decision:{id:h.id(20), requestId:h.id(21), decision:"approved", note:null, decidedBy:"Review Admin", decidedByRole:"admin", decidedAt:"2026-10-19T02:00:00.000Z", sequence:1, resultingRevisionId:h.id(22),
+        appliedPatch:{...h.patch, displayName:"Annex Room (edited)", zoneKey:null, newZone:{key:"newzone1", displayName:"Retest Zone"}}}}]});
+  });
+  await page.getByRole("button", {name:"Refresh request status"}).click();
+  await expect(page.getByText("Approved with changes")).toBeVisible();
+  await expect(page.getByText("Annex Room (edited) in Retest Zone")).toBeVisible();
+});

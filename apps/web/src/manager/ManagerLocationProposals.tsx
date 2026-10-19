@@ -107,6 +107,14 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [changed, note]);
+  /** The server checks the submitted proposal. A reviewer's zone edit can make a zone-stale add-location approvable;
+   *  the server still re-checks the latest configuration on approval. */
+  const zoneFixable = Boolean(detail && detail.status === "pending" && detail.payload.kind === "add-location"
+    && detail.mergeable !== true && /zone/i.test(detail.mergeable.reason));
+  const editedZoneUsable = Boolean(detail && draft?.kind === "add-location" && (draft.newZone
+    ? !detail.availableZones.some(zone => zone.key === draft.newZone!.key)
+    : draft.zoneKey !== null && detail.availableZones.some(zone => zone.key === draft.zoneKey)));
+  const canApprove = Boolean(detail && (detail.mergeable === true || (changed && zoneFixable && editedZoneUsable)));
   function leaveDetail() {
     if ((changed || note.trim()) && !window.confirm("Discard your unsaved review changes?")) return false;
     setSelectedId(undefined); setDetail(undefined); setDraft(undefined); setEditing(false); setNote("");
@@ -118,7 +126,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
     setDetail(undefined); setSelectedId(id); setMessage("");
   }
   async function decide(decision: "approved" | "rejected") {
-    if (!detail || deciding || (decision === "approved" && detail.mergeable !== true)) return;
+    if (!detail || deciding || (decision === "approved" && !canApprove)) return;
     setInvalidApprovalField(undefined);
     if ((decision === "rejected" && note.trim().length < 3) || (note.trim().length > 0 && note.trim().length < 3)) {
       setDecisionError("Enter a note of at least 3 characters. A note is required to reject."); noteInput.current?.focus(); return;
@@ -174,7 +182,9 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
           <h4>Original proposal</h4><PatchSummary patch={detail.payload} detail={detail} />
           {detail.payload.kind === "update-format" ? <><p>Location: {detail.currentLocation?.displayName ?? "Location no longer available"}</p>{detail.status === "pending" ? <RowDiff title="Current configuration → proposed format" before={detail.currentRows} after={editing && draft?.kind === "update-format" ? draft.rows : detail.payload.rows} /> : null}</> : null}
           {detail.decision ? <><div className="offline-notice" role="status"><p>{statusName(detail)} by {detail.decision.decidedBy} ({reviewerRoleLabel(detail.decision.decidedByRole)}) · {date(detail.decision.decidedAt)}</p>{detail.decision.note ? <p>{detail.decision.note}</p> : null}</div>{detail.decision.appliedPatch ? <section aria-label="Approved changes"><h4>Applied changes</h4>{detail.payload.kind === "update-format" && detail.decision.appliedPatch.kind === "update-format" ? <RowDiff title="Original proposal → approved format" before={detail.payload.rows} after={detail.decision.appliedPatch.rows} /> : <PatchSummary patch={detail.decision.appliedPatch} detail={detail} />}</section> : null}</> : <>
-            <p className="offline-notice" role="status">{detail.mergeable === true ? "This proposal can be approved. Approval checks the latest configuration again." : `Cannot approve: ${detail.mergeable.reason}`}</p>
+            <p className="offline-notice" role="status">{detail.mergeable === true ? "This proposal can be approved. Approval checks the latest configuration again."
+              : canApprove ? "This proposal can be approved with your changes. Approval checks the latest configuration again."
+              : `Cannot approve: ${detail.mergeable.reason}${zoneFixable ? " Use Edit before approval to choose or name a zone." : ""}`}</p>
             <button type="button" className="secondary-command" disabled={deciding} onClick={() => { setEditing(value => !value); setDraft(structuredClone(detail.payload)); setDecisionError(""); }}>{editing ? "Discard edits" : "Edit before approval"}</button>
             {editing && draft ? <fieldset className="proposal-editor" disabled={deciding}><legend>Edit approval</legend>{draft.kind === "add-location" ? <>
               <label>Location name<input ref={locationInput} aria-invalid={invalidApprovalField === "location"} aria-describedby={invalidApprovalField === "location" && decisionError ? "proposal-decision-error" : undefined} name="locationName" autoComplete="off" maxLength={300} value={draft.displayName} onChange={event => setDraft({ ...draft, displayName: event.target.value })} /></label>
@@ -186,7 +196,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
             {changed && draft?.kind === "update-format" && detail.payload.kind === "update-format" ? <RowDiff title="Original proposal → your edits" before={detail.payload.rows} after={draft.rows} /> : null}
             <label>Note (required to reject, optional to approve)<textarea ref={noteInput} name="reviewNote" autoComplete="off" maxLength={500} value={note} disabled={deciding} aria-invalid={Boolean(decisionError) && !invalidApprovalField} aria-describedby={decisionError && !invalidApprovalField ? "proposal-decision-error" : undefined} onChange={event => setNote(event.target.value)} /></label>
             {decisionError ? <p id="proposal-decision-error" className="form-message" role="alert">{decisionError}</p> : null}
-            <div className="proposal-actions"><button type="button" disabled={deciding || detail.mergeable !== true} onClick={() => void decide("approved")}>{deciding ? "Saving…" : changed ? "Approve with changes" : "Approve"}</button><button type="button" className="secondary-command" disabled={deciding} onClick={() => void decide("rejected")}>Reject</button></div>
+            <div className="proposal-actions"><button type="button" disabled={deciding || !canApprove} onClick={() => void decide("approved")}>{deciding ? "Saving…" : changed ? "Approve with changes" : "Approve"}</button><button type="button" className="secondary-command" disabled={deciding} onClick={() => void decide("rejected")}>Reject</button></div>
           </>}
         </section> : null}
       </section>

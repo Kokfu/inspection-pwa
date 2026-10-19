@@ -220,3 +220,30 @@ test("status tabs show server counts and support keyboard navigation", async ({ 
   await page.getByRole("tab", { name: "Withdrawn (0)", exact: true }).press("Home");
   await expect(pending).toHaveAttribute("aria-selected", "true");
 });
+
+const staleZone = { kind: "add-location", locationKey: "room-z", displayName: "Zone-stale room", zoneKey: "gone", newZone: null };
+test("a zone-stale proposal becomes approvable once the reviewer picks a live zone", async ({ page }) => {
+  const { writes } = await api(page, [proposal({ systemKey: "co2_fire_extinguisher", systemDisplayName: "CO2", payload: staleZone })], { mergeable: { reason: "The selected zone no longer exists." } });
+  await enter(page); await open(page);
+  await expect(review(page)).toContainText("Cannot approve: The selected zone no longer exists.");
+  await expect(review(page)).toContainText("Use Edit before approval to choose or name a zone.");
+  await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Edit before approval" }).click();
+  // Still the stale zone: nothing has changed that could fix it.
+  await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
+  await page.getByRole("combobox", { name: "Zone", exact: true }).selectOption("south");
+  await expect(review(page)).toContainText("can be approved with your changes");
+  await page.getByRole("button", { name: "Approve with changes" }).click();
+  await expect(review(page)).toContainText("Approved with changes by Reviewer");
+  expect(writes[0].appliedPatch).toMatchObject({ locationKey: "room-z", zoneKey: "south", newZone: null });
+});
+
+test("editing cannot override a refusal that has nothing to do with the zone", async ({ page }) => {
+  const { writes } = await api(page, [proposal({ systemKey: "co2_fire_extinguisher", systemDisplayName: "CO2", payload: { ...staleZone, zoneKey: "north" } })], { mergeable: { reason: "A location with this key already exists." } });
+  await enter(page); await open(page);
+  await page.getByRole("button", { name: "Edit before approval" }).click();
+  await page.getByRole("combobox", { name: "Zone", exact: true }).selectOption("south");
+  await expect(page.getByRole("button", { name: "Approve with changes" })).toBeDisabled();
+  await expect(review(page)).toContainText("Cannot approve: A location with this key already exists.");
+  expect(writes).toHaveLength(0);
+});

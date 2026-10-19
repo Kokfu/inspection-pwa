@@ -102,3 +102,16 @@ cd C:\PWA_OfflineRecordWebApp
 Local full output: `docs/testing/artifacts/w2/final-gates.log` (ignored log). Browser screenshots: `apps/web/test-results/w2/` (ignored, replaced on rerun). The W2 runner invokes the W0 runner unchanged, then 16 focused units and the explicit combined Playwright suite, then `git diff --check` and status. All integration suites run serially on the disposable database.
 
 SAFE FOR SOL RE-REVIEW: **Y**, with the pre-existing protected-file qualification explicitly handed to Sol. Independent review and owner Level 3 acceptance remain separate checkpoints. Stop before staging.
+
+## Phone retest, 20 October 2026 (build 20261019T160949Z, CPH2375 over adb + local proxy)
+
+Performed on a physical phone: submit online, withdraw, revise and resubmit, offline submit, reconnect sync (one server record), force-close and cold reopen while offline, discard before sync, reject note read-back, approve with changes (database shows original payload, applied patch and a new configuration revision), diff view. Reviewer screens were exercised in the in-app browser at 360 and 1280 widths. Browser pane fixtures were not used for these.
+
+| Finding | Priority | Fix (this commit) |
+|---|---|---|
+| Revision text typed on the phone was lost when the screen remounted on a connectivity change | P2 | Revision edits are saved on this device as they are typed (`editRevision`) |
+| Approve stayed disabled after the reviewer picked a live zone for a zone-stale proposal | P2 | Approve is enabled when the refusal is about the zone and the edited zone is usable; other refusals stay blocked; the server still re-checks |
+| Withdrawn card said "Technician note: No note provided." | P3 | Shows "You withdrew this request." |
+| Technician saw the original name for "Approved with changes" | P3 | Shows "Approved as: <applied name> in <zone>" |
+
+Not fixed, noted: the add-location screen also resets its system picker on a remount (the saved draft is kept); the revision panel has extra blank space above its heading; one first online submit took about a minute from claim to request and did not repeat. Test data left on the "28/9/2026 All Services" customer: FM200 location "Retest Approve Room (edited)" in zone "Retest Zone".

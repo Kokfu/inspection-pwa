@@ -208,6 +208,13 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
 }
 
 
+/** What the reviewer actually approved, when it differs from what was submitted. */
+function appliedPatchSummary(patch: LocationProposal["payload"], zones: ReadonlyArray<{ key: string; displayName: string }>) {
+  if (patch.kind === "update-format") return `${patch.rows.length} ${patch.rows.length === 1 ? "row" : "rows"} (changed by the reviewer)`;
+  const zone = patch.newZone?.displayName ?? zones.find((candidate) => candidate.key === patch.zoneKey)?.displayName;
+  return zone ? `${patch.displayName} in ${zone}` : patch.displayName;
+}
+
 function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
   job: InspectionJob; actorUserId: number; canUseServer: boolean; onDiscard: (id: string) => void;
 }) {
@@ -278,6 +285,14 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
     catch (reason) { setError(reason instanceof Error ? reason.message : "Request could not be updated."); }
     finally { setBusy(false); }
   }
+  /** Typing a revision is local data entry: keep it on this device as it happens, like the main form does,
+   *  so a screen refresh or connection change cannot lose it. */
+  function editRevision(change: (current: TechnicianLocationProposalDraft) => TechnicianLocationProposalDraft) {
+    if (!revision) return;
+    const next = change(revision);
+    setRevision(next);
+    void saveTechnicianLocationProposalDraft(next).catch((reason) => setError(reason instanceof Error ? reason.message : "Revision could not be saved on this device."));
+  }
   async function revise(proposal: LocationProposal) {
     const next = reviseTechnicianLocationProposal({ ...proposal, patch: proposal.payload });
     await saveTechnicianLocationProposalDraft(next);
@@ -299,7 +314,9 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
         <span className={`proposal-status proposal-status-${proposal.status}`}>{proposal.status === "approved" ? proposal.edited ? "Approved with changes" : "Approved" : proposal.status === "pending" ? "Pending review" : proposal.status === "rejected" ? "Rejected" : "Withdrawn"}</span>
         <dl className="job-facts"><div><dt>Submitted</dt><dd>{new Date(proposal.submittedAt).toLocaleString()}</dd></div>
           <div><dt>Visit</dt><dd>{proposal.jobReference ?? (job.reference ? <VisitReference job={job} /> : "This visit")}</dd></div></dl>
-        {proposal.decision ? <p><strong>{reviewerRoleLabel(proposal.decision.decidedByRole)} note: </strong>{proposal.decision.note || "No note provided."}</p> : null}
+        {proposal.status === "withdrawn" ? <p>You withdrew this request.</p>
+          : proposal.decision ? <p><strong>{reviewerRoleLabel(proposal.decision.decidedByRole)} note: </strong>{proposal.decision.note || "No note provided."}</p> : null}
+        {proposal.status === "approved" && proposal.decision?.appliedPatch ? <p><strong>Approved as: </strong>{appliedPatchSummary(proposal.decision.appliedPatch, job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === proposal.systemKey)?.zones ?? [])}</p> : null}
         <div className="inline-actions">
           {proposal.status === "pending" ? <button type="button" className="secondary-command" disabled={busy || !authoritative} onClick={() => void act(async () => {
             const requestId = await locationProposalWithdrawalRequestId({ id: proposal.id, jobId: proposal.jobId,
@@ -333,17 +350,17 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
       <h4>Revise and resubmit</h4><p>Your original request stays unchanged. This revision has a new request reference.</p>
       {revision.patch.kind === "add-location" ? <>
         <label>Location name<input maxLength={300} value={revision.patch.displayName} onChange={(e) => {
-          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, displayName: value } } : r);
+          const value = e.target.value; editRevision((r) => r.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, displayName: value } } : r);
         }} /></label>
         {revision.patch.newZone ? <label>Zone name<input maxLength={300} value={revision.patch.newZone.displayName} onChange={(e) => {
-          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" && r.patch.newZone ? { ...r, patch: { ...r.patch, newZone: { ...r.patch.newZone, displayName: value } } } : r);
+          const value = e.target.value; editRevision((r) => r.patch.kind === "add-location" && r.patch.newZone ? { ...r, patch: { ...r.patch, newZone: { ...r.patch.newZone, displayName: value } } } : r);
       }} /></label> : <label>Zone<select value={revision.patch.zoneKey ?? ""} onChange={(e) => {
-          const value = e.target.value; setRevision((r) => r?.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, zoneKey: value } } : r);
+          const value = e.target.value; editRevision((r) => r.patch.kind === "add-location" ? { ...r, patch: { ...r.patch, zoneKey: value } } : r);
         }}><option value="">Select a zone…</option>{job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === revision.systemKey)?.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}</select></label>}
       </> : revision.patch.rows.map((row, index) => <fieldset key={index}><legend>Row {index + 1}</legend>{Object.entries(row).map(([key, value]) => <label key={key}>{key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}{key === "drumType" ? <select name={`revision-${index}-${key}`} value={value} onChange={(e) => {
-        const text = e.target.value; setRevision((r) => r?.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
+        const text = e.target.value; editRevision((r) => r.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
       }}><option value="">Not specified</option><option value="swing">Swing</option><option value="fixed">Fixed</option></select> : <input name={`revision-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" || key === "zoneText" ? 200 : revision.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={(e) => {
-        const text = e.target.value; setRevision((r) => r?.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
+        const text = e.target.value; editRevision((r) => r.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
       }} />}</label>)}</fieldset>)}
       <div className="inline-actions proposal-actions">
         <button type="button" className="secondary-command" disabled={busy} onClick={() => void act(async () => { await saveTechnicianLocationProposalDraft(revision); setNotice("Revision saved on this device."); })}>Save Draft</button>
