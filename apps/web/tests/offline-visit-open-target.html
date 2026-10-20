@@ -41,12 +41,19 @@
             const r = await open(ids[i], true, () => { lookups += 1; return unreachable(); });
             check(`sprinkler: verified + ${statuses[i]} local visit opens locally with no server lookup`, r.kind === "local" && created === 1 && lookups === 0, JSON.stringify(r));
           }
-          // Confirmed (Synced) visit and a job that is not a local visit: unchanged, fail closed with the network error, no blind draft.
+          // OA-3: a confirmed (Synced) visit or a non-local job with an unreachable server needs a recent server confirmation, like every other system; no blind draft.
+          const openWith = (id, find, confirmed) => { created = 0; return resolveAutomaticSprinklerOpenTarget({ id, status: "open" }, system, {}, user, true, find, create, undefined, async () => confirmed); };
           for (const [label, id] of [["Synced visit", ids[4]], ["non-local job", ids[5]]]) {
+            const refused = await openWith(id, unreachable, false);
+            check(`sprinkler: verified + ${label} + unreachable server + no recent confirmation is refused`, refused.kind === "not-cached" && created === 0, JSON.stringify(refused));
+            const prepared = await openWith(id, unreachable, true);
+            check(`sprinkler: verified + ${label} + unreachable server + recent confirmation opens locally`, prepared.kind === "local" && created === 1, JSON.stringify(prepared));
             let message = "";
-            try { await open(id, true); } catch (error) { message = String(error); }
-            check(`sprinkler: verified + ${label} + unreachable server still fails closed`, message.includes("Failed to fetch") && created === 0, message);
+            try { await openWith(id, () => Promise.reject(new Error("Server inspection listing failed: 500")), true); } catch (error) { message = String(error); }
+            check(`sprinkler: verified + ${label} + a deliberate server error still fails closed`, message.includes("500") && created === 0, message);
           }
+          const offlineUnverified = await resolveAutomaticSprinklerOpenTarget({ id: ids[5], status: "open" }, system, {}, user, false, unreachable, create, undefined, async () => false);
+          check("sprinkler: offline-unverified + never-opened + no recent confirmation is refused", offlineUnverified.kind === "not-cached", JSON.stringify(offlineUnverified));
           const found = await open(ids[4], true, () => Promise.resolve({ clientUuid: "server-uuid" }));
           check("sprinkler: Synced visit uses the server lookup again", found.kind === "server" && found.clientUuid === "server-uuid", JSON.stringify(found));
 

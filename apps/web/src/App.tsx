@@ -217,11 +217,13 @@ import { announceSyncFinished } from "./sync/syncEvents";
 import { headerSyncSummary } from "./sync/headerSyncSummary";
 import { useLocationProposalOutboxStatuses, useTechnicianCustomerOutboxStatuses } from "./sync/useLocationProposalOutboxStatuses";
 import { useRepairVisitSyncStatuses } from "./sync/useRepairVisitSyncStatuses";
-import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
+import { hasLocalSystemWork, isServerAskable, listOfflineReadyJobIds, offlineNewStartRefusal, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
 import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
 import { offlineReadinessLabel, useOfflineReadiness } from "./pwa/offlineReadiness";
 import { headerConnectionChip, useBrowserOnline } from "./pwa/browserOnline";
 import { useServerUnreachable } from "./jobs/serverHealth";
+import { isServerUnreachable, serverRecentlyUnreachable } from "./jobs/serverReachability";
+import { createQuietPreparer } from "./jobs/quietOfflinePreparation";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
 import { OtherTabsNotice } from "./pwa/OtherTabsNotice";
@@ -1219,6 +1221,24 @@ export function App() {
     document.addEventListener("visibilitychange", onVisible);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [canUseServer, databaseReady, currentUser?.id]);
+  // OA-3: keep "prepared for offline" fresh while the app stays open and online. Rewrites only the confirmation records.
+  const quietPrepareLatest = useRef({ eligible: false, jobs: [] as InspectionJob[] });
+  quietPrepareLatest.current = { eligible: canUseServer && currentUser?.role === "inspector" && databaseReady && navigator.onLine !== false, jobs };
+  const quietPreparer = useRef<ReturnType<typeof createQuietPreparer<InspectionJob, { jobId: string; systemKey: string }>> | undefined>(undefined);
+  quietPreparer.current ??= createQuietPreparer<InspectionJob, { jobId: string; systemKey: string }>({
+    isEligible: () => quietPrepareLatest.current.eligible,
+    getJobs: () => quietPrepareLatest.current.jobs,
+    load: (jobIds) => loadServerMasterSystemInspections(jobIds),
+    record: async (preparedJobs, summaries) => { await recordOfflineStartConfirmations(preparedJobs, summaries); setOfflineReadyRefresh((value) => value + 1); }
+  });
+  useEffect(() => {
+    if (!canUseServer || !databaseReady) return;
+    void quietPreparer.current?.();
+    const tick = () => { if (document.visibilityState === "visible") void quietPreparer.current?.(); };
+    const timer = window.setInterval(tick, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
+  }, [canUseServer, databaseReady, currentUser?.id, jobs.length]);
   // I-07: local photo retention. Local-only (no server needed), at most once per day per workspace, after the
   // app has settled so it never competes with opening a form; the pass re-validates inside one transaction.
   useEffect(() => {
@@ -1734,16 +1754,28 @@ export function App() {
     await refreshInspectionAttachments();
   }
 
+  // OA-3: "verified" alone does not mean reachable; the browser flag and the health probe cover a mid-session drop.
+  const serverAskableNow = () => isServerAskable({ verified: canUseServer, browserOnline: navigator.onLine !== false, healthUnreachable: serverUnreachable, recentlyUnreachable: serverRecentlyUnreachable() });
+
   async function handleOpenHoseReel(job: InspectionJob, system: JobSystemSnapshot) {
     const finishLocalWork = beginWorkspaceActivity();
     try {
 
     try {
+      let hoseReelServerAskable = serverAskableNow();
       if (authState.status === "verified" && !await isUnconfirmedLocalVisit(job.id)) {
-        const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
-        if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
+        try {
+          const accepted = await findServerMasterSystemInspection(job.id, "hose_reel");
+          if (accepted) { navigate({ name: "inspection", clientUuid: accepted.clientUuid }); return; }
+        } catch (error) {
+          // An unreachable server (Wi-Fi up, API down) must not block local work; only a deliberate answer fails closed (OA-3).
+          if (!isServerUnreachable(error)) throw error;
+          hoseReelServerAskable = false;
+        }
       }
       if (job.status === "closed") throw new Error("This service visit is complete and read-only. Reconnect to view the completed inspection.");
+      const hoseReelRefusal = await offlineNewStartRefusal({ jobId: job.id, systemKey: system.systemKey, hasLocalWork: await hasLocalSystemWork(job.id, system.systemKey), serverAskable: hoseReelServerAskable });
+      if (hoseReelRefusal) throw new Error(hoseReelRefusal);
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("Hose Reel reference data is not cached yet. Refresh jobs online first.");
       const record = await getOrCreateHoseReelInspection(job, system, catalog, inspectionCreatorUser(currentUser));
@@ -1767,6 +1799,8 @@ export function App() {
         navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
         return;
       }
+      const startRefusal = await offlineNewStartRefusal({ jobId: job.id, systemKey: system.systemKey, hasLocalWork: await hasLocalSystemWork(job.id, system.systemKey), serverAskable: serverAskableNow() });
+      if (startRefusal) throw new Error(startRefusal);
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("CO2 reference data is not cached yet. Refresh jobs online first.");
       await initializeCo2InspectionGroup(job, system, catalog, inspectionCreatorUser(currentUser));
@@ -1789,6 +1823,8 @@ export function App() {
         navigate({ name: "system", jobId: job.id, systemKey: system.systemKey });
         return;
       }
+      const startRefusal = await offlineNewStartRefusal({ jobId: job.id, systemKey: system.systemKey, hasLocalWork: await hasLocalSystemWork(job.id, system.systemKey), serverAskable: serverAskableNow() });
+      if (startRefusal) throw new Error(startRefusal);
       const catalog = await getCachedInspectionCatalog();
       if (!catalog) throw new Error("FM200 reference data is not cached yet. Refresh jobs online first.");
       await initializeFm200InspectionGroup(job, system, catalog, inspectionCreatorUser(currentUser));
@@ -1821,6 +1857,7 @@ export function App() {
         navigate({ name: "sprinkler-form", clientUuid: target.clientUuid });
         return;
       }
+      if (target.kind === "not-cached") throw new Error(target.message);
       if (job.status === "closed") throw new Error("Completed jobs cannot create a new Automatic Sprinkler Draft");
       setServerAcceptedAutomaticSprinklerUuid(undefined);
       setActiveAutomaticSprinkler(target.record);

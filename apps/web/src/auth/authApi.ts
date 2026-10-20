@@ -26,6 +26,16 @@ export type AuthProbeResult =
 
 export const authVerificationTimeoutMs = 5_000;
 
+/** Fail closed on a malformed identity (OA-13): only a positive integer id, a bounded username and a known role count as a user. */
+export function parseAuthUser(value: unknown): AuthUser | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { id, username, role } = value as Record<string, unknown>;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) return undefined;
+  if (typeof username !== "string" || username.length < 1 || username.length > 128 || username.trim() !== username) return undefined;
+  if (role !== "admin" && role !== "inspector" && role !== "supervisor") return undefined;
+  return { id, username, role };
+}
+
 async function fetchWithAuthTimeout(
   path: string,
   options: RequestInit,
@@ -66,9 +76,10 @@ export async function getCurrentUser(timeoutMs = authVerificationTimeoutMs) {
   }
 
   try {
-    const data = (await response.json()) as { user?: AuthUser };
-    return data.user
-      ? { status: "authenticated", user: data.user } as const
+    const data = (await response.json()) as { user?: unknown } | null;
+    const user = parseAuthUser(data?.user);
+    return user
+      ? { status: "authenticated", user } as const
       : { status: "unavailable" } as const;
   } catch {
     // An HTTP response existed, so malformed JSON is a server-response failure,
@@ -100,8 +111,9 @@ export async function login(username: string, password: string) {
     throw new Error("Invalid username or password");
   }
 
-  const data = (await response.json()) as { user: AuthUser };
-  return data.user;
+  const user = parseAuthUser(((await response.json()) as { user?: unknown } | null)?.user);
+  if (!user) throw new Error("Login is currently unavailable");
+  return user;
 }
 
 export async function logout() {

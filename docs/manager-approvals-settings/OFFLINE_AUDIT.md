@@ -149,6 +149,8 @@ AGENTS.md defines completion consequences for P0/P1/P2 but does not supply a det
 
 ### OA-3 — P2 — I-02 A1 is inconsistent across systems and connectivity states
 
+> **Owner decision 2026-10-20 (D18): gate all 12 systems with one rule; built and phone-checked.** See PROGRESS_STATUS.md D18.
+
 - **Technician impact/status:** with cached job/catalog but no fresh confirmation, some never-opened systems start while others refuse; the job-wide badge cannot predict each system. Hose Reel can also fail its pre-open lookup while Wi-Fi is up even with a local draft, whereas offline-unverified bypasses that lookup. Sprinkler's no-local verified lookup does not use A1 fallback.
 - **Evidence:** gates in `hydrant/hydrantResolution.ts:141`, `dryWetRiser/dryWetRiserResolution.ts:29`, `fireAlarm/fireAlarmResolution.ts:44`, `smokeVentilation/smokeVentilationResolution.ts:141`, `fireIntercom/fireIntercomResolution.ts:141`, `fireRatedRollerShutter/fireRatedRollerShutterResolution.ts:141` (all under `apps/web/src/`); Portable adds a seventh at `portableFireExtinguisher/portableFireExtinguisher.ts:26`. Non-gated Hose Reel/CO2/Wet Chemical/FM200 dispatch is `apps/web/src/App.tsx:1725-1783`; Sprinkler `automaticSprinkler/automaticSprinklerResolution.ts:68-108`. `apps/web/tests/offlineStartRule.test.ts:32` explicitly lists seven gated modules. Phone:359 lists seven gated and five non-gated, contrary to the prompt's five/six split.
 - **Offline Contract:** **Yes for data-entry restrictions**, although owner A1 policy explicitly accepts online preparation (Phone:353). Do not silently replace that policy or weaken duplicate/accepted authority checks.

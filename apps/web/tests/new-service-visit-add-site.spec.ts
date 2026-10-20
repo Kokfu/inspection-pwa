@@ -244,3 +244,12 @@ test("inline Add New Customer refuses a response without the request receipt and
   }
   expect(posts[0].requestId).toBe(posts[1].requestId);
 });
+
+test("offline, + Add New Customer opens the standalone Add Customer page instead of refusing (OA-5)", async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(page.getByText(/opens the Add Customer page/)).toBeVisible();
+  await page.getByRole("button", { name: "+ Add New Customer", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.location.hash)).toBe("#/technician-add-customer");
+  await expect(page.getByLabel("Customer Name", { exact: true })).toHaveCount(0); // no inline form, no server-only create
+});

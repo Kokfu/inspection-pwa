@@ -77,3 +77,32 @@ export async function listOfflineReadyJobIds(jobIds: ReadonlyArray<string>, nowM
 export function jobReadyForOffline(confirmation: OfflineStartConfirmation | undefined, nowMs: number = Date.now()) {
   return offlineStartAllowed(confirmation, "", nowMs);
 }
+
+/** Wording shown when a never-opened system is refused offline (OA-3); the same for every system. */
+export const OFFLINE_START_REFUSAL_MESSAGE = "This system cannot be started offline yet: the server has not confirmed this service visit in the last 3 days. Connect to the server once, then try again.";
+
+/**
+ * One rule for every system (OA-3). A never-opened system may be started when the server cannot be asked only if the job
+ * was recently confirmed and had nothing accepted for that system. Existing local work is never blocked, and when the
+ * server can be asked the caller keeps its normal online check. Returns the refusal message, or undefined when allowed.
+ */
+export async function offlineNewStartRefusal(
+  input: { jobId: string; systemKey: string; hasLocalWork: boolean; serverAskable: boolean },
+  confirmed: (jobId: string, systemKey: string) => Promise<boolean> = isOfflineStartConfirmed
+): Promise<string | undefined> {
+  if (input.hasLocalWork || input.serverAskable) return undefined;
+  return await confirmed(input.jobId, input.systemKey) ? undefined : OFFLINE_START_REFUSAL_MESSAGE;
+}
+
+/** True when this device already holds an inspection record or location group for the job's system (jobSystemKey = groupKey = `${jobId}:${systemKey}`). */
+export async function hasLocalSystemWork(jobId: string, systemKey: string): Promise<boolean> {
+  const key = `${jobId}:${systemKey}`;
+  try {
+    return Boolean(await localDatabase.masterSystemInspections.where("jobSystemKey").equals(key).first() || await localDatabase.masterSystemInspectionGroups.get(key));
+  } catch { return true; } // unreadable device data must not be treated as "nothing there": the repository decides
+}
+
+/** Can the server be asked right now? A "verified" session alone is not enough: it stays verified for a while after the connection drops (OA-3). */
+export function isServerAskable(state: { verified: boolean; browserOnline: boolean; healthUnreachable: boolean; recentlyUnreachable: boolean }): boolean {
+  return state.verified && state.browserOnline && !state.healthUnreachable && !state.recentlyUnreachable;
+}

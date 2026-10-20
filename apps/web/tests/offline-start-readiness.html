@@ -6,7 +6,7 @@
     <pre id="result">Ready</pre>
     <script type="module">
       import { localDatabase } from "/src/db/localDatabase.ts";
-      import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "/src/jobs/offlineStartReadiness.ts";
+      import { hasLocalSystemWork, listOfflineReadyJobIds, offlineNewStartRefusal, recordOfflineStartConfirmations } from "/src/jobs/offlineStartReadiness.ts";
       import { resolveDryWetRiserOpenTarget } from "/src/dryWetRiser/dryWetRiserResolution.ts";
       import { resolveFireAlarmOpenTarget } from "/src/fireAlarm/fireAlarmResolution.ts";
       import { resolveHydrantOpenTarget } from "/src/hydrant/hydrantResolution.ts";
@@ -77,6 +77,28 @@
           await localDatabase.drafts.put({ id: `offline-start:${never.id}`, entityType: "offlineStartConfirmation", updatedAt: new Date().toISOString(), payload: { jobId: "other", confirmedAt: "nonsense", acceptedSystemKeys: "x" } });
           const bad = await listOfflineReadyJobIds([never.id]);
           check("malformed confirmation is ignored", !bad.has(never.id));
+
+          // OA-3: the same gate for the five systems that used to start offline unchecked (real IndexedDB).
+          const oa3 = mkJob(8);
+          const group = `${oa3.id}:co2_fire_extinguisher`;
+          await localDatabase.masterSystemInspectionGroups.delete(group);
+          await localDatabase.masterSystemInspections.where("jobSystemKey").equals(`${oa3.id}:hose_reel`).delete();
+          await localDatabase.drafts.where("entityType").equals("offlineStartConfirmation").delete();
+          for (const key of ["hose_reel", "co2_fire_extinguisher", "wet_chemical", "fm200_fire_suppression", "automatic_sprinkler"]) {
+            await localDatabase.drafts.where("entityType").equals("offlineStartConfirmation").delete();
+            const ask = () => offlineNewStartRefusal({ jobId: oa3.id, systemKey: key, hasLocalWork: false, serverAskable: false });
+            check(`OA-3 ${key}: never-opened + unreachable + never confirmed is refused`, typeof await ask() === "string");
+            await recordOfflineStartConfirmations([oa3], [], days(1));
+            check(`OA-3 ${key}: confirmed 1 day ago starts`, (await ask()) === undefined);
+            await recordOfflineStartConfirmations([oa3], [], days(4));
+            check(`OA-3 ${key}: confirmed 4 days ago is refused`, typeof await ask() === "string");
+            await recordOfflineStartConfirmations([oa3], [{ jobId: oa3.id, systemKey: key }], days(0));
+            check(`OA-3 ${key}: confirmed but already accepted on the server is refused`, typeof await ask() === "string");
+          }
+          check("OA-3: hasLocalWork is false with nothing stored", (await hasLocalSystemWork(oa3.id, "co2_fire_extinguisher")) === false);
+          await localDatabase.masterSystemInspectionGroups.put({ groupKey: group, jobId: oa3.id, systemKey: "co2_fire_extinguisher", localUpdatedAt: new Date().toISOString() });
+          check("OA-3: an existing location group counts as local work, so it still opens when stale", (await hasLocalSystemWork(oa3.id, "co2_fire_extinguisher")) === true);
+          await localDatabase.masterSystemInspectionGroups.delete(group);
 
           await localDatabase.drafts.where("entityType").equals("offlineStartConfirmation").delete();
           result.textContent = JSON.stringify({ status: checks.every((item) => item.passed) ? "PASS" : "FAIL", checks }, null, 2);

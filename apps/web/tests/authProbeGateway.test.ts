@@ -35,3 +35,18 @@ test("I-13: a deliberate server answer still fails closed", async () => {
 test("I-13: no cached identity and an unreachable server is still online-unavailable (nothing to restore)", async () => {
   assert.equal(decideAuthRestoration(undefined, await probe(502)).kind, "online-unavailable");
 });
+
+test("OA-13: a 200 response without a well-formed identity is unavailable, never authenticated", async () => {
+  const user = (value: unknown) => JSON.stringify({ user: value });
+  for (const bad of [{}, { id: 1 }, { id: "1", username: "a", role: "admin" }, { id: 0, username: "a", role: "admin" }, { id: 1.5, username: "a", role: "admin" },
+    { id: 1, username: "", role: "admin" }, { id: 1, username: " a", role: "admin" }, { id: 1, username: "a", role: "owner" }, { id: 1, username: "a" }, [], null, "x"]) {
+    assert.equal((await probe(200, user(bad))).status, "unavailable", JSON.stringify(bad));
+  }
+  assert.equal((await probe(200, "null")).status, "unavailable");
+  assert.equal((await probe(200, "{}")).status, "unavailable");
+});
+
+test("OA-13: a valid identity is returned with only id, username and role", async () => {
+  const result = await probe(200, JSON.stringify({ user: { id: 7, username: "tech", role: "inspector", extra: "x" } }));
+  assert.deepEqual(result, { status: "authenticated", user: { id: 7, username: "tech", role: "inspector" } });
+});

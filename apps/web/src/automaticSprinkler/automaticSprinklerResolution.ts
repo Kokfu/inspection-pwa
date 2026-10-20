@@ -2,6 +2,7 @@ import { inspectionCreatorUser, type AuthUser } from "../auth/authApi";
 import { localDatabase } from "../db/localDatabase";
 import type { InspectionJob, JobSystemSnapshot } from "../jobs/jobTypes";
 import { isUnconfirmedLocalVisit } from "../jobs/offlineServiceVisitStore";
+import { isOfflineStartConfirmed, OFFLINE_START_REFUSAL_MESSAGE } from "../jobs/offlineStartReadiness";
 import { isServerUnreachable } from "../jobs/serverReachability";
 import type { InspectionCatalog } from "../referenceData/referenceDataTypes";
 import { findServerMasterSystemInspection } from "../hoseReel/serverMasterSystemInspectionApi";
@@ -63,7 +64,9 @@ export async function resolveAutomaticSprinklerRoute(
 
 export type SprinklerOpenTarget =
   | { kind: "local"; record: AutomaticSprinklerInspectionRecord }
-  | { kind: "server"; clientUuid: string };
+  | { kind: "server"; clientUuid: string }
+  // OA-3: never-opened, the server cannot be asked and the job was not confirmed recently.
+  | { kind: "not-cached"; message: string };
 
 export async function resolveAutomaticSprinklerOpenTarget(
   job: InspectionJob,
@@ -73,7 +76,8 @@ export async function resolveAutomaticSprinklerOpenTarget(
   verified: boolean,
   findServer = findServerMasterSystemInspection,
   createLocal = getOrCreateAutomaticSprinklerInspection,
-  isUnconfirmedVisit = isUnconfirmedLocalVisit
+  isUnconfirmedVisit = isUnconfirmedLocalVisit,
+  offlineStartConfirmed = isOfflineStartConfirmed
 ): Promise<SprinklerOpenTarget> {
   // A visit created on this device and not yet confirmed cannot have a server inspection: work from the device, no lookup.
   if (verified && await isUnconfirmedVisit(job.id)) verified = false;
@@ -94,12 +98,19 @@ export async function resolveAutomaticSprinklerOpenTarget(
   if (local?.systemKey === "automatic_sprinkler") {
     return { kind: "local", record: local };
   }
-  // With no local record and an unreachable server the original network error propagates: a new draft
-  // must not be created blindly because the inspection may already be accepted elsewhere.
+  // A new draft must not be created blindly because the inspection may already be accepted elsewhere. Unreachable
+  // or unverified, it needs a recent server confirmation, exactly like every other system (OA-3).
+  let serverUnreachable = false;
   if (verified) {
-    const server = await findServer(job.id, system.systemKey);
-    if (server) return { kind: "server", clientUuid: server.clientUuid };
+    try {
+      const server = await findServer(job.id, system.systemKey);
+      if (server) return { kind: "server", clientUuid: server.clientUuid };
+    } catch (error) {
+      if (!isServerUnreachable(error)) throw error;
+      serverUnreachable = true;
+    }
   }
+  if ((!verified || serverUnreachable) && !await offlineStartConfirmed(job.id, system.systemKey)) return { kind: "not-cached", message: OFFLINE_START_REFUSAL_MESSAGE };
   return {
     kind: "local",
     record: await createLocal(job, system, catalog, inspectionCreatorUser(user))

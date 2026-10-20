@@ -5,7 +5,7 @@ import { RepairFieldPicker } from "./RepairFieldPicker";
 import { RepairItemCard, type ItemRegistry } from "./RepairItemCard";
 import { fetchFinalReport, RepairVisitApiError, sendDelete } from "./repairVisitApi";
 import { loadCatalog } from "./repairVisitOffline";
-import { identityKey, isEditable, isUnstarted, presentRepairVisit, submitReadiness, visitNumberText } from "./repairVisitPresentation";
+import { identityKey, isEditable, isUnstarted, presentRepairVisit, submitReadiness, visibleActionNotice, visitNumberText } from "./repairVisitPresentation";
 import { refreshRepairVisitsFromServer } from "./repairVisitRefresh";
 import {
   addItem, discardRefusedRepairVisit, prepareDeleteRepairVisit, removeLocalVisitConfirmedDeleted, reopenForEdit, requeueRepairVisit, submitRepairVisitLocal
@@ -21,6 +21,7 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
   const connected = canUseServer && browserConnected;
   const [attempted, setAttempted] = useState(false);
   const [notice, setNotice] = useState("");
+  const [deliveryNotice, setDeliveryNotice] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshError, setRefreshError] = useState("");
@@ -51,13 +52,14 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
   const canDelete = visit.origin !== "server" && visit.status === "draft" && !visit.frozen && !started;
 
   async function submit() {
-    setNotice(""); setError(""); setAttempted(true);
+    setNotice(""); setDeliveryNotice(false); setError(""); setAttempted(true);
     setBusy(true);
     try {
       await Promise.all([...flushers.current.values()].map(flush => flush()));
       await submitRepairVisitLocal(visitUuid);
       setAttempted(false);
       setNotice(connected ? "Submitted. Sending to the server…" : "Submitted on this device. It will be sent when you are connected.");
+      setDeliveryNotice(true);
       if (canUseServer) void onSync().catch(() => undefined);
     } catch (caught) {
       setError(text(caught, "The repair visit could not be submitted."));
@@ -73,7 +75,7 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
   }
   async function reopen() {
     setError("");
-    try { await reopenForEdit(visitUuid); setNotice("You can edit this repair visit again. Submit it when it is complete."); }
+    try { await reopenForEdit(visitUuid); setDeliveryNotice(false); setNotice("You can edit this repair visit again. Submit it when it is complete."); }
     catch (caught) { setError(text(caught, "The repair visit could not be reopened.")); }
   }
   async function remove() {
@@ -148,7 +150,7 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
     {state.tone === "pending" || state.tone === "syncing" ? <p className="operational-message" role="status">{state.label === "Syncing" ? "Sending to the server…" : (visit.frozen ? "Submitted and waiting to sync. It will be sent when you are connected." : "Saved on this device. It will be sent when you are connected.")}{state.reason && state.label === "Pending sync" ? ` ${state.reason}` : ""}</p> : null}
     {refreshError ? <p className="operational-message operational-message--warning" role="alert">Could not check the server: {refreshError} What you see is the last known state on this device.</p> : null}
     {!connected ? <p className="offline-notice" role="status">Offline — everything you enter is saved on this device and sent when you reconnect.</p> : null}
-    <p className="rv-help" role="status" aria-live="polite">{notice}</p>
+    <p className="rv-help" role="status" aria-live="polite">{visibleActionNotice(notice, deliveryNotice, state.tone)}</p>
     {error ? <p className="rv-error" role="alert">{error}</p> : null}
 
     <div className="rv-items">

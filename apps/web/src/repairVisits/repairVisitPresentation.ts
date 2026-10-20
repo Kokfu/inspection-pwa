@@ -106,3 +106,8 @@ export function groupCatalog(fields: RepairCatalogField[]): FieldSystem[] {
   }
   return stable(systems, systemUrgent);
 }
+
+/** OA-6: a one-off "Submitted…/will be sent" message describes delivery, so it must disappear once the persisted state is no longer pending/syncing. */
+export function visibleActionNotice(notice: string, isDeliveryNotice: boolean, tone: RepairVisitPresentation["tone"]): string {
+  return isDeliveryNotice && tone !== "pending" && tone !== "syncing" ? "" : notice;
+}

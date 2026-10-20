@@ -14,7 +14,8 @@ import type { InspectionJob } from "./jobTypes";
 import { cacheCustomerSites, createLocalServiceVisit, getCachedCustomerSites, OfflineVisitUnavailableError } from "./offlineServiceVisitLocal";
 import { isServerUnreachable } from "./serverReachability";
 
-export const offlineAddCustomerMessage = "Adding a new customer needs a connection to the server. Connect, then try again.";
+/** Offline, the shortcut opens the standalone Add Customer page, which saves a draft and queues the customer on this device (OA-5). */
+export const offlineAddCustomerRoute = "#/technician-add-customer";
 
 export function serviceAvailabilityMessage({
   customerSelected,
@@ -169,7 +170,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
 
   async function beginAddCustomer() {
     setMessage("");
-    if (offline) { setMessage(offlineAddCustomerMessage); return; }
+    if (offline) { window.location.hash = offlineAddCustomerRoute; return; }
     if (!addingCustomer) setNewCustomerRequestId(crypto.randomUUID());
     setAddingSite(false); setProposedSiteName(""); setProposedSiteAddress("");
     setAddingCustomer(true);
@@ -272,7 +273,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
       <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
       <div className="setup-fields">
         {offline
-          ? <p className="offline-notice" role="status">Offline — this visit is saved on this device with this device's date and time, and gets its SV number when it syncs. Adding a new customer needs a connection.</p>
+          ? <p className="offline-notice" role="status">Offline — this visit is saved on this device with this device's date and time, and gets its SV number when it syncs. Add New Customer opens the Add Customer page, which saves it on this device until you reconnect.</p>
           : <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created. Your arrival time is taken from this device's clock when you tap Create.</p>}
         <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label>
