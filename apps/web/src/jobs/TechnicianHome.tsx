@@ -89,6 +89,7 @@ type TechnicianHomeProps = {
   offlineReadyJobIds?: ReadonlySet<string>;
   loading: boolean;
   message: string;
+  creationConfirmation?: string;
   selectedJobId?: string;
   selectedSystemKey?: string;
   onRefresh: () => Promise<void>;
@@ -130,6 +131,7 @@ export function TechnicianHome({
   offlineReadyJobIds,
   loading,
   message,
+  creationConfirmation,
   selectedJobId,
   selectedSystemKey,
   onRefresh,
@@ -341,6 +343,9 @@ export function TechnicianHome({
     {authState.status === "offline-unverified" ? (
       <p className="offline-notice">Offline — changes are saved on this device. Reconnect for refresh and sync.</p>
     ) : null}
+    <div role="status" aria-live="polite" aria-atomic="true">
+      {creationConfirmation ? <p className="operational-message operational-message--info">{creationConfirmation}</p> : null}
+    </div>
     {operationalMessage ? <p className={`operational-message operational-message--${operationalMessage.tone}`}>
       {operationalMessage.text}
     </p> : null}

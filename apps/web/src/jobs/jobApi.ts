@@ -34,14 +34,20 @@ export async function loadInspectionJobs() {
   return local.length ? [...serverJobs, ...local] : serverJobs;
 }
 
+export class SiteAlreadyExistsError extends Error {
+  constructor(readonly existingSiteId: string) {
+    super("This site already exists — choose it from the list");
+    this.name = "SiteAlreadyExistsError";
+  }
+}
+
 export async function createServiceVisit(input: {
   requestId: string;
   customerId: string;
-  siteId: string;
   systemKeys: string[];
   serviceCallNumber?: string;
   arrivalTime?: string;
-}) {
+} & ({ siteId: string; newSite?: never } | { siteId?: never; newSite: { displayName: string; address?: string } })) {
   const response = await fetch("/api/inspection-jobs/service-visits", {
     method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
@@ -56,6 +62,13 @@ export async function createServiceVisit(input: {
     throw new Error("Connect to the server to create a new service visit.");
   }
   if (!response.ok) {
+    if (response.status === 409 && typeof data === "object" && data !== null && !Array.isArray(data)) {
+      const conflict = data as Record<string, unknown>;
+      if (conflict.error === "SITE_ALREADY_EXISTS" && typeof conflict.existingSiteId === "string"
+        && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conflict.existingSiteId)) {
+        throw new SiteAlreadyExistsError(conflict.existingSiteId);
+      }
+    }
     throw new Error(responseMessage(data, "Service visit could not be created."));
   }
   if (!hasJobId(data)) {

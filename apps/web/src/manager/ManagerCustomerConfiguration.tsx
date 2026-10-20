@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   activateManagerCustomerConfiguration,
   archiveManagerCustomer,
+  archiveManagerCustomerSite,
   createManagerCustomerSite,
   evidencePolicyAssignableSystemKeys,
   loadArchivedManagerCustomers,
@@ -11,6 +12,7 @@ import {
   locationConfigurableSystemKeys,
   ManagerApiError,
   restoreManagerCustomer,
+  restoreManagerCustomerSite,
   savesGeneralLayout,
   saveCustomerContactDetails,
   saveCustomerSiteAddress,
@@ -123,6 +125,31 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   onOpenService?: (systemKey: string) => void;
 }) {
   const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [newSiteAddress, setNewSiteAddress] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
+  const [archivedSitesOpen, setArchivedSitesOpen] = useState(false);
+  const [siteChanging, setSiteChanging] = useState<string | null>(null);
+  // A completed write still belongs to the customer screen that started it.
+  // Invalidate callbacks on navigation/authority unmount, including late errors.
+  const siteChangeGeneration = useRef(0);
+  useEffect(() => {
+    siteChangeGeneration.current += 1;
+    setSiteChanging(null);
+    return () => { siteChangeGeneration.current += 1; };
+  }, [customer.customer.id]);
+  const changeSite = async (site: ManagerCustomer["sites"][number], action: "archive" | "restore") => {
+    if (siteChanging !== null) return;
+    if (action === "archive" && !window.confirm(`Archive ${site.displayName}? It will no longer be offered when creating a new service visit. Existing visits and reports keep this site.${customer.sites.length === 1 ? " Warning: this customer will have no active sites." : ""}`)) return;
+    const generation = siteChangeGeneration.current;
+    const isCurrent = () => generation === siteChangeGeneration.current;
+    setSiteChanging(site.id); setError("");
+    try {
+      const updated = await (action === "archive" ? archiveManagerCustomerSite : restoreManagerCustomerSite)(customer.customer.id, site.id);
+      if (isCurrent()) onSaved(updated);
+    } catch (reason) {
+      if (!isCurrent()) return;
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : `Site could not be ${action === "archive" ? "archived" : "restored"}.`);
+    } finally { if (isCurrent()) setSiteChanging(null); }
+  };
   const [newRiserMode, setNewRiserMode] = useState("");
   useEffect(() => { setKeys(customer.configuration.enabledSystems.map((system) => system.key)); setNewRiserMode(""); }, [customer]);
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -169,7 +196,16 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
   return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customer Configuration</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     <ManagerCustomerContactDetails customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />
-    <section className="report-summary setup-card customer-form-card"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <ManagerSiteAddress key={site.id} customerId={customer.customer.id} site={site} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />)}</ul>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName, newSiteAddress)); setAddingSite(false); setSiteName(""); setNewSiteAddress(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><label>Site Address<input maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary setup-card customer-form-card" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) && !savesGeneralLayout(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
+    <section className="report-summary setup-card customer-form-card"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <ManagerSiteAddress key={site.id} customerId={customer.customer.id} site={site} archiveDisabled={siteChanging !== null} onArchive={() => void changeSite(site, "archive")} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />)}</ul>{customer.sites.length === 0 ? <p className="empty-state">No active sites.</p> : null}
+      <section aria-label="Archived sites">
+        <button type="button" className="secondary-command" aria-expanded={archivedSitesOpen} aria-controls="archived-sites-list" onClick={() => setArchivedSitesOpen((open) => !open)}>Archived sites</button>
+        {archivedSitesOpen ? <div id="archived-sites-list">
+          {customer.archivedSites?.length ? <ul>{customer.archivedSites.map((site) => <li key={site.id}>
+            <strong>{site.displayName}</strong>{site.address ? <p>{site.address}</p> : null}
+            <div className="inline-actions"><button type="button" disabled={siteChanging !== null} onClick={() => void changeSite(site, "restore")}>{siteChanging === site.id ? "Restoring…" : "Restore"}</button></div>
+          </li>)}</ul> : <p className="empty-state">No archived sites.</p>}
+        </div> : null}
+      </section>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName, newSiteAddress)); setAddingSite(false); setSiteName(""); setNewSiteAddress(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><label>Site Address<input maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section><form className="report-summary setup-card customer-form-card" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) && !savesGeneralLayout(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <ManagerCustomerServices customer={customer} onOpenService={onOpenService} />
     <ManagerCustomerServiceHistory
       customer={customer}
@@ -234,12 +270,13 @@ function ManagerCustomerContactDetails({ customer, onSaved, onAuthorityFailure }
   </section>;
 }
 
-function ManagerSiteAddress({ customerId, site, onSaved, onAuthorityFailure }: {
+function ManagerSiteAddress({ customerId, site, onSaved, onAuthorityFailure, onArchive, archiveDisabled }: {
+  onArchive: () => void; archiveDisabled: boolean;
   customerId: string; site: ManagerCustomer["sites"][number]; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
 }) {
   const [address, setAddress] = useState(site.address ?? ""); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
   useEffect(() => setAddress(site.address ?? ""), [site]);
-  return <li><strong>{site.displayName}</strong><form onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { onSaved(await saveCustomerSiteAddress(customerId, site.id, address.trim() || null)); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site address could not be saved."); } finally { setSaving(false); } }}><label>Site Address<input maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></label><button disabled={saving}>{saving ? "Saving…" : "Save Address"}</button>{error ? <span role="alert">{error}</span> : null}</form></li>;
+  return <li><strong>{site.displayName}</strong><div className="inline-actions"><button type="button" className="secondary-command" disabled={archiveDisabled || saving} onClick={onArchive}>Archive</button></div><form onSubmit={async (event) => { event.preventDefault(); setSaving(true); setError(""); try { onSaved(await saveCustomerSiteAddress(customerId, site.id, address.trim() || null)); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site address could not be saved."); } finally { setSaving(false); } }}><label>Site Address<input maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></label><button disabled={saving}>{saving ? "Saving…" : "Save Address"}</button>{error ? <span role="alert">{error}</span> : null}</form></li>;
 }
 
 /**

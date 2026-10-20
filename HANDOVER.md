@@ -3,7 +3,65 @@
 > Single source of truth for current state. Update the "Last updated" line and the
 > relevant section on every change. Keep it short — link to code, don't duplicate it.
 
-**Last updated:** 2026-10-19 — **Location Proposal W2 complete; ready for Sol review.** W0 and W1-A/B/C are reviewed together. W2 fixes three P2 source defects: technician revision controls now enforce the drum-type enum and server text limits; reviewer approval-name errors identify and focus the correct input; phone Back restores inbox focus after rendering. No new W0 or Home-badge source defect identified. No missing `:root` token; app.css remains untouched. User guide now covers decisions, edited approvals, withdraw/discard, revisions and offline status limits.
+**Last updated:** 2026-10-20 — **S3b review fixes verified; both P2 findings closed and ready for re-review.** **S1 confirmation review fixes verified; ready for re-review (see S1 checkpoint). S3a review fixes verified; ready for the next site-archive checkpoint.** Restore compares both names with identical Unicode/whitespace/case normalization; the concurrent proposal test accepts either winning transaction while retaining uniqueness and immutable-text assertions. API typecheck/build and all 70 requested tests pass with no skips; diff whitespace clean. [Contract, verification, sync/history investigation and limitations](docs/testing/S3A_SITE_ARCHIVE_RESTORE.md). Previous Location Proposal W2 checkpoint follows. Previous status: Location Proposal W2 complete; ready for Sol review. **S2 Site Requests review P2 double-click coverage closed; see checkpoint below.**
+
+### Site Archive S3b UI checkpoint
+
+2026-10-20 review follow-up — **Both P2 findings fixed; ready for re-review.** Archive/restore callbacks are invalidated when their customer screen is left, preventing delayed success or authorization errors from replacing/signing out a newly opened customer. Shared customer validation now refuses duplicate IDs within or across active/archived site lists on GET as well as mutation responses. Seven new regression cases pass. **Web typecheck/build, 61 browser cases (33 S3b + 28 existing), and diff whitespace passed; 1 pre-existing intentional skip.** Existing bundle-size warning remains. No protected-file or Git mutations. No physical-phone, actual-offline or PWA-restart acceptance performed. See [S3b verification](docs/testing/S3B_SITE_ARCHIVE_RESTORE_UI.md).
+
+2026-10-20 — **S3b complete; ready for focused review.** Admin customer configuration now offers confirmed site Archive (including a non-blocking last-active-site warning), plus a collapsed Archived sites section with Restore and server 409 name-clash messages. Both helpers validate exact customer/site confirmation and replace both lists from the server response; authority failures use the established fail-closed path. Supervisor read-only access remains unchanged.
+
+**Gates PASS:** web typecheck/build, **26 new mock browser cases + 28 existing browser cases = 54 passed**, and diff whitespace. One pre-existing CR-09 former-four-option preview test remains intentionally skipped. Responsive checks at 360×800, 768×1024 and 1280×800 passed; phone/desktop screenshots visually inspected. **S3b P0/P1/P2: 0/0/0.** Existing large-bundle warning remains. No phone, actual offline persistence, installed-PWA restart, live API/database or deployment acceptance performed. No protected-schema, migration, Dexie, lockfile or deployment edits, no staging or Git mutations; earlier work preserved. Files, exact tests and reproducible command: [S3b verification](docs/testing/S3B_SITE_ARCHIVE_RESTORE_UI.md).
+
+### Site Proposal S2 checkpoint
+
+2026-10-20 review follow-up — **P2 double-click coverage closed.** Two new delayed-response browser tests cover approval and rejection: rapid double-click sends exactly one decision POST, no success appears before the response, and fresh detail confirms the final decision. **27 S2 cases / 65 focused manager-location browser cases passed**, zero failures/skips; web typecheck/build passed (existing bundle-size warning); diff whitespace clean. Application code unchanged. Only the S2 spec and checkpoint documentation changed for this follow-up; concurrent work was preserved. No phone, actual offline persistence or browser-restart acceptance performed.
+
+2026-10-20 — **Site Requests implemented for admin and supervisor**, with shared navigation/Home pending count, pending-first submission cards, server-read detail, immutable approval and required 3–500 character rejection reason. Decisions retain exact UUID/body for retry; success requires validated POST confirmation plus fresh detail/list agreement. No edit-on-approve, API/schema, Dexie, lockfile or deployment change belongs to S2. Concurrent S1/S3a changes are preserved.
+
+**S2 gates PASS:** web typecheck/build; **25 new browser cases**, **63 focused manager/location browser cases overall**, and **16 Node regressions**; diff whitespace clean. Responsive checks cover 360×800, 768×1024 and 1280×800; final phone/desktop screenshots inspected. The phone action overlap found during inspection is fixed and regression-tested. **S2 P0/P1/P2: 0/0/0. Ready for focused review.**
+
+The additional broad existing manager/location run had **141 passes, 1 unrelated failure, 2 existing skips**: the email-recipient test's unscoped selector matches two list items. It was left unchanged for reminder-test maintenance before an all-green release checkpoint. Full file list, exact results, reproducible commands and limits: [S2 verification](docs/testing/S2_SITE_REQUESTS.md). No physical phone, real offline persistence, installed-PWA restart, live API/database or deployment acceptance claimed. No staging or Git mutations.
+
+### Site Proposal S1 checkpoint
+
+2026-10-20 review fixes — The owner's follow-up authorizes the narrow `App.tsx` / `TechnicianHome.tsx` confirmation integration exception, recorded in `docs/site-proposals/SITE_PROPOSAL_PROMPTS.md`. The confirmation has visit-scoped state and a polite, atomic status region. Background refresh success/failure cannot replace it, refresh errors remain visible, and leaving the visit clears it. The new real-App regression initially exposed the failed-refresh overwrite; after the fix both refresh scenarios pass, including leaving and returning without repeating the confirmation. **17 S1 browser cases and 3 canonical-create Node tests passed**; no existing assertion was weakened. No physical-phone, screen-reader listening, real offline persistence, installed-PWA restart or live API/database acceptance performed. The two review findings are closed; the optional authoritative pending-status/badge follow-up remains out of scope.
+
+New Service Visit offers an inline site name (required, 160 characters) and optional address (500 characters) after selecting a customer. The typed-site mode clears/disables the existing-site selector and sends only `newSite`; Cancel/customer changes return to selection. Display whitespace collapses on blur; server normalization remains authoritative. The unchanged customer-sites endpoint lists active sites only; no pending sites are appended. New-site creation requires a connection, while typed fields stay editable through connection loss. Existing-site local creation and all Dexie code remain unchanged. Request ID and first-tap arrival time remain stable for retries.
+
+Validated `409 SITE_ALREADY_EXISTS` responses recover to the existing active site, refreshing the list first when needed. Malformed IDs and failed refreshes leave the typed form editable without selecting an unverified site. Visit responses expose only site ID/name, so S1 passes the one-time confirmation "Site sent for approval. Your visit continues." to a dedicated visit-scoped status after canonical creation. **P2 follow-up:** a persistent pending badge requires an authoritative site approval status on visit/list responses; that API change belongs to a later checkpoint.
+
+| S1 gate | Result |
+|---|---|
+| Web typecheck / production build | PASS; existing bundle-size warning |
+| New Playwright mock spec / existing new-service-visit specs | PASS: 13 S1 + 4 existing browser cases; 3 existing canonical-success Node tests also pass |
+| Responsive checks | 360x800, 768x1024, 1280x800; no horizontal overflow; screenshots under ignored `apps/web/test-results/`; phone and desktop screenshots visually inspected |
+| Diff whitespace | PASS; line-ending advisory only |
+| P0 / P1 / P2 in S1 | 0 / 0 / 1 documented follow-up (approval-status field/badge); allowed confirmation alternative implemented |
+| Next checkpoint | Ready for focused review; no physical phone, installed-PWA restart, real offline persistence, live API/database or deployment acceptance claimed |
+
+S1-owned files: `apps/web/src/jobs/NewServiceVisit.tsx` (inline form/recovery), `apps/web/src/jobs/jobApi.ts` (exclusive input union and validated conflict error), `apps/web/src/App.tsx` (only confirmation callback/state/navigation wiring), `apps/web/src/jobs/TechnicianHome.tsx` (accessible confirmation), `apps/web/tests/new-service-visit-add-site.spec.ts` (regressions), `docs/site-proposals/SITE_PROPOSAL_PROMPTS.md` (authorized integration exception), and this handover. Concurrent Manager/site-proposal work elsewhere, including other App.tsx hunks, is not part of S1 and was preserved. S1 changes no API, migrations, historical templates, local database/schema, lockfiles, deployment configuration or production data. No staging or Git mutations.
+
+Reproduce S1 gates (local loopback access is required for Playwright):
+
+```powershell
+cd C:\PWA_OfflineRecordWebApp
+npm run typecheck --prefix apps/web
+if ($LASTEXITCODE -ne 0) { throw 'Web typecheck failed' }
+npm run build --prefix apps/web
+if ($LASTEXITCODE -ne 0) { throw 'Web build failed' }
+cd C:\PWA_OfflineRecordWebApp\apps\web
+npx playwright test new-service-visit --workers=1
+if ($LASTEXITCODE -ne 0) { throw 'New Service Visit regression failed' }
+cd C:\PWA_OfflineRecordWebApp
+git diff --check
+if ($LASTEXITCODE -ne 0) { throw 'Diff whitespace failed' }
+git status --short
+```
+
+### Previous Location Proposal W2 checkpoint
+
+2026-10-19 — **Location Proposal W2 complete; ready for Sol review.** W0 and W1-A/B/C are reviewed together. W2 fixes three P2 source defects: technician revision controls now enforce the drum-type enum and server text limits; reviewer approval-name errors identify and focus the correct input; phone Back restores inbox focus after rendering. No new W0 or Home-badge source defect identified. No missing `:root` token; app.css remains untouched. User guide now covers decisions, edited approvals, withdraw/discard, revisions and offline status limits.
 
 **Combined gates PASS:** API/web typecheck and build; cold/populated migration; original/W0 routes; standing historical/V6/V7 evidence and race suites; web client/stale-evidence units; 16 focused units; **51 Chromium browser cases**. Overall **157 Node tests + 51 browser cases, zero failures/skips**. P0/P1/P2 remaining in W2 scope: **0/0/0**; all three identified P2 defects fixed. **SAFE FOR SOL RE-REVIEW: Y.**
 

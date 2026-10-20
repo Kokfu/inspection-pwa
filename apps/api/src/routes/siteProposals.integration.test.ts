@@ -105,15 +105,29 @@ test("site proposals: typed site on a visit, Admin decision, hidden until approv
       });
 
       await t.test("two technicians typing the same name at once end with one site, one proposal and two visits", async () => {
-        const [a, b] = await Promise.all([visit("techA", { requestId: id(), ...typed("Shared Loading Bay", "Bay 1") }), visit("techB", { requestId: id(), ...typed("shared  LOADING bay", "Bay 2") })]);
+        const requestA = id(), requestB = id();
+        const [a, b] = await Promise.all([visit("techA", { requestId: requestA, ...typed("Shared Loading Bay", "Bay 1") }), visit("techB", { requestId: requestB, ...typed("shared  LOADING bay", "Bay 2") })]);
         assert.deepEqual([a.status, b.status], [201, 201]);
         assert.equal(await count("customer_sites", "lower(display_name)='shared loading bay'"), 1);
         assert.equal(await count("customer_site_proposals", "lower(proposed_display_name)='shared loading bay'"), 1, "the second visit reuses the pending site (D2)");
-        const jobs = await pool.query("SELECT DISTINCT site_id FROM inspection_jobs WHERE title='Shared Loading Bay'");
-        assert.equal(jobs.rows.length, 1);
-        assert.equal(await count("inspection_jobs", "title='Shared Loading Bay'"), 2);
-        const proposal = await proposalFor("Shared Loading Bay");
-        assert.equal((await pool.query("SELECT address FROM customer_sites WHERE id=$1", [proposal.site_id])).rows[0].address, "Bay 1", "the first submitter's text is kept");
+        const jobs = (await pool.query("SELECT id, site_id, creation_request_id, created_by_user_id, title FROM inspection_jobs WHERE creation_request_id=ANY($1::uuid[])", [[requestA, requestB]])).rows;
+        assert.equal(jobs.length, 2, "both requests create their own visit");
+        assert.equal(new Set(jobs.map(job => job.site_id)).size, 1, "both visits reuse the same pending site");
+        assert.equal(Number(jobs.find(job => job.creation_request_id === requestA)!.created_by_user_id), techA);
+        assert.equal(Number(jobs.find(job => job.creation_request_id === requestB)!.created_by_user_id), techB);
+        const proposals = (await pool.query("SELECT * FROM customer_site_proposals WHERE site_id=$1", [jobs[0].site_id])).rows;
+        assert.equal(proposals.length, 1);
+        const proposal = proposals[0];
+        const winner = jobs.find(job => job.id === proposal.job_id);
+        assert.ok(winner, "the proposal belongs to one of the two visits");
+        const expectedName = winner.creation_request_id === requestA ? "Shared Loading Bay" : "shared LOADING bay";
+        const expectedAddress = winner.creation_request_id === requestA ? "Bay 1" : "Bay 2";
+        assert.equal(proposal.proposed_display_name, expectedName);
+        assert.equal(proposal.proposed_address, expectedAddress);
+        assert.equal(proposal.submitted_by_user_id, winner.created_by_user_id);
+        assert.ok(jobs.every(job => job.title === expectedName), "both visits use the winning site's name");
+        assert.deepEqual((await pool.query("SELECT display_name, address FROM customer_sites WHERE id=$1", [proposal.site_id])).rows[0],
+          { display_name: expectedName, address: expectedAddress }, "the winning submitter's text is kept");
       });
 
       await t.test("an ACTIVE site of the same name refuses the request and writes nothing", async () => {

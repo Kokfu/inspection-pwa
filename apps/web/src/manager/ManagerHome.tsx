@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, loadLocationProposals, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
+import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, loadLocationProposals, loadSiteProposals, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
 import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
-export type ManagerDashboardRoute = { name: "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" };
+export type ManagerDashboardRoute = { name: "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" | "manager-site-proposals" };
 
 /**
  * Single source of truth for the manager/supervisor top-level destinations, shared by the
@@ -12,7 +12,7 @@ export type ManagerDashboardRoute = { name: "manager-repairs" | "manager-technic
  */
 export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDashboardRoute["name"]]> {
   return supervisor
-    ? [["Services", "manager-operations"], ["Repair Visits", "manager-repairs"], ["Current Services Done", "manager-services-done"], ["Location Proposals", "manager-location-proposals"]]
+    ? [["Services", "manager-operations"], ["Repair Visits", "manager-repairs"], ["Current Services Done", "manager-services-done"], ["Location Proposals", "manager-location-proposals"], ["Site Requests", "manager-site-proposals"]]
     : [
         ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
         ["Operations", "manager-operations"],
@@ -20,7 +20,7 @@ export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDash
         ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
         ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
-        ["Location Proposals", "manager-location-proposals"],
+        ["Location Proposals", "manager-location-proposals"], ["Site Requests", "manager-site-proposals"],
         ["Company Profile", "manager-company-profile"], ["Email reminders", "manager-email-reminders"]
       ];
 }
@@ -96,6 +96,16 @@ export function ManagerHome({
     return () => controller.abort();
   }, [supervisor]);
 
+  const [pendingSites, setPendingSites] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setPendingSites(null);
+    void loadSiteProposals(controller.signal)
+      .then(items => { if (!controller.signal.aborted) setPendingSites(items.filter(item => item.status === "pending").length); })
+      .catch(() => { if (!controller.signal.aborted) setPendingSites(null); });
+    return () => controller.abort();
+  }, [supervisor]);
+
   // Compliance reminders (Overdue / Due soon), admin-only (matching Next Upcoming Service, whose
   // due-date column this reads). A supervisor never fetches or sees this -- review-only, cannot act on it.
   const [reminders, setReminders] = useState<ComplianceReminders>();
@@ -138,6 +148,8 @@ export function ManagerHome({
     {!supervisor && reminders && reminders.dueSoon.length > 0 ? <section aria-label="Due soon"><h3>Due soon ({reminders.dueSoon.length})</h3>{reminderList(reminders.dueSoon)}</section> : null}
     <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{name === "manager-location-proposals" && pendingProposals !== null
       ? <span style={{ display: "grid", gap: "var(--space-2)" }}>{label}<span className="status-badge status-badge--waiting">Pending: {pendingProposals}</span></span>
+      : name === "manager-site-proposals" && pendingSites !== null
+      ? <span style={{ display: "grid", gap: "var(--space-2)" }}>{label}<span className="status-badge status-badge--waiting">Pending: {pendingSites}</span></span>
       : label}</button>)}</div>
   </section>;
 }

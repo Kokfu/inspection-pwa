@@ -1,0 +1,39 @@
+.manager-site-proposals { min-width: 0; }
+.manager-site-proposals button { min-height: var(--tap); min-width: var(--tap); touch-action: manipulation; }
+.manager-site-proposals :is(button, input, select, textarea):focus-visible { outline: var(--focus-outline); box-shadow: var(--focus-ring); }
+.manager-site-proposals h3:focus { outline: var(--focus-outline); }
+.manager-site-proposals :is(input, select, textarea) { font-size: var(--text-base); min-height: var(--tap); width: 100%; min-width: 0; }
+.manager-site-proposals :is(h3, h4, p, dd, span, small) { overflow-wrap: anywhere; }
+.manager-site-proposals :is(h3, h4) { text-wrap: balance; }
+.manager-site-proposals .proposal-workspace { display: grid; gap: var(--space-6); align-items: start; }
+.manager-site-proposals :is(.proposal-inbox, .proposal-detail) { min-width: 0; }
+.manager-site-proposals .proposal-detail { display: none; }
+.manager-site-proposals.proposal-is-open .proposal-detail { display: grid; gap: var(--space-4); }
+.manager-site-proposals.proposal-is-open .proposal-inbox { display: none; }
+.manager-site-proposals .proposal-card { display: grid; gap: var(--space-2); width: 100%; text-align: left; padding: var(--space-4); color: var(--ink); background: var(--surface); border: thin solid var(--border); border-radius: var(--radius-md); }
+.manager-site-proposals .proposal-card[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); }
+.manager-site-proposals .proposal-card small { color: var(--muted-on-sunken); }
+.manager-site-proposals .report-summary { display: grid; gap: var(--space-4); padding: var(--space-4); margin: 0; min-width: 0; }
+.manager-site-proposals .report-summary :is(h3, h4, p) { margin: 0; }
+.manager-site-proposals .job-facts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.manager-site-proposals .proposal-status { display: inline-block; justify-self: start; padding: var(--space-1) var(--space-3); border-radius: var(--radius-pill); font-size: var(--text-sm); color: var(--muted-on-sunken); background: var(--surface-sunken); }
+.manager-site-proposals .proposal-status-pending { color: var(--warning-ink); background: var(--warning-soft); }
+.manager-site-proposals .proposal-status-approved { color: var(--success-ink); background: var(--success-soft); }
+.manager-site-proposals .proposal-status-rejected { color: var(--danger-ink); background: var(--danger-soft); }
+.manager-site-proposals label { display: grid; gap: var(--space-2); min-width: 0; }
+.manager-site-proposals .proposal-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) 0 calc(var(--space-3) + env(safe-area-inset-bottom)); background: var(--surface); border-top: thin solid var(--border); }
+.manager-site-proposals .proposal-actions button { flex: 1; }
+.manager-site-proposals .proposal-skeleton { min-height: calc(var(--tap) * 3); padding: var(--space-4); margin-bottom: var(--space-3); border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--muted-on-sunken); }
+@media (hover: hover) {
+  .manager-site-proposals .proposal-card:hover { border-color: var(--brand); background: var(--brand-soft); }
+}
+@media (min-width: 768px) {
+  .manager-site-proposals .proposal-workspace { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  .manager-site-proposals.proposal-is-open .proposal-inbox { display: block; }
+  .manager-site-proposals .proposal-detail { display: grid; gap: var(--space-4); }
+}
+@media (min-width: 1200px) {
+  .manager-site-proposals .proposal-workspace { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+}
+.manager-site-proposals .job-card-list { grid-template-columns: minmax(0, 1fr); }
+.manager-site-proposals :is(input, select, textarea, button) { scroll-margin-block: var(--space-4) calc(var(--tap) + var(--space-8)); }

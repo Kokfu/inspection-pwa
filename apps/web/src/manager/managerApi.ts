@@ -67,6 +67,7 @@ export type ReportApprovalEvent = {
 export type ManagerCustomer = {
   customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null; fax?: string | null; contractNumber?: string | null; serviceFrequency?: string | null };
   sites: Array<{ id: string; code: string; displayName: string; address?: string | null }>;
+  archivedSites?: Array<{ id: string; code: string; displayName: string; address: string | null; archived: true }>;
   configuration: {
     id: string;
     revision: number;
@@ -474,8 +475,10 @@ export async function loadManagerCustomers(signal?: AbortSignal) {
   return customers as ManagerCustomer[];
 }
 
-export function loadManagerCustomer(customerId: string, signal?: AbortSignal) {
-  return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}`, "GET", "customer", undefined, signal);
+export async function loadManagerCustomer(customerId: string, signal?: AbortSignal) {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(customerId)}`, "GET", "customer", undefined, signal);
+  if (!isManagerCustomer(result) || result.customer.id !== customerId) unavailable();
+  return result;
 }
 
 /** `GET /manager/customers/archived` — same `ManagerCustomer` shape/validator as
@@ -576,6 +579,24 @@ export async function restoreManagerServiceCatalogEntry(systemKey: string): Prom
 
 export function createManagerCustomerSite(customerId: string, displayName: string, address?: string) {
   return managerRequest<ManagerCustomer>(`/api/manager/customers/${encodeURIComponent(customerId)}/sites`, "POST", "customer", { displayName, ...(address?.trim() ? { address: address.trim() } : {}) });
+}
+
+async function changeManagerCustomerSite(customerId: string, siteId: string, action: "archive" | "restore"): Promise<ManagerCustomer> {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(customerId)}/sites/${encodeURIComponent(siteId)}/${action}`, "POST", "customer", {});
+  if (!isManagerCustomer(result) || result.customer.id !== customerId || !Array.isArray(result.archivedSites)) unavailable();
+  const activeIds = result.sites.map((site) => site.id);
+  const archivedIds = result.archivedSites.map((site) => site.id);
+  if (!(action === "archive" ? archivedIds : activeIds).includes(siteId)
+    || (action === "archive" ? activeIds : archivedIds).includes(siteId)) unavailable();
+  return result;
+}
+
+export function archiveManagerCustomerSite(customerId: string, siteId: string) {
+  return changeManagerCustomerSite(customerId, siteId, "archive");
+}
+
+export function restoreManagerCustomerSite(customerId: string, siteId: string) {
+  return changeManagerCustomerSite(customerId, siteId, "restore");
 }
 
 export function activateManagerCustomerConfiguration(
@@ -908,9 +929,15 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
   const siteEntry = (entry: unknown) => isPlainObject(entry)
     && typeof entry.id === "string" && typeof entry.code === "string" && typeof entry.displayName === "string"
     && (entry.address === undefined || entry.address === null || typeof entry.address === "string");
-  return value.configuration.enabledSystems.every(enabledEntry)
+  if (!(value.configuration.enabledSystems.every(enabledEntry)
     && value.sites.every(siteEntry)
-    && value.supportedSystems.every(supportedEntry);
+    && (value.archivedSites === undefined || (Array.isArray(value.archivedSites)
+      && value.archivedSites.every((entry: unknown) => siteEntry(entry) && isPlainObject(entry)
+        && entry.archived === true && (entry.address === null || typeof entry.address === "string"))))
+    && value.supportedSystems.every(supportedEntry))) return false;
+  const siteIds = value.sites.map((site) => site.id);
+  if (Array.isArray(value.archivedSites)) siteIds.push(...value.archivedSites.map((site) => site.id));
+  return new Set(siteIds).size === siteIds.length;
 }
 
 export async function loadManagerLabelOverrides(customerId: string, systemKey: string, signal?: AbortSignal): Promise<ManagerLabelOverrides> {
@@ -1480,4 +1507,51 @@ export async function loadComplianceReminders(signal?: AbortSignal): Promise<Com
   const ids = [...(data.overdue as ComplianceCustomer[]), ...(data.dueSoon as ComplianceCustomer[])].map((row) => row.id);
   if (new Set(ids).size !== ids.length) unavailable();
   return { overdue: data.overdue as ComplianceCustomer[], dueSoon: data.dueSoon as ComplianceCustomer[], dueSoonWindowDays: data.dueSoonWindowDays };
+}
+
+
+/** Site review uses the immutable technician submission; there is no approval edit payload. */
+export type SiteProposalStatus = "pending" | "approved" | "rejected";
+export type SiteProposalDecisionInput = { requestId: string; decision: "approved" | "rejected"; note?: string };
+export type SiteProposal = {
+  id: string; customerId: string; customerDisplayName: string; siteId: string;
+  jobId: string | null; jobReference: string | null; submittedByUserId: number; submittedBy: string;
+  submittedAt: string; proposedDisplayName: string; proposedAddress: string | null;
+  status: SiteProposalStatus;
+  decision: { id: string; decision: "approved" | "rejected"; note: string | null; decidedBy: string;
+    decidedByRole: "admin" | "supervisor"; decidedAt: string; sequence: number; requestId: string } | null;
+};
+function isSiteProposal(value: unknown): value is SiteProposal {
+  if (!isPlainObject(value) || !proposalKeys(value, ["id", "customerId", "customerDisplayName", "siteId", "jobId", "jobReference",
+    "submittedByUserId", "submittedBy", "submittedAt", "proposedDisplayName", "proposedAddress", "status", "decision"])
+    || !proposalUuid(value.id) || !proposalUuid(value.customerId) || !proposalUuid(value.siteId)
+    || !(value.jobId === null || proposalUuid(value.jobId)) || !(value.jobReference === null || proposalText(value.jobReference))
+    || !proposalText(value.customerDisplayName) || !Number.isSafeInteger(value.submittedByUserId) || Number(value.submittedByUserId) < 1
+    || !proposalText(value.submittedBy) || !proposalTime(value.submittedAt)
+    || !proposalText(value.proposedDisplayName) || [...value.proposedDisplayName].length > 160
+    || !(value.proposedAddress === null || (proposalText(value.proposedAddress) && [...value.proposedAddress].length <= 500))) return false;
+  if (value.status === "pending") return value.decision === null;
+  if (value.status !== "approved" && value.status !== "rejected") return false;
+  const event = value.decision;
+  return isPlainObject(event) && proposalKeys(event, ["id", "decision", "note", "decidedBy", "decidedByRole", "decidedAt", "sequence", "requestId"])
+    && proposalUuid(event.id) && event.decision === value.status && proposalUuid(event.requestId)
+    && (event.note === null ? value.status === "approved" : typeof event.note === "string" && event.note.trim().length >= 3 && event.note.trim().length <= 500)
+    && proposalText(event.decidedBy) && (event.decidedByRole === "admin" || event.decidedByRole === "supervisor")
+    && proposalTime(event.decidedAt) && Number.isSafeInteger(event.sequence) && Number(event.sequence) >= 1;
+}
+export async function loadSiteProposals(signal?: AbortSignal): Promise<SiteProposal[]> {
+  const data = await managerRequest<unknown>("/api/manager/site-proposals", "GET", "proposals", undefined, signal);
+  if (!Array.isArray(data) || !data.every(isSiteProposal) || new Set(data.map(row => row.id)).size !== data.length) unavailable();
+  return data as SiteProposal[];
+}
+export async function loadSiteProposal(id: string, signal?: AbortSignal): Promise<SiteProposal> {
+  const data = await managerRequest<unknown>(`/api/manager/site-proposals/${encodeURIComponent(id)}`, "GET", "proposal", undefined, signal);
+  if (!isSiteProposal(data) || data.id !== id.toLowerCase()) unavailable();
+  return data as SiteProposal;
+}
+export async function decideSiteProposal(id: string, input: SiteProposalDecisionInput): Promise<SiteProposal> {
+  const data = await managerRequest<unknown>(`/api/manager/site-proposals/${encodeURIComponent(id)}/decision`, "POST", "proposal", input);
+  if (!isSiteProposal(data) || data.id !== id.toLowerCase() || data.status !== input.decision
+    || data.decision?.requestId !== input.requestId.toLowerCase() || data.decision.note !== (input.note ?? null)) unavailable();
+  return data as SiteProposal;
 }

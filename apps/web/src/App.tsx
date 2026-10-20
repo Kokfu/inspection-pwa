@@ -152,6 +152,7 @@ import { ServerInspectionList } from "./inspections/ServerInspectionList";
 import { TechnicianHome } from "./jobs/TechnicianHome";
 import { TechnicianAddCustomer } from "./jobs/TechnicianAddCustomer";
 import { TechnicianLocationProposal } from "./jobs/TechnicianLocationProposal";
+import { ManagerSiteProposals } from "./manager/ManagerSiteProposals";
 import { ManagerLocationProposals } from "./manager/ManagerLocationProposals";
 import { syncPendingTechnicianCustomers } from "./jobs/technicianCustomerDraft";
 import { isUnconfirmedLocalVisit } from "./jobs/offlineServiceVisitStore";
@@ -255,6 +256,7 @@ type AppRoute =
   | { name: "manager-operations" }
   | { name: "manager-services-done" }
   | { name: "manager-location-proposals" }
+  | { name: "manager-site-proposals" }
   | { name: "manager-upcoming-services" }
   | { name: "manager-customer"; customerId: string }
   | { name: "manager-customer-service"; customerId: string; systemKey: string }
@@ -297,6 +299,7 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-email-reminders") return { name: "manager-email-reminders" };
   if (parts[0] === "manager-operations") return { name: "manager-operations" };
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
+  if (parts[0] === "manager-site-proposals") return { name: "manager-site-proposals" };
   if (parts[0] === "manager-location-proposals") return { name: "manager-location-proposals" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
   if (parts[0] === "manager") return { name: "manager-home" };
@@ -345,6 +348,7 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-email-reminders") return "#/manager-email-reminders";
   if (route.name === "manager-operations") return "#/manager-operations";
   if (route.name === "manager-services-done") return "#/manager-services-done";
+  if (route.name === "manager-site-proposals") return "#/manager-site-proposals";
   if (route.name === "manager-location-proposals") return "#/manager-location-proposals";
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
   if (route.name === "manager-home") return "#/manager";
@@ -410,6 +414,7 @@ export function App() {
   const [managerMessage, setManagerMessage] = useState("");
   const [jobs, setJobs] = useState<InspectionJob[]>([]);
   const [jobMessage, setJobMessage] = useState("");
+  const [serviceVisitConfirmation, setServiceVisitConfirmation] = useState<{ jobId: string; message: string }>();
   const [jobLoading, setJobLoading] = useState(false);
   const [records, setRecords] = useState<TestRecordView[]>([]);
   const [syncMessage, setSyncMessage] = useState("");
@@ -1015,6 +1020,7 @@ export function App() {
       const leave = allowManagerHashChange(window.location.hash);
       if (!leave.allow) { window.location.hash = leave.restoreHash; return; }
       const nextRoute = routeFromHash();
+      setServiceVisitConfirmation((current) => nextRoute.name === "job" && nextRoute.jobId === current?.jobId ? current : undefined);
       setRoute((current) => hashForRoute(current) === hashForRoute(nextRoute) ? current : nextRoute);
     };
     window.addEventListener("offline", handleOffline);
@@ -2618,7 +2624,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             <NewServiceVisit
               initialCustomerId={route.customerId}
               onCancel={() => navigate({ name: "jobs" })}
-              onCreated={async (job) => {
+              onCreated={async (job, confirmation) => {
                 if (!currentUser || !canUseServer) {
                   throw new Error("Connect to the server to create a new service visit.");
                 }
@@ -2629,6 +2635,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
                     navigateToJob: (jobId) => navigate({ name: "job", jobId }),
                     reconcileWorkspace: () => refreshServerWorkspace(currentUser, authOperationGeneration.current)
                   });
+                  if (confirmation) setServiceVisitConfirmation({ jobId: job.id, message: confirmation });
                 } catch {
                   throw new Error("Service visit was created on the server but could not be saved on this device. Reconnect and refresh My Service Jobs; do not create it again.");
                 }
@@ -2651,6 +2658,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               offlineReadyJobIds={offlineReadyJobIds}
               loading={jobLoading}
               message={jobMessage}
+              creationConfirmation={route.name === "job" && route.jobId === serviceVisitConfirmation?.jobId ? serviceVisitConfirmation.message : undefined}
               selectedJobId={selectedJobId}
               selectedSystemKey={selectedSystemKey}
               onRefresh={async () => {
@@ -2723,6 +2731,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-email-reminders" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerEmailReminders onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewRepairVisit={(visitId) => navigate({ name: "manager-repair-visit", visitId })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-location-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerLocationProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-site-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerSiteProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} currentUserRole={currentUser?.role === "admin" || currentUser?.role === "supervisor" ? currentUser.role : undefined} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-correction" ? (

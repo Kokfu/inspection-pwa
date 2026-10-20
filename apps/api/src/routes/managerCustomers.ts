@@ -33,6 +33,7 @@ import { isCompatibleSystemContract, isImplementedSystemKey } from "../inspectio
 import type { UserRole } from "../auth/authTypes.js";
 import { requireRoleAudited } from "../middleware/requireRole.js";
 import { requireExpectedActor } from "../jobs/technicianOwnership.js";
+import { deriveSiteProposalState, loadSiteProposalDecisions, siteNameKey } from "../inspections/siteProposal.js";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const customerCatalogVersion = loadConfig().customerCatalogVersion;
@@ -481,11 +482,23 @@ export async function loadManagerCustomer(customerId: string, database: Pick<Poo
   const sitesResult = await database.query<{ id: string; code: string; displayName: string; address: string | null }>(`
     SELECT id, site_code AS code, display_name AS "displayName", address FROM customer_sites
     WHERE customer_id = $1 AND is_active = true ORDER BY display_name, id`, [customerId]);
+  // Keep the operational sites array unchanged for existing visit pickers.
+  const archivedSitesResult = await database.query<{ id: string; code: string; displayName: string; address: string | null; archived: true }>(`
+    SELECT site.id, site.site_code AS code, site.display_name AS "displayName", site.address, true AS archived
+    FROM customer_sites site
+    WHERE site.customer_id = $1 AND site.is_active = false
+      AND NOT EXISTS (
+        SELECT 1 FROM customer_site_proposals proposal WHERE proposal.site_id = site.id
+          AND COALESCE((SELECT decision.decision FROM customer_site_proposal_decisions decision
+            WHERE decision.proposal_id = proposal.id ORDER BY decision.sequence DESC LIMIT 1), 'pending') <> 'approved'
+      )
+    ORDER BY site.display_name, site.id`, [customerId]);
   const config = await loadConfiguration(database as PoolClient, customerId);
   const catalog = presentSupportedSystems(await loadSupportedCatalog(database as PoolClient), config);
   return {
     customer,
     sites: sitesResult.rows,
+    archivedSites: archivedSitesResult.rows,
     configuration: {
       id: config.revision.id,
       revision: config.revision.revision,
@@ -914,6 +927,53 @@ export function createManagerCustomersRouter(
       response.status(201).json({ site: { id, code, displayName, address }, customer: await loadManagerCustomer(customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });
+  for (const action of ["archive", "restore"] as const) {
+    router.post(`/manager/customers/:customerId/sites/:siteId/${action}`, requireRole("admin"), async (request, response, next) => {
+      let client: PoolClient | undefined;
+      try {
+        const { customerId, siteId } = request.params;
+        if (typeof customerId !== "string" || !uuidPattern.test(customerId) || typeof siteId !== "string" || !uuidPattern.test(siteId)) {
+          throw new ManagerCustomerError("INVALID_SITE_ID", "Customer and site IDs must be UUIDs.");
+        }
+        exactBody(request.body, []);
+        client = await database.connect(); await client.query("BEGIN");
+        // Same customer lock/order as site creation and proposal approval; it also
+        // serializes competing restores and new visits without a schema change.
+        const owner = await client.query(`SELECT id FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
+        if (!owner.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+        const site = (await client.query<{ displayName: string; active: boolean }>(`
+          SELECT display_name AS "displayName", is_active AS active FROM customer_sites
+          WHERE id=$1 AND customer_id=$2 FOR UPDATE`, [siteId, customerId])).rows[0];
+        if (!site) throw new ManagerCustomerError("SITE_NOT_FOUND", "Site was not found.", 404);
+        const proposals = await client.query<{ id: string }>(`SELECT id FROM customer_site_proposals WHERE site_id=$1`, [siteId]);
+        for (const proposal of proposals.rows) {
+          if (deriveSiteProposalState(await loadSiteProposalDecisions(client, proposal.id)).status !== "approved") {
+            throw new ManagerCustomerError("SITE_PROPOSAL_NOT_APPROVED", "Pending or rejected sites must use the proposal decision route.", 409);
+          }
+        }
+        const active = action === "restore";
+        if (active && !site.active) {
+          // Compare both sides with the same NFC/whitespace/case rules, including
+          // legacy manager-created names that were not stored in NFC form.
+          const activeSites = await client.query<{ displayName: string }>(`
+            SELECT display_name AS "displayName" FROM customer_sites
+            WHERE customer_id=$1 AND is_active=true AND id<>$2 FOR UPDATE`, [customerId, siteId]);
+          const nameKey = siteNameKey(site.displayName);
+          if (activeSites.rows.some((candidate) => siteNameKey(candidate.displayName) === nameKey)) {
+            throw new ManagerCustomerError("SITE_NAME_CONFLICT", "An active site already uses this display name.", 409);
+          }
+        }
+        if (site.active !== active) {
+          await client.query(`UPDATE customer_sites SET is_active=$2 WHERE id=$1`, [siteId, active]);
+          await audit(client, request.currentUser!.id, active ? "manager_customer_site_restored" : "manager_customer_site_archived", "customer_site", siteId);
+        }
+        const customer = await loadManagerCustomer(customerId, client);
+        await client.query("COMMIT");
+        response.json({ customer });
+      } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+      finally { client?.release(); }
+    });
+  }
   router.put("/manager/customers/:customerId/sites/:siteId/address", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {
