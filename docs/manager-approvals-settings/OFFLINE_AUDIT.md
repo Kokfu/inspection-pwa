@@ -241,6 +241,8 @@ AGENTS.md defines completion consequences for P0/P1/P2 but does not supply a det
 
 ### OA-14 — P2 — Intermittent repair photo-acknowledgement regression
 
+> **2026-10-20 (D19): root cause found and fixed in source** — remark autosave and photo save shared one status line. Photo storage was never affected. See PROGRESS_STATUS.md D19.
+
 - **Technician impact/status:** the browser test timed out waiting for the photo-saved acknowledgement after editing a returned repair and replacing its photo at 1280px. The same scenario passed on one focused rerun. This establishes an intermittent verification failure; it does not prove photo loss or identify whether the UI message or the test timing is at fault.
 - **Evidence:** follow-up main suite: `apps/web/tests/repair-visit-app.spec.ts:190`, `getByText('Photo saved on this device.')` not found within 15 seconds; overall 32 passed/1 failed. Focused `grep: '1280px.*previous SERVICE'`: 1 passed in 14.9s. Current remark and photo operations both write the same status state (`apps/web/src/repairVisits/RepairItemCard.tsx:111`, `:145`), a possible explanation requiring investigation, not a proven root cause. The reported error-context file was unavailable when read; no additional snapshot evidence is claimed.
 - **Offline Contract:** **Not established**; a missing acknowledgement alone is not evidence that the Blob failed to persist.

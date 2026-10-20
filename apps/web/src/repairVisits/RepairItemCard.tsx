@@ -89,6 +89,8 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
   const [outcome, setOutcome] = useState(item.outcome);
   useEffect(() => { setOutcome(item.outcome); }, [item.outcome]);
   const [status, setStatus] = useState("");
+  // OA-14: the photo has its own status line, so a later remark autosave cannot overwrite "Photo saved on this device."
+  const [photoStatus, setPhotoStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [camera, setCamera] = useState(false);
@@ -140,10 +142,10 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
     finally { finish(); }
   }
   async function storePhoto(blob: Blob, source: "camera" | "gallery") {
-    setBusy(true); setError(""); setStatus("Processing photo…");
+    setBusy(true); setError(""); setPhotoStatus("Processing photo…");
     const finish = beginWorkspaceActivity();
-    try { await captureItemPhoto(uuid, blob, source); if (mounted.current) setStatus("Photo saved on this device."); }
-    catch (caught) { if (mounted.current) { setStatus(""); setError(message(caught, "The photo could not be saved. Your earlier photo is kept.")); } }
+    try { await captureItemPhoto(uuid, blob, source); if (mounted.current) setPhotoStatus("Photo saved on this device."); }
+    catch (caught) { if (mounted.current) { setPhotoStatus(""); setError(message(caught, "The photo could not be saved. Your earlier photo is kept.")); } }
     finally { finish(); if (mounted.current) setBusy(false); }
   }
   async function remove() {
@@ -191,7 +193,7 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
               onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) void storePhoto(selected, "gallery"); }} />
             {photoError ? <p className="rv-error" role="alert">Add an After photo.</p> : null}
           </div>
-          <p className="rv-save-status" role="status" aria-live="polite">{status}</p>
+          <p className="rv-save-status" role="status" aria-live="polite"><span>{status}</span>{status && photoStatus ? " " : null}<span>{photoStatus}</span></p>
           {error ? <p className="rv-error" role="alert">{error}</p> : null}
           {canRemove ? <button type="button" className="secondary-command rv-remove" onClick={() => void remove()}>Remove this field</button> : null}
         </> : <>

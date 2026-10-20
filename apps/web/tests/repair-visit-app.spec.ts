@@ -112,7 +112,7 @@ async function fillItem(page: Page, outcome: "Done Repair" | "Not Done", remark:
   await page.getByLabel(outcome === "Not Done" ? "Reason not done (required)" : "Repair remark (required)").fill(remark);
   await page.locator('input[type="file"]').first().setInputFiles(photo(red));
   await expect(page.getByRole("img", { name: "After photo for this field" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("button", { name: replace ? "Replace photo" : "Replace photo" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replace with Camera" })).toBeVisible();
 }
 const uuidFromHash = (page: Page) => page.evaluate(() => decodeURIComponent(location.hash.split("/")[2] ?? ""));
 
@@ -363,4 +363,27 @@ test("with nothing saved on the device, offline says so instead of guessing", as
 
 test("identity on every request: the signed-in technician id is sent and the fingerprint covers it", async () => {
   expect(fingerprint({ actorId, a: 1 })).not.toBe(fingerprint({ actorId: actorId + 1, a: 1 }));
+});
+
+/** OA-14: the photo acknowledgement and the remark autosave status must not overwrite each other. */
+test("the 'Photo saved' acknowledgement stays visible when the remark autosave finishes after the photo", async ({ page }) => {
+  test.setTimeout(120_000);
+  const server = newServer();
+  await installServer(page, server);
+  await signIn(page, 1280);
+  await warmCaches(page, 1280);
+  await goOffline(page, server);
+  await createOffline(page, "none");
+  await expect(page.getByRole("heading", { name: /Phone Test Customer — Main Site/ })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("radio", { name: "Done Repair" }).check();
+  await page.locator('input[type="file"]').first().setInputFiles(photo(90));
+  await expect(page.getByRole("img", { name: "After photo for this field" })).toBeVisible({ timeout: 15_000 });
+  // The remark is typed AFTER the photo is stored, so its debounced save finishes last.
+  await page.getByLabel("Repair remark (required)").fill("Replaced hose");
+  await expect(page.getByText("Saved on this device.", { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Photo saved on this device.", { exact: true })).toBeVisible();
+  // Both are really persisted: the remark and the After photo survive a reload.
+  await page.reload();
+  await expect(page.getByLabel("Repair remark (required)")).toHaveValue("Replaced hose", { timeout: 20_000 });
+  await expect(page.getByRole("img", { name: "After photo for this field" })).toBeVisible();
 });
