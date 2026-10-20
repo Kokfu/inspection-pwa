@@ -112,7 +112,7 @@ async function fillItem(page: Page, outcome: "Done Repair" | "Not Done", remark:
   await page.getByLabel(outcome === "Not Done" ? "Reason not done (required)" : "Repair remark (required)").fill(remark);
   await page.locator('input[type="file"]').first().setInputFiles(photo(red));
   await expect(page.getByRole("img", { name: "After photo for this field" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("button", { name: "Replace with Camera" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Replace photo" })).toBeVisible();
 }
 const uuidFromHash = (page: Page) => page.evaluate(() => decodeURIComponent(location.hash.split("/")[2] ?? ""));
 
