@@ -10,6 +10,7 @@ import { syncCo2FormInstances } from "../sync/co2FormInstanceSync.js";
 import { inspectionJobsRouter } from "./inspectionJobs.js";
 import { createManagerServiceVisitsRouter } from "./managerServiceVisits.js";
 import { createReportApprovalsRouter } from "./reportApprovals.js";
+import type { ManagerServiceVisitList } from "./managerServiceVisits.js";
 
 /**
  * T6: report approval is an append-only decision log; the report's state is always derived, never
@@ -21,7 +22,7 @@ const databaseUrl = v7IntegrationDatabaseUrl();
 const id = () => randomUUID();
 const time = "2026-09-01T00:00:00.000Z";
 
-test("report approval: derived state, idempotency, roles, audit, append-only, interacts with corrections and the PDF gate", { skip: !databaseUrl }, async () => {
+test("report approval: derived state, idempotency, roles, audit, append-only, interacts with corrections and the PDF gate", { skip: !databaseUrl }, async (context) => {
   try {
     await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); await runMigrations(pool);
     await runMigrations(pool); // 033 replay: table present, nothing re-applied
@@ -59,7 +60,44 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
     const post = (actor: string, body: unknown) => call(`/manager/service-visits/${job}/report-approval`, actor, "POST", body);
     const get = (actor: string) => call(`/manager/service-visits/${job}/report-approval`, actor);
     const eventsCount = async () => (await pool.query("SELECT count(*)::int AS n FROM report_approvals")).rows[0].n as number;
+    const awaitingPath = "/manager/service-visits?reportApproval=awaiting_approval";
+    const readPage = async (suffix = "", actor = "admin") => {
+      const response = await call(`${awaitingPath}${suffix}`, actor);
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal(response.headers.get("cache-control"), "private, no-store");
+      return await response.json() as ManagerServiceVisitList;
+    };
+    const assertAwaiting = async (expected: string[]) => {
+      // Freeze only JavaScript Date: completion.checkedAt otherwise changes between HTTP reads.
+      // Database event timestamps retain their real clock for the approval/correction assertions.
+      context.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+      try {
+        const baseline = await (await call("/manager/service-visits", "admin")).text();
+        const body = await readPage();
+        assert.equal(body.totalCount, expected.length);
+        assert.deepEqual(body.serviceVisits.map((visit) => visit.id).sort(), [...expected].sort());
+        assert.equal(body.nextCursor, null);
+        const unfiltered = JSON.parse(baseline) as ManagerServiceVisitList;
+        assert.deepEqual(body.serviceVisits.map((visit) => visit.id).sort(), unfiltered.serviceVisits
+          .filter((visit) => visit.reportApproval.status === "awaiting_approval").map((visit) => visit.id).sort());
+        for (const visit of body.serviceVisits) {
+          assert.deepEqual(visit, unfiltered.serviceVisits.find((row) => row.id === visit.id));
+        }
+        assert.equal(await (await call("/manager/service-visits", "admin")).text(), baseline,
+          "filtered reads leave the unfiltered response byte-identical");
+        return body;
+      } finally { context.mock.timers.reset(); }
+    };
     try {
+      await assertAwaiting([]); // Open visits are not_applicable.
+      assert.equal((await call(awaitingPath, "")).status, 401);
+      assert.equal((await call(awaitingPath, "inspector")).status, 403);
+      for (const suffix of ["reportApproval=approved", "reportApproval=not_applicable", "reportApproval=",
+        "reportApproval=AWAITING_APPROVAL", "reportApproval=awaiting_approval&reportApproval=approved", "reportApproval[x]=y"]) {
+        const response = await call(`/manager/service-visits?${suffix}`, "admin");
+        assert.equal(response.status, 400);
+        assert.deepEqual(await response.json(), { error: "INVALID_REPORT_APPROVAL" });
+      }
       // Open visit: approving is refused.
       assert.equal((await post("supervisor", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" })).status, 409);
       const openRefusal = await post("supervisor", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" });
@@ -73,6 +111,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       const initial = await (await get("supervisor")).json() as { reportApproval: { status: string }; events: unknown[] };
       assert.equal(initial.reportApproval.status, "awaiting_approval");
       assert.deepEqual(initial.events, []);
+      await assertAwaiting([job]);
 
       // PDF gate: an awaiting-approval visit with no corrections is refused specifically as
       // REPORT_NOT_APPROVED (not masked by the corrections gate, since none exist yet).
@@ -90,6 +129,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       assert.equal(approved.status, 201, await approved.clone().text());
       const approvedBody = await approved.json() as { reportApproval: { status: string; decidedBy: string; decidedByRole: string } };
       assert.equal(approvedBody.reportApproval.status, "approved");
+      await assertAwaiting([]);
       assert.equal(approvedBody.reportApproval.decidedBy, "ra-review");
       assert.equal(approvedBody.reportApproval.decidedByRole, "supervisor");
       assert.equal((await pool.query("SELECT reason FROM audit_events WHERE action='report.approve'")).rows.length, 1);
@@ -138,6 +178,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       assert.equal(withdrawn.status, 201, await withdrawn.clone().text());
       const withdrawnBody = await withdrawn.json() as { reportApproval: { status: string; decidedByRole: string; note: string } };
       assert.equal(withdrawnBody.reportApproval.status, "awaiting_approval");
+      await assertAwaiting([job]);
       assert.equal(withdrawnBody.reportApproval.decidedByRole, "admin");
       assert.equal(withdrawnBody.reportApproval.note, "Wrong customer contact listed");
       assert.equal((await pool.query("SELECT reason FROM audit_events WHERE action='report.withdraw'")).rows.length, 1);
@@ -146,6 +187,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       const reapproved = await post("supervisor", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" });
       assert.equal(reapproved.status, 201);
       assert.equal((await reapproved.json() as { reportApproval: { status: string } }).reportApproval.status, "approved");
+      await assertAwaiting([]);
 
       // A correction recorded after this approval reverts the derived state, and the PDF is refused again.
       const formInstance = (await pool.query<{ id: string }>("SELECT id FROM master_system_form_instances WHERE client_uuid=$1", [client])).rows[0]!;
@@ -159,6 +201,7 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       const revertedState = await (await get("admin")).json() as { reportApproval: { status: string; correctedAfterApproval: boolean } };
       assert.equal(revertedState.reportApproval.status, "awaiting_approval");
       assert.equal(revertedState.reportApproval.correctedAfterApproval, true);
+      assert.equal((await assertAwaiting([job])).serviceVisits[0]!.reportApproval.correctedAfterApproval, true);
       const pdfAfterCorrection = await call(`/manager/service-visits/${job}/final-report.pdf`, "admin");
       assert.equal(pdfAfterCorrection.status, 409, "removing the correction-after-approval check from the derived state would make this line pass with a 200 instead");
       assert.ok(["FINAL_REPORT_HAS_CORRECTIONS", "REPORT_NOT_APPROVED"].includes((await pdfAfterCorrection.json() as { error: string }).error));
@@ -166,6 +209,87 @@ test("report approval: derived state, idempotency, roles, audit, append-only, in
       // Approving again with the stale "approved" expectation is refused; the caller must re-read state first.
       const staleAfterCorrection = await post("supervisor", { requestId: id(), decision: "approved", expectedStatus: "approved" });
       assert.equal(staleAfterCorrection.status, 409);
+
+      // Two older visits share a microsecond completion time; insert in reverse ID order.
+      const foreignInspector = await user("ra-foreign", "inspector");
+      const older = [id(), id()].sort();
+      for (const visitId of [...older].reverse()) {
+        await pool.query(`INSERT INTO inspection_jobs
+          (id,master_template_version_id,job_reference,title,status,is_sample,technician_visible,
+           customer_id,customer_configuration_revision_id,configuration_snapshot,service_date,created_by_user_id)
+          SELECT $1,master_template_version_id,$2,title,'open',false,true,customer_id,
+            customer_configuration_revision_id,configuration_snapshot,'2026-09-06',$3
+          FROM inspection_jobs WHERE id=$4`, [visitId, `RA-${visitId}`, foreignInspector, job]);
+        await pool.query(`UPDATE inspection_jobs SET status='closed',completed_at='2020-01-01T00:00:00.123456Z',
+          completed_by_user_id=$2,completed_by_display_name='ra-foreign',report_number='TEST/' || id::text,
+          technician_team_snapshot='[]'::jsonb WHERE id=$1`, [visitId, foreignInspector]);
+      }
+      assert.deepEqual((await assertAwaiting([...older, job])).serviceVisits.map((visit) => visit.id), [...older, job]);
+      let cursor: string | null = null;
+      for (const expectedId of [...older, job]) {
+        const page: ManagerServiceVisitList = await readPage(`&limit=1${cursor ? `&cursor=${cursor}` : ""}`);
+        assert.equal(page.totalCount, 3);
+        assert.deepEqual(page.serviceVisits.map((visit) => visit.id), [expectedId]);
+        if (cursor) {
+          const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { completedAt: string; id: string };
+          for (const id of [decoded.id.toUpperCase(), decoded.id.replace(/[a-f]/g, (letter, offset: number) => offset % 2 ? letter.toUpperCase() : letter)]) {
+            const recased = Buffer.from(JSON.stringify({ ...decoded, id })).toString("base64url");
+            const recasedPage = await readPage(`&limit=1&cursor=${recased}`);
+            assert.deepEqual(recasedPage.serviceVisits.map((visit) => visit.id), [expectedId],
+              "UUID casing must not duplicate or skip visits at the cursor boundary");
+            assert.equal(recasedPage.totalCount, page.totalCount);
+            assert.equal(recasedPage.nextCursor, page.nextCursor);
+          }
+        }
+        cursor = page.nextCursor;
+        assert.equal(cursor === null, expectedId === job);
+      }
+      const beyond = Buffer.from(JSON.stringify({ completedAt: "9999-01-01T00:00:00.000000Z", id: job })).toString("base64url");
+      assert.deepEqual(await readPage(`&limit=1&cursor=${beyond}`), { serviceVisits: [], nextCursor: null, totalCount: 3 });
+      for (const bad of ["bad", Buffer.from(JSON.stringify({ completedAt: "2020-02-30T00:00:00.000000Z", id: job })).toString("base64url"),
+        Buffer.from(JSON.stringify({ serviceDate: "2020-01-01", jobReference: "x", id: job })).toString("base64url")]) {
+        const response = await call(`${awaitingPath}&cursor=${bad}`, "admin");
+        assert.equal(response.status, 400);
+        assert.deepEqual(await response.json(), { error: "INVALID_CURSOR" });
+      }
+      assert.equal((await readPage("", "supervisor")).totalCount, 0);
+      await pool.query(`INSERT INTO technician_supervisor_assignments(technician_id,supervisor_id,created_by_user_id)
+        VALUES ($1,$2,$3)`, [inspector, supervisor, admin]);
+      const scoped = await readPage("&limit=1", "supervisor");
+      assert.equal(scoped.totalCount, 1);
+      assert.deepEqual(scoped.serviceVisits.map((visit) => visit.id), [job]);
+      assert.equal((await readPage(`&supervisorId=${admin}&technicianId=${foreignInspector}`, "supervisor")).totalCount, 0);
+      await pool.query("UPDATE technician_supervisor_assignments SET archived_at=now() WHERE supervisor_id=$1", [supervisor]);
+      assert.equal((await readPage("", "supervisor")).totalCount, 0);
+      assert.equal((await readPage("&status=open")).totalCount, 0);
+      assert.equal((await readPage(`&customerId=${id()}`)).totalCount, 0);
+
+      // An approval committed after the candidate SELECT cannot split count/membership/state
+      // within this response. A fresh request must then observe the newly approved state.
+      const snapshotDatabase = {
+        query: pool.query.bind(pool),
+        connect: async () => {
+          const client = await pool.connect();
+          return {
+            query: async (sql: string, values?: unknown[]) => {
+              const result = await client.query(sql, values);
+              if (sql.includes("SELECT * FROM filtered")) {
+                const decision = await post("admin", { requestId: id(), decision: "approved", expectedStatus: "awaiting_approval" });
+                assert.equal(decision.status, 201, await decision.clone().text());
+              }
+              return result;
+            },
+            release: () => client.release()
+          };
+        }
+      };
+      app.use("/snapshot", createManagerServiceVisitsRouter({ database: snapshotDatabase as never }));
+      const duringApproval = await call(`/snapshot${awaitingPath}`, "admin");
+      assert.equal(duringApproval.status, 200, await duringApproval.clone().text());
+      const snapshotBody = await duringApproval.json() as ManagerServiceVisitList;
+      assert.equal(snapshotBody.totalCount, 3);
+      assert.equal(snapshotBody.serviceVisits.find((visit) => visit.id === job)?.reportApproval.status, "awaiting_approval");
+      await assertAwaiting(older);
     } finally { server.close(); await once(server, "close"); }
 
     // Append-only at the database level: removing the trigger would make these three assertions fail.

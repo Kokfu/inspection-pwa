@@ -21,6 +21,7 @@ type OperationalJobRow = {
   technician?: ManagerServiceVisitTechnician | null;
   configurationSnapshot: unknown;
   archivedAt: string | null;
+  completedAt?: string | null;
   hasAcceptedRecords?: boolean;
   totalCount: number;
 };
@@ -117,7 +118,8 @@ function readOperationalPresentation(snapshot: unknown) {
 
 async function presentOperationalJob(
   job: OperationalJobRow,
-  database: Pick<typeof pool, "query">
+  database: Pick<typeof pool, "query">,
+  approval?: ReportApprovalState
 ): Promise<ManagerServiceVisit> {
   const presentation = readOperationalPresentation(job.configurationSnapshot);
   const completion = await loadJobCompletion(job.id, database);
@@ -126,7 +128,7 @@ async function presentOperationalJob(
   }
   // Never absent for a real operational job: `visitReportApproval` only returns `undefined` for an
   // unknown/sample job, and this job was just read from `inspection_jobs` above.
-  const reportApproval = await visitReportApproval(database, job.id);
+  const reportApproval = approval ?? await visitReportApproval(database, job.id);
   if (!reportApproval) throw new Error("Operational job report approval is unavailable");
   return {
     id: job.id,
@@ -168,6 +170,7 @@ export async function listManagerServiceVisits(
   database: Pick<typeof pool, "query"> = pool,
   filters: ManagerServiceVisitFilters = {}
 ): Promise<ManagerServiceVisitList> {
+  if (filters.reportApproval === "awaiting_approval") return listAwaitingReportApprovals(database, filters);
   const { sql, values, limit } = buildOperationalListQuery(filters);
   const result = await database.query<OperationalListRow>(sql, values);
   const totalCount = result.rows[0]?.totalCount ?? 0;
@@ -180,6 +183,38 @@ export async function listManagerServiceVisits(
     ? encodeServiceVisitCursor({ serviceDate: lastRow.serviceDate, jobReference: lastRow.reference, id: lastRow.id })
     : null;
   return { serviceVisits, nextCursor, totalCount };
+}
+
+/** Uses the canonical derivation once per scoped candidate; never duplicates approval rules in SQL.
+ * The HTTP caller supplies a repeatable-read snapshot so count, membership and presentation agree.
+ */
+async function listAwaitingReportApprovals(
+  database: Pick<typeof pool, "query">,
+  filters: ManagerServiceVisitFilters
+): Promise<ManagerServiceVisitList> {
+  const { sql, values, limit } = buildOperationalListQuery(filters, true);
+  const result = await database.query<OperationalJobRow>(sql, values);
+  const awaiting: Array<{ job: OperationalJobRow; approval: ReportApprovalState; completedAt: string }> = [];
+  for (const job of result.rows) {
+    const approval = await visitReportApproval(database, job.id);
+    if (!approval) throw new Error("Operational job report approval is unavailable");
+    if (approval.status !== "awaiting_approval") continue;
+    if (!job.completedAt) throw new Error("Awaiting report completion time is unavailable");
+    awaiting.push({ job, approval, completedAt: job.completedAt });
+  }
+  awaiting.sort((a, b) => a.completedAt < b.completedAt ? -1 : a.completedAt > b.completedAt ? 1
+    : a.job.id < b.job.id ? -1 : a.job.id > b.job.id ? 1 : 0);
+  const cursor = filters.awaitingCursor;
+  const remaining = cursor ? awaiting.filter(({ completedAt, job }) =>
+    completedAt > cursor.completedAt || (completedAt === cursor.completedAt && job.id > cursor.id)) : awaiting;
+  const page = remaining.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    serviceVisits: await Promise.all(page.map(({ job, approval }) => presentOperationalJob(job, database, approval))),
+    nextCursor: remaining.length > limit && last
+      ? Buffer.from(JSON.stringify({ completedAt: last.completedAt, id: last.job.id })).toString("base64url") : null,
+    totalCount: awaiting.length
+  };
 }
 
 /** Returns undefined for any non-operational or unknown job, preventing ID probing. */
@@ -205,6 +240,8 @@ function isValidCalendarDate(value: string): boolean {
 export type ManagerServiceVisitCursor = { serviceDate: string | null; jobReference: string; id: string };
 
 export type ManagerServiceVisitFilters = {
+  reportApproval?: "awaiting_approval";
+  awaitingCursor?: { completedAt: string; id: string };
   customerId?: string;
   siteId?: string;
   technicianId?: number;
@@ -250,11 +287,33 @@ function encodeServiceVisitCursor(cursor: ManagerServiceVisitCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
 
+function decodeAwaitingCursor(value: string): ManagerServiceVisitFilters["awaitingCursor"] {
+  if (!value || value.length > 256 || !/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
+  try {
+    const cursor: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (typeof cursor !== "object" || cursor === null || Array.isArray(cursor)) return undefined;
+    const candidate = cursor as { completedAt?: unknown; id?: unknown };
+    if (Object.keys(candidate).length !== 2 || typeof candidate.completedAt !== "string"
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(candidate.completedAt)
+      || !isValidCalendarDate(candidate.completedAt.slice(0, 10))
+      || Number(candidate.completedAt.slice(11, 13)) > 23
+      || Number(candidate.completedAt.slice(14, 16)) > 59
+      || Number(candidate.completedAt.slice(17, 19)) > 59
+      || typeof candidate.id !== "string" || !uuidPattern.test(candidate.id)) return undefined;
+    // PostgreSQL emits lowercase UUIDs; string keyset comparisons need the same canonical case.
+    return { completedAt: candidate.completedAt, id: candidate.id.toLowerCase() };
+  } catch { return undefined; }
+}
+
 /**
  * Additive, optional query filters. Every field is validated before any SQL runs; a well-formed
  * but unknown/foreign customerId or siteId is left to the query (existence oracle: 200 []).
  */
 export function parseServiceVisitFilters(query: Record<string, unknown>): ManagerServiceVisitFilters {
+  const reportApprovalRaw = query.reportApproval;
+  if (reportApprovalRaw !== undefined && reportApprovalRaw !== "awaiting_approval") {
+    throw new ManagerServiceVisitQueryError("INVALID_REPORT_APPROVAL", 'reportApproval must be "awaiting_approval".');
+  }
   const customerIdRaw = query.customerId;
   if (customerIdRaw !== undefined && (typeof customerIdRaw !== "string" || !uuidPattern.test(customerIdRaw))) {
     throw new ManagerServiceVisitQueryError("INVALID_CUSTOMER_ID", "customerId must be a valid UUID.");
@@ -303,14 +362,18 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
       throw new ManagerServiceVisitQueryError("INVALID_LIMIT", `limit must not exceed ${maxServiceVisitPageSize}.`);
     }
   }
+  let awaitingCursor: ManagerServiceVisitFilters["awaitingCursor"];
   let cursor: ManagerServiceVisitCursor | undefined;
   const cursorRaw = query.cursor;
   if (cursorRaw !== undefined) {
     if (typeof cursorRaw !== "string") throw new ManagerServiceVisitQueryError("INVALID_CURSOR", "cursor is invalid.");
-    cursor = decodeServiceVisitCursor(cursorRaw);
-    if (!cursor) throw new ManagerServiceVisitQueryError("INVALID_CURSOR", "cursor is invalid.");
+    if (reportApprovalRaw === "awaiting_approval") awaitingCursor = decodeAwaitingCursor(cursorRaw);
+    else cursor = decodeServiceVisitCursor(cursorRaw);
+    if (!cursor && !awaitingCursor) throw new ManagerServiceVisitQueryError("INVALID_CURSOR", "cursor is invalid.");
   }
   return {
+    ...(reportApprovalRaw === "awaiting_approval" ? { reportApproval: reportApprovalRaw } : {}),
+    ...(awaitingCursor ? { awaitingCursor } : {}),
     ...(typeof customerIdRaw === "string" ? { customerId: customerIdRaw } : {}),
     ...(typeof siteIdRaw === "string" ? { siteId: siteIdRaw } : {}),
     ...(typeof technicianIdRaw === "string" ? { technicianId: Number(technicianIdRaw) } : {}),
@@ -343,7 +406,7 @@ export function parseServiceVisitFilters(query: Record<string, unknown>): Manage
  * so it is the caller's discriminator (see `OperationalListRow`). Still exactly one round trip —
  * one `SELECT`, with `filtered` referenced twice and materialized once.
  */
-export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
+export function buildOperationalListQuery(filters: ManagerServiceVisitFilters, awaitingCandidates = false) {
   const values: unknown[] = [];
   const filterConditions: string[] = [operationalWhere];
 
@@ -392,6 +455,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
     filterConditions.push(`inspection_jobs.archived_at IS NULL`);
   }
 
+  if (awaitingCandidates) filterConditions.push("inspection_jobs.status = 'closed'");
   let cursorCondition = "";
   if (filters.cursor) {
     values.push(filters.cursor.serviceDate, filters.cursor.jobReference, filters.cursor.id);
@@ -420,13 +484,14 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
   }
 
   const limit = filters.limit ?? defaultServiceVisitPageSize;
-  values.push(limit + 1);
+  if (!awaitingCandidates) values.push(limit + 1);
   const limitParam = values.length;
 
   const sql = `
     WITH filtered AS MATERIALIZED (
       SELECT
         inspection_jobs.id,
+        ${awaitingCandidates ? `to_char(inspection_jobs.completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "completedAt",` : ""}
         inspection_jobs.job_reference AS reference,
         inspection_jobs.title,
         inspection_jobs.status,
@@ -447,7 +512,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
       LEFT JOIN users creator ON creator.id = inspection_jobs.created_by_user_id
       WHERE ${filterConditions.join(" AND ")}
     )
-    SELECT summary."totalCount", paged.*
+    ${awaitingCandidates ? "SELECT * FROM filtered" : `SELECT summary."totalCount", paged.*
     FROM (SELECT count(*)::int AS "totalCount" FROM filtered) summary
     LEFT JOIN (
       SELECT * FROM filtered
@@ -455,7 +520,7 @@ export function buildOperationalListQuery(filters: ManagerServiceVisitFilters) {
       ORDER BY "serviceDate" DESC NULLS LAST, reference DESC, id DESC
       LIMIT $${limitParam}
     ) paged ON true
-    ORDER BY paged."serviceDate" DESC NULLS LAST, paged.reference DESC NULLS LAST, paged.id DESC NULLS LAST
+    ORDER BY paged."serviceDate" DESC NULLS LAST, paged.reference DESC NULLS LAST, paged.id DESC NULLS LAST`}
   `;
   return { sql, values, limit };
 }
@@ -528,8 +593,21 @@ export function createManagerServiceVisitsRouter({
       throw error;
     }
     response.setHeader("Cache-Control", "private, no-store");
-    const { serviceVisits, nextCursor, totalCount } = await listManagerServiceVisits(database,
-      request.currentUser!.role === "supervisor" ? { ...filters, supervisorId: request.currentUser!.id } : filters);
+    const scopedFilters = request.currentUser!.role === "supervisor"
+      ? { ...filters, supervisorId: request.currentUser!.id } : filters;
+    let result: ManagerServiceVisitList;
+    if (filters.reportApproval) {
+      const client = await database.connect();
+      try {
+        await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        result = await listManagerServiceVisits(client, scopedFilters);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally { client.release(); }
+    } else result = await listManagerServiceVisits(database, scopedFilters);
+    const { serviceVisits, nextCursor, totalCount } = result;
     response.json({ serviceVisits, nextCursor, totalCount });
   } catch (error) {
     next(error);

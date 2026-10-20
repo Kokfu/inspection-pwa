@@ -17,6 +17,67 @@ import { FinalReportError, loadFinalServiceReport } from "../reports/finalServic
 const openId = "71000000-0000-4000-8000-000000000001";
 const closedId = "71000000-0000-4000-8000-000000000002";
 const sampleId = "71000000-0000-4000-8000-000000000003";
+
+test("awaiting approval query rejects invalid values and incompatible/malformed cursors", () => {
+  for (const reportApproval of [null, "", "approved", "not_applicable", ["awaiting_approval"], { status: "awaiting_approval" }]) {
+    assert.throws(() => parseServiceVisitFilters({ reportApproval }),
+      (error: unknown) => error instanceof ManagerServiceVisitQueryError && error.code === "INVALID_REPORT_APPROVAL");
+  }
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const valid = { completedAt: "2026-10-20T12:13:14.123456Z", id: closedId };
+  assert.deepEqual(parseServiceVisitFilters({ reportApproval: "awaiting_approval", cursor: encode(valid), limit: "1" }),
+    { reportApproval: "awaiting_approval", awaitingCursor: valid, limit: 1 });
+  for (const value of [{ ...valid, extra: true }, { ...valid, completedAt: "2026-02-30T00:00:00.000000Z" },
+    { ...valid, completedAt: "2026-10-20T24:00:00.000000Z" }, { ...valid, id: "bad" },
+    { serviceDate: null, jobReference: "SV", id: closedId }, [], null]) {
+    assert.throws(() => parseServiceVisitFilters({ reportApproval: "awaiting_approval", cursor: encode(value) }),
+      (error: unknown) => error instanceof ManagerServiceVisitQueryError && error.code === "INVALID_CURSOR");
+  }
+  assert.throws(() => parseServiceVisitFilters({ cursor: encode(valid) }),
+    (error: unknown) => error instanceof ManagerServiceVisitQueryError && error.code === "INVALID_CURSOR");
+});
+
+test("awaiting approval cursors normalize uppercase and mixed-case UUIDs", () => {
+  const cursor = { completedAt: "2026-10-20T12:13:14.123456Z", id: "abcdefab-cdef-4abc-8def-abcdefabcdef" };
+  for (const id of [cursor.id.toUpperCase(), "AbCdEfAb-cDeF-4AbC-8dEf-AbCdEfAbCdEf"]) {
+    const encoded = Buffer.from(JSON.stringify({ ...cursor, id })).toString("base64url");
+    assert.deepEqual(parseServiceVisitFilters({ reportApproval: "awaiting_approval", cursor: encoded }),
+      { reportApproval: "awaiting_approval", awaitingCursor: cursor, limit: 50 });
+  }
+});
+
+test("awaiting approval read failures roll back and release instead of returning stale data", async () => {
+  const queries: string[] = [];
+  let released = false;
+  const client = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes("FROM inspection_jobs")) throw new Error("authoritative read failed");
+      return { rows: [] };
+    },
+    release: () => { released = true; }
+  };
+  const app = express();
+  app.use((request, _response, next) => {
+    request.currentUser = { id: 1, username: "manager", role: "admin" };
+    next();
+  });
+  app.use(createManagerServiceVisitsRouter({ database: { connect: async () => client } as never }));
+  app.use((_error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    response.status(500).json({ error: "READ_FAILED" });
+  });
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/manager/service-visits?reportApproval=awaiting_approval`);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { error: "READ_FAILED" });
+    assert.equal(queries[0], "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    assert.equal(queries.at(-1), "ROLLBACK");
+    assert.equal(queries.includes("COMMIT"), false);
+    assert.equal(released, true);
+  } finally { await close(server); }
+});
 /** T5: when true the fake reports corrections on the visit, so the PDF routes must refuse it. */
 let visitCorrected = false;
 let approvalsPresent = true;
