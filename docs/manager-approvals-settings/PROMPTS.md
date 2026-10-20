@@ -1,11 +1,11 @@
 # Manager Approvals, Settings and Proposal Filters — Prompts
 
-Status, decisions (D1–D14) and the D0 structure: [PROGRESS_STATUS.md](PROGRESS_STATUS.md).
+Status, decisions (D1–D16) and the D0 structure: [PROGRESS_STATUS.md](PROGRESS_STATUS.md).
 A prompt is ready to paste only when PROGRESS_STATUS.md §2 marks it ✅. Paste the Standing rules block first, then the task block.
 
 ```
 Wave A (parallel, disjoint files)   A1 proposal filters + Site Requests tabs | A2 offline audit (read-only) | B0 report-approval API
-Wave B (after A1 and B0 are reviewed)  B1 Approvals hub + Service Reports list + Settings page
+Wave B (after A1 and B0 are reviewed)  B1 Approvals hub + Service Reports list + Settings page  |  C1 customer receipt (OA-8), parallel
 Later                                  P1 visual polish
 ```
 
@@ -201,7 +201,7 @@ STOP when the DoD table is green. Print files changed + the reproducible test co
 
 ## B1 — Approvals hub + Service Reports list + Settings page (Wave B)
 
-Status: ⏸ paste after A1 and B0 are reviewed (fill B0's final contract into step 4).
+Status: ✅ ready (A1 and B0 reviewed and committed 2026-10-20; B0 contract filled into step 4).
 
 ```
 <Standing rules>
@@ -245,7 +245,16 @@ repairVisits/ManagerRepairVisits.tsx, ManagerEmailReminders.tsx, the Company Pro
    - "Service Catalog" and "Service Common Remarks" stay top-level, unchanged.
 
 4. Service reports list (route `manager-report-approvals`, `#/manager-report-approvals`; admin + supervisor)
-   - Uses the B0 endpoint: <paste B0's final contract here>. Shows customer, SV number, completed date, and a chip
+   - B0 contract (committed, do not change the API):
+       GET /api/manager/service-visits?reportApproval=awaiting_approval[&limit=1..200 (default 50)][&cursor=<nextCursor>]
+       -> { serviceVisits, nextCursor, totalCount }; items have the unchanged ManagerServiceVisit shape (incl.
+       reportApproval); includes "Re-approval needed"; ordered by completion time ascending, then id; totalCount ignores
+       cursor/limit; Cache-Control private, no-store. Errors: 401 AUTH_REQUIRED, 403 FORBIDDEN, 400
+       INVALID_REPORT_APPROVAL / INVALID_CURSOR / INVALID_LIMIT. A supervisor gets only their scoped visits (server-side).
+       Add ONE loader in managerApi.ts (reuse the existing ManagerServiceVisit validator; reject an item whose
+       reportApproval.status is not "awaiting_approval", a non-integer/negative totalCount, or a non-string/non-null
+       nextCursor). The hub count calls it with limit=1 and reads totalCount.
+   - Shows customer, SV number, completed date, and a chip
      "Awaiting approval" or "Re-approval needed" (same wording as ManagerOperations ReportApprovalChip). Oldest first,
      "Load more" for the next cursor. Tapping a row opens the EXISTING visit report screen where Approve already lives
      (the same navigation ManagerOperations uses); after approving, returning here re-fetches the list.
@@ -277,11 +286,70 @@ STOP when the DoD table is green. Print files changed. Do NOT commit.
 
 ---
 
+## C1 — Confirm technician customer creation by exact request UUID (OA-8)
+
+Status: ✅ ready. Can run in parallel with B1 (no shared files). Level 2 (sync confirmation contract).
+
+```
+<Standing rules>
+
+OVERRIDE of the standing rules for THIS task only: the API and web files listed below may be edited. No other file.
+Read additionally: .agents/skills/sync-engine, .agents/skills/offline-first-pwa, .agents/skills/backend-api-security, and
+the codex-task-brief test-DB discipline (disposable Postgres on 127.0.0.1:55432 only; never the runtime database).
+Background: docs/manager-approvals-settings/OFFLINE_AUDIT.md OA-8 and PROGRESS_STATUS.md (owner decision D16).
+Another agent may be working on B1 (manager navigation) in the same checkout: do not touch its files
+(App.tsx, ManagerHome.tsx, roleAccess.ts, AppShell.tsx, managerApi.ts, apps/web/src/manager/*); ignore their changes in
+`git status`.
+
+PROBLEM
+AGENTS.md: "Mark a record Synced only when the server confirms that exact UUID." Today createTechnicianCustomer
+(apps/web/src/referenceData/referenceDataApi.ts ~L110-135) accepts any 2xx with a UUID-shaped customer id and the same
+display name; technicianCustomerDraft.ts (~L115-123) then marks the draft Synced and the outbox item Completed. The server
+(POST /customers, apps/api/src/routes/managerCustomers.ts ~L763-771) is already idempotent by requestId (migration 016,
+fingerprint, reservation/replay) but its response does not echo the requestId.
+
+Files you may edit: apps/api/src/routes/managerCustomers.ts (POST /customers response only),
+apps/web/src/referenceData/referenceDataApi.ts (createTechnicianCustomer only), apps/api/src/routes/managerCustomers.test.ts,
+apps/api/src/routes/customerCreation.integration.test.ts, apps/web/tests/technician-sidebar-navigation.spec.ts (fixtures and
+new assertions only), apps/web/tests/new-service-visit-add-site.spec.ts (fixtures and new assertions only), ONE new focused
+web unit test file, apps/web/package.json "scripts" only to register it.
+No migration, no Dexie change, no change to technicianCustomerDraft.ts unless a test proves it is required (then STOP and
+report first). Do not touch the Manager Add Customer endpoint/helper (managerApi.ts).
+
+TASK
+1. API: POST /customers returns an additive top-level receipt on BOTH 201 (created) and 200 (idempotent replay):
+   { "requestId": "<the validated request UUID, lower-case>", "customer": <exactly the existing value> }.
+   Only after COMMIT and successful replay resolution. Existing keys and status codes unchanged; error paths unchanged.
+2. Web: createTechnicianCustomer requires data.requestId to be a string equal (case-insensitive) to the requestId it sent,
+   in addition to every existing check. Missing, null, malformed or different requestId -> throw a confirmation error
+   ("The server did not confirm this customer request. It will be retried.") so the outbox item stays retryable with the
+   SAME requestId and payload (never generate a new UUID, never mark Synced/Completed). This also covers the online Add
+   Customer shortcut in NewServiceVisit.tsx (it shares the helper): it must show the error and not use the customer.
+3. Keep: expected-actor guard, auth refusals (401/403 messages), fingerprint conflict handling, display-name check.
+
+DoD ADDITIONS
+- API tests: receipt present and equal on 201 and on duplicate 200 replay; lost response after commit + replay -> one
+  customer, same id, same receipt; concurrent retries with the same requestId -> one customer; fingerprint conflict,
+  401, 403, expected-actor refusal and rollback still behave as before (existing tests unchanged and passing).
+- Web unit tests for the helper: correct receipt -> customer returned; missing / null / malformed / different requestId
+  (including a valid same-name customer) -> throws; existing refusal behaviour (queuedWriteRefusal.test.ts) still passes.
+- Browser: standalone Add Customer queue: a response without/with a wrong receipt leaves the item Failed/retryable with
+  the same requestId, then a correct response completes it (Synced shown only then); New Service Visit inline Add Customer
+  shortcut: wrong receipt -> error shown, no customer selected.
+- Compatibility note in the report: old web + new API (ignores the extra key) and new web + old API (refuses, stays
+  retryable). Deployment order: API first, then web.
+- API typecheck + build, web typecheck + build, `git diff --check`.
+
+STOP when the DoD table is green. Print files changed + the reproducible test command block. Do NOT commit.
+```
+
+---
+
 ## Review prompt (after each task reports)
 
 ```
-Review the uncommitted working tree for task <A1|A2|B0|B1> in docs/manager-approvals-settings/PROMPTS.md against HEAD.
-Modify no file. Read AGENTS.md, PROGRESS_STATUS.md (decisions D1–D14 and the D0 structure in §5) and the skills the task lists.
+Review the uncommitted working tree for task <A1|A2|B0|B1|C1> in docs/manager-approvals-settings/PROMPTS.md against HEAD.
+Modify no file. Read AGENTS.md, PROGRESS_STATUS.md (decisions D1–D16 and the D0 structure in §5) and the skills the task lists.
 - Confirm every TASK point and DoD item with file:line; give a concrete failing scenario for anything not met.
 - Look for NEW defects: role/route access (supervisor must not reach Settings), fail-closed behaviour on load errors,
   decision-flow regressions, focus/keyboard, 360 px overflow, tests that were weakened rather than updated.
