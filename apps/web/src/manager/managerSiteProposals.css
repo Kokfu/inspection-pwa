@@ -49,3 +49,12 @@
 }
 
 .manager-site-proposals .job-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+/* I-75: the page grid already spaces its children, so on a phone the tabs', filter bar's and search form's own
+   margins stacked into empty bands. Desktop keeps the original margins. */
+@media (max-width: 767px) {
+  .manager-site-proposals .job-tabs { margin-block: 0; }
+  .manager-site-proposals .proposal-filters { margin-block: 0; }
+  .manager-site-proposals .proposal-filters .manager-search-form { margin: 0; }
+  .manager-site-proposals .proposal-filter-result { margin-block: 0; }
+}

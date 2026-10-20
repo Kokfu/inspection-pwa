@@ -100,7 +100,8 @@ test("company logo GET/PUT/reset authorize like the rest of the settings route a
       assert.equal((await putImage("/manager/company-profile/logo", Buffer.from("x"), "image/png", "supervisor")).status, 403);
 
       const beforeAny = await get("/manager/company-profile/logo", "admin");
-      assert.equal(beforeAny.status, 404, "nothing uploaded yet, and no checked-in default ships today");
+      assert.equal(beforeAny.status, 204, "nothing uploaded yet, and no checked-in default ships today: 204, not a 404 console error (I-73)");
+      assert.equal((await beforeAny.text()), "");
 
       const rejectedFormat = await putImage("/manager/company-profile/logo", Buffer.from("not an image"), "image/png", "admin");
       assert.equal(rejectedFormat.status, 400);
@@ -133,7 +134,7 @@ test("company logo GET/PUT/reset authorize like the rest of the settings route a
       const reset = await put("/manager/company-profile/logo/reset", {}, "admin");
       assert.equal(reset.status, 200);
       assert.equal((await reset.json()).companyProfile.logoFile, "");
-      assert.equal((await get("/manager/company-profile/logo", "admin")).status, 404, "reset actually removed the file, not just the reference");
+      assert.equal((await get("/manager/company-profile/logo", "admin")).status, 204, "reset actually removed the file, not just the reference");
     });
   } finally {
     if (previous === undefined) delete process.env.COMPANY_PROFILE_PATH; else process.env.COMPANY_PROFILE_PATH = previous;

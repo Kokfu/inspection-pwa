@@ -67,6 +67,20 @@ test("L-5 wiring: the header uses the shared summary and the proposal outbox, an
   const draft = readFileSync(join(import.meta.dirname, "../src/jobs/technicianLocationProposalDraft.ts"), "utf8");
   assert.ok((draft.match(/announceSyncFinished\(\)/g) ?? []).length >= 2, "queueing and finishing a proposal sync both announce");
   const hook = readFileSync(join(import.meta.dirname, "../src/sync/useLocationProposalOutboxStatuses.ts"), "utf8");
-  assert.match(hook, /entityType"\)\.equals\("technicianLocationProposal"\)/);
+  assert.match(hook, /useLocationProposalOutboxStatuses\([^)]*\)[^{]*\{\s*return useOutboxEntityStatuses\("technicianLocationProposal"/);
+  assert.match(hook, /entityType"\)\.equals\(entityType\)/);
+  assert.match(app, /useTechnicianCustomerOutboxStatuses\(/);
+  assert.match(hook, /useTechnicianCustomerOutboxStatuses\([^)]*\)[^{]*\{\s*return useOutboxEntityStatuses\("technicianCustomer"/);
   assert.match(hook, /status !== "Completed"/, "only unconfirmed items count: Completed means the exact UUID was server-confirmed");
+});
+
+test("I-74: a Pending technician customer is waiting, Failed needs attention, Syncing runs, none is all synced", () => {
+  assert.equal(headerSyncSummary({ ...none, customerStatuses: ["Pending"] }).text, "1 customer waiting to sync");
+  assert.equal(headerSyncSummary({ ...none, customerStatuses: ["Pending", "Pending"] }).text, "2 customers waiting to sync");
+  assert.equal(headerSyncSummary({ ...none, customerStatuses: ["Syncing"] }).text, "Syncing…");
+  for (const status of ["Failed", "Conflict"]) {
+    assert.deepEqual(headerSyncSummary({ ...none, customerStatuses: [status] }), { text: "Sync needs attention", needsAttention: true, running: false });
+  }
+  assert.equal(headerSyncSummary({ ...none, customerStatuses: [] }).text, "All submitted changes synced");
+  assert.equal(headerSyncSummary({ ...none, inspectionStatuses: ["Pending"], customerStatuses: ["Pending"] }).text, "1 inspection and 1 customer waiting to sync");
 });

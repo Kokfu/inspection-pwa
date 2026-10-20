@@ -59,7 +59,8 @@ export function createManagerCompanyProfileRouter(database: Pick<Pool, "query"> 
   router.get("/manager/company-profile/logo", requireRole("admin"), async (_request, response, next) => {
     try {
       const found = resolveCompanyLogoFile(currentCompanyProfile().logoFile);
-      if (!found) { response.status(404).json({ error: "LOGO_NOT_FOUND", message: "No company logo is configured." }); return; }
+      // 204, not 404: "no logo configured" is a normal state (I-73), so the preview <img> must not log a failed load.
+      if (!found) { response.setHeader("Cache-Control", "private, no-store"); response.status(204).end(); return; }
       response.setHeader("Cache-Control", "private, no-store");
       response.type(found.mime).send(readFileSync(found.path));
     } catch (error) { next(error); }

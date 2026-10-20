@@ -81,9 +81,18 @@ export function parseServerMasterSystemInspectionPage(value: unknown): SummaryPa
   return { inspections, hasMore: payload.hasMore, nextCursor: payload.nextCursor };
 }
 
-export async function loadServerMasterSystemInspections(jobIds: string[] = []) {
-  const query = new URLSearchParams(); if (jobIds.length) query.set("jobIds", jobIds.join(","));
-  return loadAllPages(query, "load server inspections");
+/** The API rejects a `jobIds` filter longer than this with 400 INVALID_INSPECTION_FILTER (masterSystemInspections.ts). */
+export const SERVER_SUMMARY_JOB_ID_LIMIT = 100;
+
+export async function loadServerMasterSystemInspections(jobIds: string[] = [], request: typeof fetch = fetch) {
+  if (jobIds.length === 0) return loadAllPages(new URLSearchParams(), "load server inspections", request);
+  // Chunk so a device with more cached jobs than the API limit does not fail the whole load (I-76).
+  const unique = [...new Set(jobIds)]; const all: ServerMasterSystemInspectionSummary[] = [];
+  for (let start = 0; start < unique.length; start += SERVER_SUMMARY_JOB_ID_LIMIT) {
+    const query = new URLSearchParams({ jobIds: unique.slice(start, start + SERVER_SUMMARY_JOB_ID_LIMIT).join(",") });
+    all.push(...await loadAllPages(query, "load server inspections", request));
+  }
+  return unique.length > SERVER_SUMMARY_JOB_ID_LIMIT ? all.sort(compareServerMasterSystemInspectionOrder) : all;
 }
 
 export async function loadAllPages(query: URLSearchParams, action: string, request: typeof fetch = fetch, options: { timeoutMs?: number } = {}) {

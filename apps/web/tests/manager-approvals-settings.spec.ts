@@ -282,3 +282,25 @@ for (const role of ["admin", "supervisor"] as const) {
     }
   });
 }
+
+// 1x1 transparent PNG
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHh6mZQAAAABJRU5ErkJggg==", "base64");
+test("I-73: Company profile with no stored logo gets 204 and logs no console error; a stored logo is shown", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await install(page);
+  let logo: "none" | "png" = "none";
+  await page.route("**/api/manager/company-profile/logo**", route => logo === "none" ? route.fulfill({ status: 204 }) : route.fulfill({ status: 200, contentType: "image/png", body: png }));
+  await enter(page, "manager-company-profile");
+  const image = page.locator("img[alt^=\"Current company logo\"]");
+  await expect(image).toBeAttached();
+  await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).complete)).toBe(true);
+  await expect(image).toBeHidden();
+  expect(errors).toEqual([]);
+
+  logo = "png";
+  await page.reload();
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await expect(image).toBeVisible();
+  expect(errors).toEqual([]);
+});

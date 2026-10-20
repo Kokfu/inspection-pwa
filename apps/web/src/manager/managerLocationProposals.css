@@ -77,3 +77,12 @@
   .manager-location-proposals .proposal-filters input { flex: 1; }
   .manager-location-proposals .proposal-filters button { flex: 0 0 auto; }
 }
+
+/* I-75: the page grid already spaces its children, so on a phone the tabs', filter bar's and search form's own
+   margins stacked into empty bands. Desktop keeps the original margins. */
+@media (max-width: 767px) {
+  .manager-location-proposals .job-tabs { margin-block: 0; }
+  .manager-location-proposals .proposal-filters { margin-block: 0; }
+  .manager-location-proposals .proposal-filters .manager-search-form { margin: 0; }
+  .manager-location-proposals .proposal-filter-result { margin-block: 0; }
+}

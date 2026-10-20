@@ -1,0 +1,62 @@
+<!doctype html><html><body>
+<button id="run">Run header customer sync summary checks</button>
+<button id="seed">Seed a Pending customer</button>
+<button id="read">Read header summary</button>
+<pre id="result">Ready</pre>
+<div id="view"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { useTechnicianCustomerOutboxStatuses } from "/src/sync/useLocationProposalOutboxStatuses.ts";
+import { headerSyncSummary } from "/src/sync/headerSyncSummary.ts";
+import { countUnsyncedWork } from "/src/sync/unsyncedWork.ts";
+import { announceSyncFinished } from "/src/sync/syncEvents.ts";
+
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) { const end = Date.now() + ms; while (Date.now() < end) { try { const v = fn(); if (v) return v; } catch {} await wait(25); } return undefined; }
+const id = "9f000000-0000-4000-8000-000000000001";
+const item = (status) => ({ operationId: id, entityType: "technicianCustomer", entityId: id, action: "create", payload: {}, createdAt: new Date().toISOString(), attempts: 0, status });
+
+function Header() {
+  const customerStatuses = useTechnicianCustomerOutboxStatuses(9006);
+  const { text, needsAttention } = headerSyncSummary({ inspectionStatuses: [], attachmentStatuses: [], proposalStatuses: [], customerStatuses });
+  return React.createElement("span", { className: needsAttention ? "sync-summary sync-summary--attention" : "sync-summary" }, text);
+}
+const summary = () => document.querySelector(".sync-summary");
+async function open() { await deviceDatabase.open(); await activateUserWorkspace(9006); }
+const fail = (error) => { out.textContent = JSON.stringify({ status: "ERROR", message: error.stack || String(error), checks }); };
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await open();
+    await localDatabase.syncOutbox.clear();
+    createRoot(document.querySelector("#view")).render(React.createElement(Header));
+    check("no customers: all synced, nothing unsynced", await until(() => summary()?.textContent === "All submitted changes synced") && (await countUnsyncedWork()).waiting === 0);
+    await localDatabase.syncOutbox.put(item("Pending")); announceSyncFinished();
+    check("Pending customer: waiting, not all synced", await until(() => summary()?.textContent === "1 customer waiting to sync"));
+    check("Pending customer counts for the sign-out confirm", (await countUnsyncedWork()).waiting === 1);
+    await localDatabase.syncOutbox.update(id, { status: "Failed", lastError: "boom" }); announceSyncFinished();
+    check("Failed customer: needs attention", await until(() => summary()?.textContent === "Sync needs attention" && summary().className.includes("sync-summary--attention")));
+    check("Failed customer counts as needing attention", (await countUnsyncedWork()).failed === 1);
+    await localDatabase.syncOutbox.update(id, { status: "Completed" }); announceSyncFinished();
+    check("Completed customer: back to all synced", await until(() => summary()?.textContent === "All submitted changes synced"));
+    const done = await countUnsyncedWork();
+    check("Completed customer is not counted", done.waiting === 0 && done.failed === 0);
+    out.textContent = JSON.stringify({ status: checks.every((x) => x.ok) ? "PASS" : "FAIL", checks });
+  } catch (error) { fail(error); }
+};
+document.querySelector("#seed").onclick = async () => {
+  try { await open(); await localDatabase.syncOutbox.clear(); await localDatabase.syncOutbox.put(item("Pending")); out.textContent = "SEEDED"; } catch (error) { fail(error); }
+};
+document.querySelector("#read").onclick = async () => {
+  try {
+    await open();
+    createRoot(document.querySelector("#view")).render(React.createElement(Header));
+    await until(() => summary() && summary().textContent !== "All submitted changes synced", 3000);
+    out.textContent = JSON.stringify({ status: "READ", text: summary()?.textContent, waiting: (await countUnsyncedWork()).waiting });
+  } catch (error) { fail(error); }
+};
+</script></body></html>

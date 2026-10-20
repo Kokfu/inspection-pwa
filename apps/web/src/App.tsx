@@ -215,7 +215,7 @@ import { runAsSingleSender, type SingleSenderLocks } from "./sync/autoSyncLock";
 import { runAttachmentCleanupIfDue } from "./attachments/attachmentRetention";
 import { announceSyncFinished } from "./sync/syncEvents";
 import { headerSyncSummary } from "./sync/headerSyncSummary";
-import { useLocationProposalOutboxStatuses } from "./sync/useLocationProposalOutboxStatuses";
+import { useLocationProposalOutboxStatuses, useTechnicianCustomerOutboxStatuses } from "./sync/useLocationProposalOutboxStatuses";
 import { useRepairVisitSyncStatuses } from "./sync/useRepairVisitSyncStatuses";
 import { listOfflineReadyJobIds, recordOfflineStartConfirmations } from "./jobs/offlineStartReadiness";
 import { countUnsyncedWork, describeUnsyncedWork } from "./sync/unsyncedWork";
@@ -2321,11 +2321,13 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
     ...masterSystemFormInstances.map((record) => record.syncStatus)
   ];
   const proposalStatuses = useLocationProposalOutboxStatuses(headerUser?.id);
+  const customerStatuses = useTechnicianCustomerOutboxStatuses(headerUser?.id);
   const repairStatuses = useRepairVisitSyncStatuses(headerUser?.id);
   const { text: syncSummary, needsAttention: syncNeedsAttention } = headerSyncSummary({
     inspectionStatuses,
     attachmentStatuses: inspectionAttachments.map((attachment) => attachment.syncStatus),
     proposalStatuses,
+    customerStatuses,
     repairStatuses
   });
   const safeToUpdate = isSafeForAppUpdate(route);

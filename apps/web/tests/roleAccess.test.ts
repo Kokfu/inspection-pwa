@@ -24,8 +24,9 @@ test("supervisor may review technician-submitted location proposals", () => {
   assert.equal(supervisorAllowsRoute("manager-location-proposals"), true);
 });
 
-test("CR-11 labels both review roles Admin without changing their authority", () => {
+test("I-72 labels admin Manager, supervisor Admin and inspector Technician without changing authority", () => {
+  assert.equal(reviewerRoleLabel("admin"), "Manager");
   assert.equal(reviewerRoleLabel("supervisor"), "Admin");
-  assert.equal(reviewerRoleLabel("admin"), "Admin");
+  assert.equal(reviewerRoleLabel("inspector"), "Technician");
   assert.equal(reviewerRoleLabel(null), "");
 });
