@@ -189,6 +189,16 @@ for (const systemKey of ["hose_reel", "dry_wet_riser", "fire_rated_roller_shutte
       await editor.getByLabel("Drum Type").selectOption("fixed");
     }
     if (systemKey === "fire_rated_roller_shutter") await expect(editor.getByLabel("Zone Text")).toHaveAttribute("maxlength", "200");
+    const location = editor.getByLabel("Location Text");
+    await location.fill("");
+    await expect(location).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByRole("alert")).toContainText("Enter a location for row 1");
+    await editor.getByRole("button", {name:"Submit for Review"}).click();
+    await expect(location).toBeFocused();
+    await expect(editor).toHaveCount(1);
+    expect(await page.evaluate(async () => (await (window as any).harness.db.syncOutbox.toArray()).length)).toBe(0);
+    await location.fill("Lobby");
+    await expect(page.getByRole("alert")).toHaveCount(0);
     await context.setOffline(true);
     await editor.getByRole("button", {name:"Submit for Review"}).click();
     await expect(editor).toHaveCount(0);

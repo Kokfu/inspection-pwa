@@ -230,6 +230,13 @@ function appliedPatchSummary(patch: LocationProposal["payload"], original: Locat
   return zoneChanged ? `${patch.displayName} (zone chosen by the reviewer)` : patch.displayName;
 }
 
+/** The first revision row with no location text, which neither the device nor the server accepts. */
+function blankRevisionRow(draft: TechnicianLocationProposalDraft) {
+  if (draft.patch.kind !== "update-format") return undefined;
+  const index = draft.patch.rows.findIndex((row) => typeof row.locationText === "string" && !row.locationText.trim());
+  return index < 0 ? undefined : { index, id: `revision-${index}-locationText`, message: `Enter a location for row ${index + 1} before saving or submitting.` };
+}
+
 function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
   job: InspectionJob; actorUserId: number; canUseServer: boolean; onDiscard: (id: string) => void;
 }) {
@@ -306,7 +313,16 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
     if (!revision) return;
     const next = change(revision);
     setRevision(next);
+    const blank = blankRevisionRow(next);
+    if (blank) { setError(blank.message); return; }
+    setError("");
     void saveTechnicianLocationProposalDraft(next).catch((reason) => setError(reason instanceof Error ? reason.message : "Revision could not be saved on this device."));
+  }
+  function requireRevisionLocations(draft: TechnicianLocationProposalDraft) {
+    const blank = blankRevisionRow(draft);
+    if (!blank) return;
+    document.getElementById(blank.id)?.focus();
+    throw new Error(blank.message);
   }
   async function revise(proposal: LocationProposal) {
     const next = reviseTechnicianLocationProposal({ ...proposal, patch: proposal.payload });
@@ -318,7 +334,7 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
     <button type="button" className="secondary-command" disabled={!connected || busy} onClick={() => { generation.current++; setFresh(false); setRefresh((n) => n + 1); }}>Refresh request status</button>
     {!authoritative ? <p className="offline-notice" role="status">Status needs a connection. Local delivery states are shown; review decisions and notes are unavailable until a successful refresh.</p> : null}
     {loading ? <div className="report-summary proposal-skeleton" role="status">Loading request statuses…</div> : null}
-    {error || localError ? <p className="form-message" role="alert">{error || localError}</p> : null}
+    {error || localError ? <p id="visit-location-requests-error" className="form-message" role="alert">{error || localError}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {!loading && !local.length && !shownServer.length ? <p className="empty-state">No location requests available for this visit{authoritative ? "." : " on this device. Connect to check for other requests."}</p> : null}
     <div className="job-card-list">
@@ -374,12 +390,13 @@ function VisitLocationRequests({ job, actorUserId, canUseServer, onDiscard }: {
         }}><option value="">Select a zone…</option>{job.configurationSnapshot.enabledSystems.find((s) => s.systemKey === revision.systemKey)?.zones.map((zone) => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}</select></label>}
       </> : revision.patch.rows.map((row, index) => <fieldset key={index}><legend>Row {index + 1}</legend>{Object.entries(row).map(([key, value]) => <label key={key}>{key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())}{key === "drumType" ? <select name={`revision-${index}-${key}`} value={value} onChange={(e) => {
         const text = e.target.value; editRevision((r) => r.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
-      }}><option value="">Not specified</option><option value="swing">Swing</option><option value="fixed">Fixed</option></select> : <input name={`revision-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" || key === "zoneText" ? 200 : revision.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={(e) => {
+      }}><option value="">Not specified</option><option value="swing">Swing</option><option value="fixed">Fixed</option></select> : <input id={`revision-${index}-${key}`} aria-invalid={key === "locationText" && !value.trim()} aria-describedby={key === "locationText" && !value.trim() && error ? "visit-location-requests-error" : undefined} name={`revision-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" || key === "zoneText" ? 200 : revision.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={(e) => {
         const text = e.target.value; editRevision((r) => r.patch.kind === "update-format" ? { ...r, patch: { ...r.patch, rows: r.patch.rows.map((v, i) => i === index ? { ...v, [key]: text } : v) } } : r);
       }} />}</label>)}</fieldset>)}
       <div className="inline-actions proposal-actions">
-        <button type="button" className="secondary-command" disabled={busy} onClick={() => void act(async () => { await saveTechnicianLocationProposalDraft(revision); setNotice("Revision saved on this device."); })}>Save Draft</button>
+        <button type="button" className="secondary-command" disabled={busy} onClick={() => void act(async () => { requireRevisionLocations(revision); await saveTechnicianLocationProposalDraft(revision); setNotice("Revision saved on this device."); })}>Save Draft</button>
         <button type="button" disabled={busy} onClick={() => void act(async () => {
+          requireRevisionLocations(revision);
           await queueTechnicianLocationProposal(revision); setRevision(undefined);
           if (connected) await syncPendingLocationProposals(actorUserId);
           setRefresh((n) => n + 1);

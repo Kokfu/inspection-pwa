@@ -172,6 +172,20 @@ test("invalid approval names identify and focus the field rather than the note",
   expect(writes).toHaveLength(0);
 });
 
+test("a blank format row names and focuses that row, not the note", async ({page}) => {
+  const {writes} = await api(page); await enter(page); await open(page);
+  await page.getByRole("button", {name:"Edit before approval"}).click();
+  const row = review(page).getByRole("textbox", {name:"Location", exact:true}).first();
+  await row.fill("");
+  await page.getByRole("button", {name:"Approve with changes"}).click();
+  await expect(row).toBeFocused();
+  await expect(row).toHaveAttribute("aria-invalid", "true");
+  await expect(row).toHaveAttribute("aria-describedby", "proposal-decision-error");
+  await expect(page.getByRole("alert")).toContainText("Enter a location for row 1");
+  await expect(page.getByRole("textbox", {name:/Note/})).toHaveAttribute("aria-invalid", "false");
+  expect(writes).toHaveLength(0);
+});
+
 test("phone Back restores keyboard focus after the inbox becomes visible", async ({page}) => {
   await page.setViewportSize({width:360, height:800});
   await api(page); await enter(page); await open(page);
@@ -184,6 +198,7 @@ test("failed decision removes stale actions and requires fresh detail before ret
   await page.route("**/decision", route => route.fulfill({ status: 409, json: { error: "CONFLICT", message: "Configuration changed. Reload this proposal." } }));
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(page.getByRole("button", { name: "Reload proposal" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload proposal" })).toBeFocused();
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await page.route(`**/api/manager/location-proposals/${id}`, route => route.fulfill({ json: { proposal: current(proposal(), { mergeable: { reason: "Location removed." } }) } }));
   await page.getByRole("button", { name: "Reload proposal" }).click();

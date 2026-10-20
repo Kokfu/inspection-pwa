@@ -52,7 +52,9 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
   const [note, setNote] = useState("");
   const [deciding, setDeciding] = useState(false);
   const [decisionError, setDecisionError] = useState("");
-  const [invalidApprovalField, setInvalidApprovalField] = useState<"location" | "zone">();
+  const [invalidApprovalField, setInvalidApprovalField] = useState<"location" | "zone" | "row">();
+  const [invalidRowId, setInvalidRowId] = useState<string>();
+  const reloadButton = useRef<HTMLButtonElement>(null);
   const [message, setMessage] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const noteInput = useRef<HTMLTextAreaElement>(null);
@@ -78,7 +80,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
 
   useEffect(() => {
     setDetail(undefined); setDetailError(""); setEditing(false); setDraft(undefined); setNote(""); setDecisionError("");
-    setInvalidApprovalField(undefined);
+    setInvalidApprovalField(undefined); setInvalidRowId(undefined);
     if (!selectedId) return;
     const controller = new AbortController();
     void loadLocationProposal(selectedId, controller.signal).then(result => {
@@ -93,6 +95,8 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
     return () => controller.abort();
   }, [selectedId, detailRevision]);
   useEffect(() => { if (detail) heading.current?.focus(); }, [detail?.id]);
+  // A failed decision unmounts the actions; keep the keyboard position on the recovery control.
+  useEffect(() => { if (selectedId && !detail && detailError) reloadButton.current?.focus(); }, [detailError, detail, selectedId]);
   useEffect(() => {
     if (!selectedId && restoreInboxFocus.current) {
       restoreInboxFocus.current = false;
@@ -127,7 +131,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
   }
   async function decide(decision: "approved" | "rejected") {
     if (!detail || deciding || (decision === "approved" && !canApprove)) return;
-    setInvalidApprovalField(undefined);
+    setInvalidApprovalField(undefined); setInvalidRowId(undefined);
     if ((decision === "rejected" && note.trim().length < 3) || (note.trim().length > 0 && note.trim().length < 3)) {
       setDecisionError("Enter a note of at least 3 characters. A note is required to reject."); noteInput.current?.focus(); return;
     }
@@ -139,7 +143,12 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
     }
     // A bad edit must be fixed in place: a server refusal clears the form, so catch it before sending.
     if (decision === "approved" && editing && draft?.kind === "update-format" && !validLocationProposalPatch(draft, detail.systemKey)) {
-      setDecisionError("Every row needs a location (and no field may be too long) before approving."); return;
+      const blank = draft.rows.flatMap((row, index) => (row.locationText ?? "").trim() ? [] : [index])[0];
+      if (blank === undefined) { setDecisionError("No field may be too long before approving."); return; }
+      const id = `proposal-row-${blank}-locationText`;
+      setInvalidApprovalField("row"); setInvalidRowId(id);
+      setDecisionError(`Enter a location for row ${blank + 1} before approving.`);
+      document.getElementById(id)?.focus(); return;
     }
     if (!window.confirm(decision === "rejected" ? "Reject this proposal with your note?" : changed ? "Approve this proposal with your changes?" : "Approve this proposal?")) return;
     setDeciding(true); setDecisionError("");
@@ -175,7 +184,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
       </section>
       <section className="proposal-detail" aria-label="Proposal review">
         {selectedId ? <button type="button" className="secondary-command proposal-back" disabled={deciding} onClick={() => leaveDetail()}>Back to requests</button> : <p className="empty-state">Choose a request to review its changes.</p>}
-        {selectedId && !detail ? detailError ? <div className="form-message" role="alert"><p>{detailError}</p><button type="button" onClick={() => setDetailRevision(value => value + 1)}>Reload proposal</button></div> : <p className="proposal-skeleton" role="status">Loading current configuration…</p> : null}
+        {selectedId && !detail ? detailError ? <div className="form-message" role="alert"><p>{detailError}</p><button type="button" ref={reloadButton} onClick={() => setDetailRevision(value => value + 1)}>Reload proposal</button></div> : <p className="proposal-skeleton" role="status">Loading current configuration…</p> : null}
         {detail ? <section className="report-summary" aria-labelledby="location-proposal-detail-title">
           <h3 id="location-proposal-detail-title" tabIndex={-1} ref={heading}>{detail.customerDisplayName}</h3><p>{detail.systemDisplayName ?? "System name unavailable"}</p><span className={`proposal-status proposal-status-${detail.status}`}>{statusName(detail)}</span>
           <dl className="job-facts"><div><dt>Submitted by</dt><dd>{detail.submittedBy}</dd></div><div><dt>Submitted</dt><dd>{date(detail.submittedAt)}</dd></div><div><dt>Visit reference</dt><dd>{detail.jobReference ? <VisitReference job={{ id: detail.jobId, reference: detail.jobReference }} /> : "Visit reference unavailable"}</dd></div></dl>
@@ -192,7 +201,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
                 <option value="">Create a new zone</option>{draft.zoneKey && !detail.availableZones.some(zone => zone.key === draft.zoneKey) ? <option value={draft.zoneKey}>Zone no longer available</option> : null}{detail.availableZones.map(zone => <option key={zone.key} value={zone.key}>{zone.displayName}</option>)}
               </select></label>
               {draft.newZone ? <label>New zone name<input ref={zoneInput} aria-invalid={invalidApprovalField === "zone"} aria-describedby={invalidApprovalField === "zone" && decisionError ? "proposal-decision-error" : undefined} name="newZoneName" autoComplete="off" maxLength={300} value={draft.newZone.displayName} onChange={event => setDraft({ ...draft, newZone: { ...draft.newZone!, displayName: event.target.value } })} /></label> : null}
-            </> : <><p>Edit text or remove rows. At least one row must remain.</p>{draft.rows.map((row, index) => <fieldset key={index}><legend>Row {index + 1}</legend>{Object.entries(row).map(([key, value]) => <label key={key}>{fieldNames[key] ?? "Text"}{key === "drumType" ? <span>{value || "Not specified"}</span> : <input name={`row-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" ? 200 : key === "zoneText" ? 200 : detail.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={event => setDraft({ ...draft, rows: draft.rows.map((item, i) => i === index ? { ...item, [key]: event.target.value } : item) })} />}</label>)}<button type="button" className="secondary-command" disabled={draft.rows.length === 1} onClick={() => setDraft({ ...draft, rows: draft.rows.filter((_, i) => i !== index) })}>Remove row {index + 1}</button></fieldset>)}</>}</fieldset> : null}
+            </> : <><p>Edit text or remove rows. At least one row must remain.</p>{draft.rows.map((row, index) => <fieldset key={index}><legend>Row {index + 1}</legend>{Object.entries(row).map(([key, value]) => <label key={key}>{fieldNames[key] ?? "Text"}{key === "drumType" ? <span>{value || "Not specified"}</span> : <input id={`proposal-row-${index}-${key}`} aria-invalid={invalidRowId === `proposal-row-${index}-${key}`} aria-describedby={invalidRowId === `proposal-row-${index}-${key}` && decisionError ? "proposal-decision-error" : undefined} name={`row-${index}-${key}`} autoComplete="off" maxLength={key === "assetReference" ? 200 : key === "zoneText" ? 200 : detail.systemKey === "dry_wet_riser" && key === "locationText" ? 250 : 300} value={value} onChange={event => setDraft({ ...draft, rows: draft.rows.map((item, i) => i === index ? { ...item, [key]: event.target.value } : item) })} />}</label>)}<button type="button" className="secondary-command" disabled={draft.rows.length === 1} onClick={() => setDraft({ ...draft, rows: draft.rows.filter((_, i) => i !== index) })}>Remove row {index + 1}</button></fieldset>)}</>}</fieldset> : null}
             {changed && draft?.kind === "update-format" && detail.payload.kind === "update-format" ? <RowDiff title="Original proposal → your edits" before={detail.payload.rows} after={draft.rows} /> : null}
             <label>Note (required to reject, optional to approve)<textarea ref={noteInput} name="reviewNote" autoComplete="off" maxLength={500} value={note} disabled={deciding} aria-invalid={Boolean(decisionError) && !invalidApprovalField} aria-describedby={decisionError && !invalidApprovalField ? "proposal-decision-error" : undefined} onChange={event => setNote(event.target.value)} /></label>
             {decisionError ? <p id="proposal-decision-error" className="form-message" role="alert">{decisionError}</p> : null}
