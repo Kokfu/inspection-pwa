@@ -50,8 +50,9 @@ async function enter(page: Page) {
   await expect(page.getByRole("heading", { name: "Location Proposals", exact: true })).toBeVisible();
   if (await page.locator("summary").filter({ hasText: "Menu" }).isVisible()) {
     await page.locator("summary").filter({ hasText: "Menu" }).click();
-    await page.getByLabel("Mobile navigation").getByRole("button", { name: "Location Proposals" }).click();
-  } else await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
+    await page.getByLabel("Mobile navigation").getByRole("button", { name: "Approvals", exact: true }).click();
+  } else await page.getByLabel("Primary navigation").getByRole("button", { name: "Approvals", exact: true }).click();
+  await page.locator(".manager-hub-card").filter({ hasText: "Location proposals" }).click();
   await expect(page.getByRole("heading", { name: "Location Proposals", exact: true })).toBeVisible();
 }
 const review = (page: Page) => page.getByRole("region", { name: "Proposal review", exact: true });

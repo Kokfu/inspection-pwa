@@ -1,6 +1,9 @@
 import { useState, type ReactNode } from "react";
 
 const ICONS: Record<string, ReactNode> = {
+  "manager-approvals": <><path d="M9 3h6v4H9zM9 5H5v16h14V5h-4" /><path d="m8 14 3 3 5-6" /></>,
+  "manager-settings": <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />,
+  "manager-report-approvals": <><path d="M5 3h10l4 4v14H5zM14 3v5h5M8 12h8m-8 4 2 2 5-4" /></>,
   "manager-repairs": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "repair-visits": <path d="M14 6a4 4 0 0 0-5 5L3 17a2 2 0 0 0 4 4l6-6a4 4 0 0 0 5-5l-3 3-4-4 3-3Z" />,
   "manager-home": <path d="m3 10 9-7 9 7M5 9v10a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9" />,

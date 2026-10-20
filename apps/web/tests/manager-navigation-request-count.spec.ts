@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Manager Operations detail navigation creates one request and preserves hash navigation", async ({ page }) => {
+test("Manager Operations detail navigation under the hub sidebar creates one request and preserves hash navigation", async ({ page }) => {
   await page.goto("/tests/manager-navigation-request-count.html");
   await page.getByRole("button", { name: "Run Manager navigation request count", exact: true }).click();
   await expect.poll(async () => {
@@ -13,6 +13,7 @@ test("Manager Operations detail navigation creates one request and preserves has
     clickAbortedDetailRequests: number;
     hashchangeDetailRequests: number;
   };
+  // The navigation regrouping must not introduce duplicate detail fetches.
   expect(outcome.clickDetailRequests).toBe(1);
   expect(outcome.clickAbortedDetailRequests).toBe(0);
   expect(outcome.hashchangeDetailRequests).toBe(2);

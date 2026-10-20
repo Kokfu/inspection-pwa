@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, loadLocationProposals, loadSiteProposals, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
+import { loadDashboardClients, loadDashboardInspectionStatus, loadDashboardTrend, loadManagerServiceHistory, loadComplianceReminders, ManagerApiError, type DashboardInspectionStatus, type ComplianceReminders } from "./managerApi";
+import { PendingCount, useApprovalCounts } from "./ManagerApprovals";
 import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
-export type ManagerDashboardRoute = { name: "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" | "manager-site-proposals" };
+export type ManagerDashboardRoute = { name: "manager-approvals" | "manager-settings" | "manager-report-approvals" | "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" | "manager-site-proposals" };
 
 /**
  * Single source of truth for the manager/supervisor top-level destinations, shared by the
@@ -12,16 +13,14 @@ export type ManagerDashboardRoute = { name: "manager-repairs" | "manager-technic
  */
 export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDashboardRoute["name"]]> {
   return supervisor
-    ? [["Services", "manager-operations"], ["Repair Visits", "manager-repairs"], ["Current Services Done", "manager-services-done"], ["Location Proposals", "manager-location-proposals"], ["Site Requests", "manager-site-proposals"]]
+    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Approvals", "manager-approvals"]]
     : [
         ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
         ["Operations", "manager-operations"],
-        ["Repair Visits", "manager-repairs"],
         ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
         ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
-        ["Location Proposals", "manager-location-proposals"], ["Site Requests", "manager-site-proposals"],
-        ["Company Profile", "manager-company-profile"], ["Email reminders", "manager-email-reminders"]
+        ["Approvals", "manager-approvals"], ["Settings", "manager-settings"]
       ];
 }
 
@@ -45,6 +44,9 @@ const kpiIcons = {
   notOk: <><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></>,
   na: <><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z" /><path d="M8 12h8" /></>
 } as const;
+
+/** Home counts are supplementary: a failure stays silent and never runs the authorization handler. */
+const ignoreApprovalCountFailure = () => undefined;
 
 function percentOf(count: number, total: number) {
   return total > 0 ? `${(count / total * 100).toFixed(1)}%` : undefined;
@@ -84,27 +86,7 @@ export function ManagerHome({
     return () => controller.abort();
   }, [from, to]);
 
-  // App mounts this Home only for verified Admin/Supervisor users. Keep this
-  // supplementary count independent so even an authorization failure cannot block Home.
-  const [pendingProposals, setPendingProposals] = useState<number | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setPendingProposals(null);
-    void loadLocationProposals("pending", controller.signal)
-      .then(({ counts }) => { if (!controller.signal.aborted) setPendingProposals(counts.pending); })
-      .catch(() => { if (!controller.signal.aborted) setPendingProposals(null); });
-    return () => controller.abort();
-  }, [supervisor]);
-
-  const [pendingSites, setPendingSites] = useState<number | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setPendingSites(null);
-    void loadSiteProposals(controller.signal)
-      .then(items => { if (!controller.signal.aborted) setPendingSites(items.filter(item => item.status === "pending").length); })
-      .catch(() => { if (!controller.signal.aborted) setPendingSites(null); });
-    return () => controller.abort();
-  }, [supervisor]);
+  const { total: pendingApprovals } = useApprovalCounts(ignoreApprovalCountFailure);
 
   // Compliance reminders (Overdue / Due soon), admin-only (matching Next Upcoming Service, whose
   // due-date column this reads). A supervisor never fetches or sees this -- review-only, cannot act on it.
@@ -146,10 +128,6 @@ export function ManagerHome({
     </div> : null}
     {!supervisor && reminders && reminders.overdue.length > 0 ? <section aria-label="Overdue"><h3>Overdue ({reminders.overdue.length})</h3>{reminderList(reminders.overdue)}</section> : null}
     {!supervisor && reminders && reminders.dueSoon.length > 0 ? <section aria-label="Due soon"><h3>Due soon ({reminders.dueSoon.length})</h3>{reminderList(reminders.dueSoon)}</section> : null}
-    <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{name === "manager-location-proposals" && pendingProposals !== null
-      ? <span style={{ display: "grid", gap: "var(--space-2)" }}>{label}<span className="status-badge status-badge--waiting">Pending: {pendingProposals}</span></span>
-      : name === "manager-site-proposals" && pendingSites !== null
-      ? <span style={{ display: "grid", gap: "var(--space-2)" }}>{label}<span className="status-badge status-badge--waiting">Pending: {pendingSites}</span></span>
-      : label}</button>)}</div>
+    <div className="manager-dashboard">{links.map(([label, name]) => <button key={label} type="button" className="manager-dashboard-card" onClick={() => navigate({ name })}>{label}{name === "manager-approvals" ? <PendingCount count={pendingApprovals} /> : null}</button>)}</div>
   </section>;
 }

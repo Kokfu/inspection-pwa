@@ -10,7 +10,8 @@ const proposal = (over: Record<string, unknown> = {}) => ({
 async function enter(page: Page) {
   await page.goto("/tests/manager-dashboard-navigation.html#/manager-location-proposals");
   await page.getByRole("button", { name: /^Admin/ }).click();
-  await page.getByLabel("Primary navigation").getByRole("button", { name: "Location Proposals" }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Approvals", exact: true }).click();
+  await page.locator(".manager-hub-card").filter({ hasText: "Location proposals" }).click();
 }
 async function install(page: Page, items: ReturnType<typeof proposal>[]) {
   const decisions: string[] = [];

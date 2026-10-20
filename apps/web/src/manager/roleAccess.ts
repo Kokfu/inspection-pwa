@@ -21,7 +21,7 @@ export function productRoleMatches(role: ProductRole, user: AuthUser) {
  */
 const supervisorRoutes: ReadonlySet<string> = new Set([
   "manager-home", "manager-operations", "manager-services-done", "manager-service-visit", "manager-final-report", "manager-correction",
-  "manager-location-proposals", "manager-site-proposals", "manager-repairs", "manager-repair-visit"
+  "manager-approvals", "manager-report-approvals", "manager-location-proposals", "manager-site-proposals", "manager-repairs", "manager-repair-visit"
 ]);
 export function supervisorAllowsRoute(routeName: string) {
   return supervisorRoutes.has(routeName);

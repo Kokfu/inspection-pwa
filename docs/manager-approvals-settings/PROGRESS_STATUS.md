@@ -23,9 +23,10 @@ Role names used below: code role `admin` = UI **Manager**; code role `supervisor
 | **A1** | Site Requests tabs + customer filter + search on Site Requests and Location Proposals (web only) | D0 ☑ | ☑ Done — committed 2026-10-20 |
 | **A2** | Offline/online audit for technicians → `OFFLINE_AUDIT.md` (read-only, no code change) | — | ☑ Done — `OFFLINE_AUDIT.md` committed (14 findings); OA-1 closed by design (D15), OA-8 → C1 (D16), OA-2..OA-7, OA-9..OA-14 to triage after B1 |
 | **B0** | API: list + count of service visits whose report is awaiting approval (read-only, additive) | D0 ☑ | ☑ Done — committed 2026-10-20 |
-| **B1** | Navigation: Approvals hub (4 cards) + Service Reports list page + Settings page (web) | A1 and B0 ☑ | ✅ Ready to paste |
-| **C1** | OA-8: technician Add Customer marked Synced only when the server echoes the exact requestId (API receipt + web check) | — | ✅ Ready to paste (parallel with B1) |
+| **B1** | Navigation: Approvals hub (4 cards) + Service Reports list page + Settings page (web) | A1 and B0 ☑ | ☑ Done — committed 2026-10-20 (re-review P0 0 / P1 0; 152/152 Playwright) |
+| **C1** | OA-8: technician Add Customer marked Synced only when the server echoes the exact requestId (API receipt + web check) | — | ☑ Done — committed `42cd70b`; integration test run 2026-10-20 on a disposable Postgres: 1/1 pass, 0 skipped |
 | **T1** | Triage the remaining offline findings OA-2..OA-7, OA-9..OA-14 (one owner decision pass) | B1 | Later |
+| **R1** | Rebuild API + web on the local stack (API first, C1), then browser + phone check of Approvals / Settings / Service reports and technician Add Customer | B1 ☑ | ✅ Owner rebuilt API + web 2026-10-20; R1 prompt ready (PROMPTS.md) |
 | **P1** | Visual polish pass (colours, spacing, icons) with the web-design-guidelines audit | B1 done | Later |
 | ~~T1b~~ | "Withdrawn" for Site Requests | — | ❌ Not planned (D1) |
 
@@ -149,3 +150,5 @@ Reconnect); I-68 / I-69 phone retest status.
 | 2026-10-20 | D0 approved. Baseline commit of these planning docs made before any implementation (revert point). A1, A2, B0 ready. |
 | 2026-10-20 | A1 and B0 built and reviewed. A2 audit written; follow-up review: OA-1 (old repair data deleted by Dexie v12) = REVISE, OA-8 (customer create not confirmed by request UUID) = PROCEED as a separate task. Owner decision pending. |
 | 2026-10-20 | Owner: OA-1 closed by design (D15), OA-8 → C1 (D16). A1, B0 and A2 committed. B1 contract filled; B1 and C1 ready. B0 note (P3): the awaiting filter derives approval per scoped completed visit in TypeScript; not benchmarked at volume. |
+| 2026-10-20 | B1 built, re-reviewed (4 P2s fixed; P0 0, P1 0). C1 committed `42cd70b`; its skipped integration test was run here on a disposable DB: pass. Open P2 (pre-existing, not B1): Repair Visit "Back" returns to the repair list even when opened from Services Done. P3: C1's upper-case replay assertion only runs if the server answers 200. |
+| 2026-10-20 | B1 committed. Owner rebuilt API + web. R1 (browser + phone check of B1 and C1) prompt added. |

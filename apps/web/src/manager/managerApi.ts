@@ -301,6 +301,51 @@ export async function loadManagerServiceVisits(signal?: AbortSignal) {
   return visits as ManagerServiceVisit[];
 }
 
+/** B0: server-scoped, oldest-first reports awaiting an explicit approval. */
+export async function loadReportApprovals(
+  filters: { limit?: number; cursor?: string } = {}, signal?: AbortSignal
+): Promise<{ serviceVisits: ManagerServiceVisit[]; nextCursor: string | null; totalCount: number }> {
+  const query = new URLSearchParams({ reportApproval: "awaiting_approval" });
+  if (filters.limit !== undefined) query.set("limit", String(filters.limit));
+  if (filters.cursor !== undefined) query.set("cursor", filters.cursor);
+  const data = await managerRequest<Record<string, unknown>>(`/api/manager/service-visits?${query}`, "GET", null, undefined, signal);
+  if (!Array.isArray(data.serviceVisits) || !data.serviceVisits.every(isAwaitingReportVisit)
+    || !Number.isSafeInteger(data.totalCount) || Number(data.totalCount) < 0
+    || !(data.nextCursor === null || typeof data.nextCursor === "string")) unavailable();
+  return { serviceVisits: data.serviceVisits as ManagerServiceVisit[], nextCursor: data.nextCursor as string | null, totalCount: data.totalCount as number };
+}
+
+function isAwaitingReportVisit(value: unknown): value is ManagerServiceVisit {
+  const timestamp = proposalTime;
+  const count = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
+  if (!isPlainObject(value) || !proposalUuid(value.id)
+    || ![value.reference, value.customer, value.site].every(v => typeof v === "string" && v.trim().length > 0)
+    || !timestamp(value.createdAt) || value.status !== "closed"
+    || !(value.serviceDate === null || typeof value.serviceDate === "string" && timestamp(`${value.serviceDate}T00:00:00.000Z`))
+    || !(value.serviceTime === null || typeof value.serviceTime === "string" && /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(value.serviceTime))
+    || !(value.archivedAt === null || timestamp(value.archivedAt))
+    || !Array.isArray(value.systems) || !value.systems.every(v => typeof v === "string")
+    || typeof value.hasAcceptedRecords !== "boolean" || !isPlainObject(value.inspectionProgress)
+    || !count(value.inspectionProgress.accepted) || !count(value.inspectionProgress.required)
+    || !isReportApprovalState(value.reportApproval) || value.reportApproval.status !== "awaiting_approval"
+    || !(value.reportApproval.decidedAt === null || timestamp(value.reportApproval.decidedAt))
+    || !(value.reportApproval.latestCorrectionAt === null || timestamp(value.reportApproval.latestCorrectionAt))) return false;
+  if (value.technician !== undefined && value.technician !== null
+    && (!isPlainObject(value.technician) || !Number.isSafeInteger(value.technician.id) || Number(value.technician.id) <= 0 || typeof value.technician.displayName !== "string")) return false;
+  const completion = value.completion;
+  return isPlainObject(completion) && completion.jobId === value.id && completion.jobStatus === "closed"
+    && typeof completion.eligible === "boolean" && timestamp(completion.checkedAt) && timestamp(completion.completedAt)
+    && count(completion.requiredUnitCount) && count(completion.acceptedUnitCount)
+    && (completion.completedBy === null || isPlainObject(completion.completedBy)
+      && Number.isSafeInteger(completion.completedBy.id) && Number(completion.completedBy.id) > 0 && typeof completion.completedBy.username === "string")
+    && Array.isArray(completion.systems) && completion.systems.every(system => isPlainObject(system)
+      && typeof system.systemKey === "string" && typeof system.systemLabel === "string"
+      && (system.status === "accepted" || system.status === "incomplete") && Array.isArray(system.units)
+      && system.units.every(unit => isPlainObject(unit) && typeof unit.authorityKey === "string" && typeof unit.label === "string"
+        && (unit.status === "accepted" || unit.status === "incomplete")
+        && (unit.reason === undefined || typeof unit.reason === "string" && ["ACCEPTED_INSPECTION_MISSING", "EVIDENCE_PENDING", "EVIDENCE_INVALID", "CONFIGURATION_INVALID", "SYSTEM_NOT_SUPPORTED"].includes(unit.reason))));
+}
+
 export async function loadManagerServiceVisit(jobId: string, signal?: AbortSignal) {
   let response: Response;
   try { response = await fetch(`/api/manager/service-visits/${encodeURIComponent(jobId)}`, { credentials: "same-origin", cache: "no-store", signal }); }

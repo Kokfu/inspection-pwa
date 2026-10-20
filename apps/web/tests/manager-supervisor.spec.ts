@@ -47,7 +47,10 @@ async function installSupervisorApi(page: Page, startLoggedOut = false) {
     if (path === "/api/manager/dashboard/clients") return json({ totalClients: 4 });
     if (path === "/api/manager/dashboard/inspections-per-day") return json({ days: [] });
     if (path === "/api/manager/dashboard/inspection-status") return json({ passed: 0, notOk: 0, na: 0 });
+    if (path === "/api/manager/location-proposals") return json({ proposals: [], counts: { pending: 0, approved: 0, rejected: 0, withdrawn: 0 } });
+    if (path === "/api/manager/site-proposals") return json({ proposals: [] });
     if (path === "/api/manager/service-visits") {
+      if (url.searchParams.has("reportApproval")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       if (url.searchParams.has("from") && url.searchParams.has("to")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       return url.searchParams.has("customerId")
         ? json({ serviceVisits: [url.searchParams.has("includeArchived") ? { ...visit, archivedAt: "2026-09-19T00:00:00.000Z" } : visit], nextCursor: null, totalCount: 1 })
@@ -70,7 +73,7 @@ async function installSupervisorApi(page: Page, startLoggedOut = false) {
   return requests;
 }
 
-const homeCards = (page: Page) => page.locator(".manager-dashboard-card").allInnerTexts();
+const homeCards = (page: Page) => page.locator(".manager-dashboard-card").evaluateAll(cards => cards.map(card => card.firstChild?.textContent));
 const sidebar = (page: Page) => page.getByLabel("Primary navigation");
 
 async function enterAsSupervisor(page: Page, hash = "#/manager") {
@@ -87,15 +90,16 @@ for (const role of ["admin", "supervisor"]) {
     await page.route("**/api/manager/location-proposals?status=pending", route => route.fulfill({json:{proposals:[], counts:{pending:7, approved:2, rejected:1, withdrawn:0}}}));
     await page.goto("/tests/manager-service-editor.html#/manager");
     await page.getByRole("button", {name:role === "admin" ? /^Manager Monitor/ : /^Admin Review/}).click();
-    await expect(page.locator(".manager-dashboard-card").filter({hasText:"Location Proposals"})).toContainText("Pending: 7");
+    await expect(page.locator(".manager-dashboard-card").filter({hasText:"Approvals"})).toContainText("Approvals8");
   });
 }
 
 test("pending count failure leaves reviewer Home usable", async ({page}) => {
   const requests = await installSupervisorApi(page);
+  await page.route("**/api/manager/location-proposals?status=pending", route => route.fulfill({ status: 503, json: {} }));
   await enterAsSupervisor(page);
-  await expect.poll(() => requests.includes("GET /api/manager/location-proposals")).toBe(true);
-  await expect(page.locator(".manager-dashboard-card").filter({hasText:"Location Proposals"})).toHaveText("Location Proposals");
+  await expect.poll(() => requests.includes("GET /api/manager/site-proposals")).toBe(true);
+  await expect(page.locator(".manager-dashboard-card").filter({hasText:"Approvals"})).toHaveText("Approvals");
   await sidebar(page).getByRole("button", {name:"Services", exact:true}).click();
   await expect(page.getByRole("button", {name:/SV-SUPERVISOR-830/})).toBeVisible();
 });
@@ -121,7 +125,7 @@ test("dedicated Supervisor login opens the review workspace", async ({ page }) =
 test("supervisor Home shows only the review cards; Services, visit detail and Final Report work", async ({ page }) => {
   await installSupervisorApi(page);
   await enterAsSupervisor(page);
-  await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Visits", "Current Services Done", "Location Proposals", "Site Requests"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
+  await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done", "Approvals"]); // Review destinations are grouped under Approvals, with no management cards.
   await expect(page.getByText("Admin workspace")).toBeVisible();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
@@ -164,7 +168,8 @@ test("supervisor Services Done searches the customer list without configuration"
 test("supervisor sees awaiting repair visits from the Repair Visits menu and under the customer in Services Done", async ({ page }) => {
   const requests = await installSupervisorApi(page);
   await enterAsSupervisor(page);
-  await sidebar(page).getByRole("button", { name: "Repair Visits", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Approvals", exact: true }).click();
+  await page.locator(".manager-hub-card").filter({ hasText: "Repair visits" }).click();
   await expect(page).toHaveURL(/#\/manager-repairs$/);
   await expect(page.getByRole("heading", { name: "Repair Visits", exact: true })).toBeVisible();
   const row = page.getByRole("listitem").filter({ hasText: "RV-20261019-3" });
@@ -188,7 +193,7 @@ for (const hash of ["#/manager-customers", "#/manager-technicians", "#/manager-u
     const requests = await installSupervisorApi(page);
     await enterAsSupervisor(page, hash);
     await expect(page).toHaveURL(/#\/manager$/);
-    await expect.poll(() => homeCards(page)).toEqual(["Services", "Repair Visits", "Current Services Done", "Location Proposals", "Site Requests"]); // review-only cards; Repair Review is the CR-09 reviewer page; Location Proposals is in supervisorRoutes (roleAccess.ts)
+    await expect.poll(() => homeCards(page)).toEqual(["Services", "Current Services Done", "Approvals"]); // Review destinations are grouped under Approvals, with no management cards.
     await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
     expect(requests.filter((entry) => /\/api\/manager\/(customers\/|customers\/upcoming|technicians\/)/.test(entry))).toEqual([]);
   });

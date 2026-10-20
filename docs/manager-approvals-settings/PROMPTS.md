@@ -345,6 +345,86 @@ STOP when the DoD table is green. Print files changed + the reproducible test co
 
 ---
 
+## R1 — Browser check + phone test on the rebuilt stack (B1 + C1)
+
+Status: ✅ ready (owner rebuilt API + web after B1 commit). Test-only: no source change.
+
+```
+Project: Inspection PWA (C:\PWA_OfflineRecordWebApp). Read AGENTS.md, .agents/skills/pwa-release-testing,
+.agents/skills/offline-first-pwa, docs/manager-approvals-settings/PROGRESS_STATUS.md (D1–D16, §5 structure) and
+docs/testing/PHONE_TESTING_STATUS.md (§3 phone tooling, §4 rows, issue register). Tooling: scripts/phone-testing/
+(dot-source phone-env.ps1).
+
+RULES
+- TEST ONLY. Do not edit any source, test, config, Docker/Caddy/.env file, and do not rebuild or restart containers
+  (the owner already rebuilt API + web). Never touch the runtime database directly or session rows.
+- The only files you may edit: docs/testing/PHONE_TESTING_STATUS.md (new §4 row, new issues I-nn in the register, "Last
+  updated") and docs/manager-approvals-settings/PROGRESS_STATUS.md (R1 row + log line).
+- Git is mine: never stage/commit/push/reset/restore/stash/switch branch.
+- All data is test data, but record every record you create or decide (customer names, visit numbers, decisions).
+- Logins are not stored anywhere: ask me for the Manager, Admin and Technician credentials if you do not have them.
+  Use real sign-in; do not create accounts.
+- Phone tips (OnePlus CPH2375 via adb): do NOT type with `adb input text` (the keyboard garbles it); set React fields via CDP
+  native value setter + `input` event, then tap real buttons with `adb input tap` (device px = CSS px x dpr 2; Chrome toolbar
+  offset ~195 device px, +~88 when the "No internet connection" bar shows; use scrollIntoView({behavior:'instant'})).
+  Navigate with location.hash. Check /api/auth/me before each part (the phone session may have been switched).
+  Offline = Set-PhoneOffline (Wi-Fi off AND proxy stopped); confirm with `dumpsys connectivity`.
+- Never claim a step you did not perform. A step you could not do is "NOT DONE" with the reason.
+
+0. Record: web build id shown in the app ("Build: ..."), API health response, git HEAD, browser/phone used.
+
+PART A — Browser (desktop width AND 360 px), Manager account
+ 1. Sidebar order: Home · Technician List · Services · Operations · Add Customer · Current Services Done · Next Upcoming
+    Service · Service Common Remarks · Service Catalog · Approvals · Settings (last). No "Location Proposals", "Site
+    Requests", "Repair Visits", "Email reminders", "Company Profile" items. Sidebar Approvals has NO badge.
+ 2. Home: KPIs/charts/reminders as before; one Approvals card whose number = sum of the 4 hub counts (or no number).
+ 3. Approvals hub: 4 cards in order Location proposals · Site requests · Repair visits · Service reports. For each card
+    compare the red count with the real number on its page (Pending tab count / Awaiting approval rows). 0 -> no badge.
+ 4. Each card opens its page; phone-width back returns to the hub; desktop sidebar keeps Approvals highlighted.
+ 5. Site requests: opens on Pending; tabs Pending/Approved/Rejected with counts; customer dropdown lists only customers in
+    the current tab and applies on change; search applies only on Search/Enter; Clear; customer AND search together;
+    tab switch with a customer that has no requests there resets to All customers with the note.
+ 6. Location proposals: same filter bar; existing tabs incl. Withdrawn still work.
+ 7. Repair visits: list opens; open one visit; Back returns to the repair list.
+ 8. Service reports: lists completed visits awaiting approval, oldest first, chips "Awaiting approval" / "Re-approval
+    needed"; tapping opens the existing report screen. If a TEST visit is awaiting approval, approve it once, return, and
+    confirm it left the list and the counts dropped by 1 (record the SV number). Network tab: request uses
+    reportApproval=awaiting_approval, no 4xx/5xx.
+ 9. Old addresses: #/manager-location-proposals, #/manager-site-proposals, #/manager-repairs open their page with
+    Approvals highlighted; #/manager-email-reminders, #/manager-company-profile open with Settings highlighted.
+10. Settings hub: 2 cards (Email reminders, Company profile) open their pages. Do NOT save settings.
+11. Console: no errors on any of these screens.
+
+PART B — Browser, Admin account (UI "Admin", role supervisor)
+12. Sidebar: Home · Services · Current Services Done · Approvals. No Settings.
+13. Approvals hub works with the Admin's own counts (Service reports only shows that Admin's scoped visits).
+14. #/manager-settings and #/manager-email-reminders are refused exactly like other Manager-only pages.
+
+PART C — Browser, Technician account (C1, OA-8)
+15. Add Customer online (standalone screen): creates once, shows created/synced. Network: POST /api/customers response
+    has top-level "requestId" equal to the request body's requestId.
+16. Add Customer while offline (browser offline mode): queued; reconnect; syncs once; Manager customer list shows ONE
+    customer with that name.
+17. New Service Visit -> inline Add Customer online: customer created and selected.
+
+PART D — Physical phone (Chrome, and the installed app if present)
+18. Manager on the phone: Menu shows Approvals and Settings (last), menu closes after a choice; Approvals hub badges are
+    readable and tappable (no overflow at phone width); open Site requests, use the customer dropdown and Search.
+19. Technician on the phone: Add Customer while offline (Set-PhoneOffline) -> "waiting to sync"; `am force-stop
+    com.android.chrome`; reopen offline -> still queued; Set-PhoneOnline -> syncs once; Manager sees ONE customer.
+20. Screenshots (keep them in the session scratch folder, not the repo): phone Menu (Manager), Approvals hub, Site requests
+    with filter, Settings hub, technician queued + synced customer.
+
+REPORT
+- A table with one row per step 0–20: PASS / FAIL / NOT DONE (+ reason), with evidence (what you saw, request/response).
+- New issues: id I-nn, severity P0–P3, steps, expected vs actual; logged in PHONE_TESTING_STATUS.md before you report.
+- Test data created/changed (names, SV numbers, approvals).
+- Verdict line: `R1 ACCEPTED: Y/N` and P0/P1 remaining.
+STOP after updating the two status files. Do NOT commit.
+```
+
+---
+
 ## Review prompt (after each task reports)
 
 ```

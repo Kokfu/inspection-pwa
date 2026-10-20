@@ -1,0 +1,5 @@
+@import "./ManagerApprovals.css";
+.report-approval-list { display: grid; gap: var(--space-3); padding: 0; margin: 0; list-style: none; min-width: 0; }
+.report-approval-row { min-height: var(--tap); overflow-wrap: anywhere; }
+.report-approval-row .status-badge { justify-self: start; }
+.report-approval-row:focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }

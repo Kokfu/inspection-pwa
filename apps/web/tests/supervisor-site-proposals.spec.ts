@@ -57,10 +57,11 @@ async function open(page: Page) {
 test.beforeEach(({ page }) => { page.on("dialog", dialog => dialog.accept()); });
 
 for (const role of ["admin", "supervisor"]) {
-  test(`${role} Home badge, navigation and authoritative approval`, async ({ page }) => {
+  test(`${role} Approvals hub badge, navigation and authoritative approval`, async ({ page }) => {
     const { writes, reads } = await api(page, { role }); await enter(page, role, "#/manager");
-    const card = page.locator(".manager-dashboard-card").filter({ hasText: "Site Requests" });
-    await expect(card).toContainText("Pending: 1"); await card.click(); await open(page);
+    await page.locator(".manager-dashboard-card").filter({ hasText: "Approvals" }).click();
+    const card = page.locator(".manager-hub-card").filter({ hasText: "Site requests" });
+    await expect(card.getByLabel("1 pending", { exact: true })).toBeVisible(); await card.click(); await open(page);
     await page.getByRole("button", { name: "Add to customer's sites", exact: true }).click();
     await expect(page.getByText("Server confirmed: Approved.", { exact: true })).toBeVisible();
     await expect(review(page)).toContainText("Approved by Reviewer");

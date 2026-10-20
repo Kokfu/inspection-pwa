@@ -42,7 +42,9 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     ["Current Services Done", "manager-services-done", "Current Services Done"],
     ["Next Upcoming Service", "manager-upcoming-services", "Next Upcoming Service"],
     ["Service Common Remarks", "manager-common-remarks", "Service common remarks"],
-    ["Service Catalog", "manager-service-catalog", "Service Catalog"]
+    ["Service Catalog", "manager-service-catalog", "Service Catalog"],
+    ["Approvals", "manager-approvals", "Approvals"],
+    ["Settings", "manager-settings", "Settings"]
   ]) {
     await sidebar.getByRole("button", { name: label!, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`#/${hash}$`));
@@ -92,7 +94,11 @@ test("wide desktop: Customer Configuration, Add Customer, Service Catalog, Compa
     ["Company Profile", "Company Profile", 'section[aria-labelledby="manager-company-profile-title"]'],
     ["Email reminders", "Email reminders", 'section[aria-labelledby="email-reminder-title"]']
   ] as const) {
-    await sidebar.getByRole("button", { name: label, exact: true }).click();
+    // Settings children retain the same layout protections after moving off the sidebar.
+    if (label === "Company Profile" || label === "Email reminders") {
+      await sidebar.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.locator(".manager-hub-card").filter({ hasText: label === "Company Profile" ? "Company profile" : label }).click();
+    } else await sidebar.getByRole("button", { name: label, exact: true }).click();
     await expect(page.getByRole("heading", { name: heading, exact: true, level: 2 })).toBeVisible();
     for (const width of [1280, 1920]) {
       await page.setViewportSize({ width, height: 900 });

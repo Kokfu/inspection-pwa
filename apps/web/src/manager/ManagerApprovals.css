@@ -1,0 +1,35 @@
+:root {
+  --danger-fill: var(--danger-ink);
+  --on-danger: var(--white);
+}
+.manager-hub {
+  display: grid;
+  width: min(var(--page-width), 100%);
+  min-width: 0;
+  gap: var(--space-4);
+  align-content: start;
+}
+.manager-hub h2 { margin: 0; font-size: var(--text-heading); }
+.manager-hub-grid { grid-template-columns: minmax(0, 1fr); }
+.manager-hub-card { gap: var(--space-3); min-height: var(--tap); }
+.manager-hub-copy { display: grid; min-width: 0; gap: var(--space-2); overflow-wrap: anywhere; }
+.manager-hub-copy > span { color: var(--muted); font-size: var(--text-sm); font-weight: normal; }
+.approval-pending-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-5);
+  min-height: var(--space-5);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--danger-fill);
+  color: var(--on-danger);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.manager-dashboard-card .approval-pending-count { margin-left: auto; }
+.manager-hub-card:focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }
+@media (min-width: 768px) {
+  .manager-hub-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-6) * 10)), 1fr)); }
+}
