@@ -188,7 +188,11 @@ test("technician customer creation is authenticated, server-backed, and does not
   });
   try {
     assert.equal((await post()).status, 401);
-    assert.equal((await post("inspector")).status, 201);
+    const created = await post("inspector");
+    assert.equal(created.status, 201);
+    const createdBody = await created.json() as { requestId: string; customer: unknown };
+    assert.equal(createdBody.requestId, "72000000-0000-4000-8000-000000000009", "response echoes the validated request UUID");
+    assert.deepEqual(Object.keys(createdBody).sort(), ["customer", "requestId"]);
     assert.equal(insertedCustomer, true);
     assert.equal((await fetch(`http://127.0.0.1:${address.port}/manager/customers`, { headers: { "x-role": "inspector" } })).status, 403);
   } finally { await close(server); }

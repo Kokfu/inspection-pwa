@@ -214,3 +214,33 @@ for (const refreshFails of [false, true]) {
     await expect(confirmation).toHaveCount(0);
   });
 }
+
+test("inline Add New Customer refuses a response without the request receipt and selects nothing", async ({ page }) => {
+  const posts: Array<{ requestId: string; displayName: string }> = [];
+  const createdId = "33333333-3333-4333-8333-333333333399";
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/customers/service-format-options") return route.fulfill({ json: { systems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1 }] } });
+    if (path === "/api/customers" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { requestId: string; displayName: string };
+      posts.push(body);
+      const created = { customer: { id: createdId, code: "NEW", displayName: body.displayName } };
+      return route.fulfill({ status: 201, json: posts.length === 1 ? { customer: created } : { requestId: "33333333-3333-4333-8333-3333333333ff", customer: created } });
+    }
+    if (path === "/api/customers") return route.fulfill({ json: { customers: [customer] } });
+    return route.fulfill({ status: 503, json: { message: "Unexpected request" } });
+  });
+  await page.goto("/tests/new-service-visit-site-hint.html");
+  await page.getByRole("button", { name: "+ Add New Customer", exact: true }).click();
+  await page.getByLabel("Customer Name", { exact: true }).fill("Inline Customer");
+  await page.getByLabel("Primary Site", { exact: true }).fill("Main");
+  await page.getByLabel("Hose Reel").check();
+  for (const attempt of [1, 2]) {
+    await page.getByRole("button", { name: "Create Customer", exact: true }).click();
+    await expect(page.getByText(/did not confirm this customer request/)).toBeVisible();
+    await expect(page.getByLabel("Customer", { exact: true })).toHaveValue("");
+    await expect(page.getByRole("option", { name: "Inline Customer" })).toHaveCount(0);
+    expect(posts).toHaveLength(attempt);
+  }
+  expect(posts[0].requestId).toBe(posts[1].requestId);
+});

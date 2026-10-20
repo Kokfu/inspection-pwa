@@ -86,7 +86,7 @@ test("standalone customer form retries the exact creation identity after an unce
       const body = route.request().postDataJSON() as { requestId: string; displayName: string };
       submissions.push(body);
       if (submissions.length === 1) return route.fulfill({ status: 503, json: { message: "Response unavailable" } });
-      return route.fulfill({ status: 200, json: { customer: { customer: { id: createdId, code: "TEST", displayName: body.displayName } } } });
+      return route.fulfill({ status: 200, json: { requestId: body.requestId, customer: { customer: { id: createdId, code: "TEST", displayName: body.displayName } } } });
     }
     if (path === "/api/customers") return route.fulfill({ json: { customers: submissions.length > 1 ? [{ id: createdId, code: "TEST", displayName: "Retry Customer" }] : [] } });
     if (path === `/api/customers/${createdId}/sites`) return route.fulfill({ json: { sites: [] } });
@@ -121,7 +121,7 @@ test("technician customer details and queued creation survive offline navigation
     if (path === "/api/customers" && route.request().method() === "POST") {
       const body = route.request().postDataJSON() as { requestId: string; displayName: string };
       posts.push(body);
-      return route.fulfill({ status: 201, json: { customer: { customer: { id: "93000000-0000-4000-8000-000000000098", code: "OFFLINE", displayName: body.displayName } } } });
+      return route.fulfill({ status: 201, json: { requestId: body.requestId, customer: { customer: { id: "93000000-0000-4000-8000-000000000098", code: "OFFLINE", displayName: body.displayName } } } });
     }
     if (path === "/api/customers") return route.fulfill({ json: { customers: [] } });
     return route.fulfill({ json: {} });
@@ -150,4 +150,41 @@ test("technician customer details and queued creation survive offline navigation
   await context.setOffline(false);
   await expect(page.getByRole("heading", { name: "Offline Customer created" })).toBeVisible();
   expect(posts).toHaveLength(1);
+});
+
+test("standalone customer queue stays retryable with the same requestId until the server echoes it", async ({ page }) => {
+  const submissions: Array<{ requestId: string; displayName: string }> = [];
+  const createdId = "93000000-0000-4000-8000-000000000097";
+  // Attempt 1: no receipt. Attempt 2: a different receipt. Attempt 3 onwards: the exact receipt.
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: 807, username: "receipt-tech", role: "inspector" } } });
+    if (path === "/api/customers/service-format-options") return route.fulfill({ json: { systems: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1 }] } });
+    if (path === "/api/customers" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { requestId: string; displayName: string };
+      submissions.push(body);
+      const customer = { customer: { id: createdId, code: "RCPT", displayName: body.displayName } };
+      if (submissions.length === 1) return route.fulfill({ status: 201, json: { customer } });
+      if (submissions.length === 2) return route.fulfill({ status: 201, json: { requestId: "93000000-0000-4000-8000-0000000000ff", customer } });
+      return route.fulfill({ status: 200, json: { requestId: body.requestId, customer } });
+    }
+    if (path === "/api/customers") return route.fulfill({ json: { customers: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto("/tests/manager-dashboard-navigation.html#/technician-add-customer");
+  await page.getByRole("button", { name: /^Technician/ }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Add Customer" }).click();
+  await page.getByLabel("Customer display name").fill("Receipt Customer");
+  await page.getByLabel("Hose Reel").check();
+  await page.getByRole("button", { name: "Create Customer" }).click();
+  await expect(page.getByText(/did not confirm this customer request/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Receipt Customer created" })).toHaveCount(0);
+  // The item stays Failed/retryable; reopening retries it (wrong receipt, then the exact receipt).
+  await page.reload();
+  await continueAsTechnician(page);
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Add Customer" }).click();
+  await expect(page.getByRole("heading", { name: "Receipt Customer created" })).toBeVisible();
+  expect(submissions.length).toBeGreaterThanOrEqual(3);
+  expect(new Set(submissions.map((body) => body.requestId)).size).toBe(1);
+  expect(new Set(submissions.map((body) => JSON.stringify(body))).size).toBe(1);
 });

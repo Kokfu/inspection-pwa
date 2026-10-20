@@ -71,7 +71,8 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
       const firstRequest = input(uuid("1"), "Technician Shared Customer");
       const first = await post("a", firstRequest);
       assert.equal(first.status, 201);
-      const firstBody = await first.json() as { customer: { customer: { id: string }; configuration: { revision: number; enabledSystems: Array<{ key: string }> } } };
+      const firstBody = await first.json() as { requestId: string; customer: { customer: { id: string }; configuration: { revision: number; enabledSystems: Array<{ key: string }> } } };
+      assert.equal(firstBody.requestId, firstRequest.requestId, "201 carries the request receipt");
       const firstId = firstBody.customer.customer.id;
       assert.equal(firstBody.customer.configuration.revision, 1);
       assert.deepEqual(firstBody.customer.configuration.enabledSystems.map((system) => system.key), ["hose_reel"]);
@@ -127,7 +128,13 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
 
       const replay = await post("a", firstRequest);
       assert.equal(replay.status, 200);
-      assert.equal((await replay.json() as { customer: { customer: { id: string } } }).customer.customer.id, firstId);
+      // Lost-response case: the original response never reached the client; the replay must return the same id and receipt.
+      const replayBody = await replay.json() as { requestId: string; customer: { customer: { id: string } } };
+      assert.equal(replayBody.customer.customer.id, firstId);
+      assert.equal(replayBody.requestId, firstRequest.requestId, "200 replay carries the same receipt");
+      assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE display_name=$1", [firstRequest.displayName])).rows[0]?.count, 1);
+      const upperReplay = await post("a", { ...firstRequest, requestId: firstRequest.requestId.toUpperCase() });
+      if (upperReplay.status === 200) assert.equal((await upperReplay.json() as { requestId: string }).requestId, firstRequest.requestId, "receipt is lower-case");
       const changedReplay = await post("a", { ...firstRequest, siteDisplayName: "Changed Site" });
       assert.equal(changedReplay.status, 409);
       assert.equal((await changedReplay.json() as { error: string }).error, "IDEMPOTENCY_CONFLICT");
@@ -136,8 +143,9 @@ test("technician customer creation is persistent, idempotent, concurrent-safe, a
       const sameKey = input(uuid("2"), "Concurrent Same Key Customer");
       const sameKeyResponses = await Promise.all([post("a", sameKey), post("a", sameKey)]);
       assert.deepEqual(sameKeyResponses.map((response) => response.status).sort(), [200, 201]);
-      const sameKeyBodies = await Promise.all(sameKeyResponses.map((response) => response.json() as Promise<{ customer: { customer: { id: string } } }>));
+      const sameKeyBodies = await Promise.all(sameKeyResponses.map((response) => response.json() as Promise<{ requestId: string; customer: { customer: { id: string } } }>));
       assert.equal(sameKeyBodies[0].customer.customer.id, sameKeyBodies[1].customer.customer.id);
+      assert.deepEqual(sameKeyBodies.map((body) => body.requestId), [sameKey.requestId, sameKey.requestId], "concurrent retries share one receipt");
       assert.equal((await database.query("SELECT count(*)::int AS count FROM customers WHERE lower(btrim(display_name))=lower(btrim($1))", [sameKey.displayName])).rows[0]?.count, 1);
 
       const duplicateName = "Concurrent Canonical Customer";

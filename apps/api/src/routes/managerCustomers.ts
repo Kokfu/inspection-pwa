@@ -768,7 +768,8 @@ export function createManagerCustomersRouter(
       const input = parseCustomerCreation(request.body);
       const created = await createCustomer(client, request.currentUser!.id, input, "technician_customer_created", options.afterCustomerInserted);
       await client.query("COMMIT");
-      response.status(created.idempotent ? 200 : 201).json({ customer: await loadManagerCustomer(created.customerId, database) });
+      // Receipt: echoes the validated request UUID so the caller can confirm THIS request (not just any 2xx).
+      response.status(created.idempotent ? 200 : 201).json({ requestId: input.requestId.toLowerCase(), customer: await loadManagerCustomer(created.customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
   });
   router.get("/manager/customers", requireRole("admin", "supervisor"), async (request, response, next) => {

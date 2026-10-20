@@ -123,9 +123,13 @@ export async function createTechnicianCustomer(input: {
     method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(expectedUserId ? { "X-Expected-User-Id": String(expectedUserId) } : {}) }, body: JSON.stringify(input)
   });
-  const data = await readJsonBody<{ customer: { customer?: ReferenceCustomer }; message: string }>(response);
+  const data = await readJsonBody<{ requestId?: unknown; customer: { customer?: ReferenceCustomer }; message: string }>(response);
   if (response.status === 401 || response.status === 403) {
     throw new Error(authRefusalMessage(response.status, data, "new customer", "add this customer"));
+  }
+  // Exact-identity confirmation: a 2xx is not enough; the server must echo THIS request's UUID.
+  if (response.ok && (typeof data.requestId !== "string" || data.requestId.toLowerCase() !== input.requestId.toLowerCase())) {
+    throw new Error("The server did not confirm this customer request. It will be retried.");
   }
   if (!response.ok || !data.customer?.customer
     || typeof data.customer.customer.id !== "string"
