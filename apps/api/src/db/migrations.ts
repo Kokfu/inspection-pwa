@@ -700,6 +700,12 @@ export async function runMigrations(
     await database.query(await readFile(new URL("../../migrations/055_drop_old_repair_list.sql", import.meta.url), "utf8"));
     if (retiredPhotoPaths.length > 0) await removeRetiredRepairPhotoFiles(database, retiredPhotoPaths);
   }
+  const remarkRequests = await database.query<{ exists: boolean }>(
+    `SELECT to_regclass('public.section_remark_requests') IS NOT NULL AS exists`
+  );
+  if (!remarkRequests.rows[0]?.exists) {
+    await database.query(await readFile(new URL("../../migrations/057_section_remark_requests.sql", import.meta.url), "utf8"));
+  }
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

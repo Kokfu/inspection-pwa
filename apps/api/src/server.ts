@@ -31,6 +31,7 @@ import { locationProposalsRouter } from "./routes/locationProposals.js";
 import { technicianLocationProposalsRouter } from "./routes/technicianLocationProposals.js";
 import { sectionRemarksRouter } from "./routes/sectionRemarks.js";
 import { siteProposalsRouter } from "./routes/siteProposals.js";
+import { remarkRequestsRouter } from "./routes/remarkRequests.js";
 import { syncRouter } from "./routes/sync.js";
 import { testRecordsRouter } from "./routes/testRecords.js";
 
@@ -61,6 +62,7 @@ app.use(managerRemindersRouter);
 app.use(serviceCommonRemarksRouter);
 app.use(sectionRemarksRouter);
 app.use(siteProposalsRouter);
+app.use(remarkRequestsRouter);
 app.use(managerCorrectionsRouter);
 app.use(reportApprovalsRouter);
 app.use(repairVisitReadsRouter);

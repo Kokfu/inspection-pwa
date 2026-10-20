@@ -96,15 +96,17 @@ npm run test:wet-chemical-definition; if ($LASTEXITCODE -ne 0) { throw 'Wet Chem
 node --import tsx --test src/inspections/evidence/v7EvidenceContracts.test.ts src/config/env.test.ts
 if ($LASTEXITCODE -ne 0) { throw 'V7 contract or config tests failed' }
 
-# Cold disposable PostgreSQL. Never use the runtime Compose database.
+# Cold disposable PostgreSQL. Never stop another run's DB or use the runtime Compose database.
 cd C:\PWA_OfflineRecordWebApp
-docker rm -f phase8f-v7-verify 2>$null
-docker run -d --rm --name phase8f-v7-verify -e POSTGRES_DB=phase6_seed_integration -e POSTGRES_USER=inspection_app `
+$gateContainerName = 'phase8f-v7-verify-' + [guid]::NewGuid().ToString('N')
+$gateContainerId = docker create --name $gateContainerName -e POSTGRES_DB=phase6_seed_integration -e POSTGRES_USER=inspection_app `
   -e POSTGRES_PASSWORD=replace-with-a-real-secret-outside-git -p 127.0.0.1:55432:5432 postgres:16-alpine
-if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL did not start' }
+if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL could not be created' }
 try {
+  docker start $gateContainerId
+  if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL did not start; port 55432 may be occupied. No existing container was stopped.' }
   for ($i=0; $i -lt 30; $i++) {
-    docker exec phase8f-v7-verify pg_isready -U inspection_app -d phase6_seed_integration
+    docker exec $gateContainerId pg_isready -U inspection_app -d phase6_seed_integration
     if ($LASTEXITCODE -eq 0) { break }
     Start-Sleep -Seconds 1
   }
@@ -122,7 +124,7 @@ try {
   }
 } finally {
   cd C:\PWA_OfflineRecordWebApp
-  docker rm -f phase8f-v7-verify
+  docker rm -f $gateContainerId
 }
 cd apps/web
 npm run typecheck; if ($LASTEXITCODE -ne 0) { throw 'Web typecheck failed' }
