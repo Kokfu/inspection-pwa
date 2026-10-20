@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { currentWorkspaceUserId } from "../db/localDatabase";
 import type { ResolvedRemarksDefinition } from "./definitionTypes";
 import { addCommonRemark, cachedCommonRemarks, onCommonRemarksChanged, refreshCommonRemarks, type CommonRemark, type RemarkSystem } from "./commonRemarks";
-import { appendCommonRemark, appendOtherRemark } from "./remarkFormatting";
+import { appendCommonRemark, appendOtherRemark, replaceRemark, singleRemarkSelection } from "./remarkFormatting";
 import { isSectionRemarkKey, isSectionRemarkSystemKey } from "./remarkSections";
 import { sectionRemarkMaxLength } from "./sectionRemarkText";
 import { addSectionRemark, cachedSectionRemarks, onSectionRemarksChanged, refreshSectionRemarks, SectionRemarkInputError, sectionRemarkChoices, type SectionRemark } from "./sectionRemarks";
@@ -132,6 +132,10 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
   if (definition.policy === "none") {
     return null;
   }
+  if (!readOnly && sectionScope?.systemKey === "automatic_sprinkler" && sectionScope.sectionKey !== "comments") {
+    return <SingleRowRemarks value={value} onChange={onChange} maxLength={definition.maxLength}
+      choices={choices} sectionChoices={sectionChoices} scope={sectionScope} jobId={jobId} />;
+  }
   return (
     <div className="common-remarks-field">
       {systemKey && readOnly ? <strong>Remark</strong> : null}
@@ -156,4 +160,62 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
       {message ? <p className="form-message" role="status">{message}</p> : null}
     </div>
   );
+}
+
+function SingleRowRemarks({ value, onChange, maxLength, choices, sectionChoices, scope, jobId }: {
+  value: string; onChange: (value: string) => void; maxLength: number;
+  choices: CommonRemark[]; sectionChoices: SectionRemark[];
+  scope: { customerId: string; systemKey: "automatic_sprinkler"; sectionKey: string }; jobId?: string;
+}) {
+  const [editingOther, setEditingOther] = useState(false);
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const noteId = useId();
+  const allChoices = [...choices, ...sectionChoices.map((item) => ({ ...item, id: `section:${item.id}`, detailOptions: [] }))];
+  const selection = singleRemarkSelection(value, allChoices);
+  const selectedId = editingOther ? "others" : selection.id;
+  const choice = choices.find((item) => item.id === selectedId);
+  function write(wording: string, detail = "") {
+    try { onChange(replaceRemark(wording, detail, maxLength)); setMessage(""); return true; }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Remark could not be entered."); return false; }
+  }
+  function choose(id: string) {
+    const item = allChoices.find((candidate) => candidate.id === id);
+    if (write(item?.wording ?? "")) setEditingOther(id === "others");
+  }
+  async function saveCommon() {
+    if (saving || !value.trim()) return;
+    setSaving(true);
+    try {
+      await addSectionRemark({ ...scope, wording: value, jobId, catalogWordings: choices.map((item) => item.wording) });
+      setMessage("Added to common remarks on this device. It will be shared after sync.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The remark could not be saved."); }
+    finally { setSaving(false); }
+  }
+  return <div className="common-remarks-field">
+    {selection.legacy && !editingOther ? <>
+      <ul className="selected-common-remarks" aria-label="Selected remarks">{value.split("\n").filter((line) => line.trim()).map((line, index) => <li key={index}><span>{line}</span></li>)}</ul>
+      <p id={noteId} className="section-remark-note">Pick one remark to replace these</p>
+    </> : null}
+    <div className="common-remarks-picker">
+      <label>Remark<select value={selectedId} aria-describedby={selection.legacy ? noteId : undefined} onChange={(event) => choose(event.target.value)}>
+        {selection.legacy && !editingOther ? <option value="" disabled>Choose a remark</option> : null}
+        <option value={selection.legacy && !editingOther ? "clear" : ""}>No remark</option>
+        {choices.map((item) => <option key={item.id} value={item.id}>{item.wording}</option>)}
+        {sectionChoices.length ? <optgroup label="Added for this customer">{sectionChoices.map((item) => <option key={item.id} value={`section:${item.id}`}>{item.wording}</option>)}</optgroup> : null}
+        <option value="others">Others (type your own)</option>
+      </select></label>
+      {choice?.detailOptions.length ? <label>{choice.detailLabel ?? "Detail"}<select value={selection.detail} onChange={(event) => write(choice.wording, event.target.value)}>
+        <option value="">Select detail</option>{choice.detailOptions.map((detail) => <option key={detail} value={detail}>{detail}</option>)}
+      </select></label> : null}
+      {selectedId === "others" ? <>
+        <label>Type a new remark<textarea value={value} maxLength={maxLength} onChange={(event) => {
+          // Reopened custom text must stay editable even when cleared or matching a choice.
+          if (write(event.target.value)) setEditingOther(true);
+        }} /></label>
+        <button type="button" className="secondary-command" disabled={saving || !value.trim()} onClick={() => void saveCommon()}>Add to common remarks</button>
+      </> : null}
+    </div>
+    {message ? <p className="form-message" role="status">{message}</p> : null}
+  </div>;
 }
