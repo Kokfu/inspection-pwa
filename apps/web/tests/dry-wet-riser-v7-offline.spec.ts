@@ -16,4 +16,7 @@ test("Dry/Wet Riser V7 runs the full offline round trip: dedup PSI checklist, re
   expect(result.checks.every((item: { passed: boolean }) => item.passed), JSON.stringify(result.checks)).toBe(true);
   await expect(page.locator('#accepted a[href*="/api/v7-evidence/accepted/"]')).toHaveCount(3);
   await expect(page.locator("#accepted img")).toHaveCount(3);
+  const galleryLabels = page.locator("#accepted [data-testid=gallery-photo-label]");
+  await expect(galleryLabels).toHaveCount(1);
+  await expect(galleryLabels).toHaveText("GALLERY · uploaded 20 Oct 2026, 9:02");
 });

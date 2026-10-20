@@ -217,7 +217,7 @@ test("Manager Home links to service operations and completed services", () => {
 const detailedFinalReport: FinalReportPreview = {
   customer: "Report Customer", site: "Report Site", serviceDate: "2026-08-21", jobReference: "SV-REPORT-1", completedAt: "2026-08-21T10:00:00.000Z", completedBy: "technician-one",
   systems: [{ systemKey: "hydrant", label: "Hydrant System", status: "Accepted", condition: "GOOD CONDITIONS", conditionDetail: "", locations: ["Zone North", "Gate A"] }],
-  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true, captureSource: "camera" }] }]
+  sections: [{ systemKey: "hydrant", label: "Hydrant System", location: { locationId: "location-1", locationLabel: "Gate A", zoneId: "zone-1", zoneLabel: "Zone North", instanceKey: "primary" }, fields: [{ label: "Canvas Hose", value: "Good", depth: 2 }], evidence: [{ field: "hosePhoto", available: true, captureSource: "camera", capturedAt: null }] }]
 };
 
 test("shared final report presentation retains Phase 7 sections, location headings, fields, and evidence", () => {
@@ -239,11 +239,16 @@ test("shared final report presentation retains Phase 7 sections, location headin
 
 test("shared report identifies gallery and unavailable photo sources, including charger evidence", () => {
   const report: FinalReportPreview = { ...detailedFinalReport, sections: [{ ...detailedFinalReport.sections[0]!, evidence: [
-    { field: "charger_batteries.charger_battery_checks.main_supply", available: true, captureSource: "gallery" },
-    { field: "historicalPhoto", available: true, captureSource: null }
+    { field: "charger_batteries.charger_battery_checks.main_supply", available: true, captureSource: "gallery", capturedAt: "2026-10-20T01:02:03.000Z" },
+    { field: "historicalPhoto", available: true, captureSource: null, capturedAt: null }
   ] }] };
   const html = renderToStaticMarkup(<FinalReportPresentation report={report} />);
-  assert.match(html, /Uploaded from Gallery/);
+  assert.match(html, /GALLERY<\/strong> · uploaded 20 Oct 2026, 9:02/);
+  assert.doesNotMatch(html, /Uploaded from Gallery/);
+  // Camera and unknown-source photos never print GALLERY.
+  const cameraHtml = renderToStaticMarkup(<FinalReportPresentation report={{ ...report, sections: [{ ...report.sections[0]!, evidence: [{ field: "a", available: true, captureSource: "camera", capturedAt: null }, { field: "b", available: true, captureSource: null, capturedAt: null }] }] }} />);
+  assert.doesNotMatch(cameraHtml, /GALLERY/);
+  assert.match(cameraHtml, /Captured by Camera/);
   assert.match(html, /Source unavailable/);
 });
 

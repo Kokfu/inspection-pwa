@@ -1,0 +1,241 @@
+<!doctype html><html><body><button id="run">Run remark request store and sync checks</button><pre id="result">Ready</pre><script type="module">
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import {
+  approvedSectionRemarksCacheKey, cachedApprovedSectionRemarks, cachedLocalRemarkRequests, cachedOwnRemarkRequests, createRemarkRequest,
+  discardRefusedRemarkRequest, loadRemarkRequestRows, localRemarkRequestsCacheKey, ownRemarkRequestsCacheKey, refreshApprovedSectionRemarks,
+  refreshOwnRemarkRequests, remarkRequestRefusal, RemarkRequestInputError
+} from "/src/inspectionControls/remarkRequests.ts";
+import { syncPendingRecords, syncPendingRemarkRequests } from "/src/sync/syncEngine.ts";
+
+// R3 store + sync checks against REAL IndexedDB (no fake-indexeddb in this project) with a scripted fetch.
+const id = (n) => `5d000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const customer = id(1), otherCustomer = id(2), job = id(3), tech = 9004;
+const sectionA = "checklist.waterTank.saj_main_water_supply", sectionB = "checklist.waterTank.water_level";
+const system = "automatic_sprinkler";
+const out = document.querySelector("#result"), checks = [];
+const check = (name, ok) => checks.push({ name, ok: Boolean(ok) });
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const realFetch = window.fetch, realSetTimeout = window.setTimeout;
+const outboxItems = () => localDatabase.syncOutbox.where("entityType").equals("remarkRequest").toArray();
+const only = async () => { const items = await outboxItems(); return items[0]; };
+const reset = async () => { await localDatabase.syncOutbox.clear(); await localDatabase.referenceData.clear(); window.fetch = realFetch; };
+const rejection = async (run) => { try { await run(); } catch (error) { return error; } return undefined; };
+const base = (wording, extra = {}) => ({ customerId: customer, systemKey: system, sectionKey: sectionA, wording, jobId: job, ...extra });
+const dto = (sent, over = {}) => ({
+  id: sent.id, systemKey: sent.systemKey, sectionKey: sent.sectionKey, wording: sent.wording, customerId: sent.customerId, customerDisplayName: "Sprinkler Customer",
+  jobId: sent.jobId ?? null, jobReference: sent.jobId ? "SV-1" : null, requestedByUserId: tech, requestedBy: "Technician", createdAt: new Date().toISOString(),
+  status: "pending", decision: null, ...over
+});
+const decision = (kind, over = {}) => ({ id: id(777), decision: kind, reviewerUserId: 4, reviewer: "Reviewer", reviewerRole: "admin", note: kind === "rejected" ? "Not needed here" : null, approvedWording: kind === "approved" ? "Approved wording here" : null, createdAt: new Date().toISOString(), ...over });
+const echo = (sent, extra = {}) => ({ requestedId: sent.id, duplicate: false, request: dto(sent), ...extra });
+let calls = [];
+const script = (handler) => { window.fetch = async (input, init = {}) => { const url = typeof input === "string" ? input : input.url; calls.push({ url, init }); return handler(url, init); }; };
+const approvedRow = (n, wording, section = sectionA, over = {}) => ({ id: id(n), systemKey: system, sectionKey: section, wording, active: true, sourceRequestId: id(n + 500), ...over });
+const cacheOf = async (key) => (await localDatabase.referenceData.get(key))?.payload;
+
+document.querySelector("#run").onclick = async () => {
+  try {
+    await deviceDatabase.open();
+    await activateUserWorkspace(tech);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: tech, username: "rr-tech", role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    // The 30 s request timeout is real code; shorten only the timer so the abort path runs in milliseconds.
+    window.setTimeout = (handler, delay, ...rest) => realSetTimeout(handler, delay === 30000 ? 25 : delay, ...rest);
+
+    // ---- 1. create: local entry + outbox item written together, offline-safe, normalised, never a choice.
+    await reset();
+    let changed = 0; window.addEventListener("remark-requests-changed", () => { changed += 1; });
+    Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+    const first = await createRemarkRequest(base("  Gate   valve is leaking "));
+    check("create works with navigator.onLine === false", navigator.onLine === false && first.wording === "Gate valve is leaking");
+    check("the request carries a crypto.randomUUID() id and the requested scope", /^[0-9a-f-]{36}$/.test(first.id) && first.customerId === customer && first.sectionKey === sectionA && first.systemKey === system && first.jobId === job);
+    const localList = await cacheOf(localRemarkRequestsCacheKey);
+    const queued = await outboxItems();
+    check("the local entry is stored", Array.isArray(localList) && localList.length === 1 && localList[0].id === first.id);
+    check("exactly one outbox item exists, Pending, with the request id as entity id", queued.length === 1 && queued[0].status === "Pending" && queued[0].entityId === first.id && queued[0].action === "create" && queued[0].activeKey === `remarkRequest:create:${first.id}`);
+    check("the outbox payload is the local request", JSON.stringify(queued[0].payload) === JSON.stringify(first));
+    check("a change event was announced", changed >= 1);
+    check("a pending request is NEVER a choice: the approved cache is untouched", (await cachedApprovedSectionRemarks(system)).length === 0 && (await localDatabase.referenceData.get(approvedSectionRemarksCacheKey(system))) === undefined);
+
+    // ---- 2. refusals store nothing.
+    const before = JSON.stringify([await cacheOf(localRemarkRequestsCacheKey), await outboxItems()]);
+    const refusals = [];
+    refusals.push(["too short", await rejection(() => createRemarkRequest(base("ab"))), "INVALID"]);
+    refusals.push(["Comments box", await rejection(() => createRemarkRequest(base("Valid text here", { sectionKey: "comments" }))), "INVALID"]);
+    refusals.push(["another section key", await rejection(() => createRemarkRequest(base("Valid text here", { sectionKey: "checklist.waterTank.nope" }))), "INVALID"]);
+    refusals.push(["bad customer", await rejection(() => createRemarkRequest(base("Valid text here", { customerId: "nope" }))), "INVALID"]);
+    refusals.push(["bad visit", await rejection(() => createRemarkRequest(base("Valid text here", { jobId: "nope" }))), "INVALID"]);
+    refusals.push(["control character", await rejection(() => createRemarkRequest(base("two\nlines"))), "INVALID"]);
+    refusals.push(["system-wide list duplicate", await rejection(() => createRemarkRequest(base("battery SPOILT", { catalogWordings: ["Battery spoilt"] }))), "DUPLICATE_CATALOG"]);
+    refusals.push(["same wording already waiting here", await rejection(() => createRemarkRequest(base("GATE VALVE IS LEAKING", { customerId: otherCustomer }))), "DUPLICATE_PENDING"]);
+    await localDatabase.referenceData.put({ key: approvedSectionRemarksCacheKey(system), payload: [approvedRow(10, "Approved already")], version: "v", fetchedAt: "v", expiresAt: "v" });
+    refusals.push(["already approved in this section", await rejection(() => createRemarkRequest(base("approved ALREADY"))), "DUPLICATE_APPROVED"]);
+    for (const [name, error, code] of refusals) check(`refused (${name}) with code ${code}`, error instanceof RemarkRequestInputError && error.code === code && error.message.length > 3);
+    await localDatabase.referenceData.delete(approvedSectionRemarksCacheKey(system));
+    check("no refusal stored anything", JSON.stringify([await cacheOf(localRemarkRequestsCacheKey), await outboxItems()]) === before);
+    const second = await createRemarkRequest(base("Gate valve is leaking", { sectionKey: sectionB }));
+    check("the same wording in ANOTHER section is its own request", (await outboxItems()).length === 2 && second.sectionKey === sectionB);
+
+    // ---- 3. atomic: a failing outbox write rolls the local entry back.
+    const snapshot = JSON.stringify(await cacheOf(localRemarkRequestsCacheKey));
+    localDatabase.syncOutbox.put = () => Promise.reject(new Error("simulated write failure"));
+    const failedWrite = await rejection(() => createRemarkRequest(base("Atomic write attempt")));
+    delete localDatabase.syncOutbox.put;
+    check("a failed outbox write throws", failedWrite instanceof Error && /simulated/.test(failedWrite.message));
+    check("and the local entry was rolled back with it", JSON.stringify(await cacheOf(localRemarkRequestsCacheKey)) === snapshot && (await outboxItems()).length === 2);
+
+    // ---- 4. sync: exact-UUID confirmation, retry without duplicates, definite refusal.
+    await reset();
+    const r1 = await createRemarkRequest(base("Retry me until confirmed"));
+    calls = [];
+    script(() => { throw new TypeError("Failed to fetch"); });
+    let run = await syncPendingRemarkRequests(tech);
+    let item = await only();
+    check("offline: nothing confirmed, the item goes back to Pending (not Failed)", run.confirmed === 0 && item.status === "Pending" && item.attempts === 1 && /Could not reach/.test(item.lastError) && run.outcomes[r1.id].state === "retry");
+    check("offline: the local entry is still there", (await cachedLocalRemarkRequests()).length === 1);
+    script(() => json({ message: "busy" }, 503));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a 503 is an unknown result: Pending, same single item", item.status === "Pending" && (await outboxItems()).length === 1 && item.attempts === 2);
+    script(() => json({}));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("HTTP 200 with no receipt is NOT a confirmation: Failed, entry kept", item.status === "Failed" && run.confirmed === 0 && /did not confirm/.test(item.lastError) && (await cachedLocalRemarkRequests()).length === 1);
+    script(() => json(echo({ ...r1, id: id(99) }, { requestedId: id(99) })));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a receipt for a DIFFERENT uuid is not a confirmation", item.status === "Failed" && run.confirmed === 0 && (await cachedLocalRemarkRequests()).length === 1);
+    script(() => json(echo(r1, { requestedId: r1.id.toUpperCase() }), 201));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a receipt that does not echo the exact submitted string is not a confirmation", item.status === "Failed" && run.confirmed === 0);
+    script(() => json({ ...echo(r1), request: dto({ ...r1, wording: "Something else entirely" }) }, 201));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a receipt describing different content is not a confirmation", item.status === "Failed" && run.confirmed === 0);
+    script(() => json({ error: "DUPLICATE_APPROVED", message: "This wording is already an approved choice in this section.", existing: { id: id(50), wording: "Retry me until confirmed" } }, 409));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a definite 409 refusal is Failed with the server's own message", item.status === "Failed" && item.lastError === "This wording is already an approved choice in this section." && run.outcomes[r1.id].state === "refused");
+    check("remarkRequestRefusal reports that message for the row", (await remarkRequestRefusal(r1.id)) === "This wording is already an approved choice in this section.");
+    const failedRows = await loadRemarkRequestRows(customer, system);
+    check("the read-back shows it as not accepted with the reason", failedRows.length === 1 && failedRows[0].state === "failed" && failedRows[0].error === item.lastError);
+    script(() => json({ message: "denied" }, 403));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("a 403 is Failed with the refusal text", item.status === "Failed" && /refused/.test(item.lastError));
+    calls = [];
+    script((url) => url.endsWith("/api/technician/remark-requests") ? json({ requests: [dto(r1)] }) : json(echo(r1), 201));
+    run = await syncPendingRemarkRequests(tech); item = await only();
+    check("the exact echo completes the SAME single outbox item", item.status === "Completed" && item.operationId && (await outboxItems()).length === 1 && run.confirmed === 1 && run.outcomes[r1.id].state === "confirmed");
+    check("attempts accumulated on one item across the retries", item.attempts >= 7);
+    check("the local entry moved into the server read-back in the same step", (await cachedLocalRemarkRequests()).length === 0 && (await cachedOwnRemarkRequests()).some((request) => request.id === r1.id));
+    const post = calls.find((call) => call.url.endsWith("/remark-requests") && call.init.method === "POST");
+    const body = JSON.parse(post.init.body);
+    check("POST goes to the customer + system route", post.url === `/api/technician/customers/${customer}/systems/${system}/remark-requests`);
+    check("the body is exactly id, sectionKey, wording, jobId", JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["id", "jobId", "sectionKey", "wording"]) && body.id === r1.id && body.jobId === job);
+    check("the expected-user guard header is sent", post.init.headers["X-Expected-User-Id"] === String(tech));
+    check("a confirmed send refreshes the technician's own list", calls.some((call) => call.url === "/api/technician/remark-requests"));
+    calls = [];
+    run = await syncPendingRemarkRequests(tech);
+    check("a Completed item is never sent again", calls.length === 0 && run.attempted === 0);
+
+    // exact replay: the server says duplicate:true (it already had the UUID) and the item still completes.
+    const r2 = await createRemarkRequest(base("Replay safe request"));
+    script((url) => url.endsWith("/api/technician/remark-requests") ? json({ requests: [dto(r1), dto(r2)] }) : json(echo(r2, { duplicate: true }), 200));
+    run = await syncPendingRemarkRequests(tech);
+    check("an exact replay (duplicate:true, 200) completes without a second server row", run.confirmed === 1 && (await outboxItems()).filter((entry) => entry.entityId === r2.id).length === 1);
+
+    // timeout: an unanswered request is retried with the SAME uuid, never duplicated.
+    const r3 = await createRemarkRequest(base("Timeout then retry"));
+    calls = [];
+    script((url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
+    run = await syncPendingRemarkRequests(tech);
+    let timed = (await outboxItems()).find((entry) => entry.entityId === r3.id);
+    check("a request that gets no answer is Pending again (not Failed), same single item", timed.status === "Pending" && (await outboxItems()).filter((entry) => entry.entityId === r3.id).length === 1);
+    script((url) => url.endsWith("/api/technician/remark-requests") ? json({ requests: [dto(r3)] }) : json(echo(r3), 201));
+    calls = [];
+    run = await syncPendingRemarkRequests(tech);
+    check("the retry sends the same UUID and then completes", JSON.parse(calls.find((call) => call.init.method === "POST").init.body).id === r3.id && run.confirmed === 1);
+
+    // ---- 5. the generic /api/sync loop never takes a remarkRequest item.
+    await reset();
+    const generic = await createRemarkRequest(base("Must not go to the generic loop"));
+    calls = [];
+    script((url) => url === "/api/sync" ? json({ acceptedIds: [generic.id], duplicateIds: [], failed: [] }) : json({ message: "busy" }, 503));
+    await syncPendingRecords(tech);
+    check("the request was offered to its own route and left Pending by the 503", calls.some((call) => call.url.endsWith("/remark-requests")) && (await only()).status === "Pending");
+    check("syncPendingRecords never posted a leftover remarkRequest to /api/sync", calls.every((call) => call.url !== "/api/sync"));
+
+    // ---- 6. refresh: malformed or failed replies leave the last good cache exactly as it was.
+    await reset();
+    script(() => json({ remarks: [approvedRow(20, "Gate valve leaks"), approvedRow(21, "Level float stuck", sectionB)] }));
+    const refreshed = await refreshApprovedSectionRemarks(system);
+    check("a good approved list is cached", refreshed.length === 2 && (await cachedApprovedSectionRemarks(system)).length === 2);
+    const good = JSON.stringify(await cacheOf(approvedSectionRemarksCacheKey(system)));
+    const badReplies = [
+      ["an inactive row", () => json({ remarks: [approvedRow(20, "Gate valve leaks"), approvedRow(22, "Switched off", sectionA, { active: false })] })],
+      ["an extra key on a row", () => json({ remarks: [{ ...approvedRow(20, "Gate valve leaks"), extra: 1 }] })],
+      ["a foreign system", () => json({ remarks: [{ ...approvedRow(20, "Gate valve leaks"), systemKey: "hose_reel" }] })],
+      ["a repeated id", () => json({ remarks: [approvedRow(20, "Gate valve leaks"), approvedRow(20, "Another one here")] })],
+      ["the Comments section", () => json({ remarks: [approvedRow(20, "Gate valve leaks", "comments")] })],
+      ["an extra envelope key", () => json({ remarks: [], extra: 1 })],
+      ["no envelope", () => json([approvedRow(20, "Gate valve leaks")])],
+      ["HTTP 500", () => json({ message: "boom" }, 500)],
+      ["a body that is not JSON", () => new Response("<html>gateway</html>", { status: 200 })]
+    ];
+    for (const [name, reply] of badReplies) {
+      script(reply);
+      const error = await rejection(() => refreshApprovedSectionRemarks(system));
+      check(`refresh rejects ${name} and keeps the last good cache`, error instanceof Error && JSON.stringify(await cacheOf(approvedSectionRemarksCacheKey(system))) === good);
+    }
+    script(() => json({ remarks: [] }));
+    await refreshApprovedSectionRemarks(system);
+    check("a good EMPTY list does clear the cache (deactivation is honoured)", (await cachedApprovedSectionRemarks(system)).length === 0);
+
+    script(() => json({ requests: [dto(echoed(1)), { ...dto(echoed(2)), requestedByUserId: tech + 1 }] }));
+    function echoed(n) { return { id: id(300 + n), systemKey: system, sectionKey: sectionA, wording: `Own request ${n} text`, customerId: customer }; }
+    const ownBefore = JSON.stringify(await cacheOf(ownRemarkRequestsCacheKey));
+    let error = await rejection(() => refreshOwnRemarkRequests());
+    check("another account's request in the own list is rejected whole and the cache is kept", error instanceof Error && JSON.stringify(await cacheOf(ownRemarkRequestsCacheKey)) === ownBefore);
+    script(() => json({ requests: [{ ...dto(echoed(1)), status: "approved", decision: null }] }));
+    error = await rejection(() => refreshOwnRemarkRequests());
+    check("an approved request with no decision is rejected whole", error instanceof Error && JSON.stringify(await cacheOf(ownRemarkRequestsCacheKey)) === ownBefore);
+
+    // ---- 7. read-back rows: decisions and notes, scoped to this customer + system, newest first.
+    await reset();
+    const t = (minutes) => new Date(Date.UTC(2026, 9, 20, 8, minutes)).toISOString();
+    const own = [
+      dto(echoed(1), { createdAt: t(1), status: "approved", decision: decision("approved", { approvedWording: "Approved wording here" }) }),
+      dto(echoed(2), { createdAt: t(2), status: "rejected", decision: decision("rejected", { reviewerRole: "supervisor", note: "Already covered" }) }),
+      dto(echoed(3), { createdAt: t(3) }),
+      dto({ ...echoed(4), customerId: otherCustomer }, { createdAt: t(4) })
+    ];
+    script(() => json({ requests: own }));
+    await refreshOwnRemarkRequests();
+    const localOnly = await createRemarkRequest(base("Only on this device"));
+    let rows = await loadRemarkRequestRows(customer, system);
+    check("rows are scoped to this customer and newest first", rows.length === 4 && rows[0].id === localOnly.id && rows[1].id === id(303) && rows[2].id === id(302) && rows[3].id === id(301));
+    check("a device-only request is 'waiting' while Pending", rows[0].state === "waiting");
+    check("the approved row shows the approved wording", rows[3].state === "approved" && rows[3].approvedWording === "Approved wording here");
+    check("the rejected row shows the note and the Admin role", rows[2].state === "rejected" && rows[2].note === "Already covered" && rows[2].reviewerRole === "supervisor");
+    check("a server-pending row is 'pending' (waiting for approval)", rows[1].state === "pending");
+    await localDatabase.syncOutbox.update((await only()).operationId, { status: "Syncing" });
+    rows = await loadRemarkRequestRows(customer, system);
+    check("a request being sent is 'sending'", rows[0].state === "sending");
+    check("another customer's rows are not shown", (await loadRemarkRequestRows(otherCustomer, system)).length === 1);
+
+    // ---- 8. discard: only a refused (Failed) request can be removed.
+    const op = await only();
+    await discardRefusedRemarkRequest(localOnly.id);
+    check("a request that is not Failed cannot be discarded", (await outboxItems()).length === 1 && (await cachedLocalRemarkRequests()).length === 1);
+    await localDatabase.syncOutbox.update(op.operationId, { status: "Failed", lastError: "refused" });
+    await discardRefusedRemarkRequest(localOnly.id);
+    check("a Failed request is removed from the outbox and the local list together", (await outboxItems()).length === 0 && (await cachedLocalRemarkRequests()).length === 0);
+
+    // ---- 9. unsynced requests survive a simulated restart (they live in IndexedDB, not memory).
+    await reset();
+    const survivor = await createRemarkRequest(base("Survives a restart"));
+    deviceDatabase.close(); localDatabase.close(); await deviceDatabase.open(); await localDatabase.open();
+    check("a queued request and its local entry survive closing and reopening the database", (await outboxItems()).length === 1 && (await cachedLocalRemarkRequests())[0].id === survivor.id);
+
+    window.setTimeout = realSetTimeout; window.fetch = realFetch;
+    out.textContent = JSON.stringify({ status: checks.every((entry) => entry.ok) ? "PASS" : "FAIL", checks }, null, 2);
+  } catch (error) {
+    out.textContent = JSON.stringify({ status: "ERROR", message: error?.stack ?? String(error), checks }, null, 2);
+  }
+};
+document.body.dataset.harnessReady = "1";
+</script></body></html>

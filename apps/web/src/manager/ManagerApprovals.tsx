@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { loadLocationProposals, loadReportApprovals, loadSiteProposals, ManagerApiError } from "./managerApi";
 import { loadRepairVisits, RepairVisitsApiError } from "./repairVisitsApi";
+import { loadPendingRemarkRequestCount } from "./remarkRequestsApi";
 import "./ManagerApprovals.css";
 
 export const approvalCards = [
   ["Location proposals", "Location and format changes", "manager-location-proposals"],
   ["Site requests", "New sites from technicians", "manager-site-proposals"],
   ["Repair visits", "Approve or return to technician", "manager-repairs"],
-  ["Service reports", "Reports awaiting approval", "manager-report-approvals"]
+  ["Service reports", "Reports awaiting approval", "manager-report-approvals"],
+  ["Remark requests", "Typed remarks awaiting approval", "manager-remark-requests"]
 ] as const;
 type ApprovalRoute = typeof approvalCards[number][2];
-type Counts = Record<ApprovalRoute, number | null>;
+/** The four sources whose sum is the Home badge; the remark-request count is read by the hub itself so Home is unchanged. */
+type CountedRoute = Exclude<ApprovalRoute, "manager-remark-requests">;
+type Counts = Record<CountedRoute, number | null>;
 const emptyCounts: Counts = { "manager-location-proposals": null, "manager-site-proposals": null, "manager-repairs": null, "manager-report-approvals": null };
 
 /** Each source settles independently; unknown counts stay unknown. Fresh on every page mount. */
@@ -21,7 +25,7 @@ export function useApprovalCounts(onAuthorityFailure: (error: unknown) => void) 
   useEffect(() => {
     const controller = new AbortController();
     const signal = controller.signal;
-    const load = (route: ApprovalRoute, pending: Promise<number>) => {
+    const load = (route: CountedRoute, pending: Promise<number>) => {
       void pending.then(count => {
         if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid approval count");
         if (!signal.aborted) setCounts(current => ({ ...current, [route]: count }));
@@ -50,11 +54,18 @@ export function ManagerApprovals({ navigate, onAuthorityFailure }: {
   onAuthorityFailure: (error: unknown) => void;
 }) {
   const { counts } = useApprovalCounts(onAuthorityFailure);
+  const [remarkCount, setRemarkCount] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadPendingRemarkRequestCount(controller.signal).then(count => { if (!controller.signal.aborted) setRemarkCount(count); })
+      .catch(() => undefined); // The count is only a badge; the page itself enforces access, so a failure here stays silent.
+    return () => controller.abort();
+  }, []);
   return <section className="manager-hub" aria-labelledby="manager-approvals-title">
     <div className="workspace-heading"><h2 id="manager-approvals-title">Approvals</h2></div>
     <div className="manager-dashboard manager-hub-grid">{approvalCards.map(([title, description, name]) =>
       <button type="button" className="manager-dashboard-card manager-hub-card" key={name} onClick={() => navigate({ name })}>
-        <span className="manager-hub-copy"><strong>{title}</strong><span>{description}</span></span><PendingCount count={counts[name]} />
+        <span className="manager-hub-copy"><strong>{title}</strong><span>{description}</span></span><PendingCount count={name === "manager-remark-requests" ? remarkCount : counts[name]} />
       </button>)}</div>
   </section>;
 }

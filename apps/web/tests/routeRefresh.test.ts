@@ -49,8 +49,8 @@ test("a newer version, a status change, another record or an unreadable time tak
   assert.equal(mergeResolvedRecord(undefined, newer), newer);
 });
 
-test("all eight route effects use the refresh guard (wiring)", () => {
+test("all nine route effects use the refresh guard (wiring)", () => {
   const app = readFileSync(join(process.cwd(), "src", "App.tsx"), "utf8");
-  assert.equal((app.match(/isRouteRefresh\(/g) ?? []).length, 8, "Hydrant, Smoke, Intercom, Roller, Portable, Riser, Sprinkler, Fire Alarm");
-  assert.equal((app.match(/mergeResolvedRecord\(/g) ?? []).length, 8);
+  assert.equal((app.match(/isRouteRefresh\(/g) ?? []).length, 9, "Hydrant, Smoke, Intercom, Roller, Portable, Riser, Sprinkler, Fire Alarm, FM200");
+  assert.equal((app.match(/mergeResolvedRecord\(/g) ?? []).length, 11, "nine route resolutions plus FM200 list refresh and post-save refresh");
 });

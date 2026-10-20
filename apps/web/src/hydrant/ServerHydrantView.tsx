@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useLayoutEffect, useState } from "react";
 import { formatClientDateTime } from "../uiPresentation";
 import { hydrantV7AcceptedEvidenceContentUrl, loadHydrantV7AcceptedEvidence, type HydrantV7AcceptedEvidence } from "./hydrantV7AcceptedEvidence";
@@ -29,7 +30,7 @@ export function ServerHydrantView({ inspection, onBack }: { inspection: ServerHy
         const finding = inspection.templateVersion === 7 && (row[key] === "not_good" || row[key] === "complete_repair");
         const photo = evidence.find((item) => item.fieldPath === `hydrant_set.hydrant_rows.rows.${row.rowUuid}.${wire}`);
         const photoUrl = photo ? hydrantV7AcceptedEvidenceContentUrl(photo.photoUuid) : undefined;
-        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /></> : null}</> : null}</div>;
+        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></> : null}</> : null}</div>;
       })}</div>
       <p className="accepted-remarks"><span>Remarks</span>{row.remarks || "No remarks"}</p>
     </article>)}</section>

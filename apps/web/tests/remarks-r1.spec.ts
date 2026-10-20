@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-test("Hose Reel checklist still appends choices and Others with a removable list", async ({ page }) => {
+// R4: Hose Reel rows now hold ONE remark (they used to append a removable list); its Comments box keeps the list.
+test("Hose Reel checklist row holds one remark: a later choice replaces it and Others types straight into the row", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/tests/row-layout-hose-reel.html");
   await page.getByLabel("Number of hose reel drums").fill("1");
@@ -15,10 +16,12 @@ test("Hose Reel checklist still appends choices and Others with a removable list
   const picker = row.getByRole("combobox", { name: "Remark", exact: true });
   await picker.selectOption({ label: "Valve needs repair" });
   await picker.selectOption({ label: "Water level low" });
-  await picker.selectOption("others");
-  await row.getByRole("textbox", { name: "Type a new remark" }).fill("Hose Reel typed note");
-  const items = row.getByRole("list", { name: "Selected remarks" }).getByRole("listitem");
-  await expect(items).toHaveText(["Valve needs repairRemove", "Water level lowRemove", "Hose Reel typed noteRemove"]);
-  await row.getByRole("button", { name: "Remove remark Water level low", exact: true }).click();
-  await expect(items).toHaveText(["Valve needs repairRemove", "Hose Reel typed noteRemove"]);
+  await expect(picker.locator("option:checked")).toHaveText("Water level low");
+  await expect(row.getByRole("list", { name: "Selected remarks" })).toHaveCount(0);
+  await picker.selectOption({ label: "Others (type your own)" });
+  const typed = row.getByRole("textbox", { name: "Type a new remark" });
+  await typed.fill("Hose Reel typed note");
+  await expect(typed).toHaveValue("Hose Reel typed note");
+  await expect(row.getByRole("button", { name: "Add to common remarks" })).toBeEnabled();
+  await expect(row.getByRole("list", { name: "Selected remarks" })).toHaveCount(0);
 });

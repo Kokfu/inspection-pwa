@@ -5,6 +5,7 @@ import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { inspectionSyncMessage } from "../uiPresentation";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { RemarksField } from "../inspectionControls/RemarksField";
+import { RemarkRequestStatus } from "../inspectionControls/RemarkRequestStatus";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { addCo2DetectorRow, getCo2SubmitIssues } from "./co2Repository";
 import { configuredDetectorCount, normalizeDetectorRows, setDetectorRowCount } from "./detectorRowCount";
@@ -38,6 +39,7 @@ type Props = {
 };
 
 export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onStartCorrectedCopy }: Props) {
+  const remarkCustomerId = record.inspectionSnapshot.customer.id;
   const systemLabel = record.systemKey === "wet_chemical" ? "Wet Chemical" : "CO2";
   const countDriven = record.systemKey === "co2_fire_extinguisher" || record.systemKey === "wet_chemical";
   const [responses, setResponses] = useState(() => countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
@@ -169,6 +171,7 @@ export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, o
             onChange={(result) => updateChecklist(group, definition.key, { result })}
           />
           <RemarksField systemKey={record.systemKey === "co2_fire_extinguisher" ? "co2_fire_extinguisher" : undefined}
+            sectionKey={`${group}.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
             label="Remarks"
             definition={definition.remarks}
             value={responses[group][definition.key]?.remarks ?? ""}
@@ -230,7 +233,7 @@ export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, o
           <label>{labelAt("detectorRows.location", controls.detectorRows.location.label)}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
           {(() => { const heatLabel = labelAt("detectorRows.heatDetector", controls.detectorRows.heatDetector.label); return <div><strong>{heatLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={row.heatDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>; })()}
           {(() => { const smokeLabel = labelAt("detectorRows.smokeDetector", controls.detectorRows.smokeDetector.label); return <div><strong>{smokeLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={row.smokeDetectorStatus as DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>; })()}
-          <RemarksField systemKey={record.systemKey === "co2_fire_extinguisher" ? "co2_fire_extinguisher" : undefined} label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
+          <RemarksField systemKey={record.systemKey === "co2_fire_extinguisher" ? "co2_fire_extinguisher" : undefined} sectionKey="detectorRows.remarks" sectionLabel="Row remarks" customerId={remarkCustomerId} jobId={record.jobId} label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
           {!countDriven && !readOnly ? <button type="button" className="secondary-command" onClick={() => {
             if (window.confirm("Remove this Draft detector row?")) setResponses((current) => ({ ...current, detectorRows: current.detectorRows.filter((item) => item.rowUuid !== row.rowUuid) }));
           }}>Remove Row</button> : null}
@@ -246,6 +249,8 @@ export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, o
       <legend>System Comments</legend>
       <RemarksField systemKey={record.systemKey === "co2_fire_extinguisher" ? "co2_fire_extinguisher" : undefined} label="Comments" definition={controls.comments} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} />
     </fieldset>
+
+    {record.systemKey === "co2_fire_extinguisher" ? <RemarkRequestStatus customerId={remarkCustomerId} systemKey="co2_fire_extinguisher" /> : null}
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Inspection</button></div> : null}
     {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed()}>Return to Draft</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />

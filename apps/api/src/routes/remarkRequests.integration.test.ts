@@ -113,7 +113,30 @@ test("R2 remark requests: migration, authority, auth, retries, races and legacy 
         for (const patch of [{ sectionKey: "comments" }, { sectionKey: "unknown" }, { wording: "a\nb" }, { wording: "\u200Bhidden" }, { wording: "ab" }, { wording: "x".repeat(301) }, { id: "bad" }, { jobId: null }, { extra: true }]) {
           await expect(await call(path(), "techA", "POST", { id: id(), sectionKey: section, wording: "Valid request", ...patch }), 400, "INVALID_REMARK_REQUEST");
         }
-        await expect(await call(path(one, "hose_reel"), "techA", "POST", { id: id(), sectionKey: section, wording: "Unknown system" }), 400);
+        // R4: Hose Reel is a requestable service now; a plain-text service (Smoke Ventilation) is still refused.
+        await expect(await call(path(one, "smoke_ventilation"), "techA", "POST", { id: id(), sectionKey: section, wording: "Unknown system" }), 400);
+      });
+      await t.test("R4: Hose Reel, Hydrant, Fire Alarm, FM200 and CO2 take requests for their own sections only; Comments and plain-text services do not", async () => {
+        const { sectionRemarkKeysFor } = await import("../inspections/remarkSections.js");
+        for (const systemKey of ["hose_reel", "hydrant", "fire_alarm_detector", "fm200_fire_suppression", "co2_fire_extinguisher"] as const) {
+          const visit = await job(one, "techA", [systemKey]);
+          const own = sectionRemarkKeysFor(systemKey);
+          const body = { id: id(), sectionKey: own[0]!, wording: `R4 ${systemKey} wording`, jobId: visit };
+          const created = await expect(await call(path(one, systemKey), "techA", "POST", body), 201);
+          assert.equal(created.request.systemKey, systemKey);
+          assert.equal(created.request.sectionKey, own[0]);
+          assert.equal((await expect(await call(path(one, systemKey), "techA", "POST", body), 200)).duplicate, true, `${systemKey}: exact replay`);
+          await expect(await call(path(one, systemKey), "techA", "POST", { ...body, id: id(), sectionKey: "comments", wording: `R4 ${systemKey} comments` }), 400, "INVALID_REMARK_REQUEST");
+          await expect(await call(path(one, systemKey), "techA", "POST", { ...body, id: id(), sectionKey: "measurements.duty_pump_cut_in", wording: `R4 ${systemKey} sprinkler-only row` }), 400, "INVALID_REMARK_REQUEST");
+          const decided = await expect(await call(`/manager/remark-requests/${body.id}/decision`, "admin", "POST", { decision: "approved", approvedWording: `R4 ${systemKey} approved` }), 201);
+          assert.equal(decided.request.status, "approved");
+          const choices = await expect(await call(`/systems/${systemKey}/approved-section-remarks`, "techB"), 200);
+          assert.deepEqual(choices.remarks.map((item: { sectionKey: string; wording: string }) => [item.sectionKey, item.wording]), [[own[0], `R4 ${systemKey} approved`]], `${systemKey}: offered in its own section at every customer`);
+        }
+        for (const plain of ["wet_chemical", "dry_wet_riser", "smoke_ventilation", "fire_intercom", "fire_rated_roller_shutter"]) {
+          const visit = await job(one, "techA", [plain]);
+          await expect(await call(path(one, plain), "techA", "POST", { id: id(), sectionKey: section, wording: `R4 ${plain} wording`, jobId: visit }), 400);
+        }
       });
       await t.test("create auth and exact scope match legacy; expected-actor guard rejects stale accounts", async () => {
         await expect(await call(path(), "", "POST", {}), 401);

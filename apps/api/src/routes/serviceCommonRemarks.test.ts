@@ -36,7 +36,7 @@ test("common remarks require authority, validate writes, and confirm the exact i
   };
   const database = { query: async () => ({ rows: stored ? [stored] : [] }), connect: async () => client };
   const app = express(); app.use(express.json());
-  app.use((request, _response, next) => { const role = request.header("x-role"); if (role === "admin" || role === "inspector") request.currentUser = { id: 4, username: role, role }; next(); });
+  app.use((request, _response, next) => { const role = request.header("x-role"); if (role === "admin" || role === "inspector" || role === "supervisor") request.currentUser = { id: 4, username: role, role }; next(); });
   app.use(createServiceCommonRemarksRouter(database as never));
   app.use((error: { code?: string; status?: number }, _request: express.Request, response: express.Response, _next: express.NextFunction) => response.status(error.status ?? 500).json({ error: error.code ?? "INTERNAL" }));
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
@@ -45,18 +45,22 @@ test("common remarks require authority, validate writes, and confirm the exact i
   try {
     const input = { id, systemKey: "fm200_fire_suppression", wording: "Detector needs repair", detailLabel: null, detailOptions: [] };
     assert.equal((await request("POST", "", input)).status, 401);
-    assert.equal((await request("POST", "inspector", { ...input, systemKey: "unknown" })).status, 400);
-    assert.equal((await request("POST", "inspector", { ...input, extra: true })).status, 400);
+    assert.equal((await request("POST", "admin", { ...input, systemKey: "unknown" })).status, 400);
+    assert.equal((await request("POST", "admin", { ...input, extra: true })).status, 400);
+    // R4: a technician (inspector) can no longer add to the system-wide list; nothing reaches the database.
+    assert.equal((await request("POST", "inspector", input)).status, 403);
+    assert.equal((await request("POST", "inspector", { ...input, systemKey: "unknown" })).status, 403);
     assert.equal(touched, 0);
-    assert.equal((await request("POST", "inspector", input)).status, 201);
-    const replay = await request("POST", "inspector", input); assert.equal(replay.status, 200);
+    assert.equal((await request("POST", "admin", input)).status, 201);
+    const replay = await request("POST", "supervisor", input); assert.equal(replay.status, 200, "Admin (supervisor) may add; a replay confirms the exact UUID");
     assert.equal((await replay.json() as { remark: { id: string } }).remark.id, id);
-    assert.equal((await request("POST", "inspector", { ...input, wording: "Different wording" })).status, 409);
+    assert.equal((await request("POST", "inspector", input)).status, 403, "a technician cannot even replay");
+    assert.equal((await request("POST", "admin", { ...input, wording: "Different wording" })).status, 409);
     assert.equal((await request("PUT", "inspector", { wording: "Changed", detailLabel: null, detailOptions: [] })).status, 403);
     assert.equal((await request("DELETE", "inspector")).status, 403);
     assert.equal((await request("PUT", "admin", { wording: "Changed", detailLabel: "Size", detailOptions: ["12V x 12AH"] })).status, 200);
-    assert.equal((await request("POST", "inspector", input)).status, 200, "a retry confirms the original UUID after a manager edit");
+    assert.equal((await request("POST", "admin", input)).status, 200, "a retry confirms the original UUID after a manager edit");
     assert.equal((await request("DELETE", "admin")).status, 200);
-    assert.equal((await request("POST", "inspector", input)).status, 200, "a retry confirms the original UUID after removal");
+    assert.equal((await request("POST", "admin", input)).status, 200, "a retry confirms the original UUID after removal");
   } finally { await close(server); }
 });

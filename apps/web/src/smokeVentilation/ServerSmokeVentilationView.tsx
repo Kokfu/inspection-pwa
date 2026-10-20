@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useEffect, useState } from "react";
 import { formatClientDateTime } from "../uiPresentation";
 import { smokeVentilationChecklistFields, smokeVentilationRowColumns } from "./smokeVentilationTypes";
@@ -28,7 +29,7 @@ export function ServerSmokeVentilationView({ inspection, onBack }: { inspection:
         const finding = isFinding(row[key]);
         const photo = evidence.find((item) => item.fieldPath === `fan_schedule.fan_schedule_rows.rows.${row.rowUuid}.${wire}`);
         const photoUrl = photo ? smokeVentilationV7AcceptedEvidenceContentUrl(photo.photoUuid) : undefined;
-        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /></> : null}</> : null}</div>;
+        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></> : null}</> : null}</div>;
       })}</div>
       <p className="accepted-remarks"><span>Remarks</span>{row.remarks || "No remarks"}</p>
     </article>)}</section>
@@ -38,7 +39,7 @@ export function ServerSmokeVentilationView({ inspection, onBack }: { inspection:
       const fieldPath = `smoke_ventilation_checks.${key}`;
       const photo = evidence.find((item) => item.fieldPath === fieldPath);
       const photoUrl = photo ? smokeVentilationV7AcceptedEvidenceContentUrl(photo.photoUuid) : undefined;
-      return <div key={key}><p><span>{label}</span>{resultLabel(entry?.result)}</p>{finding ? <><p><strong>Remark:</strong> {entry?.remarks || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${label} accepted evidence`} className="accepted-evidence-photo" /></> : null}</> : null}</div>;
+      return <div key={key}><p><span>{label}</span>{resultLabel(entry?.result)}</p>{finding ? <><p><strong>Remark:</strong> {entry?.remarks || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${label} accepted evidence`} className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></> : null}</> : null}</div>;
     })}</section>
     {evidenceError ? <p className="error-text">{evidenceError}</p> : null}
     <section><h3>Comments</h3><p>{inspection.responses.comments || "No comments"}</p></section>

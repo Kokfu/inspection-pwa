@@ -64,10 +64,10 @@ for (const config of configs) {
       const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
       const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
-      const stage = async (clientUuid: string, fieldPath: string, color: string) => {
+      const stage = async (clientUuid: string, fieldPath: string, color: string, source: "camera" | "gallery" = "camera") => {
         const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: color } }).jpeg({ quality: 80 }).toBuffer();
         const photoUuid = id(); const form = new FormData();
-        const values: Record<string, string> = { photoUuid, inspectionClientUuid: clientUuid, jobId: job, systemKey: config.systemKey, fieldPath, masterTemplateId: template.id, masterTemplateVersion: "7", contractSha256: contract, captureSource: "camera", capturedAt: time, sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: String(bytes.length), width: "2", height: "2" };
+        const values: Record<string, string> = { photoUuid, inspectionClientUuid: clientUuid, jobId: job, systemKey: config.systemKey, fieldPath, masterTemplateId: template.id, masterTemplateVersion: "7", contractSha256: contract, captureSource: source, capturedAt: time, sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: String(bytes.length), width: "2", height: "2" };
         for (const [key, value] of Object.entries(values)) form.set(key, value);
         form.set("file", new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }), "photo.jpg");
         const http = await fetch(`${origin}/v7-evidence/stage`, { method: "POST", body: form });
@@ -92,7 +92,7 @@ for (const config of configs) {
         await t.test("a finding + an optional Good photo + an optional N.A. photo are accepted atomically and served", async () => {
           const client = id();
           const responses = responsesFor({ ...finding, "chargerAndBatteries.charger": result("na") });
-          const proof = await stage(client, findingPath, "white"); const na = await stage(client, naPath, "black"); const good = await stage(client, goodPath, "blue");
+          const proof = await stage(client, findingPath, "white"); const na = await stage(client, naPath, "black"); const good = await stage(client, goodPath, "blue", "gallery");
           const first = item(client, 0, responses, manifest(proof, na, good)); firstItem = first;
           const accepted = await syncCo2FormInstances([first], actor); assert.deepEqual(accepted.acceptedIds, [client], JSON.stringify(accepted));
           const bound = await rows(client);
@@ -107,8 +107,17 @@ for (const config of configs) {
           const body = await detail.json() as { inspection: { responses: ReturnType<typeof responsesFor> } };
           assert.equal(body.inspection.responses.chargerAndBatteries.charger.result, "na");
           assert.equal(body.inspection.responses.physicalOutlook[config.physical[0]!]!.result, "good");
-          const listed = await (await fetch(`${origin}/v7-evidence/accepted?inspectionClientUuid=${client}`)).json() as { evidence: Array<{ photoUuid: string; fieldPath: string }> };
+          const listed = await (await fetch(`${origin}/v7-evidence/accepted?inspectionClientUuid=${client}`)).json() as { evidence: Array<{ photoUuid: string; fieldPath: string; captureSource: string | null; capturedAt: string | null }> };
           assert.deepEqual(listed.evidence.map((entry) => entry.fieldPath), [findingPath, naPath, goodPath].sort(), "Accepted Detail lists the optional photos beside the required one");
+          // P2: the internal accepted-evidence list carries the stored source and the photo's own capturedAt.
+          assert.deepEqual(listed.evidence.map((entry) => [entry.photoUuid, entry.captureSource, entry.capturedAt]).sort(),
+            [[proof.photoUuid, "camera", time], [na.photoUuid, "camera", time], [good.photoUuid, "gallery", time]].sort(), "accepted evidence exposes captureSource + capturedAt");
+          // Migration 058 is additive and nullable; a pre-047/058 row (NULL source and time) is returned as null, never as "camera".
+          assert.deepEqual((await database.query("SELECT is_nullable FROM information_schema.columns WHERE table_name='staged_inspection_evidence' AND column_name='captured_at'")).rows, [{ is_nullable: "YES" }]);
+          await database.query("UPDATE staged_inspection_evidence SET capture_source=NULL,captured_at=NULL WHERE photo_uuid=$1", [good.photoUuid]);
+          const legacy = await (await fetch(`${origin}/v7-evidence/accepted?inspectionClientUuid=${client}`)).json() as { evidence: Array<{ photoUuid: string; captureSource: string | null; capturedAt: string | null }> };
+          assert.deepEqual(legacy.evidence.find((entry) => entry.photoUuid === good.photoUuid), { ...legacy.evidence.find((entry) => entry.photoUuid === good.photoUuid)!, captureSource: null, capturedAt: null });
+          await database.query("UPDATE staged_inspection_evidence SET capture_source='gallery',captured_at=$2 WHERE photo_uuid=$1", [good.photoUuid, time]);
           for (const entry of [proof, na, good]) {
             const content = await fetch(`${origin}/v7-evidence/accepted/${entry.photoUuid}/content`);
             assert.equal(content.status, 200, `${entry.fieldPath} content`); assert.equal(content.headers.get("content-type"), "image/jpeg");

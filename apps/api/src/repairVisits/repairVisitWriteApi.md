@@ -115,6 +115,8 @@ after checking the stored hash. Owning technician or reviewer may download.
 
 `GET /repair-visits` → `{visits: RepairVisit[]}` (technicians: own only; reviewers: all).
 `GET /repair-visits/:visitId` → `{visit: RepairVisit,items: RepairVisitItem[],events: RepairVisitEvent[]}`.
+Admin/Manager (`admin`, `supervisor`) reads also carry `photoSources: {photoUuid,captureSource,capturedAt}[]` (accepted After photos;
+`capturedAt` is canonical UTC). The owner/technician read has no such key. The source is internal and is never printed in the repair PDF.
 `GET /repair-visits/:visitId/photos/:photoUuid/content` → verified JPEG, owner or reviewer;
 reviewers see accepted photos only. Foundation camelCase contracts are used for these JSON reads.
 No disk path, PDF bytes or internal fingerprint field leaks in the visit/list JSON.

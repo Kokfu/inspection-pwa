@@ -74,7 +74,7 @@ const overflow = async (page: Page) => expect(await page.evaluate(() => document
 test("hub cards have ordered red counts and open their pages; phone Back returns to Approvals", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   const requests = await install(page); await enter(page);
-  await expect(cards(page).locator("strong")).toHaveText(["Location proposals", "Site requests", "Repair visits", "Service reports"]);
+  await expect(cards(page).locator("strong")).toHaveText(["Location proposals", "Site requests", "Repair visits", "Service reports", "Remark requests"]);
   await expect(cards(page).locator(".approval-pending-count")).toHaveText(["2", "1", "1", "2"]);
   for (const badge of await cards(page).locator(".approval-pending-count").all()) {
     expect(await badge.evaluate(el => { const css = getComputedStyle(el), root = getComputedStyle(document.documentElement), box = el.getBoundingClientRect();
@@ -98,7 +98,7 @@ test("hub cards have ordered red counts and open their pages; phone Back returns
 
 test("zero counts have no badge; all four loaded Home total uses B0 totalCount", async ({ page }) => {
   await install(page, { zero: true }); await enter(page);
-  await expect(cards(page)).toHaveCount(4); await expect(page.locator(".approval-pending-count")).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(5); await expect(page.locator(".approval-pending-count")).toHaveCount(0);
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Home", exact: true }).click();
   await expect(approvals(page)).toHaveText("Approvals"); await expect(approvals(page).locator(".approval-pending-count")).toHaveCount(0);
 });
@@ -159,8 +159,9 @@ test("Settings is Manager-only, last, and contains both removed sidebar destinat
   await page.setViewportSize({ width: 360, height: 800 }); await install(page); await enter(page, "manager-settings");
   const nav = page.getByLabel("Primary navigation");
   await expect(nav.locator("button").last()).toHaveText("Settings");
-  await expect(nav.locator("button").nth(-2)).toHaveText("Approvals");
-  await expect(nav.locator("button").nth(-3)).toHaveText("Service Catalog");
+  await expect(nav.locator("button").nth(-3)).toHaveText("Approvals");
+  await expect(nav.locator("button").nth(-2)).toHaveText("Photo KPI");
+  await expect(nav.locator("button").nth(-4)).toHaveText("Service Catalog");
   await expect(nav.locator("button").filter({ hasText: /Email reminders|Company Profile|Location Proposals|Site Requests|Repair Visits/ })).toHaveCount(0);
   await expect(cards(page).locator("strong")).toHaveText(["Email reminders", "Company profile"]);
   for (const [title, hash] of [["Email reminders", "manager-email-reminders"], ["Company profile", "manager-company-profile"]]) {
@@ -172,7 +173,7 @@ for (const hash of ["manager-settings", "manager-email-reminders", "manager-comp
   test(`Admin is refused ${hash} without fetching Settings data`, async ({ page }) => {
     const requests = await install(page, { role: "supervisor" }); await enter(page, hash, "supervisor");
     await expect(page).toHaveURL(/#\/manager$/);
-    await expect(page.getByLabel("Primary navigation").getByRole("button")).toHaveText(["Home", "Services", "Current Services Done", "Approvals"]);
+    await expect(page.getByLabel("Primary navigation").getByRole("button")).toHaveText(["Home", "Services", "Current Services Done", "Approvals", "Photo KPI"]);
     expect(requests.some(path => /reminders\/(settings|staff|status)|company-profile/.test(path))).toBe(false);
   });
 }
@@ -261,7 +262,7 @@ for (const role of ["admin", "supervisor"] as const) {
     await expect(page.locator(".approval-pending-count")).toHaveCount(4);
     await page.locator("summary").filter({ hasText: "Menu" }).click();
     await page.screenshot({ path: testInfo.outputPath(`menu-${role}-360.png`), fullPage: true });
-    await expect(page.getByLabel("Mobile navigation").getByRole("button").last()).toHaveText(role === "admin" ? "Settings" : "Approvals");
+    await expect(page.getByLabel("Mobile navigation").getByRole("button").last()).toHaveText(role === "admin" ? "Settings" : "Photo KPI");
     await page.getByLabel("Mobile navigation").getByRole("button", { name: "Approvals", exact: true }).click();
     for (const hash of ["manager-approvals", "manager-report-approvals", ...(role === "admin" ? ["manager-settings"] : [])]) {
       await page.evaluate(hash => { location.hash = `#/${hash}`; }, hash);

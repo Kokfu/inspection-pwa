@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useEffect, useState } from "react";
 import type { LegacyDryWetRiserResponses, RiserOutletResultColumn, RiserResult, RiserRow, V7DryWetRiserResponses } from "./dryWetRiserTypes";
 import type { ServerDryWetRiserDetail } from "./serverDryWetRiserApi";
@@ -18,7 +19,7 @@ function V7Evidence({ path, remark, evidence }: { path: string; remark: string; 
   const photo = evidence.find((item) => item.fieldPath === path);
   if (!photo) return <p><strong>Remark:</strong> {remark || "Not recorded"}</p>;
   const url = dryWetRiserV7AcceptedEvidenceContentUrl(photo.photoUuid);
-  return <><p><strong>Remark:</strong> {remark || "Not recorded"}</p><a href={url} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={url} alt="Accepted evidence" className="accepted-evidence-photo" /></>;
+  return <><p><strong>Remark:</strong> {remark || "Not recorded"}</p><a href={url} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={url} alt="Accepted evidence" className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></>;
 }
 
 export function ServerDryWetRiserView({ inspection, onBack }: Props) {

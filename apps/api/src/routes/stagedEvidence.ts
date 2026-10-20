@@ -46,7 +46,7 @@ stagedEvidenceRouter.get("/v6-evidence/accepted", requireRole("admin", "inspecto
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
-    const result = await pool.query(`SELECT evidence.photo_uuid AS "photoUuid", evidence.system_key AS "systemKey", evidence.field_path AS "fieldPath", evidence.source_sha256 AS "sourceSha256", evidence.stored_sha256 AS "storedSha256", evidence.mime_type AS "mimeType", evidence.stored_size_bytes AS "sizeBytes", evidence.width, evidence.height, evidence.form_instance_id AS "formInstanceId"
+    const result = await pool.query(`SELECT evidence.photo_uuid AS "photoUuid", evidence.system_key AS "systemKey", evidence.field_path AS "fieldPath", evidence.source_sha256 AS "sourceSha256", evidence.stored_sha256 AS "storedSha256", evidence.mime_type AS "mimeType", evidence.stored_size_bytes AS "sizeBytes", evidence.width, evidence.height, evidence.form_instance_id AS "formInstanceId", evidence.capture_source AS "captureSource", to_char(evidence.captured_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "capturedAt"
       FROM staged_inspection_evidence evidence
       INNER JOIN master_system_form_instances form ON form.id=evidence.form_instance_id AND form.client_uuid=$1 AND form.status='submitted'
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key='fire_alarm_detector'
@@ -90,7 +90,7 @@ stagedEvidenceRouter.get("/v7-evidence/accepted", requireRole("admin", "inspecto
   try {
     const inspectionClientUuid = request.query.inspectionClientUuid;
     if (typeof inspectionClientUuid !== "string" || !uuid.test(inspectionClientUuid)) { response.status(400).json({ error: "INVALID_INSPECTION_ID" }); return; }
-    const result = await pool.query(`SELECT evidence.photo_uuid AS "photoUuid",evidence.system_key AS "systemKey",evidence.field_path AS "fieldPath",evidence.source_sha256 AS "sourceSha256",evidence.stored_sha256 AS "storedSha256",evidence.mime_type AS "mimeType",evidence.stored_size_bytes AS "sizeBytes",evidence.width,evidence.height,evidence.form_instance_id AS "formInstanceId"
+    const result = await pool.query(`SELECT evidence.photo_uuid AS "photoUuid",evidence.system_key AS "systemKey",evidence.field_path AS "fieldPath",evidence.source_sha256 AS "sourceSha256",evidence.stored_sha256 AS "storedSha256",evidence.mime_type AS "mimeType",evidence.stored_size_bytes AS "sizeBytes",evidence.width,evidence.height,evidence.form_instance_id AS "formInstanceId",evidence.capture_source AS "captureSource",to_char(evidence.captured_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "capturedAt"
       FROM staged_inspection_evidence evidence
       INNER JOIN master_system_form_instances form ON form.id=evidence.form_instance_id AND form.client_uuid=$1 AND form.status='submitted'
       INNER JOIN master_system_inspections inspection ON inspection.id=form.inspection_group_id AND inspection.system_key IN ('co2_fire_extinguisher','wet_chemical','fire_alarm_detector','hydrant','hose_reel','automatic_sprinkler','dry_wet_riser','smoke_ventilation','fire_intercom','fire_rated_roller_shutter','fm200_fire_suppression')

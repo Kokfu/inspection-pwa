@@ -1420,7 +1420,7 @@ a.secondary-command { display: inline-flex; box-sizing: border-box; width: fit-c
 .app-shell-content > :is(section[aria-labelledby="manager-dashboard-title"], section[aria-labelledby="technicians-title"], section[aria-labelledby="upcoming-title"]) { display: grid; width: min(var(--page-width), 100%); align-content: start; gap: var(--space-4); }
 /* Width only: without it these pages shrink to their content or fill the whole column beside the
  * sidebar, so on wide desktops they no longer line up with the header. */
-.app-shell-content > :is(section[aria-labelledby="manager-customers-title"], section[aria-labelledby="manager-company-profile-title"], section[aria-labelledby="email-reminder-title"], section[aria-labelledby="manager-add-customer-title"], section[aria-labelledby="manager-service-catalog-title"]) { width: min(var(--page-width), 100%); }
+.app-shell-content > :is(section[aria-labelledby="manager-customers-title"], section[aria-labelledby="manager-company-profile-title"], section[aria-labelledby="email-reminder-title"], section[aria-labelledby="manager-add-customer-title"], section[aria-labelledby="technician-add-customer-title"], section[aria-labelledby="manager-service-catalog-title"]) { width: min(var(--page-width), 100%); }
 .app-shell > .secondary-command,
 .app-shell-content > .secondary-command { justify-self: start; margin-inline-start: max(0px, calc((100% - var(--page-width)) / 2)); }
 
@@ -1733,3 +1733,22 @@ a, button, summary, input, select, textarea, label, [role="button"], [role="tab"
 @media (min-width: 1200px) {
   .rv-card-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* P2: internal-only gallery marker (never part of the image or the customer PDF). */
+.gallery-photo-label { display: block; margin: 6px 0 0; font-size: .85rem; color: var(--ink-muted, inherit); }
+.evidence-confirmed .gallery-photo-label { display: inline; margin: 0; font-size: inherit; color: inherit; }
+
+/* R3: technician read-back of remark requests (RemarkRequestStatus). Kept here, not in a component stylesheet, so the Sprinkler form still renders under node tests. */
+.remark-request-status { display: grid; gap: var(--space-3); min-width: 0; margin-block: var(--space-4); overflow-wrap: anywhere; }
+.remark-request-status :is(h3, p, small) { margin: 0; }
+.remark-request-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.remark-request-item { display: grid; gap: var(--space-2); padding: var(--space-4); min-width: 0; border: thin solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.remark-request-item small { color: var(--muted-on-sunken); }
+.remark-request-wording { white-space: pre-wrap; }
+.remark-request-state { justify-self: start; padding: var(--space-1) var(--space-3); border-radius: var(--radius-pill); font-size: var(--text-sm); color: var(--muted-on-sunken); background: var(--surface-sunken); }
+.remark-request-state-pending, .remark-request-state-waiting, .remark-request-state-sending { color: var(--warning-ink); background: var(--warning-soft); }
+.remark-request-state-approved { color: var(--success-ink); background: var(--success-soft); }
+.remark-request-state-rejected, .remark-request-state-failed { color: var(--danger-ink); background: var(--danger-soft); }
+.remark-request-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.remark-request-actions button { min-height: var(--tap); min-width: var(--tap); touch-action: manipulation; }
+.remark-request-actions button:focus-visible { outline: var(--focus-outline); box-shadow: var(--focus-ring); }

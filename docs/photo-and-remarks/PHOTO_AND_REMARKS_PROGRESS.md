@@ -2,7 +2,7 @@
 
 Opened: 2026-10-20 · Branch: `phase-8e-client-demo-polish` (clean at `4285448`) · Prompts: [PHOTO_AND_REMARKS_PROMPTS.md](PHOTO_AND_REMARKS_PROMPTS.md)
 
-Status: **P1, R1 and R2 implemented and automated gates green (2026-10-20); ready for focused review. Other tracks retain their individual statuses below.**
+Status: **P1, R1, R2, R3 and R4 implemented and automated gates green (2026-10-21); ready for focused review. Other tracks retain their individual statuses below.**
 
 Role names (CR-11): the UI's **Manager** = code role `admin`; the UI's **Admin** = code role `supervisor`.
 "Admin/Manager" below therefore means code roles `admin` + `supervisor`.
@@ -12,13 +12,13 @@ Role names (CR-11): the UI's **Manager** = code role `admin`; the UI's **Admin**
 | 0 | Investigation + findings (this file) | Done 2026-10-20 |
 | 0 | Owner decisions P-Q1..P-Q7, R-Q1..R-Q9 | **Answered 2026-10-20** (all confirmed) |
 | P1 | Camera-first photo controls; gallery only after the camera fails; "Uploaded from gallery" badge (web only) | **Done 2026-10-20; automated gates pass; focused review / physical-phone acceptance next** |
-| P2 | Gallery label on Admin/Manager internal screens (NOT the customer PDF) | After P1 |
+| P2 | Gallery label on Admin/Manager internal screens (NOT the customer PDF) | **Done 2026-10-20; automated gates pass (migration 058 added, owner-approved); focused review next** |
 | P3 | Gallery reason stored on the server | **Dropped** (P-Q1 = c, no reason) |
-| P4 | New KPI page: camera / gallery / gallery % per technician + all technicians, charts | After P2 |
+| P4 | New KPI page: camera / gallery / gallery % per technician + all technicians, charts | **Done 2026-10-21; automated gates pass; focused review / phone check next** |
 | R1 | One remark per row: picker redesign (web only) | **Review P2 fixed 2026-10-20; 41 unit + 14 browser checks pass; focused re-review / physical-phone acceptance next** |
 | R2 | "Add to common remarks" becomes a request + approval: API + migration (Level 2) | **Done 2026-10-20; Level 2 gates pass; ready for focused review, then R3** |
-| R3 | Admin/Manager "Remark requests" review page | After R2 |
-| R4 | Roll out to Hose Reel, Hydrant, Fire Alarm, FM200, CO2 | After R1-R3 + Sprinkler phone test |
+| R3 | Technician request flow (offline outbox) + Admin/Manager "Remark requests" page, Automatic Sprinkler | **Done 2026-10-20; automated gates pass; ready for focused review; physical-phone acceptance pending (see R3 verification)** |
+| R4 | Roll out to Hose Reel, Hydrant, Fire Alarm, FM200, CO2 | **Done 2026-10-21; automated gates pass; ready for focused review; physical-phone acceptance pending (see R4 verification)** |
 | T | Phone test (camera, camera failure -> gallery, offline, approval) | After each track |
 
 ---
@@ -220,6 +220,12 @@ So in your screenshot: you chose Others and typed "12"; the "12" in the bottom l
 
 ## 5. Log
 
+- 2026-10-21 R4: the one-remark picker and the remark REQUEST flow now cover Hose Reel, Hydrant, Fire Alarm, FM200 and CO2 (rows/checklists only; their Comments boxes and the five plain-text services are unchanged). `POST /service-common-remarks` is admin + supervisor only. No migration, no Dexie change, PDFs untouched. Details, files, gates and the Comments-button decision: [R4 verification](#10-r4-verification-2026-10-21).
+
+- 2026-10-21 P4: Admin/Manager "Photo KPI" page + read-only `GET /manager/photo-kpi` (no migration, no Dexie change, PDFs untouched). Details: [P4 verification](#9-p4-verification-2026-10-21).
+
+- 2026-10-20 R3: Automatic Sprinkler "Add to common remarks" now creates a remark REQUEST (device-first, offline outbox, exact-UUID confirmation); Admin/Manager "Remark requests" page (Pending / Decided / Remarks in use) with Approve, Edit wording and approve, Reject with note, Deactivate; technician read-back at the foot of the Sprinkler form. Web only; no migration, no Dexie schema change. Details, files, gates and limitations: [R3 verification](#8-r3-verification-2026-10-20).
+
 - 2026-10-20 R1 review remediation: fixed reopened Others losing its textarea/focus after clearing or matching a catalog choice. Both new offline regressions reproduced the failure before the fix; 41 unit/regression and 14 browser checks, web typecheck/build and diff whitespace pass. Ready for focused re-review; physical acceptance pending.
 
 - 2026-10-20: investigation, findings and plan written. Prompts drafted in [PHOTO_AND_REMARKS_PROMPTS.md](PHOTO_AND_REMARKS_PROMPTS.md); every prompt is gated on the decisions above.
@@ -228,6 +234,8 @@ So in your screenshot: you chose Others and typed "12"; the "12" in the bottom l
 - 2026-10-20 R2 verification: cold-start runner PASS; **133 tests passed, 0 failed, 0 skipped**, API typecheck/build PASS, diff whitespace PASS. Level 2 proofs green. Disposable container removed; no runtime DB/deployment/Git mutation. P0/P1/P2 in R2: **0/0/0**. Ready for R2 review; R3 API contract below.
 
 - 2026-10-20: P1 implemented: all 13 photo controls share camera-first actions; gallery follows a camera start failure and confirmation; gallery badges cover Draft/read-only forms. 43 unit/regression + 96 browser checks pass across final suite runs; web typecheck/build and diff whitespace pass. Source values/stamp/PDF paths unchanged. Physical-phone acceptance pending; see P1 verification below.
+
+- 2026-10-20 P2: V7 evidence never stored the photo's `capturedAt`; owner approved forward migration 058 (`staged_inspection_evidence.captured_at`, nullable). Internal screens (11 V7 accepted details, Final Report web page, repair visit review) show "GALLERY · uploaded <time>" for gallery photos only. Customer PDFs untouched. See "P2 verification" below.
 
 ## 6. R2 API contract for R3
 
@@ -602,3 +610,186 @@ P0 remaining: **0**. P1 remaining: **0**. P2 remaining in this remediation: **0*
 The working tree also contains unrelated/concurrent changes; this is not approval for those changes.
 No new phone/offline/PWA force-close or deployment acceptance is claimed by this script-only remediation.
 Git remains the owner's responsibility; nothing was staged or committed.
+
+## P2 verification (2026-10-20)
+
+**P2 automated checkpoint: PASS; ready for focused review.** P0/P1 remaining: **0/0**. P2 findings introduced: **0**
+(limitations below are scope notes, not defects).
+
+Owner decision during P2: V7 staged evidence did not store `capturedAt` (only `created_at`), so option 1 was chosen:
+a forward migration. Migration **058** adds nullable `staged_inspection_evidence.captured_at` (additive, `IF NOT EXISTS`, no backfill);
+`v7StagedEvidence.ts` now stores the already-validated client `capturedAt`. Pre-058 rows stay NULL; the label then reads only "GALLERY"
+(no invented time). Pre-047 rows (NULL source) show no label and are never treated as camera.
+
+### Behaviour
+
+| Screen | Change |
+|---|---|
+| Admin/Manager accepted detail, 11 V7 systems (Sprinkler, Hose Reel, Hydrant, CO2, Wet Chemical, FM200, Dry/Wet Riser, Smoke Ventilation, Fire Intercom, Roller Shutter, Fire Alarm) | Gallery photo shows **GALLERY · uploaded <Malaysia time>** under the photo/link (`GalleryPhotoLabel`, `formatMalaysiaDateTime`). Camera/unknown/NULL: nothing. |
+| Final Report web page | "Uploaded from Gallery" replaced by the label; "Captured by Camera" and "Source unavailable" unchanged. |
+| Repair visit review (Admin/Manager) | After photo shows the label. |
+| Customer Final Report PDF, repair visit PDF | **Unchanged.** |
+
+API (all strict, fail closed): `GET /v7-evidence/accepted` and `GET /v6-evidence/accepted` add `captureSource` (null | camera | gallery | unknown) and `capturedAt`
+(null | canonical UTC ms). Final Report JSON preview adds `capturedAt` to each evidence item (the PDF model does not). `GET /repair-visits/:id`
+adds `photoSources[]` **only for admin/supervisor**; the technician read is byte-for-byte the old shape. Web parsers: exact keys updated, new
+`assertAcceptedPhotoSource`, manager repair loader requires `photoSources` and cross-checks every item photo.
+
+### Files changed (P2)
+
+- `apps/api/migrations/058_staged_evidence_captured_at.sql` (new), `apps/api/src/db/migrations.ts` (run 058, idempotent).
+- `apps/api/src/inspections/evidence/v7StagedEvidence.ts`: store `captured_at`.
+- `apps/api/src/routes/stagedEvidence.ts`: V6/V7 accepted lists return source + time.
+- `apps/api/src/routes/inspectionJobs.ts`: Final Report JSON preview adds `capturedAt` (PDF handler untouched).
+- `apps/api/src/repairVisits/repairVisitWrites.ts` (+ `repairVisitWriteApi.md`): reviewer-only `photoSources` in `readRepairVisit`.
+- `apps/web/src/attachments/photoSourceLabel.tsx` (new): label + strict parser. `apps/web/src/*/…AcceptedEvidence.ts` ×9, `fireAlarm/serverFireAlarmApi.ts`: parse source/time.
+- `apps/web/src/*/Server*View.tsx` ×10, `fireAlarm/FireAlarmAcceptedDetail.tsx`, `jobs/FinalReportPresentation.tsx`, `jobs/finalReportApi.ts`, `manager/repairVisitsApi.ts`, `manager/repairVisits/RepairVisitReview.tsx`, `styles/app.css`.
+- Tests: `photoSourceLabel.test.tsx` (new, 17 incl. a loader table for all 11 systems), `finalReportCaptureSource.test.ts`, `optionalGoodPhoto.integration.test.ts`,
+  `repairVisitWrites.integration.test.ts`, `finalServiceReport.sprinkler.integration.test.ts` (PDF text), plus 6 offline V7 specs/harnesses, fire-alarm accepted detail, repair-visit-review,
+  roller-shutter, manager-supervisor, final-ui-acceptance, finalReportCaption.
+
+### Existing assertions changed (owner-requested behaviour only)
+
+- `final-ui-acceptance.test.tsx` and `manager-supervisor.spec.ts`: `Uploaded from Gallery` → the new label.
+- Mocks of `/final-report`, `/v7-evidence/accepted`, `/v6-evidence/accepted` and the manager repair detail gained the new required fields (strict parsers).
+- No validator or other assertion was weakened.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| API typecheck / web typecheck / web build | PASS / PASS / PASS |
+| Web unit: photoSourceLabel, finalReportCaption, photoCaptureActions, repairVisits, stale manifest, WC parser | PASS (48) |
+| API unit: V7 contracts, final-report capture source (incl. malformed time → 409) | PASS (37) |
+| Disposable-DB integration: optional-photo (all 6 systems; gallery+NULL legacy), repair writes (reviewer-only `photoSources`), sprinkler final report (**gallery photo → PDF text has no "gallery"**), CO2 V7, Fire Alarm V7, evidence race, supervisor role, manager corrections | **PASS**: 14 / 13 / 1 / 4 / 4 / 1 / 1 / 1 tests, 0 failed, 0 skipped (one disposable container, removed) |
+| Browser: 6 offline V7 harnesses, fire-alarm accepted detail, repair review ×3 widths, roller shutter, manager final report ×3 | PASS |
+| `git diff --check` | PASS (line-ending notices only) |
+
+### Limitations
+
+- The repair review labels only the **After** photo. The **Before** photo comes from the previous visit's catalog and its source is not exposed there.
+- Accepted-detail and Final Report views are shared with the technician (they already printed the old gallery wording); the label is not role-gated on the web. The repair `photoSources` is gated by role in the API.
+- Pre-058 V7 gallery photos show "GALLERY" without a time. No backfill.
+- `manager-supervisor.spec.ts` "awaiting repair visits" fails in this tree because of the concurrent R3 Remark-requests card in `ManagerApprovals.tsx` (unmocked request); not caused by P2.
+- `final-ui-acceptance.test.tsx` cannot load under tsx here (`ManagerApprovals.css` import from concurrent work); its P2 assertion is mirrored in `photoSourceLabel.test.tsx`.
+- No physical-phone, installed-PWA, offline or deployment test performed. Nothing staged or committed.
+
+## 8. R3 verification (2026-10-20)
+
+**R3 automated checkpoint: PASS for its scope; ready for focused review. Physical-phone, installed-PWA force-close and live-deployment acceptance NOT performed.** Web only: no migration, no Dexie schema/version/index change (the outbox `entityType` union gained a type-only `"remarkRequest"`), no API change, no PDF change.
+
+Behaviour (Automatic Sprinkler checklist + measurement rows only; Comments keeps today's behaviour and its CR-07 "Add new remark"):
+
+- Technician: "Add to common remarks" under Others creates a request. One Dexie transaction writes the local entry (`referenceData` `remark-requests:local`) and the `remarkRequest` outbox item (`crypto.randomUUID()`); works offline; Completed only when the server echoes the exact UUID and the same content. Message "Sent for approval. It is used in this visit now."; the row text is untouched; button disabled for empty text; a server refusal (duplicate) shows the server's own message in the row.
+- Dropdown: system-wide list + approved remarks for that row's section (every customer, group "Approved remarks") + CR-07 remarks of this customer and section (group "Added for this customer") + Others. A pending request is never offered. A malformed/failed refresh throws and keeps the last good cache.
+- Read-back for the technician (copy of the location-proposal list pattern): **"Your remark requests" at the foot of the Automatic Sprinkler form** (`RemarkRequestStatus.tsx`): waiting / sending / not accepted (reason, with confirm-remove) / waiting for approval / approved (with approved wording + note) / rejected (note, "Your visit keeps the text you typed").
+- Admin/Manager page **Remark requests** (`#/manager-remark-requests`, in `supervisorRoutes`, card on Approvals hub): tabs Pending / Decided / Remarks in use. Detail shows service, section, wording, technician, customer, visit, date; Approve, Edit wording and approve, Reject (note required); decisions are re-read after any unconfirmed result (terminal on the server). "Remarks in use" lists approved remarks per service + section and the older per-customer CR-07 remarks, each with Deactivate (confirm).
+
+Files (new): `inspectionControls/remarkRequests.ts` (store, parsers, outbox), `remarkSectionLabels.ts`, `RemarkRequestStatus.tsx`; `manager/remarkRequestsApi.ts`, `ManagerRemarkRequests.tsx`, `managerRemarkRequests.css`; tests `remarkRequests.test.ts`, `remark-requests-store.{html,spec.ts}`, `remark-requests-flow.{html,spec.ts}`, `remark-requests-r3.config.ts` (port 4189), API `routes/remarkRequestsWebContract.integration.test.ts`.
+Files (edited): `db/localDatabase.ts` (type union only), `sync/syncEngine.ts` (`syncPendingRemarkRequests`, generic-loop exclusion), `RemarksField.tsx`, `AutomaticSprinklerInspectionForm.tsx` (read-back), `App.tsx` (route), `manager/roleAccess.ts`, `manager/ManagerApprovals.tsx` (5th card + own silent count), `styles/app.css` (read-back styles appended).
+
+Existing assertions changed (owner-requested behaviour change), with reason:
+- `section-remarks-form.spec.ts`: three CR-07 tests that added a remark through a checklist row's "Add to common remarks" now add through the Comments box (that button is now a request); intent unchanged.
+- `manager-approvals-settings.spec.ts`: hub card titles list and card count 4 -> 5 (new card).
+- `remarkSectionsParity.test.ts`: the entityType-union regex now includes `"remarkRequest"`; new companion test added.
+
+Gates:
+
+| Gate | Result |
+|---|---|
+| Unit (`remarkRequests.test.ts`) | PASS 9 |
+| All web unit tests (91 files) | 647 pass; 2 fail, both pre-existing and unrelated: `final-ui-acceptance.test.tsx` (node cannot import `ManagerApprovals.css`, import exists at HEAD), `generalLayoutManager.test.ts` (`loadLocationProposals`, untouched file) |
+| Browser store/sync on real IndexedDB (`remark-requests-store`) | PASS (60+ checks: offline create, atomic rollback, exact UUID, retry/timeout, refusal message, fail-closed refresh, restart) |
+| Browser flow (`remark-requests-flow`, 11 tests) | PASS: offline Others -> request -> reconnect; Manager + Admin approve with edited wording; other customer offered it in S.A.J row only; reject note + visit text unchanged; duplicate message; 375 px; hub; technician cannot open the page |
+| Regression run of 82 related spec files (464 tests) | 438 pass at 4 workers; the 10 failures re-run at 1 worker: all pass except `technician-add-location-offer` x2 (unrelated Add-location screen) and `photo-capture-actions` (its own harness needs port 4175; passed in P1) |
+| Real API contract (`remarkRequestsWebContract.integration`, disposable Postgres, plus CR-07 contract) | PASS, 0 skipped: web parsers + manager client accept real R2 replies |
+| Web typecheck / build / API typecheck | PASS |
+| `git diff --check` | no whitespace errors (line-ending notices only) |
+
+P0/P1/P2 introduced by R3: 0/0/0. Limitations / deferred:
+- Section label shown to reviewers is the template default; the server stores only the section key, so a per-customer label override is not reflected (P2, display only).
+- The Approvals-hub badge for Remark requests is not added to the Home pending total (Home keeps its four sources).
+- Newly approved remarks reach a phone on its next refresh (form open, throttled once per minute, or reload).
+- Only Automatic Sprinkler (R4 owns the rest). Browser tests use an in-memory server that follows the R2 contract; the real-API contract test covers drift.
+- No physical phone, PWA force-close or deployment test was done. STOPPED before staging; no commit.
+
+Reproduce (PowerShell): `cd apps\web; ..\api\node_modules\.bin\tsx.cmd --test tests/remarkRequests.test.ts tests/remarkSectionsParity.test.ts tests/sectionRemarks.test.ts; npx playwright test --config tests/remark-requests-r3.config.ts remark-requests section-remarks manager-approvals-settings --workers=1; npm run typecheck; npm run build`. The API contract test needs the disposable-Postgres pattern of `verifyR2RemarkRequests.ps1`.
+
+## 9. P4 verification (2026-10-21)
+
+**P4 automated checkpoint: PASS; ready for focused review. Physical phone / installed PWA not tested.** Read-only; no migration, no Dexie change, no PDF change.
+
+API `GET /manager/photo-kpi?period=YYYY-MM|all` (code roles admin + supervisor; technician 403, anonymous 401; strict period, any other query key = 400 `INVALID_PERIOD`). Returns per technician camera / gallery / unknown / gallery % (gallery / (camera + gallery), null when both are 0) plus a 6-month trend, and the all-technicians total (+ trend).
+
+Sources and which rows count:
+
+| Source | Counted rows | Time used |
+|---|---|---|
+| `staged_inspection_evidence` (V6/V7) | `status = 'accepted'` (staged = not in any record yet) | `accepted_at` |
+| `inspection_attachments` | every row (a row is created only for a submitted form instance, so all are accepted) | `received_at` |
+| `repair_visit_photos` | `status = 'accepted'` (the current After photo; `superseded` was replaced by a retake and would double-count; `staged` is not submitted) | `accepted_at` |
+
+Server times are used, never `captured_at` (the phone's clock). Months are Malaysia calendar months (UTC+8, fixed offset). NULL or `unknown` source = unknown, never camera. Hidden/inactive accounts are listed only when they have photos in the period; active technicians with none are listed with 0 and no percentage. The period total is the sum of the listed rows; the total trend covers every uploader.
+
+Web: `#/manager-photo-kpi` (Home card, sidebar, `supervisorRoutes`). Month picker (default this Malaysia month) + All time; All technicians (tiles, hatched-gallery bar per technician sorted by gallery %, text table); One technician (search + select, tiles, donut, 6-month stacked chart + table). Inline SVG, no package; gallery is hatched and every chart has an aria-label and a table, so colour is never the only signal. Parser fails closed (period echo, 6 consecutive months, recomputed percentages, total = sum of rows).
+
+Files (new): `apps/api/src/routes/managerPhotoKpi.ts` (+ `.integration.test.ts`), `apps/web/src/manager/photoKpiApi.ts`, `ManagerPhotoKpi.tsx`, `managerPhotoKpi.css`, `apps/web/tests/manager-photo-kpi.spec.ts`. Edited: `apps/api/src/server.ts`, `apps/web/src/App.tsx`, `manager/ManagerHome.tsx`, `manager/roleAccess.ts`.
+
+Existing assertions changed (new Home/sidebar link "Photo KPI", owner-requested): `manager-supervisor.spec.ts` (supervisor card list, 7 tests), `manager-approvals-settings.spec.ts` (sidebar order, supervisor mobile last item), `manager-navigation-request-count.html` (sidebar label order).
+
+| Gate | Result |
+|---|---|
+| API integration on disposable Postgres (each source, NULL, Malaysia midnight edges both ends, hidden/inactive rules, All time, clock at MY midnight, 10 bad periods, 200/403/401) + route-order test | PASS 4 / 0 failed / 0 skipped (container removed) |
+| Web spec `manager-photo-kpi` at 375 and 1280 (select technician, switch month, All time, retry, malformed, 403, supervisor, technician) | PASS 8 |
+| Regression: manager-supervisor, approvals-settings, navigation-request-count, dashboard-navigation, home-compliance, tap-targets, common-remarks-mobile, auth-transitions | PASS (after the assertion updates above) |
+| API typecheck / web typecheck / web build / `git diff --check` | PASS / PASS / PASS / no whitespace errors (line-ending notices only) |
+
+P0/P1/P2: 0/0/0. Decisions/limitations: (1) review follow-up 2026-10-21: only technician (inspector) accounts are counted, and an Admin (supervisor) sees only technicians actively assigned to them (as the Technician List); a Manager sees all; (2) sample/demo jobs are not excluded (not in the brief); (3) Safari/Firefox desktop render the month field as plain text (`pattern` + validation kept); (4) no physical-phone test.
+
+## 10. R4 verification (2026-10-21)
+
+**R4 automated checkpoint: PASS for its scope; ready for focused review. Physical-phone, installed-PWA force-close and live-deployment acceptance NOT performed.** No migration, no Dexie schema/version/index change, no change to the customer Final Report PDF or the repair visit PDF.
+
+Behaviour:
+
+- Hose Reel, Hydrant, Fire Alarm, FM200 and CO2 rows use the same single-row picker as Automatic Sprinkler: one dropdown shows the chosen remark, a later choice replaces it, "No remark" clears it, "Others (type your own)" types straight into the row (offline), and **Add to common remarks** creates a remark REQUEST (device first, offline outbox, exact-UUID confirmation) that leaves the visit text alone. Once approved the wording is offered in that one section at every customer. The technician's "Your remark requests" read-back is at the foot of each of the five forms.
+- Section keys (both copies of `remarkSections.ts`, byte-identical; repeated rows share one key per template slot): Hose Reel `checklist.waterTank.* / checklist.pumpHouse.* / checklist.testRunFirePump.* / measurements.{jockey_pump_pressure,standby_pump_cut_in} / rows.{drum,hose,nozzle,valve,nozzle_box} / rows.remarks`; Hydrant `rows.<7 result columns> / rows.remarks`; Fire Alarm `chargerAndBatteries.* / mainFunctionKeys.* / primaryRows.remarks / secondaryRows.{alarm_bell,manual_call_point} / secondaryRows.remarks`; FM200 and CO2 `chargerAndBatteries.* / physicalOutlook.* / mainFunctionKeys.* / detectorRows.remarks`. A parity test checks every list against the real resolved templates (union over every template version that has the system). **There is no `comments` key for these systems.**
+- The Comments boxes of these five systems keep today's picker (stacked list, Others, Remove). Wet Chemical (shares the CO2 form, no `systemKey`), Dry/Wet Riser, Smoke Ventilation, Fire Intercom and Roller Shutter stay plain text.
+- API: `POST /service-common-remarks` is `requireRole("admin","supervisor")` (was admin + inspector). A technician now gets 403 (also on a replay). `GET` (admin + inspector), `PUT` and `DELETE` (admin) are unchanged; the Manager "Service common remarks" page still adds, edits and removes. Remarks technicians already added to the system-wide list stay.
+- Reviewer screens: the Remark requests page and the technician read-back show per-service section names (`sectionDisplayLabel(sectionKey, systemKey)`; the Sprinkler default is unchanged).
+
+**Decision (owner CONFIRMED 2026-10-21: keep the button removed):** a Comments box has no section, so it has no request flow, and a technician can no longer push text into the system-wide list. I therefore **removed the old "Add to common remarks" button from every box that has no section** (the five systems' Comments boxes). Leaving it would let a technician tap it, see "added", and then have the sync fail with 403 forever. If the owner wants Comments to keep an "Add to common remarks" for some role, that needs a decision (a Comments section key, or a role-aware button). `commonRemark` outbox items already queued on a technician's phone will now fail at sync with 403.
+
+Files changed (R4; other working-tree changes belong to other tracks):
+
+- `apps/web/src/inspectionControls/remarkSections.ts` + `apps/api/src/inspections/remarkSections.ts`: the five systems' section keys (identical copies).
+- `apps/web/src/inspectionControls/RemarksField.tsx`: single-row picker for any allowlisted section (not only Sprinkler); removed the system-wide "Add to common remarks" from sectionless boxes.
+- `apps/web/src/inspectionControls/remarkSectionLabels.ts`, `RemarkRequestStatus.tsx`, `apps/web/src/manager/ManagerRemarkRequests.tsx`: per-service section and service names.
+- `apps/web/src/{hoseReel/HoseReelInspectionForm,hydrant/HydrantInspectionForm,fireAlarm/FireAlarmInspectionForm,fm200/Fm200InspectionForm,co2/Co2InspectionForm}.tsx`: customer / section / visit props on every row-level remark; read-back at the foot.
+- `apps/api/src/routes/serviceCommonRemarks.ts`: POST roles.
+- Tests (new): `remark-requests-r4.html` (harness: the real form on real IndexedDB, native fetch), `remark-requests-r4-support.ts` (in-memory R2-contract server and shared scenarios), `remark-requests-r4-{hose-reel,hydrant,fire-alarm,fm200,co2}.spec.ts`, `remark-requests-r4.config.ts` (port 4190); `remarkSectionsParity.test.ts` (R4 tests); API `remarkRequests.integration.test.ts` (R4 sub-test).
+
+Existing assertions changed (owner-requested behaviour), with reason:
+
+- `remarkSectionsParity.test.ts`: the pilot assertion "Sprinkler only" and the "no other system opts in" test became the six-system list and the R4 form-site tests.
+- `remarkRequests.test.ts`, `sectionRemarks.test.ts`: `hose_reel` was used as "an unsupported system"; it is supported now, so those cases use `smoke_ventilation` (a plain-text service), and the hose_reel case asserts the new behaviour.
+- `remarkRequests.integration.test.ts`, `sectionRemarks.integration.test.ts`: the same swap of the "unknown system" case (`hose_reel` to `smoke_ventilation`).
+- `serviceCommonRemarks.test.ts`: POST cases use admin/supervisor; new cases assert that inspector gets 403 (create, replay, bad body) and nothing reaches the database.
+- `remarks-r1.spec.ts`: the Hose Reel row is single-remark now (it was an append list with Remove).
+- `common-remarks.spec.ts`: a sectionless field no longer has "Add to common remarks".
+
+Gates:
+
+| Gate | Result |
+|---|---|
+| Web unit (all, 651) | 649 pass; 2 fail, both listed as pre-existing in R3: `final-ui-acceptance.test.tsx` (node cannot import `ManagerApprovals.css`), `generalLayoutManager` (`loadLocationProposals`) |
+| `remarkSectionsParity` (11, incl. 3 new R4 tests), `remarkRequests`, `sectionRemarks` | PASS |
+| R4 browser, one spec per service (4 scenarios x 5: choose / replace / clear; Others offline + request + reconnect sync with the exact UUID; approved wording offered in that section only at another customer; Comments unchanged and no system-wide add) | PASS 20 |
+| Regression browser (common-remarks, remarks-r1, section-remarks-form, remark-requests-flow) | PASS 24 |
+| Broader browser regression (co2 / fm200 / fire-alarm / hose-reel / hydrant offline harnesses, corrected-copy, draft-autosave, label-override, optional photo, manager-common-remarks-mobile, technician-home-ownership, row-layout-*) | 97 pass, 8 fail: the **online** "layout sent to an Admin" cases of row-layout-hose-reel / hydrant / riser. Dry/Wet Riser is not in this diff and fails identically, so I believe they are unrelated; **not re-run against a clean tree** |
+| API (cold-start disposable-Postgres runner `verifyR2RemarkRequests.ps1`): typecheck, build, unit 48, remarkRequests integration 23 (incl. the new R4 sub-test), CR-07 integration 12 + web contract 1, site proposals 17, historical matrix 20, V6 11, Wet Chemical 2 | PASS, 0 failed / 0 skipped. The runner's last step `git diff --check` only prints the usual LF/CRLF notices, which PowerShell 5.1 reports as an error |
+| Web typecheck / production build / `git diff --check` | PASS / PASS (existing size warning) / no whitespace errors |
+
+P0/P1/P2 introduced by R4: 0/0/0. Limitations: the browser tests use an in-memory server that follows the R2 contract (the real API is covered by the integration sub-test); the per-field remarks of Hose Reel / Hydrant / Fire Alarm (shown only for a finding) share the row picker code and are covered by the allowlist and form-site tests, not a browser scenario of their own; the section label shown to reviewers is the template default; the Comments-button decision above needs the owner's OK; no physical phone, installed PWA or deployment test.
+
+Reproduce (PowerShell): `cd apps\web; ..\api\node_modules\.bin\tsx.cmd --test tests/remarkSectionsParity.test.ts tests/remarkRequests.test.ts tests/sectionRemarks.test.ts; npx playwright test --config tests/remark-requests-r4.config.ts remark-requests-r4 common-remarks remarks-r1 section-remarks-form remark-requests-flow --workers=1; npm run typecheck; npm run build`, then from the repo root `& .\apps\api\src\routes\verifyR2RemarkRequests.ps1`.

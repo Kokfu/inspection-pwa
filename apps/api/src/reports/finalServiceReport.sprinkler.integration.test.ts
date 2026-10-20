@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { runMigrations } from "../db/migrations.js";
 import { resolveAutomaticSprinklerControls } from "../inspections/templates/automaticSprinklerDefinitionControls.js";
 import { automaticSprinklerPsiEvidencePolicyV1 } from "../inspections/evidence/automaticSprinklerPsiEvidencePolicyV1.js";
+import { extractPdfText } from "./pdf/extractPdfText.testSupport.js";
 import { FinalReportError, loadFinalServiceReport, renderFinalServiceReportPdf } from "./finalServiceReport.js";
 
 const databaseUrl = process.env.SEED_INTEGRATION_DATABASE_URL;
@@ -52,7 +53,7 @@ test("PostgreSQL final report validates frozen Automatic Sprinkler evidence and 
     assert.ok(site, "seed customer needs an active Phase-6B site");
 
     let sequence = 0;
-    const createCompleted = async (options: { evidence: "valid" | "missing" | "corrupt" | "wrong_form"; malformed?: boolean }) => {
+    const createCompleted = async (options: { evidence: "valid" | "missing" | "corrupt" | "wrong_form"; malformed?: boolean; source?: "camera" | "gallery" }) => {
       sequence += 1;
       const jobId = randomUUID(), groupId = randomUUID(), formId = randomUUID(), clientUuid = randomUUID();
       const snapshot = structuredClone(seed.configuration_snapshot) as Record<string, any>;
@@ -84,7 +85,7 @@ test("PostgreSQL final report validates frozen Automatic Sprinkler evidence and 
         await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, options.evidence === "corrupt" ? Buffer.from("corrupt") : content);
         const digest = createHash("sha256").update(content).digest("hex");
         await pool.query(`INSERT INTO inspection_attachments(id,client_uuid,form_instance_id,evidence_policy_id,field_path,capture_source,storage_relative_path,source_sha256,stored_sha256,request_fingerprint,mime_type,source_size_bytes,source_width,source_height,stored_size_bytes,width,height,captured_at,uploaded_by_user_id)
-          VALUES($1,$2,$3,$4,'measurements.jockey_pump_pressure.cut_in','camera',$5,$6,$6,$6,'image/jpeg',$7,8,8,$7,8,8,now(),$8)`, [randomUUID(), randomUUID(), evidenceFormId, policyId, relative, digest, content.length, userId]);
+          VALUES($1,$2,$3,$4,'measurements.jockey_pump_pressure.cut_in',$9,$5,$6,$6,$6,'image/jpeg',$7,8,8,$7,8,8,now(),$8)`, [randomUUID(), randomUUID(), evidenceFormId, policyId, relative, digest, content.length, userId, options.source ?? "camera"]);
       }
       await pool.query("UPDATE inspection_jobs SET status='closed',completed_at=now(),completed_by_user_id=$2,completed_by_display_name='sprinkler-report-tech',report_number='TEST/' || id::text,technician_team_snapshot='[]'::jsonb WHERE id=$1", [jobId, userId]);
       return jobId;
@@ -93,6 +94,15 @@ test("PostgreSQL final report validates frozen Automatic Sprinkler evidence and 
     const valid = await createCompleted({ evidence: "valid" });
     const report = await loadFinalServiceReport(valid, pool);
     assert.equal(report.sections[0]?.evidence.length, 1); assert.equal((await renderFinalServiceReportPdf(report)).subarray(0, 5).toString(), "%PDF-");
+    // P2: the photo source is internal. A gallery photo must not change the customer PDF or the report model
+    // that feeds it: no source, time or "gallery" wording reaches either.
+    const galleryJob = await createCompleted({ evidence: "valid", source: "gallery" });
+    const galleryReport = await loadFinalServiceReport(galleryJob, pool);
+    assert.equal(galleryReport.sections[0]?.evidence.length, 1);
+    assert.doesNotMatch(JSON.stringify(galleryReport.sections[0]!.evidence, (key, value) => key === "content" ? undefined : value), /gallery|captureSource|capturedAt/i, "the PDF evidence model carries no photo source");
+    const galleryText = (await extractPdfText(await renderFinalServiceReportPdf(galleryReport))).join(" ");
+    assert.ok(galleryText.length > 0, "the PDF text was extracted");
+    assert.doesNotMatch(galleryText, /gallery/i, "the customer PDF never says GALLERY");
     // The valid attachment above belongs to another completed job. A report may
     // only join evidence through its own submitted form instance, never by file,
     // policy, technician, or any cross-job lookup.

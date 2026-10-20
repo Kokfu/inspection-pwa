@@ -33,6 +33,21 @@ let browserOnline = true;
 Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => browserOnline });
 // ?online answers like a healthy server (a phone on Wi-Fi); without it every call except /api/auth/me fails (offline start).
 const online = params.has("online");
+// Hold the startup workspace request so a test can release its local-record
+// refresh after a technician has begun editing the already restored draft.
+let releaseWorkspaceRefresh;
+const workspaceRefreshGate = params.has("holdWorkspaceRefresh")
+  ? new Promise(resolve => { releaseWorkspaceRefresh = resolve; }) : Promise.resolve();
+window.releaseWorkspaceRefresh = () => releaseWorkspaceRefresh?.();
+window.workspaceFormReads = 0;
+if (params.has("holdWorkspaceRefresh")) {
+  const readForms = localDatabase.masterSystemFormInstances.toArray.bind(localDatabase.masterSystemFormInstances);
+  localDatabase.masterSystemFormInstances.toArray = async () => {
+    const records = await readForms();
+    window.workspaceFormReads += 1;
+    return records;
+  };
+}
 let currentJob;
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 globalThis.fetch = async (input) => {
@@ -40,7 +55,7 @@ globalThis.fetch = async (input) => {
   if (url === "/api/auth/me") return json({ user });
   if (!online) throw new TypeError("Failed to fetch");
   if (url === "/api/health") return json({ status: "ok" });
-  if (url === "/api/inspection-jobs") return json({ jobs: currentJob ? [currentJob] : [] });
+  if (url === "/api/inspection-jobs") { await workspaceRefreshGate; return json({ jobs: currentJob ? [currentJob] : [] }); }
   if (url.startsWith("/api/master-system-inspections?")) return json({ inspections: [], hasMore: false, nextCursor: null });
   if (url === "/api/service-common-remarks") return json({ remarks: [] });
   if (url === "/api/customers") return json({ customers: [] });

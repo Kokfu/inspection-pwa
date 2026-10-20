@@ -42,7 +42,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Failed: $file" }
   }
   Set-Location C:\PWA_OfflineRecordWebApp
-  git diff --check
+  # PowerShell 5.1 turns git's LF/CRLF notices on stderr into a terminating error; only the exit code matters here.
+  $ErrorActionPreference = 'Continue'
+  git diff --check 2>$null
   if ($LASTEXITCODE -ne 0) { throw 'Diff whitespace check failed.' }
 } finally {
   $env:DATABASE_URL = $previousDatabase

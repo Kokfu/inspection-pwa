@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useEffect, useState } from "react";
 import type { ServerHoseReelDetail } from "./serverHoseReelApi";
 import { formatClientDateTime } from "../uiPresentation";
@@ -15,7 +16,7 @@ function V7Evidence({ path, label, remark, evidence }: { path: string; label: st
   const photo = evidence.find((item) => item.fieldPath === path);
   if (!photo) return <p><strong>Remark:</strong> {remark || "Not recorded"}</p>;
   const url = hoseReelV7AcceptedEvidenceContentUrl(photo.photoUuid);
-  return <><p><strong>Remark:</strong> {remark || "Not recorded"}</p><a href={url} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={url} alt={`${label} accepted evidence`} className="accepted-evidence-photo" /></>;
+  return <><p><strong>Remark:</strong> {remark || "Not recorded"}</p><a href={url} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={url} alt={`${label} accepted evidence`} className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></>;
 }
 
 export function ServerHoseReelView({ inspection, onBack }: { inspection: ServerHoseReelDetail; onBack: () => void }) {

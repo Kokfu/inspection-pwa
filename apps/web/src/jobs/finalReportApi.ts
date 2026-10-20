@@ -1,7 +1,7 @@
 export type FinalReportPreview = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: "GOOD CONDITIONS" | "REFER DETAIL PAGE" | "FAILED"; conditionDetail: string; locations: string[] }>;
-  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; caption?: string; available: true; captureSource: "camera" | "gallery" | "unknown" | null }>; review?: { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number } }>;
+  sections: Array<{ systemKey: string; label: string; location?: { locationId: string; locationLabel: string; zoneId: string | null; zoneLabel: string | null; instanceKey: string }; fields: Array<{ label: string; value: string; depth: number }>; evidence: Array<{ field: string; caption?: string; available: true; captureSource: "camera" | "gallery" | "unknown" | null; capturedAt: string | null }>; review?: { status: "pending" | "reviewed"; submittedBy: string | null; reviewedBy: string | null; reviewedAt: string | null; correctionCount?: number } }>;
 };
 
 export type FinalReportErrorKind = "authorization" | "domain" | "unavailable";
@@ -43,7 +43,8 @@ export async function loadFinalReport(jobId: string, endpointBase = "/api/inspec
     if (!data.report || !Array.isArray(data.report.sections) || data.report.sections.some((section) =>
       !Array.isArray(section.evidence) || section.evidence.some((item) =>
         typeof item.field !== "string" || item.available !== true || (item.caption !== undefined && typeof item.caption !== "string")
-        || item.captureSource !== null && item.captureSource !== "camera" && item.captureSource !== "gallery" && item.captureSource !== "unknown"))) throw new Error();
+        || item.captureSource !== null && item.captureSource !== "camera" && item.captureSource !== "gallery" && item.captureSource !== "unknown"
+        || item.capturedAt !== null && (typeof item.capturedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(item.capturedAt) || Number.isNaN(Date.parse(item.capturedAt))) || item.capturedAt === undefined))) throw new Error();
     return data.report;
   } catch { throw new FinalReportApiError("Final report is currently unavailable.", "unavailable"); }
 }

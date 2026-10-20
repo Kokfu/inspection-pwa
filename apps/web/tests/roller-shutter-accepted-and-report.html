@@ -32,9 +32,9 @@ const report = {
       field("Date Tested", "2026-10-10", 0), field("Zone", "Zone 1, Zone 2, Zone 3", 0), field("Inspected By", "Inspector A", 0),
       field("No. 1 (Zone 1 — Lobby) - Auto Alarm Mode", "Good"), field("No. 1 (Zone 1 — Lobby) - Manual Mode", "Good"),
       field("No. 2 (Zone 1 — Roof) - Auto Alarm Mode", "Good"), field("No. 2 (Zone 1 — Roof) - Manual Mode", "Not Good"), field("No. 2 (Zone 1 — Roof) - Manual Mode Remark", "Sticks half way", 2)
-    ], evidence: [{ field: `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${uuid(3)}.manual_mode`, caption: "Roller Shutter Schedule - Manual Mode (Zone 1 — Roof)", available: true, captureSource: "camera" }] },
+    ], evidence: [{ field: `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${uuid(3)}.manual_mode`, caption: "Roller Shutter Schedule - Manual Mode (Zone 1 — Roof)", available: true, captureSource: "camera", capturedAt: null }] },
     { systemKey: "fm200_fire_suppression", label: "FM200", fields: [field("Control Panel Location", "Plant room", 0)],
-      evidence: [{ field: "charger_batteries.charger_battery_checks.mainSupply", available: true, captureSource: "gallery" }] }
+      evidence: [{ field: "charger_batteries.charger_battery_checks.mainSupply", available: true, captureSource: "gallery", capturedAt: "2026-10-20T01:02:03.000Z" }] }
   ]
 };
 createRoot(document.querySelector("#report")).render(React.createElement(FinalReportPresentation, { report }));

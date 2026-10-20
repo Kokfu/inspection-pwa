@@ -291,7 +291,11 @@ export async function readRepairVisit(database: Database, actor: CurrentUser, vi
     const items = (await db.query(`SELECT i.*,p.photo_uuid FROM repair_visit_items i LEFT JOIN repair_visit_photos p
       ON p.visit_uuid=i.visit_uuid AND p.bound_item_uuid=i.client_uuid AND p.status='accepted' WHERE i.visit_uuid=$1 ORDER BY i.sort_order,i.client_uuid`, [visit])).rows;
     const events = (await db.query("SELECT * FROM repair_visit_events WHERE visit_uuid=$1 ORDER BY occurred_at,client_uuid", [visit])).rows;
-    return { visit: wireVisit(v), items: items.map(i => parseRepairVisitItem({ clientUuid: i.client_uuid, visitUuid: i.visit_uuid,
+    // P2: the photo source is internal. Only the Admin/Manager review read carries it; the technician read is unchanged.
+    const reviewer = actor.role === "admin" || actor.role === "supervisor";
+    const photoSources = reviewer ? (await db.query(`SELECT photo_uuid AS "photoUuid",capture_source AS "captureSource",to_char(captured_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "capturedAt"
+      FROM repair_visit_photos WHERE visit_uuid=$1 AND status='accepted' ORDER BY photo_uuid`, [visit])).rows : undefined;
+    return { visit: wireVisit(v), ...(photoSources ? { photoSources } : {}), items: items.map(i => parseRepairVisitItem({ clientUuid: i.client_uuid, visitUuid: i.visit_uuid,
       identity: { systemKey: i.system_key, rowUuid: i.row_uuid, locationId: i.location_id, zoneId: i.zone_id, sectionKey: i.section_key, fieldKey: i.field_key },
       systemLabel: i.system_label, unitLabel: i.unit_label, sectionLabel: i.section_label, fieldLabel: i.field_label, before: i.before_snapshot,
       outcome: i.outcome, remark: i.remark, photoUuid: i.photo_uuid, sortOrder: i.sort_order })),

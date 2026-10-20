@@ -706,6 +706,8 @@ export async function runMigrations(
   if (!remarkRequests.rows[0]?.exists) {
     await database.query(await readFile(new URL("../../migrations/057_section_remark_requests.sql", import.meta.url), "utf8"));
   }
+  // 058 is additive and idempotent (ADD COLUMN IF NOT EXISTS), so it is safe to run on every start.
+  await database.query(await readFile(new URL("../../migrations/058_staged_evidence_captured_at.sql", import.meta.url), "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

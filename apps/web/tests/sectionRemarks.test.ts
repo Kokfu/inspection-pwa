@@ -18,7 +18,7 @@ test("validSectionRemark is strict: exact keys, uuids, allowlisted keys and alre
   assert.equal(validSectionRemark(remark(1, "Main valve needs repair")), true);
   for (const bad of [
     { ...remark(1, "Main valve"), extra: 1 }, { ...remark(1, "Main valve"), id: "nope" }, { ...remark(1, "Main valve"), customerId: "nope" },
-    { ...remark(1, "Main valve"), systemKey: "hose_reel" }, remark(1, "Main valve", "checklist.waterTank.nope"),
+    { ...remark(1, "Main valve"), systemKey: "smoke_ventilation" }, remark(1, "Main valve", "checklist.waterTank.nope"),
     remark(1, "  padded  "), remark(1, "two  spaces"), remark(1, "ab"), remark(1, "x".repeat(301)), remark(1, "line\nbreak"),
     { id: id(1) }, null, [], "text", 7
   ]) assert.equal(validSectionRemark(bad), false, JSON.stringify(bad));

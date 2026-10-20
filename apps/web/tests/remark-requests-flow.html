@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
+<div id="form"></div>
+<div id="manager"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { getOrCreateAutomaticSprinklerInspection } from "/src/automaticSprinkler/automaticSprinklerRepository.ts";
+import { AutomaticSprinklerInspectionForm } from "/src/automaticSprinkler/AutomaticSprinklerInspectionForm.tsx";
+import { ManagerRemarkRequests } from "/src/manager/ManagerRemarkRequests.tsx";
+import { refreshApprovedSectionRemarks } from "/src/inspectionControls/remarkRequests.ts";
+import { syncPendingRemarkRequests } from "/src/sync/syncEngine.ts";
+import "/src/styles/app.css";
+
+// R3: the real Automatic Sprinkler technician form AND the real Admin/Manager "Remark requests" page, both on real IndexedDB /
+// real fetch, with one in-memory "server" supplied by the spec through page.route. Nothing here is mocked in the app code.
+const id = (n) => `77000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const templateId = "00000000-0000-4000-8000-000000000807";
+const state4 = ["good", "not_good", "complete_repair", "na"];
+const field = (key, label, sortOrder) => ({ key, label, sortOrder, control: "good_poor", required: false, allowedValues: state4, remarksPolicy: "optional" });
+const measure = (key, label, sortOrder, valueKeys) => ({ key, label, sortOrder, result: { control: "good_poor", allowedValues: state4 }, measurements: valueKeys.map((vk, i) => ({ key: vk, label: vk === "cut_in" ? "Cut In" : vk === "cut_out" ? "Cut Out" : "Reading", unit: "PSI", sortOrder: i + 1 })) });
+const definition = { key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", configuration: { supportsZones: false, supportsLocations: false, supportsPresetRows: false }, sections: [
+  { key: "water_tank", title: "Water Tank", sortOrder: 1, blocks: [{ key: "water_tank_checks", title: "Water Tank", type: "checklist", sortOrder: 1, items: [field("saj_main_water_supply", "S.A.J Main Water Supply", 1), field("water_level", "Water Level", 2), field("automatic_refilling_facilities", "Automatic Refilling Facilities", 3), field("drain_and_stop_valve_positions", "Drain Valve Closed and Stop Valves Open", 4)] }] },
+  { key: "pump_house", title: "Pump House", sortOrder: 2, blocks: [
+    { key: "pump_house_checks", title: "Pump House", type: "checklist", sortOrder: 1, items: [field("pump_house_clean", "Keep Clean in Pump House", 1), field("manual_start_pumps", "Manual Start Jockey, Duty and Stand-by Pumps", 2), field("standby_pump_service_items", "Stand-by Pump Service Items", 3), field("battery_charging_alternator", "Battery Charging Alternator Operation", 4), field("battery_serviceable", "Battery in Good Serviceable Condition", 5), field("pump_phase_failure_alarm", "Pump Run / Phase Failure Alarm", 6), field("pumps_auto_start", "Pumps in Auto Start Position", 7), field("test_and_gate_valve_positions", "Test Valve Closed and Gate Valves Open", 8)] },
+    { key: "pump_pressure_measurements", title: "Pressure", type: "measurement", sortOrder: 2, items: [measure("jockey_pump_pressure", "Jockey Pump", 1, ["cut_in", "cut_out"]), measure("duty_pump_cut_in", "Duty Pump Cut In", 2, ["value"]), measure("standby_pump_cut_in", "Stand-by Pump Cut In", 3, ["value"])] }] },
+  { key: "main_alarm_valve", title: "Main Alarm Valve", sortOrder: 3, blocks: [
+    { key: "main_alarm_valve_checks", title: "Main Alarm Valve", type: "checklist", sortOrder: 1, items: [field("breaching_inlet", "Breaching Inlet in Good Serviceable Condition", 1), field("alarm_gong", "Alarm Gong in Function", 2), field("flow_meter_valve_positions", "Flow Meter Valve Closed and Other Valves Open", 3)] },
+    { key: "alarm_valve_measurements", title: "Gauges", type: "measurement", sortOrder: 2, items: [measure("water_supply_gauge", "Water Supply Gauge", 1, ["value"]), measure("installation_gauge", "Installation Gauge", 2, ["value"])] },
+    { key: "test_run_fire_pump_checks", title: "Test Run Fire Pump 30 Minutes", type: "checklist", sortOrder: 3, items: [field("trfp_jockey_pump", "Jockey Pump", 1), field("trfp_duty_pump", "Duty Pump", 2), field("trfp_standby_pump", "Standby Pump", 3)] },
+    { key: "comments", title: "Comments", type: "comments", sortOrder: 4, field: { control: "remarks", policy: "optional", maxLength: 4000 } }] }] };
+const template = { id: templateId, code: "MFE-FSSR", name: "MFE", version: 7, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {}, systems: [{ key: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", definition }] };
+const catalog = { template: { ...template, id: id(99), version: 1, systems: [] }, templates: [template] };
+const customers = {
+  A: { id: id(50), code: "AAA", displayName: "Sprinkler Customer A" },
+  B: { id: id(77), code: "BBB", displayName: "Second Customer B" }
+};
+const system = { enabledSystemId: id(100), systemKey: "automatic_sprinkler", displayName: "Automatic Sprinkler System", sortOrder: 6, definitionStatus: "confirmed", zones: [], locations: [] };
+const jobFor = (which) => ({ id: id(which === "A" ? 1 : 2), reference: which === "A" ? "ASP-SR-1" : "ASP-SR-2", title: "Remark request test", status: "open", createdAt: new Date().toISOString(), configurationSnapshot: { schemaVersion: 1, customer: customers[which], configuration: { revisionId: id(51), revisionNumber: 1 }, template: { id: templateId, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } });
+const noop = async () => {};
+const technician = { id: 5001, username: "browser-tech", role: "inspector" };
+
+const formRoot = createRoot(document.querySelector("#form"));
+const managerRoot = createRoot(document.querySelector("#manager"));
+window.harness = {
+  customers, saved: undefined, authority: [],
+  async mountForm(which, options = {}) {
+    await deviceDatabase.open();
+    await activateUserWorkspace(technician.id);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: technician.id, username: technician.username, role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    const record = await getOrCreateAutomaticSprinklerInspection(jobFor(which), system, catalog, technician);
+    const shown = { ...record, syncStatus: options.syncStatus ?? "Draft" };
+    formRoot.render(React.createElement(AutomaticSprinklerInspectionForm, {
+      key: which, record: shown, onBack: noop, onSubmitLocal: noop, onEditFailed: noop, onStartCorrectedCopy: noop, onAttachmentsChange: noop,
+      onSaveDraft: async (responses) => { window.harness.saved = JSON.parse(JSON.stringify(responses)); }
+    }));
+  },
+  unmountForm() { formRoot.render(null); },
+  mountManager() {
+    managerRoot.render(React.createElement(ManagerRemarkRequests, { onAuthorityFailure: (error) => window.harness.authority.push(error.message) }));
+  },
+  unmountManager() { managerRoot.render(null); },
+  async sync() { const run = await syncPendingRemarkRequests(technician.id); return { confirmed: run.confirmed, failed: run.failed, attempted: run.attempted }; },
+  async refreshApproved() { return refreshApprovedSectionRemarks("automatic_sprinkler").then(() => "ok", (error) => String(error.message)); },
+  async outbox() { return localDatabase.syncOutbox.where("entityType").equals("remarkRequest").toArray(); },
+  async clearLocal() { await localDatabase.syncOutbox.clear(); await localDatabase.referenceData.clear(); }
+};
+document.body.dataset.harnessReady = "1";
+</script></body></html>

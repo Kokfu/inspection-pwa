@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
+<div id="form"></div>
+<script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
+import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
+import { syncPendingRemarkRequests } from "/src/sync/syncEngine.ts";
+import { refreshApprovedSectionRemarks } from "/src/inspectionControls/remarkRequests.ts";
+import { getOrCreateHoseReelInspection, saveHoseReelDraft, submitLocalHoseReel } from "/src/hoseReel/hoseReelRepository.ts";
+import { HoseReelInspectionForm } from "/src/hoseReel/HoseReelInspectionForm.tsx";
+import { getOrCreateHydrantInspection, saveHydrantDraft, submitLocalHydrant } from "/src/hydrant/hydrantRepository.ts";
+import { HydrantInspectionForm } from "/src/hydrant/HydrantInspectionForm.tsx";
+import { getOrCreateFireAlarmInspection, saveFireAlarmDraft, submitFireAlarmLocal } from "/src/fireAlarm/fireAlarmRepository.ts";
+import { FireAlarmInspectionForm } from "/src/fireAlarm/FireAlarmInspectionForm.tsx";
+import { initializeFm200InspectionGroup, listFm200Instances, saveFm200Draft, submitLocalFm200 } from "/src/fm200/fm200Repository.ts";
+import { Fm200InspectionForm } from "/src/fm200/Fm200InspectionForm.tsx";
+import { initializeCo2InspectionGroup, listCo2Instances, saveCo2Draft, submitLocalCo2 } from "/src/co2/co2Repository.ts";
+import { Co2InspectionForm } from "/src/co2/Co2InspectionForm.tsx";
+
+// R4: the REAL technician form of Hose Reel, Hydrant, Fire Alarm, FM200 and CO2 on real IndexedDB and the native fetch (so the
+// spec's page.route is the only "server"). The V7 template is the real masterServiceReportV7 definition. Nothing in app code is mocked.
+const id = (n) => `78000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const technician = { id: 5001, username: "browser-tech", role: "inspector" };
+const customers = { A: { id: id(50), code: "AAA", displayName: "Customer A" }, B: { id: id(77), code: "BBB", displayName: "Customer B" } };
+const systems = {
+  hose_reel: { name: "Hose Reel", number: 2 }, hydrant: { name: "Hydrant", number: 5 }, fire_alarm_detector: { name: "Fire Alarm / Detector System", number: 4 },
+  fm200_fire_suppression: { name: "FM200 System", number: 6 }, co2_fire_extinguisher: { name: "CO2 System", number: 7 }
+};
+const noop = async () => {};
+const root = createRoot(document.querySelector("#form"));
+const savedRows = (prefix) => [{ assetReference: `${prefix}-1`, locationText: "Pump room", drumType: "swing" }, { assetReference: `${prefix}-2`, locationText: "Roof", drumType: "fixed" }];
+
+function fixture(systemKey, which) {
+  const enabledSystemId = id(100 + systems[systemKey].number);
+  const rows = savedRows(systemKey === "hydrant" ? "H" : "D");
+  const withRows = systemKey === "hose_reel" || systemKey === "hydrant";
+  const grouped = systemKey === "fm200_fire_suppression" || systemKey === "co2_fire_extinguisher";
+  const zones = grouped ? [{ id: id(20), enabledSystemId, key: "z", displayName: "Zone A", sortOrder: 1 }] : [];
+  const locations = withRows
+    ? [{ id: id(11), enabledSystemId, zoneId: null, key: "general", displayName: "General", presetRowCount: rows.length, rowPreset: { rows }, sortOrder: 1 }]
+    : systemKey === "fire_alarm_detector"
+      ? [{ id: id(12), enabledSystemId, zoneId: null, key: "primary", displayName: "Panel Room", presetRowCount: 1, rowPreset: { fireAlarmTable: "primary", assetReference: "P-1" }, sortOrder: 1 }]
+      : [{ id: id(13), enabledSystemId, zoneId: id(20), key: "unit-0", displayName: "Plant Room", presetRowCount: 1, rowPreset: {}, sortOrder: 1 }];
+  const system = { enabledSystemId, systemKey, displayName: systems[systemKey].name, sortOrder: systems[systemKey].number, definitionStatus: "confirmed", zones, locations };
+  const template = { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, selectionPolicy: "preset_only", headerDefinition: {}, reportBoilerplate: {},
+    systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? enabledSystemId : id(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) };
+  const catalog = { templates: [template], template };
+  const job = { id: id(which === "A" ? 1 : 2), reference: `R4-${systemKey}-${which}`, title: "R4 remark request", status: "open", createdAt: "2026-10-21T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
+    configurationSnapshot: { schemaVersion: 1, customer: customers[which], configuration: { revisionId: id(3), revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+  return { system, catalog, job };
+}
+
+window.harness = {
+  customers, saved: undefined,
+  async mount(systemKey, which = "A") {
+    await deviceDatabase.open();
+    await activateUserWorkspace(technician.id);
+    await deviceDatabase.authState.put({ key: "device-auth", userId: technician.id, username: technician.username, role: "inspector", serverLogoutPending: false, explicitLogout: false });
+    const { system, catalog, job } = fixture(systemKey, which);
+    let record;
+    const common = { actorUserId: technician.id, canUseServer: false, onBack: noop, onEditFailed: noop, onStartCorrectedCopy: noop };
+    const keep = (responses) => { window.harness.saved = JSON.parse(JSON.stringify(responses)); };
+    let render;
+    if (systemKey === "hose_reel") {
+      record = await getOrCreateHoseReelInspection(job, system, catalog, technician);
+      render = () => root.render(React.createElement(HoseReelInspectionForm, { ...common, key: which, record, onSaveDraft: async (r) => { keep(r); record = await saveHoseReelDraft(record, r); render(); }, onSubmitLocal: async (r) => { record = await submitLocalHoseReel(record, r); render(); } }));
+    } else if (systemKey === "hydrant") {
+      record = await getOrCreateHydrantInspection(job, system, catalog, technician);
+      render = () => root.render(React.createElement(HydrantInspectionForm, { ...common, key: which, record, onSaveDraft: async (r) => { keep(r); record = await saveHydrantDraft(record, r); render(); }, onSubmitLocal: async (r) => { record = await submitLocalHydrant(record, r); render(); } }));
+    } else if (systemKey === "fire_alarm_detector") {
+      record = await getOrCreateFireAlarmInspection(job, system, catalog, technician);
+      render = () => root.render(React.createElement(FireAlarmInspectionForm, { ...common, key: which, record, onRecordChange: (next) => { record = next; }, onSaveDraft: async (r) => { keep(r); record = await saveFireAlarmDraft(record, r); render(); }, onSubmitLocal: async (r) => { record = await submitFireAlarmLocal(record, r); render(); } }));
+    } else if (systemKey === "fm200_fire_suppression") {
+      await initializeFm200InspectionGroup(job, system, catalog, technician);
+      record = (await listFm200Instances(`${job.id}:${systemKey}`))[0];
+      render = () => root.render(React.createElement(Fm200InspectionForm, { ...common, key: which, record, onSaveDraft: async (r) => { keep(r); record = await saveFm200Draft(record, r); render(); }, onSubmitLocal: async (r) => { record = await submitLocalFm200(record, r); render(); } }));
+    } else {
+      await initializeCo2InspectionGroup(job, system, catalog, technician);
+      record = (await listCo2Instances(`${job.id}:${systemKey}`))[0];
+      render = () => root.render(React.createElement(Co2InspectionForm, { ...common, key: which, record, onSaveDraft: async (r) => { keep(r); record = await saveCo2Draft(record, r); render(); }, onSubmitLocal: async (r) => { record = await submitLocalCo2(record, r); render(); } }));
+    }
+    render();
+    return record.clientUuid;
+  },
+  unmount() { root.render(null); },
+  async sync() { const run = await syncPendingRemarkRequests(technician.id); return { confirmed: run.confirmed, failed: run.failed, attempted: run.attempted }; },
+  async refreshApproved(systemKey) { return refreshApprovedSectionRemarks(systemKey).then(() => "ok", (error) => String(error.message)); },
+  async outbox() { return localDatabase.syncOutbox.where("entityType").equals("remarkRequest").toArray(); },
+  async commonRemarkOutbox() { return localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray(); },
+  async clearLocal() { await localDatabase.syncOutbox.clear(); await localDatabase.referenceData.clear(); }
+};
+document.body.dataset.harnessReady = "1";
+</script></body></html>

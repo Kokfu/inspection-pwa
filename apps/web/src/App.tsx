@@ -112,6 +112,7 @@ import { useFormScrollContinuity } from "./jobs/formScrollContinuity";
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
 import { ManagerApprovals } from "./manager/ManagerApprovals";
+import { ManagerPhotoKpi } from "./manager/ManagerPhotoKpi";
 import { ManagerSettings } from "./manager/ManagerSettings";
 import { ManagerReportApprovals } from "./manager/ManagerReportApprovals";
 import { ManagerHome, managerNavLinks, type ManagerDashboardRoute } from "./manager/ManagerHome";
@@ -157,6 +158,7 @@ import { TechnicianAddCustomer } from "./jobs/TechnicianAddCustomer";
 import { TechnicianLocationProposal } from "./jobs/TechnicianLocationProposal";
 import { ManagerSiteProposals } from "./manager/ManagerSiteProposals";
 import { ManagerLocationProposals } from "./manager/ManagerLocationProposals";
+import { ManagerRemarkRequests } from "./manager/ManagerRemarkRequests";
 import { syncPendingTechnicianCustomers } from "./jobs/technicianCustomerDraft";
 import { isUnconfirmedLocalVisit } from "./jobs/offlineServiceVisitStore";
 import { TechnicianUpcomingServices } from "./jobs/TechnicianUpcomingServices";
@@ -265,6 +267,8 @@ type AppRoute =
   | { name: "manager-services-done" }
   | { name: "manager-location-proposals" }
   | { name: "manager-site-proposals" }
+  | { name: "manager-remark-requests" }
+  | { name: "manager-photo-kpi" }
   | { name: "manager-upcoming-services" }
   | { name: "manager-customer"; customerId: string }
   | { name: "manager-customer-service"; customerId: string; systemKey: string }
@@ -312,6 +316,8 @@ function routeFromHash(): AppRoute {
   if (parts[0] === "manager-services-done") return { name: "manager-services-done" };
   if (parts[0] === "manager-site-proposals") return { name: "manager-site-proposals" };
   if (parts[0] === "manager-location-proposals") return { name: "manager-location-proposals" };
+  if (parts[0] === "manager-remark-requests") return { name: "manager-remark-requests" };
+  if (parts[0] === "manager-photo-kpi") return { name: "manager-photo-kpi" };
   if (parts[0] === "manager-upcoming-services") return { name: "manager-upcoming-services" };
   if (parts[0] === "manager") return { name: "manager-home" };
   if (parts[0] === "manager-customer" && parts[1] && parts[2] === "service" && parts[3]) return { name: "manager-customer-service", customerId: parts[1], systemKey: parts[3] };
@@ -364,6 +370,8 @@ function hashForRoute(route: AppRoute) {
   if (route.name === "manager-services-done") return "#/manager-services-done";
   if (route.name === "manager-site-proposals") return "#/manager-site-proposals";
   if (route.name === "manager-location-proposals") return "#/manager-location-proposals";
+  if (route.name === "manager-remark-requests") return "#/manager-remark-requests";
+  if (route.name === "manager-photo-kpi") return "#/manager-photo-kpi";
   if (route.name === "manager-upcoming-services") return "#/manager-upcoming-services";
   if (route.name === "manager-home") return "#/manager";
   if (route.name === "manager-customer") return `#/manager-customer/${encodeURIComponent(route.customerId)}`;
@@ -1149,9 +1157,10 @@ export function App() {
       : undefined);
   }, [masterSystemFormInstances, route]);
   useEffect(() => {
-    setActiveFm200Form(route.name === "fm200-form"
+    const resolved = route.name === "fm200-form"
       ? masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid)
-      : undefined);
+      : undefined;
+    setActiveFm200Form((shown) => resolved ? mergeResolvedRecord(shown, resolved) : undefined);
   }, [masterSystemFormInstances, route]);
   useEffect(()=>{if(route.name!=="inspection"){setServerHoseReel(undefined);setHoseReelAuthorityState("idle");setHoseReelRouteMessage("");return;}let current=true;setServerHoseReel(undefined);setHoseReelAuthorityState("loading");setHoseReelRouteMessage("");const local=masterSystemInspections.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="hose_reel") as MasterSystemInspectionRecord|undefined;void resolveHoseReelAuthority(authState.status,route.clientUuid,local,{findSummary:(jobId)=>findServerMasterSystemInspection(jobId,"hose_reel"),loadDetail:loadServerHoseReelDetail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveHoseReel(undefined);setServerHoseReel(resolution.inspection);setHoseReelAuthorityState("server");}else if(resolution.kind==="local"){setActiveHoseReel(resolution.record);setServerHoseReel(undefined);setHoseReelAuthorityState("local");}else{setActiveHoseReel(undefined);setServerHoseReel(undefined);setHoseReelAuthorityState(resolution.kind);setHoseReelRouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
   useEffect(()=>{if(route.name!=="co2-form"){setServerCo2(undefined);setCo2AuthorityState("idle");setCo2RouteMessage("");return;}let current=true;setServerCo2(undefined);setCo2AuthorityState("loading");setCo2RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="co2_fire_extinguisher");void resolveCo2Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"co2_fire_extinguisher",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerCo2Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveCo2Form(undefined);setServerCo2(resolution.inspection);setCo2AuthorityState("server");}else if(resolution.kind==="local"){setActiveCo2Form(resolution.record);setServerCo2(undefined);setCo2AuthorityState("local");}else{setActiveCo2Form(undefined);setServerCo2(undefined);setCo2AuthorityState(resolution.kind);setCo2RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
@@ -1184,7 +1193,41 @@ export function App() {
     return () => { current = false; };
   }, [authAuthorityGeneration, authState.status, masterSystemFormInstances, route]);
 
-  useEffect(()=>{if(route.name!=="fm200-form"){setServerFm200(undefined);setFm200AuthorityState("idle");setFm200RouteMessage("");return;}let current=true;setServerFm200(undefined);setFm200AuthorityState("loading");setFm200RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="fm200_fire_suppression");void resolveFm200Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"fm200_fire_suppression",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerFm200Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveFm200Form(undefined);setServerFm200(resolution.inspection);setFm200AuthorityState("server");}else if(resolution.kind==="local"){setActiveFm200Form(resolution.record);setServerFm200(undefined);setFm200AuthorityState("local");}else{setActiveFm200Form(undefined);setServerFm200(undefined);setFm200AuthorityState(resolution.kind);setFm200RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
+  const fm200ResolvedKey = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (route.name !== "fm200-form") {
+      fm200ResolvedKey.current = undefined;
+      setServerFm200(undefined); setFm200AuthorityState("idle"); setFm200RouteMessage(""); return;
+    }
+    let current = true;
+    const refreshKey = routeRefreshKey({ authStatus: authState.status, authorityGeneration: authAuthorityGeneration,
+      verifiedAt: authState.status === "verified" ? authState.lastVerifiedAt : undefined, clientUuid: route.clientUuid });
+    // Same-authority refreshes must not reset or unmount a draft being edited.
+    if (!isRouteRefresh(activeFm200Form, route.clientUuid, fm200ResolvedKey.current, refreshKey)) {
+      setServerFm200(undefined); setFm200AuthorityState("loading"); setFm200RouteMessage("");
+    }
+    const local = masterSystemFormInstances.find(record => record.clientUuid === route.clientUuid && record.systemKey === "fm200_fire_suppression");
+    void resolveFm200Authority(authState.status, route.clientUuid, local, {
+      findSummary: (record) => findServerMasterSystemInspection(record.jobId, "fm200_fire_suppression", {
+        configuredLocationId: record.configuredLocationId, instanceKey: record.instanceKey,
+        configuredZoneId: record.configuredZoneId, displaySequence: record.displaySequence
+      }),
+      loadDetail: loadServerFm200Detail
+    }).then(resolution => {
+      if (!current) return;
+      if (resolution.kind === "server") {
+        setActiveFm200Form(undefined); setServerFm200(resolution.inspection); setFm200AuthorityState("server");
+      } else if (resolution.kind === "local") {
+        setActiveFm200Form(shown => mergeResolvedRecord(shown, resolution.record));
+        fm200ResolvedKey.current = refreshKey;
+        setServerFm200(undefined); setFm200AuthorityState("local");
+      } else {
+        setActiveFm200Form(undefined); setServerFm200(undefined); setFm200AuthorityState(resolution.kind);
+        setFm200RouteMessage(resolution.kind === "server-unavailable" ? resolution.message : "");
+      }
+    });
+    return () => { current = false; };
+  }, [authAuthorityGeneration, authState, masterSystemFormInstances, route]);
 
   const fireAlarmResolvedKey = useRef<string | undefined>(undefined);
   useEffect(()=>{const generation=++fireAlarmRouteGeneration.current;if(route.name!=="fire-alarm-form"){setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState("idle");setFireAlarmRouteMessage("");return;}if(authState.status==="restoring"||authState.status==="verifying"||authState.status==="online-unavailable"){setFireAlarmRouteState("loading");return;}const refreshKey=routeRefreshKey({authStatus:authState.status,authorityGeneration:authAuthorityGeneration,clientUuid:route.clientUuid});if(!isRouteRefresh(activeFireAlarm,route.clientUuid,fireAlarmResolvedKey.current,refreshKey)){setFireAlarmRouteState("loading");setFireAlarmRouteMessage("");}void resolveFireAlarmRoute(route.clientUuid,route.jobId,authState.status).then(resolution=>{if(fireAlarmRouteGeneration.current!==generation)return;if(resolution.kind==="local"){setActiveFireAlarm(shown=>mergeResolvedRecord(shown,resolution.record));fireAlarmResolvedKey.current=refreshKey;setServerFireAlarm(undefined);setFireAlarmRouteState("idle");}else if(resolution.kind==="server"){setActiveFireAlarm(undefined);setServerFireAlarm(resolution.inspection);setFireAlarmRouteState("idle");}else{setActiveFireAlarm(undefined);setServerFireAlarm(undefined);setFireAlarmRouteState(resolution.kind);setFireAlarmRouteMessage("message" in resolution?resolution.message:"");}});},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
@@ -1499,7 +1542,11 @@ export function App() {
     setMasterSystemInspectionGroups(groups);
     setMasterSystemFormInstances(instances);
     if (activeCo2Form) setActiveCo2Form(instances.find((record) => record.clientUuid === activeCo2Form.clientUuid));
-    if (activeFm200Form) setActiveFm200Form(instances.find((record) => record.clientUuid === activeFm200Form.clientUuid));
+    setActiveFm200Form(shown => {
+      if (!shown) return undefined;
+      const resolved = instances.find(record => record.clientUuid === shown.clientUuid);
+      return resolved ? mergeResolvedRecord(shown, resolved) : undefined;
+    });
   }
 
   async function checkApiHealth() {
@@ -2750,7 +2797,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
           mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
-          activeRouteName={["manager-location-proposals", "manager-site-proposals", "manager-repairs", "manager-repair-visit", "manager-report-approvals"].includes(route.name)
+          activeRouteName={["manager-location-proposals", "manager-site-proposals", "manager-remark-requests", "manager-repairs", "manager-repair-visit", "manager-report-approvals"].includes(route.name)
             || (route.name === "manager-final-report" && managerReturn?.hash === "#/manager-report-approvals") ? "manager-approvals"
             : ["manager-email-reminders", "manager-company-profile"].includes(route.name) ? "manager-settings" : route.name}
           onNavigate={(name) => navigate({ name })}
@@ -2787,6 +2834,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-email-reminders" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-settings" })}>Back to Settings</button><ManagerEmailReminders onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewRepairVisit={(visitId) => navigate({ name: "manager-repair-visit", visitId })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
         : route.name === "manager-location-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerLocationProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-photo-kpi" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerPhotoKpi key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-remark-requests" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerRemarkRequests key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-site-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerSiteProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} currentUserRole={currentUser?.role === "admin" || currentUser?.role === "supervisor" ? currentUser.role : undefined} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />

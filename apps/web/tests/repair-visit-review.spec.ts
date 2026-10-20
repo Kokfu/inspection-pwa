@@ -40,7 +40,12 @@ function detail(mock: Mock) {
   });
   const events: unknown[] = [{ clientUuid: "99999999-9999-4999-8999-999999999991", visitUuid: VISIT, revision: 1, type: "submitted", actorUserId: 7, reason: null, occurredAt: "2026-10-19T03:00:00.000Z", requestFingerprint: hex("c") }];
   if (mock.status === "returned") events.push({ clientUuid: "99999999-9999-4999-8999-999999999992", visitUuid: VISIT, revision: 1, type: "returned", actorUserId: 3, reason: "Photo is blurry.", occurredAt: "2026-10-19T03:30:00.000Z", requestFingerprint: hex("d") });
-  return { visit, items: [item(1, true, "done_repair"), item(2, false, "not_done")], events };
+  // P2: Admin/Manager reads carry the After-photo source; item 1 is a gallery photo, item 2 a camera photo.
+  const photoSources = [
+    { photoUuid: "88888888-8888-4888-8888-888888888881", captureSource: "gallery", capturedAt: "2026-10-19T01:02:03.000Z" },
+    { photoUuid: "88888888-8888-4888-8888-888888888882", captureSource: "camera", capturedAt: "2026-10-19T01:05:00.000Z" }
+  ];
+  return { visit, items: [item(1, true, "done_repair"), item(2, false, "not_done")], events, photoSources };
 }
 
 async function install(page: Page, initial: Partial<Mock> = {}) {
@@ -101,6 +106,10 @@ for (const viewport of [{ name: "360", width: 360, height: 800 }, { name: "768",
       await expect(cards.nth(1).getByRole("region", { name: /^After repair/ })).toContainText("NOT DONE");
       await expect(page.getByRole("img", { name: "Before photo, S.A.J Main Water Supply" })).toBeVisible();
       await expect(page.getByRole("img", { name: "After photo, S.A.J Main Water Supply" })).toBeVisible();
+      // P2: only the gallery After photo is labelled; the camera photo shows nothing.
+      await expect(page.getByTestId("gallery-photo-label")).toHaveCount(1);
+      await expect(cards.first().getByTestId("gallery-photo-label")).toHaveText("GALLERY · uploaded 19 Oct 2026, 9:02");
+      await expect(cards.nth(1).getByTestId("gallery-photo-label")).toHaveCount(0);
       // Before above After on a phone, side by side from 768 px.
       const before = await cards.first().getByRole("region", { name: /^Before/ }).boundingBox();
       const after = await cards.first().getByRole("region", { name: /^After repair/ }).boundingBox();

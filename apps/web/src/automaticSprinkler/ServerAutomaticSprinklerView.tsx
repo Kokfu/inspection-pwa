@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useEffect, useState } from "react";
 import type {
   ServerAutomaticSprinklerDetail,
@@ -106,7 +107,7 @@ function ServerV7AutomaticSprinklerView({ inspection, onBack }: Props) {
       <p><strong>Remark:</strong> {remarks || "Not recorded"}</p>
       {photoUrl ? <>
         <a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a>
-        <img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" width={240} height={180} />
+        <img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" width={240} height={180} /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} />
       </> : null}
     </>;
   };

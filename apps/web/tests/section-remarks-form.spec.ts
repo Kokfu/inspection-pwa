@@ -74,7 +74,7 @@ async function addRemark(row: Locator, text: string) {
   }
 }
 
-test("offline: a new remark is offered only in its own section, survives a reload, and syncs to exactly one server row", async ({ page, context }) => {
+test("offline: a remark added in the Comments box is offered only there, survives a reload, and syncs to exactly one server row", async ({ page, context }) => {
   const server = createServer();
   await wire(context, server);
   await open(page);
@@ -82,33 +82,29 @@ test("offline: a new remark is offered only in its own section, survives a reloa
   server.offline = true;
   expect(await page.evaluate(() => navigator.onLine)).toBe(false);
 
-  const sajRow = rowOf(page, "saj_main_water_supply");
-  await picker(sajRow).selectOption("others");
-  await expect(sajRow.getByRole("button", { name: "Add to common remarks" })).toBeDisabled();
-  await sajRow.getByRole("textbox", { name: "Type a new remark" }).fill(wording);
-  await sajRow.getByRole("button", { name: "Add to common remarks" }).click();
-  await expect(sajRow.getByRole("textbox", { name: "Type a new remark" })).toHaveValue(wording);
-  await expect(sajRow.getByRole("list", { name: "Selected remarks" })).toHaveCount(0);
-  await expect(sectionOptions(sajRow)).toHaveText([wording]);
-  await expect(sajRow.getByRole("button", { name: "Add new remark" })).toHaveCount(0);
-  // NOT in any other row, nor in Comments, nor in a sibling of the same group.
-  for (const key of ["water_level", "automatic_refilling_facilities", "pump_house_clean", "jockey_pump_pressure", "trfp_jockey_pump", "comments"]) {
+  // R3: a checklist / measurement row's "Add to common remarks" is now a REQUEST (remark-requests-flow.spec.ts); the CR-07
+  // customer list is still added to, unchanged, from the Comments box.
+  const commentsRow = rowOf(page, "comments");
+  await addRemark(commentsRow, wording);
+  await expect(commentsRow.getByRole("list", { name: "Selected remarks" })).toContainText(wording);
+  await expect(sectionOptions(commentsRow)).toHaveText([wording]);
+  // NOT in any checklist or measurement row, nor in a sibling of the same group.
+  for (const key of ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "pump_house_clean", "jockey_pump_pressure", "trfp_jockey_pump"]) {
     const other = rowOf(page, key);
     await expect(other.getByRole("combobox", { name: "Remark", exact: true }), key).toBeVisible();
     await expect(sectionOptions(other), key).toHaveCount(0);
     await expect(other.getByRole("list", { name: "Selected remarks" }), key).toHaveCount(0);
   }
-  await expect(sajRow.getByRole("button", { name: "Add to common remarks" })).toBeEnabled();
-  await expect(picker(sajRow).getByRole("option", { name: "Others (type your own)" })).toBeAttached();
-  await expect(picker(sajRow).getByRole("option", { name: "Battery spoilt" })).toBeAttached();
+  await expect(picker(commentsRow).getByRole("option", { name: "Others" })).toBeAttached();
+  await expect(picker(commentsRow).getByRole("option", { name: "Battery spoilt" })).toBeAttached();
 
   // The chosen text is stored in the field string only: no id enters the draft payload.
-  await sajRow.getByRole("button", { name: "Save Draft" }).or(page.getByRole("button", { name: "Save Draft" })).first().click();
+  await commentsRow.getByRole("button", { name: "Save Draft" }).or(page.getByRole("button", { name: "Save Draft" })).first().click();
   await expect.poll(() => page.evaluate(() => JSON.stringify((window as unknown as { harness: { saved?: unknown } }).harness.saved ?? null))).toContain(wording);
   const saved = await page.evaluate(() => (window as unknown as { harness: { saved: { checklist: Record<string, { remarks: string }>; comments: string } } }).harness.saved);
-  expect(saved.checklist.saj_main_water_supply!.remarks).toBe(wording);
+  expect(saved.comments).toBe(wording);
+  expect(saved.checklist.saj_main_water_supply!.remarks).toBe("");
   expect(saved.checklist.water_level!.remarks).toBe("");
-  expect(saved.comments).toBe("");
   expect(JSON.stringify(saved)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-4/);
 
   // Offline sync keeps it queued (Pending), not lost.
@@ -126,9 +122,9 @@ test("offline: a new remark is offered only in its own section, survives a reloa
   await page.locator("body[data-harness-ready='1']").waitFor({ state: "attached", timeout: 60_000 });
   await context.setOffline(true);
   await page.evaluate(() => (window as unknown as { harness: { mount: (options: object) => Promise<void> } }).harness.mount({}));
-  await expect(sectionOptions(rowOf(page, "saj_main_water_supply"))).toHaveText([wording]);
+  await expect(sectionOptions(rowOf(page, "comments"))).toHaveText([wording]);
   await expect(sectionOptions(rowOf(page, "water_level"))).toHaveCount(0);
-  await expect(sectionOptions(rowOf(page, "comments"))).toHaveCount(0);
+  await expect(sectionOptions(rowOf(page, "saj_main_water_supply"))).toHaveCount(0);
 
   // Reconnect and sync: exactly one server row, and a second run adds nothing.
   await context.setOffline(false);
@@ -136,7 +132,7 @@ test("offline: a new remark is offered only in its own section, survives a reloa
   const firstRun = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync());
   expect(firstRun.confirmed).toBe(1);
   expect(server.rows).toHaveLength(1);
-  expect(server.rows[0]).toMatchObject({ customerId, systemKey: "automatic_sprinkler", sectionKey: "checklist.waterTank.saj_main_water_supply", wording });
+  expect(server.rows[0]).toMatchObject({ customerId, systemKey: "automatic_sprinkler", sectionKey: "comments", wording });
   const secondRun = await page.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ attempted: number }> } }).harness.sync());
   expect(secondRun.attempted).toBe(0);
   expect(server.rows).toHaveLength(1);
@@ -145,28 +141,26 @@ test("offline: a new remark is offered only in its own section, survives a reloa
   expect(server.posts[0]!.jobId).toBe("76000000-0000-4000-8000-000000000001");
 });
 
-test("a duplicate in the same section, or equal to a catalogue entry, is refused with a message and nothing is added", async ({ page, context }) => {
+test("a duplicate in the Comments list, or equal to a catalogue entry, is refused with a message and nothing is added", async ({ page, context }) => {
   const server = createServer();
   await wire(context, server);
   await open(page);
-  const row = rowOf(page, "water_level");
-  await addRemark(row, "Float valve stuck open");
-  await expect(sectionOptions(row)).toHaveCount(1);
-  await row.getByRole("textbox", { name: "Type a new remark" }).fill("  FLOAT valve   stuck OPEN ");
-  await row.getByRole("button", { name: "Add to common remarks" }).click();
-  await expect(row.getByRole("status")).toContainText("already in this section");
-  await expect(sectionOptions(row)).toHaveCount(1);
-  await expect(row.getByRole("textbox", { name: "Type a new remark" })).toHaveValue("  FLOAT valve   stuck OPEN ");
-  // The same wording in ANOTHER section is a separate remark and is allowed.
-  await addRemark(rowOf(page, "automatic_refilling_facilities"), "Float valve stuck open");
-  await expect(sectionOptions(rowOf(page, "automatic_refilling_facilities"))).toHaveCount(1);
-  // A catalogue wording is refused too.
+  // R3: checklist / measurement rows no longer add to the customer list (their "Add to common remarks" is a request).
   const comments = rowOf(page, "comments");
+  await addRemark(comments, "Float valve stuck open");
+  await expect(sectionOptions(comments)).toHaveCount(1);
+  await comments.getByRole("button", { name: "Add new remark" }).click();
+  await comments.getByRole("textbox", { name: /^New remark for Comments/ }).fill("  FLOAT valve   stuck OPEN ");
+  await comments.getByRole("button", { name: "Save & use" }).click();
+  await expect(comments.getByRole("status")).toContainText("already in this section");
+  await expect(sectionOptions(comments)).toHaveCount(1);
+  await comments.getByRole("button", { name: "Cancel" }).click();
+  // A catalogue wording is refused too.
   await comments.getByRole("button", { name: "Add new remark" }).click();
   await comments.getByRole("textbox", { name: /^New remark for Comments/ }).fill("25mm ball valve spoilt");
   await comments.getByRole("button", { name: "Save & use" }).click();
   await expect(comments.getByRole("status")).toContainText("standard remarks");
-  await expect(sectionOptions(comments)).toHaveCount(0);
+  await expect(sectionOptions(comments)).toHaveCount(1);
   // Invalid text is refused with a reason; the editor stays open for correction.
   await comments.getByRole("textbox", { name: /^New remark for Comments/ }).fill("ab");
   await comments.getByRole("button", { name: "Save & use" }).click();
@@ -193,7 +187,8 @@ test("a second technician of the same customer sees the remark after a refresh, 
   await wire(secondContext, server);
   const secondPage = await secondContext.newPage();
   await open(secondPage);
-  await addRemark(rowOf(secondPage, "saj_main_water_supply"), "Added by the second technician");
+  // R3: the second technician adds to the customer list from the Comments box (a row's button is now a request).
+  await addRemark(rowOf(secondPage, "comments"), "Added by the second technician");
   expect(await secondPage.evaluate(() => (window as unknown as { harness: { sync: () => Promise<{ confirmed: number }> } }).harness.sync())).toMatchObject({ confirmed: 1 });
   await secondContext.close();
   expect(server.rows.filter((row) => row.customerId === customerId)).toHaveLength(2);
@@ -201,7 +196,8 @@ test("a second technician of the same customer sees the remark after a refresh, 
   await wire(thirdContext, server);
   const thirdPage = await thirdContext.newPage();
   await open(thirdPage);
-  await expect(sectionOptions(rowOf(thirdPage, "saj_main_water_supply"))).toHaveText(["Added by the first technician", "Added by the second technician"]);
+  await expect(sectionOptions(rowOf(thirdPage, "saj_main_water_supply"))).toHaveText(["Added by the first technician"]);
+  await expect(sectionOptions(rowOf(thirdPage, "comments"))).toHaveText(["Added by the second technician"]);
   await thirdContext.close();
 });
 

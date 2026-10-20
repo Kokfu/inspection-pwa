@@ -16,4 +16,7 @@ test("Hydrant V7 persists field-owned evidence through reload, queues offline, s
   expect(result.checks.every((item: { passed: boolean }) => item.passed)).toBe(true);
   await expect(page.locator('#accepted a[href*="/api/v7-evidence/accepted/"]')).toHaveCount(2);
   await expect(page.locator("#accepted img")).toHaveCount(2);
+  const galleryLabels = page.locator("#accepted [data-testid=gallery-photo-label]");
+  await expect(galleryLabels).toHaveCount(1);
+  await expect(galleryLabels).toHaveText("GALLERY · uploaded 20 Oct 2026, 9:02");
 });

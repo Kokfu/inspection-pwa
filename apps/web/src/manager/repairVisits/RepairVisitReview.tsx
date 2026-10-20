@@ -4,9 +4,10 @@ import { loadManagerCustomers, loadManagerTechnicians } from "../managerApi";
 import { isManagerRole } from "../roleAccess";
 import {
   approveRepairVisit, fetchRepairVisitPdf, loadRepairVisit, repairVisitAfterPhotoUrl, repairVisitBeforePhotoUrl, returnRepairVisit,
-  RepairVisitsApiError, type RepairVisitDetail, type RepairVisitPdfKind
+  RepairVisitsApiError, type RepairVisitDetail, type RepairVisitPdfKind, type RepairVisitPhotoSource
 } from "../repairVisitsApi";
 import type { RepairVisitItem } from "../../repairVisits/repairVisitTypes";
+import { GalleryPhotoLabel } from "../../attachments/photoSourceLabel";
 import { formatVisitDate, previousVisitSummary, resultLabel, statusLabel, statusTone } from "./repairVisitLabels";
 import "./repairVisitReview.css";
 
@@ -248,7 +249,7 @@ function ReviewScreen({ visitId, onBack, onAuthorityFailure, onDecided }: Omit<R
       {visit.status === "draft" ? <p className="operational-message">The technician has not submitted this visit yet.</p> : null}
 
       <ol className="mrv-items" aria-label="Repair fields">
-        {items.map((item, index) => <RepairItemCard key={item.clientUuid} item={item} index={index} visit={visit} />)}
+        {items.map((item, index) => <RepairItemCard key={item.clientUuid} item={item} index={index} visit={visit} photoSource={detail.photoSources.find(source => source.photoUuid === item.photoUuid)} />)}
       </ol>
 
       {awaiting ? (
@@ -301,7 +302,7 @@ function ReviewScreen({ visitId, onBack, onAuthorityFailure, onDecided }: Omit<R
   );
 }
 
-function RepairItemCard({ item, index, visit }: { item: RepairVisitItem; index: number; visit: RepairVisitDetail["visit"] }) {
+function RepairItemCard({ item, index, visit, photoSource }: { item: RepairVisitItem; index: number; visit: RepairVisitDetail["visit"]; photoSource?: RepairVisitPhotoSource }) {
   const headingId = useId();
   const { before } = item;
   return (
@@ -328,7 +329,10 @@ function RepairItemCard({ item, index, visit }: { item: RepairVisitItem; index: 
           <p className="rv-source">{visit.visitNumber} · {formatVisitDate(visit.visitDate)}</p>
           <p><span className="mrv-label">Result</span> <strong className={`rv-result${item.outcome === "not_done" ? " rv-result--bad" : ""}`}>{resultLabel(item.outcome)}</strong></p>
           {item.photoUuid
-            ? <Photo src={repairVisitAfterPhotoUrl(visit.clientUuid, item.photoUuid)} alt={`After photo, ${item.fieldLabel}`} />
+            ? <>
+              <Photo src={repairVisitAfterPhotoUrl(visit.clientUuid, item.photoUuid)} alt={`After photo, ${item.fieldLabel}`} />
+              <GalleryPhotoLabel captureSource={photoSource?.captureSource} capturedAt={photoSource?.capturedAt} />
+            </>
             : <p className="mrv-empty">No photo submitted</p>}
           <p className="rv-remark"><span className="mrv-label">Repair remark</span> {item.remark || "No remark recorded"}</p>
         </section>

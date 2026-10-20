@@ -31,4 +31,7 @@ test("V6 accepted detail opens each accepted photo through the binary API rather
   await expect(photoB).toHaveURL(hrefB!);
   await expect(page).toHaveURL(/fire-alarm-v6-accepted-detail\.html$/);
   expect(served).toEqual([hrefA, hrefB]);
+  const galleryLabels = page.locator("#view [data-testid=gallery-photo-label]");
+  await expect(galleryLabels).toHaveCount(1);
+  await expect(galleryLabels).toHaveText("GALLERY · uploaded 20 Oct 2026, 9:02");
 });

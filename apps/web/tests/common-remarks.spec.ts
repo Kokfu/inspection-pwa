@@ -19,11 +19,10 @@ test("common remarks and Others share one final Remarks field without quantity",
 
   await picker.selectOption("others");
   const others = page.getByRole("textbox", { name: "Type a new remark" });
-  await expect(page.getByRole("button", { name: "Add to common remarks" })).toBeDisabled();
   await others.fill("Pump room door needs repair");
   await expect(page.getByRole("list", { name: "Selected remarks" }).getByRole("listitem")).toHaveCount(3);
-  await expect(page.getByRole("button", { name: "Add to common remarks" })).toBeEnabled();
-  await page.getByRole("button", { name: "Add to common remarks" }).click();
-  await expect(picker.getByRole("option", { name: "Pump room door needs repair" })).toBeAttached();
-  await expect(page.getByRole("list", { name: "Selected remarks" }).getByRole("listitem")).toHaveCount(3);
+  // R4: a technician no longer adds to the system-wide list from a box without a section (the API refuses it, so the button is gone).
+  // Sections that take a remark request (checklist / measurement rows) have their own spec per service: remark-requests-r4-*.spec.ts.
+  await expect(page.getByRole("button", { name: "Add to common remarks" })).toHaveCount(0);
+  await expect(picker.getByRole("option", { name: "Pump room door needs repair" })).toHaveCount(0);
 });

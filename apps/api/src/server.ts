@@ -17,6 +17,7 @@ import { stagedEvidenceRouter } from "./routes/stagedEvidence.js";
 import { masterSystemInspectionsRouter } from "./routes/masterSystemInspections.js";
 import { managerServiceVisitsRouter } from "./routes/managerServiceVisits.js";
 import { managerDashboardRouter } from "./routes/managerDashboard.js";
+import { managerPhotoKpiRouter } from "./routes/managerPhotoKpi.js";
 import { managerCustomersRouter } from "./routes/managerCustomers.js";
 import { managerCompanyProfileRouter } from "./routes/managerCompanyProfile.js";
 import { managerTechniciansRouter } from "./routes/managerTechnicians.js";
@@ -52,6 +53,7 @@ app.use(inspectionReferenceRouter);
 app.use(inspectionJobsRouter);
 app.use(managerServiceVisitsRouter);
 app.use(managerDashboardRouter);
+app.use(managerPhotoKpiRouter);
 // Must precede managerCustomersRouter: its `/manager/customers/:customerId` would otherwise match
 // `/manager/customers/compliance-reminders` and answer 400 INVALID_CUSTOMER_ID (I-22).
 app.use(managerComplianceRemindersRouter);

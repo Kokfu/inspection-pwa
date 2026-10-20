@@ -1,3 +1,4 @@
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { useEffect, useState } from "react";
 import { formatClientDateTime } from "../uiPresentation";
 import { fireRatedRollerShutterRowColumns } from "./fireRatedRollerShutterTypes";
@@ -29,7 +30,7 @@ export function ServerFireRatedRollerShutterView({ inspection, onBack }: { inspe
         const finding = isFinding(row[key]);
         const photo = evidence.find((item) => item.fieldPath === `roller_shutter_schedule.roller_shutter_schedule_rows.rows.${row.rowUuid}.${wire}`);
         const photoUrl = photo ? fireRatedRollerShutterV7AcceptedEvidenceContentUrl(photo.photoUuid) : undefined;
-        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /></> : null}</> : null}</div>;
+        return <div key={key}><p><span>{name}</span>{resultLabel(row[key])}</p>{finding ? <><p><strong>Remark:</strong> {row.fieldRemarks?.[key] || "Not recorded"}</p>{photoUrl ? <><a href={photoUrl} target="_blank" rel="noreferrer" className="secondary-command">View accepted photo</a><img src={photoUrl} alt={`${name} accepted evidence`} className="accepted-evidence-photo" /><GalleryPhotoLabel captureSource={photo?.captureSource} capturedAt={photo?.capturedAt} /></> : null}</> : null}</div>;
       })}</div>
       <p className="accepted-remarks"><span>Remarks</span>{row.remarks || "No remarks"}</p>
     </article>)}</section>

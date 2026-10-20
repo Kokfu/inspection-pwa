@@ -5,6 +5,7 @@ import { useDraftAutosave } from "../inspectionControls/useDraftAutosave";
 import { inspectionSyncMessage } from "../uiPresentation";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { RemarksField } from "../inspectionControls/RemarksField";
+import { RemarkRequestStatus } from "../inspectionControls/RemarkRequestStatus";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import { getFm200SubmitIssues } from "./fm200Repository";
 import { configuredDetectorCount, normalizeDetectorRows, setDetectorRowCount } from "../co2/detectorRowCount";
@@ -38,6 +39,7 @@ type Props = {
 };
 
 export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack, onSaveDraft, onSubmitLocal, onEditFailed, onStartCorrectedCopy }: Props) {
+  const remarkCustomerId = record.inspectionSnapshot.customer.id;
   const systemLabel = "FM200 System";
   const [responses, setResponses] = useState(() => record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses);
   const [message, setMessage] = useState("");
@@ -169,6 +171,7 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
             onChange={(result) => updateChecklist(group, definition.key, { result })}
           />
           <RemarksField systemKey="fm200_fire_suppression"
+            sectionKey={`${group}.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
             label="Remarks"
             definition={definition.remarks}
             value={responses[group][definition.key]?.remarks ?? ""}
@@ -230,7 +233,7 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
           <label>{labelAt("detectorRows.location", controls.detectorRows.location.label)}<input maxLength={controls.detectorRows.location.maxLength} value={row.location} onChange={(event) => updateDetector(row.rowUuid, { location: event.target.value })} /></label>
           {(() => { const heatLabel = labelAt("detectorRows.heatDetector", controls.detectorRows.heatDetector.label); return <div><strong>{heatLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={Array.isArray(row.heatDetectorStatus) ? row.heatDetectorStatus : null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} /> : <ResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.heatDetector.result} label={`${heatLabel} status`} value={row.heatDetectorStatus as Fm200DetectorStatus | null} readOnly={readOnly} onChange={(heatDetectorStatus) => updateDetector(row.rowUuid, { heatDetectorStatus })} />}</div>; })()}
           {(() => { const smokeLabel = labelAt("detectorRows.smokeDetector", controls.detectorRows.smokeDetector.label); return <div><strong>{smokeLabel}</strong>{record.masterTemplate.version === 7 ? <MultiResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={Array.isArray(row.smokeDetectorStatus) ? row.smokeDetectorStatus : null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} /> : <ResultSelector<Fm200DetectorStatus> definition={controls.detectorRows.smokeDetector.result} label={`${smokeLabel} status`} value={row.smokeDetectorStatus as Fm200DetectorStatus | null} readOnly={readOnly} onChange={(smokeDetectorStatus) => updateDetector(row.rowUuid, { smokeDetectorStatus })} />}</div>; })()}
-          <RemarksField systemKey="fm200_fire_suppression" label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
+          <RemarksField systemKey="fm200_fire_suppression" sectionKey="detectorRows.remarks" sectionLabel="Row remarks" customerId={remarkCustomerId} jobId={record.jobId} label="Remarks" definition={controls.detectorRows.remarks} value={row.remarks} readOnly={readOnly} onChange={(remarks) => updateDetector(row.rowUuid, { remarks })} />
         </section>
       ))}
     </fieldset>
@@ -242,6 +245,8 @@ export function Fm200InspectionForm({ record, actorUserId, canUseServer, onBack,
       <legend>System Comments</legend>
       <RemarksField systemKey="fm200_fire_suppression" label="Comments" definition={controls.comments} value={responses.comments} readOnly={readOnly} onChange={(comments) => setResponses((current) => ({ ...current, comments }))} />
     </fieldset>
+
+    <RemarkRequestStatus customerId={remarkCustomerId} systemKey="fm200_fire_suppression" />
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions"><button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button><button type="button" onClick={() => void submit()}>Submit Inspection</button></div> : null}
     {record.syncStatus === "Failed" || record.syncStatus === "Conflict" ? <button type="button" onClick={() => void onEditFailed()}>Return to Draft</button> : null}<CorrectedCopyAction clientUuid={record.clientUuid} syncStatus={record.syncStatus} localUpdatedAt={record.localUpdatedAt} onStart={onStartCorrectedCopy} />

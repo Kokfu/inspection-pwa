@@ -1,10 +1,15 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { currentWorkspaceUserId } from "../db/localDatabase";
 import type { ResolvedRemarksDefinition } from "./definitionTypes";
-import { addCommonRemark, cachedCommonRemarks, onCommonRemarksChanged, refreshCommonRemarks, type CommonRemark, type RemarkSystem } from "./commonRemarks";
+import { cachedCommonRemarks, onCommonRemarksChanged, refreshCommonRemarks, type CommonRemark, type RemarkSystem } from "./commonRemarks";
 import { appendCommonRemark, appendOtherRemark, replaceRemark, singleRemarkSelection } from "./remarkFormatting";
-import { isSectionRemarkKey, isSectionRemarkSystemKey } from "./remarkSections";
+import { isSectionRemarkKey, isSectionRemarkSystemKey, type SectionRemarkSystemKey } from "./remarkSections";
 import { sectionRemarkMaxLength } from "./sectionRemarkText";
+import {
+  approvedChoicesForSection, cachedApprovedSectionRemarks, createRemarkRequest, onRemarkRequestsChanged, refreshApprovedSectionRemarks,
+  remarkRequestRefusal, type ApprovedSectionRemark
+} from "./remarkRequests";
+import { sectionRemarkCompareKey } from "./sectionRemarkText";
 import { addSectionRemark, cachedSectionRemarks, onSectionRemarksChanged, refreshSectionRemarks, SectionRemarkInputError, sectionRemarkChoices, type SectionRemark } from "./sectionRemarks";
 
 let refreshedAt = 0;
@@ -27,6 +32,19 @@ function refreshSectionRemarksOnce(customerId: string) {
     .then(() => { sectionRefreshedAt.set(key, Date.now()); })
     .catch(() => undefined)
     .finally(() => { sectionRefreshTasks.delete(key); }));
+}
+
+// R3: the approved section choices are system-wide (every customer): one prefetch per system per minute.
+const approvedRefreshedAt = new Map<string, number>();
+const approvedRefreshTasks = new Map<string, Promise<unknown>>();
+function refreshApprovedOnce(systemKey: SectionRemarkSystemKey) {
+  if (!navigator.onLine) return;
+  const key = `${currentWorkspaceUserId() ?? "none"}:${systemKey}`;
+  if (Date.now() - (approvedRefreshedAt.get(key) ?? 0) < 60_000 || approvedRefreshTasks.has(key)) return;
+  approvedRefreshTasks.set(key, refreshApprovedSectionRemarks(systemKey)
+    .then(() => { approvedRefreshedAt.set(key, Date.now()); })
+    .catch(() => undefined)
+    .finally(() => { approvedRefreshTasks.delete(key); }));
 }
 
 type Props = {
@@ -108,11 +126,6 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
     try { onChange(appendOtherRemark(otherBase, nextDraft, definition.maxLength)); setOtherDraft(nextDraft); setMessage(""); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Remark could not be entered."); }
   }
-  async function saveOtherAsCommon() {
-    if (!systemKey || !otherDraft.trim()) return;
-    try { await addCommonRemark(systemKey, otherDraft); setSelected(""); setOtherDraft(""); setMessage("Added to common remarks on this device. It will be shared after sync."); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Common remark could not be saved."); }
-  }
   function closeEditor() { setAdding(false); setNewDraft(""); window.setTimeout(() => addButton.current?.focus()); }
   async function saveNewSectionRemark() {
     if (!sectionScope || saving) return;
@@ -132,7 +145,7 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
   if (definition.policy === "none") {
     return null;
   }
-  if (!readOnly && sectionScope?.systemKey === "automatic_sprinkler" && sectionScope.sectionKey !== "comments") {
+  if (!readOnly && sectionScope && sectionScope.sectionKey !== "comments") {
     return <SingleRowRemarks value={value} onChange={onChange} maxLength={definition.maxLength}
       choices={choices} sectionChoices={sectionChoices} scope={sectionScope} jobId={jobId} />;
   }
@@ -142,7 +155,7 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
       {systemKey && !readOnly ? <div className="common-remarks-picker">
         <label>Remark<select value={selected} onChange={(event) => chooseRemark(event.target.value)}><option value="">Choose a remark</option>{choices.map((item) => <option key={item.id} value={item.id}>{item.wording}</option>)}{sectionChoices.length > 0 ? <optgroup label="Added for this customer">{sectionChoices.map((item) => <option key={item.id} value={`section:${item.id}`}>{item.wording}</option>)}</optgroup> : null}<option value="others">Others</option></select></label>
         {choice?.detailOptions.length ? <label>{choice.detailLabel ?? "Detail"}<select value="" onChange={(event) => addSelection(choice, event.target.value)}><option value="">Select detail</option>{choice.detailOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label> : null}
-        {isOther ? <><label>Type a new remark<textarea value={otherDraft} maxLength={definition.maxLength} onChange={(event) => updateOther(event.target.value)} /></label>{!sectionScope ? <button type="button" className="secondary-command" disabled={!otherDraft.trim()} onClick={() => void saveOtherAsCommon()}>Add to common remarks</button> : null}</> : null}
+        {isOther ? <label>Type a new remark<textarea value={otherDraft} maxLength={definition.maxLength} onChange={(event) => updateOther(event.target.value)} /></label> : null}
         {sectionScope && !adding ? <button ref={addButton} type="button" className="secondary-command section-remark-add" onClick={() => { setMessage(""); setNewDraft(""); setAdding(true); }}>Add new remark</button> : null}
         {sectionScope && adding ? <div className="section-remark-editor">
           <label htmlFor={draftId}>New remark for {sectionLabel ?? label}</label>
@@ -165,13 +178,39 @@ export function RemarksField({ label, definition, value, onChange, readOnly, sys
 function SingleRowRemarks({ value, onChange, maxLength, choices, sectionChoices, scope, jobId }: {
   value: string; onChange: (value: string) => void; maxLength: number;
   choices: CommonRemark[]; sectionChoices: SectionRemark[];
-  scope: { customerId: string; systemKey: "automatic_sprinkler"; sectionKey: string }; jobId?: string;
+  scope: { customerId: string; systemKey: SectionRemarkSystemKey; sectionKey: string }; jobId?: string;
 }) {
   const [editingOther, setEditingOther] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [approvedList, setApprovedList] = useState<ApprovedSectionRemark[]>([]);
+  const [watchedRequest, setWatchedRequest] = useState<string>();
   const noteId = useId();
-  const allChoices = [...choices, ...sectionChoices.map((item) => ({ ...item, id: `section:${item.id}`, detailOptions: [] }))];
+  useEffect(() => {
+    let active = true;
+    const load = () => { void cachedApprovedSectionRemarks(scope.systemKey).then((items) => { if (active) setApprovedList(items); }).catch(() => { if (active) setApprovedList([]); }); };
+    load(); refreshApprovedOnce(scope.systemKey);
+    const unsubscribe = onRemarkRequestsChanged(load);
+    return () => { active = false; unsubscribe(); };
+  }, [scope.systemKey]);
+  // A refusal (for example a duplicate) is the server's decision at send time: show its own message in this row.
+  useEffect(() => {
+    if (!watchedRequest) return;
+    let active = true;
+    const check = () => { void remarkRequestRefusal(watchedRequest).then((reason) => { if (active && reason) { setMessage(reason); setWatchedRequest(undefined); } }).catch(() => undefined); };
+    check();
+    const unsubscribe = onRemarkRequestsChanged(check);
+    return () => { active = false; unsubscribe(); };
+  }, [watchedRequest]);
+  // Approved choices of THIS section (every customer) + the CR-07 remarks of THIS customer and section. A pending request is never offered.
+  const approvedChoices = approvedChoicesForSection(approvedList, scope.systemKey, scope.sectionKey);
+  const approvedKeys = new Set(approvedChoices.map((item) => sectionRemarkCompareKey(item.wording)));
+  const customerChoices = sectionChoices.filter((item) => !approvedKeys.has(sectionRemarkCompareKey(item.wording)));
+  const allChoices = [
+    ...choices,
+    ...approvedChoices.map((item) => ({ ...item, id: `approved:${item.id}`, detailOptions: [] as string[] })),
+    ...customerChoices.map((item) => ({ ...item, id: `section:${item.id}`, detailOptions: [] as string[] }))
+  ];
   const selection = singleRemarkSelection(value, allChoices);
   const selectedId = editingOther ? "others" : selection.id;
   const choice = choices.find((item) => item.id === selectedId);
@@ -187,9 +226,11 @@ function SingleRowRemarks({ value, onChange, maxLength, choices, sectionChoices,
     if (saving || !value.trim()) return;
     setSaving(true);
     try {
-      await addSectionRemark({ ...scope, wording: value, jobId, catalogWordings: choices.map((item) => item.wording) });
-      setMessage("Added to common remarks on this device. It will be shared after sync.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "The remark could not be saved."); }
+      // The row text is NOT touched: the wording is used in this visit now; the request only asks for approval.
+      const request = await createRemarkRequest({ ...scope, wording: value, jobId, catalogWordings: choices.map((item) => item.wording) });
+      setMessage("Sent for approval. It is used in this visit now.");
+      setWatchedRequest(request.id);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "The request could not be saved."); }
     finally { setSaving(false); }
   }
   return <div className="common-remarks-field">
@@ -202,7 +243,8 @@ function SingleRowRemarks({ value, onChange, maxLength, choices, sectionChoices,
         {selection.legacy && !editingOther ? <option value="" disabled>Choose a remark</option> : null}
         <option value={selection.legacy && !editingOther ? "clear" : ""}>No remark</option>
         {choices.map((item) => <option key={item.id} value={item.id}>{item.wording}</option>)}
-        {sectionChoices.length ? <optgroup label="Added for this customer">{sectionChoices.map((item) => <option key={item.id} value={`section:${item.id}`}>{item.wording}</option>)}</optgroup> : null}
+        {approvedChoices.length ? <optgroup label="Approved remarks">{approvedChoices.map((item) => <option key={item.id} value={`approved:${item.id}`}>{item.wording}</option>)}</optgroup> : null}
+        {customerChoices.length ? <optgroup label="Added for this customer">{customerChoices.map((item) => <option key={item.id} value={`section:${item.id}`}>{item.wording}</option>)}</optgroup> : null}
         <option value="others">Others (type your own)</option>
       </select></label>
       {choice?.detailOptions.length ? <label>{choice.detailLabel ?? "Detail"}<select value={selection.detail} onChange={(event) => write(choice.wording, event.target.value)}>

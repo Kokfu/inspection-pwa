@@ -1,4 +1,5 @@
 import type { FinalReportPreview } from "./finalReportApi";
+import { GalleryPhotoLabel } from "../attachments/photoSourceLabel";
 import { formatMalaysiaDateTime } from "../uiPresentation";
 
 /** --failed / --refer / --good modifier for the derived "Summary of Testing" condition cell. */
@@ -49,7 +50,7 @@ export function FinalReportPresentation({ report }: { report: FinalReportPreview
           : "Pending Review."}
       </p> : null}
       <dl>{section.fields.map((field, fieldIndex) => <div className={`report-field report-field--depth-${Math.min(field.depth, 3)}`} key={`${field.label}:${fieldIndex}`}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
-      {section.evidence.map((evidence) => <p className="evidence-confirmed" key={evidence.field}>Photo evidence is included in the downloaded PDF: {evidence.caption ?? evidence.field.replace(/([a-z])([A-Z])/g, "$1 $2")}. <strong>{evidence.captureSource === "camera" ? "Captured by Camera" : evidence.captureSource === "gallery" ? "Uploaded from Gallery" : "Source unavailable"}</strong></p>)}
+      {section.evidence.map((evidence) => <p className="evidence-confirmed" key={evidence.field}>Photo evidence is included in the downloaded PDF: {evidence.caption ?? evidence.field.replace(/([a-z])([A-Z])/g, "$1 $2")}. {evidence.captureSource === "gallery" ? <GalleryPhotoLabel captureSource="gallery" capturedAt={evidence.capturedAt} /> : <strong>{evidence.captureSource === "camera" ? "Captured by Camera" : "Source unavailable"}</strong>}</p>)}
     </section>)}
   </>;
 }

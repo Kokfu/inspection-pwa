@@ -1,79 +1,69 @@
 # Inspection PWA
 
-Offline-first field inspection Progressive Web App foundation for a client-hosted Windows PC.
+Offline-first field-inspection Progressive Web App for fire-system service and repair visits.
+Technicians record visits on their phones (with or without internet); managers set up customers,
+review work, approve reports and send email reminders from an office browser.
 
-This repository is intentionally in Phase 1 foundation state. It defines the architecture, container layout, operational scripts, and application skeletons only. It does not yet implement inspection forms, customer records, reporting, photo capture, signatures, or production authentication.
+The system runs on the client's Windows PC through Docker Compose. PostgreSQL is the central database.
 
-## Target Architecture
+## Documentation
 
-External users will eventually access the system through:
+Start with the handover pack in [docs/handover/](docs/handover/README.md):
 
-```text
-Client-owned domain
--> DNS A record
--> client static public IPv4
--> router/firewall forwarding TCP 80 and 443
--> Caddy running in Docker Desktop on the client Windows PC
--> React/Vite PWA static assets and /api reverse proxy
--> Node.js API
--> internal-only PostgreSQL
-```
+| Read this | For |
+|---|---|
+| [docs/handover/README.md](docs/handover/README.md) | Index, and the role names (Manager / Admin / Technician) |
+| [01 Accounts and access](docs/handover/01-accounts-and-access.md) | Create, reset and retire Manager accounts; manage Technician and Admin accounts |
+| [02 User guide](docs/handover/02-user-guide.md) | Every feature, by role |
+| [03 Offline and online](docs/handover/03-offline-and-online.md) | What works offline, how syncing works |
+| [04 Operations and maintenance](docs/handover/04-operations-and-maintenance.md) | Start/stop, backups, updates, routine checks |
+| [05 Handover checklist and suggestions](docs/handover/05-handover-checklist-and-suggestions.md) | What to finish before handover, known limits |
 
-PostgreSQL must never be exposed to the host or public internet. The API must not be deployed publicly until authentication and API security are completed in a later phase.
+Other references:
 
-## Current Scope
+- First install and public access: [docs/client-install-and-public-access.md](docs/client-install-and-public-access.md)
+- Backup and restore: [docs/operations/backup-and-restore.md](docs/operations/backup-and-restore.md)
+- Email reminders: [docs/operations/service-due-email.md](docs/operations/service-due-email.md)
+- Architecture and design decisions (developers): [docs/architecture/](docs/architecture)
+- Developer status log: [HANDOVER.md](HANDOVER.md)
+- Contributor and agent rules: [AGENTS.md](AGENTS.md)
 
-Included now:
-
-- React + TypeScript + Vite PWA skeleton.
-- Node.js + TypeScript API skeleton.
-- PostgreSQL Docker service skeleton.
-- Caddy reverse proxy skeleton.
-- Multi-stage Caddy image build that copies the React/Vite `dist` output into Caddy.
-- Architecture documentation.
-- Agent skills.
-- Windows PowerShell operational script skeletons.
-
-Not included yet:
-
-- Real inspection forms.
-- Customer/business modules.
-- Reports.
-- Photo capture.
-- Signatures.
-- Complex user management.
-- Production-ready authentication.
-
-## Local Commands
-
-Safe validation commands:
-
-```powershell
-docker compose config
-```
-
-Future implementation commands after dependencies are installed:
-
-```powershell
-cd apps\web
-npm install
-npm run typecheck
-npm run build
-
-cd ..\api
-npm install
-npm run typecheck
-npm run build
-```
-
-Do not run public deployment until the security phase is complete.
-
-## Runtime Data
-
-Production runtime data is expected outside this Git repository, for example:
+## Repository layout
 
 ```text
-C:\InspectionSystem\runtime\
+apps/web/    React + TypeScript + Vite PWA (IndexedDB via Dexie, service worker)
+apps/api/    Node.js + TypeScript API, PostgreSQL migrations, report/PDF generation, admin CLI
+infra/       Caddy reverse proxy, PostgreSQL init, Compose override example
+scripts/     PowerShell operations scripts (start, stop, health, backup, restore)
+docs/        Documentation
 ```
 
-PostgreSQL live data uses a Docker named volume. Uploads, logs, backups, restore staging, operational files, and the bounded frontend release window use Windows host bind mounts.
+## Quick start (operator)
+
+Run from this folder with Docker Desktop running. See
+[04 Operations](docs/handover/04-operations-and-maintenance.md) and the install guide above for the full steps.
+
+```powershell
+Copy-Item .env.example .env        # then set real secrets; never commit .env
+docker compose up -d --build
+docker compose ps
+.\scripts\Health-Check.ps1
+```
+
+A new installation has **no accounts**. Create the first Manager on the office PC:
+
+```powershell
+docker compose exec api node dist/cli/createAdmin.js your-manager-username
+```
+
+Never run `docker compose down -v` on the live system: it deletes the database volume.
+
+## Developer commands
+
+```powershell
+cd apps\web; npm install; npm run typecheck; npm run build
+cd ..\api;   npm install; npm run typecheck; npm run build
+```
+
+Runtime data (uploads, logs, backups, releases) lives outside Git, by default under
+`C:\InspectionSystem\runtime\`. PostgreSQL data lives in a Docker named volume.

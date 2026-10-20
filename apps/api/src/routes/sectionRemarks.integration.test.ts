@@ -162,7 +162,7 @@ test("section remarks: scope, idempotency, merge, validation, auth, audit, migra
           assert.equal((await response.json() as { error: string }).error, "INVALID_SECTION_REMARK", name);
         }
         await reject(await call(postPath(one), "techA", "POST", ["not", "an", "object"]), 400, "INVALID_SECTION_REMARK");
-        await reject(await create("techA", one, base({}), "hose_reel"), 400, "INVALID_SECTION_REMARK");
+        await reject(await create("techA", one, base({}), "smoke_ventilation"), 400, "INVALID_SECTION_REMARK");
         await reject(await create("techA", one, base({}), "not_a_system"), 400, "INVALID_SECTION_REMARK");
         await reject(await call("/technician/customers/not-a-uuid/systems/automatic_sprinkler/section-remarks", "techA", "POST", base({})), 400, "INVALID_SECTION_REMARK");
         assert.equal((await rows(one)).length, before, "no rejected request stored anything");

@@ -1,4 +1,5 @@
-export type FireIntercomV7AcceptedEvidence = { photoUuid: string; systemKey: "fire_intercom"; fieldPath: string; sourceSha256: string; storedSha256: string; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; formInstanceId: string };
+import { assertAcceptedPhotoSource, type AcceptedCaptureSource } from "../attachments/photoSourceLabel";
+export type FireIntercomV7AcceptedEvidence = { photoUuid: string; systemKey: "fire_intercom"; fieldPath: string; sourceSha256: string; storedSha256: string; mimeType: "image/jpeg"; sizeBytes: number; width: number; height: number; formInstanceId: string; captureSource: AcceptedCaptureSource | null; capturedAt: string | null };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const hash = /^[0-9a-f]{64}$/;
@@ -13,6 +14,7 @@ export async function loadFireIntercomV7AcceptedEvidence(inspectionClientUuid: s
   const evidence: FireIntercomV7AcceptedEvidence[] = [];
   for (const item of body.evidence) {
     if (!record(item) || typeof item.photoUuid !== "string" || !uuid.test(item.photoUuid) || item.systemKey !== "fire_intercom" || typeof item.fieldPath !== "string" || typeof item.sourceSha256 !== "string" || !hash.test(item.sourceSha256) || typeof item.storedSha256 !== "string" || !hash.test(item.storedSha256) || item.mimeType !== "image/jpeg" || !Number.isSafeInteger(item.sizeBytes) || !Number.isSafeInteger(item.width) || !Number.isSafeInteger(item.height) || typeof item.formInstanceId !== "string" || !uuid.test(item.formInstanceId)) throw new Error("Accepted evidence response is invalid");
+    assertAcceptedPhotoSource(item);
     evidence.push(item as FireIntercomV7AcceptedEvidence);
   }
   return evidence.sort((left, right) => left.fieldPath.localeCompare(right.fieldPath));

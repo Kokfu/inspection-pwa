@@ -204,27 +204,31 @@ export function createFinalReportHandler({ database = pool, loadReport = loadFin
         return;
       }
       const report = await loadReport(jobId, database, reportAccessFor(request));
-      type CaptureSourceRow = { systemKey: string; instanceKey: string; field: string; captureSource: string | null };
+      type CaptureSourceRow = { systemKey: string; instanceKey: string; field: string; captureSource: string | null; capturedAt: string | null };
       const sourceRows = report.sections.some((section) => section.evidence.length > 0)
         ? (await database.query<CaptureSourceRow>(`SELECT inspection.system_key AS "systemKey", instance.instance_key AS "instanceKey",
-            evidence_row.field_path AS "field", evidence_row.capture_source AS "captureSource"
+            evidence_row.field_path AS "field", evidence_row.capture_source AS "captureSource",
+            to_char(evidence_row.captured_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "capturedAt"
           FROM (
-            SELECT form_instance_id, field_path, capture_source FROM inspection_attachments
+            SELECT form_instance_id, field_path, capture_source, captured_at FROM inspection_attachments
             UNION ALL
-            SELECT form_instance_id, field_path, capture_source FROM staged_inspection_evidence WHERE status='accepted'
+            SELECT form_instance_id, field_path, capture_source, captured_at FROM staged_inspection_evidence WHERE status='accepted'
           ) evidence_row
           JOIN master_system_form_instances instance ON instance.id=evidence_row.form_instance_id
           JOIN master_system_inspections inspection ON inspection.id=instance.inspection_group_id
           WHERE inspection.job_id=$1 AND instance.status='submitted'`, [jobId])).rows
         : [];
-      const sources = new Map<string, CaptureSourceRow["captureSource"]>();
+      const sources = new Map<string, { captureSource: CaptureSourceRow["captureSource"]; capturedAt: string | null }>();
       for (const row of sourceRows) {
         if (row.captureSource !== null && row.captureSource !== "camera" && row.captureSource !== "gallery" && row.captureSource !== "unknown") {
           throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted photo source is invalid.");
         }
+        if (row.capturedAt !== null && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.capturedAt)) {
+          throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted photo time is invalid.");
+        }
         const key = JSON.stringify([row.systemKey, row.instanceKey, row.field]);
         if (sources.has(key)) throw new FinalReportError("FINAL_REPORT_DATA_INVALID", 409, "Accepted photo source is ambiguous.");
-        sources.set(key, row.captureSource);
+        sources.set(key, { captureSource: row.captureSource, capturedAt: row.capturedAt });
       }
       response.setHeader("Cache-Control", "private, no-store");
       response.json({ report: {
@@ -233,7 +237,8 @@ export function createFinalReportHandler({ database = pool, loadReport = loadFin
           ...section,
           // I-45: a Roller Shutter photo says which shutter it belongs to; every other system's line is unchanged.
           evidence: evidence.map((item) => ({ field: item.field, ...(section.systemKey === "fire_rated_roller_shutter" && item.caption ? { caption: item.caption } : {}), available: true,
-            captureSource: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field])) ?? null }))
+            captureSource: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field]))?.captureSource ?? null,
+            capturedAt: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field]))?.capturedAt ?? null }))
         }))
       } });
     } catch (error) {

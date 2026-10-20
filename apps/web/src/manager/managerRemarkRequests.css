@@ -1,0 +1,19 @@
+/* R3: Remark requests page. Reuses the Location Proposals page layout (managerLocationProposals.css); only the "Remarks in use" lists are new. */
+.manager-remark-requests .remark-in-use { display: grid; gap: var(--space-6); min-width: 0; }
+.manager-remark-requests .remark-in-use section { display: grid; gap: var(--space-3); min-width: 0; }
+.manager-remark-requests .remark-in-use :is(h3, h4, p) { margin: 0; }
+.manager-remark-requests .remark-in-use-note { color: var(--muted-on-sunken); }
+.manager-remark-requests .remark-in-use-group { display: grid; gap: var(--space-2); }
+.manager-remark-requests .remark-in-use-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.manager-remark-requests .remark-in-use-item { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-4); min-width: 0; border: thin solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.manager-remark-requests .remark-in-use-item small { color: var(--muted-on-sunken); }
+.manager-remark-requests .remark-in-use-wording { white-space: pre-wrap; font-weight: 600; }
+@media (min-width: 768px) {
+  .manager-remark-requests .remark-in-use-item { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+  .manager-remark-requests .remark-in-use-item small { grid-column: 1 / -1; grid-row: 2; }
+}
+/* Phone: three decision buttons in a row squeeze "Approve with edited wording" into four lines; stack them instead. */
+.manager-remark-requests .proposal-actions { flex-direction: column; }
+@media (min-width: 521px) {
+  .manager-remark-requests .proposal-actions { flex-direction: row; }
+}

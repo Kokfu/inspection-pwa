@@ -10,7 +10,9 @@
  *   checklist.<section>.<rowKey>  -- a checklist row's Remark picker (label-override canonical path)
  *   measurements.<rowKey>         -- a measurement row's Remark picker (label-override canonical path)
  *   comments                      -- the Comments box, its own section
- * Pilot: Automatic Sprinkler only. Every other system keeps the global common-remarks behaviour.
+ * Automatic Sprinkler (R1-R3) plus Hose Reel, Hydrant, Fire Alarm, FM200 and CO2 (R4). The other five services stay plain text.
+ * For the R4 systems the Comments box is NOT a section (no `comments` key): it keeps the system-wide common-remarks list.
+ *   <group>.<rowKey> / rows.<column> / rows.remarks -- the template slot of a repeated row: all rows share one key
  */
 export const commentsSectionKey = "comments";
 
@@ -32,8 +34,52 @@ export type SprinklerChecklistSection = keyof typeof sprinklerChecklistRows;
 export const checklistRemarkSectionKey = (section: SprinklerChecklistSection, rowKey: string) => `checklist.${section}.${rowKey}`;
 export const measurementRemarkSectionKey = (rowKey: string) => `measurements.${rowKey}`;
 
-export const sectionRemarkSystemKeys = ["automatic_sprinkler"] as const;
+/** R4: the checklist / result-column slots of the other five services (stable across the historical templates that have the system). */
+export const hoseReelRemarkRows = {
+  checklistWaterTank: ["saj_main_water_supply", "water_level", "automatic_refilling_facilities", "drain_and_stop_valve_positions"],
+  checklistPumpHouse: [
+    "pump_house_clean", "standby_pump_service_items", "charger_power_failure_alarm", "battery_serviceable",
+    "pump_failure_alarm", "pumps_auto_start", "test_and_gate_valve_positions"
+  ],
+  checklistTestRunFirePump: ["trfp_duty_pump", "trfp_standby_pump"],
+  measurements: ["jockey_pump_pressure", "standby_pump_cut_in"],
+  rowColumns: ["drum", "hose", "nozzle", "valve", "nozzle_box"]
+} as const;
+export const hydrantRemarkColumns = [
+  "canvas_hose_1", "canvas_hose_2", "diffuser_nozzle", "landing_valve", "landing_valve_handle", "hose_cabinet", "key_lock"
+] as const;
+export const fireAlarmRemarkRows = {
+  chargerAndBatteries: ["main_supply", "battery", "charger"],
+  mainFunctionKeys: [
+    "main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "spka_system", "alarm_lift_trip", "signal_gas_discharge"
+  ],
+  secondaryColumns: ["alarm_bell", "manual_call_point"]
+} as const;
+export const suppressionRemarkRows = {
+  chargerAndBatteries: ["main_supply", "battery", "charger"],
+  physicalOutlook: [
+    "co2_cylinder", "electric_actuator", "manual_release_key", "alarm_bell", "twin_flashing_light", "24v_dc_tripping_device",
+    "manual_pull_station", "high_pressure_hose", "discharge_nozzles", "pilot_cylinder"
+  ],
+  mainFunctionKeys: ["main_alarm_reset", "lamp_test", "evacuate", "ac_supply", "dc_supply", "signal_alarm_to_mfap"]
+} as const;
+
+export const sectionRemarkSystemKeys = [
+  "automatic_sprinkler", "hose_reel", "hydrant", "fire_alarm_detector", "fm200_fire_suppression", "co2_fire_extinguisher"
+] as const;
 export type SectionRemarkSystemKey = typeof sectionRemarkSystemKeys[number];
+
+export const rowRemarksSectionKey = "rows.remarks";
+export const rowColumnRemarkSectionKey = (column: string) => `rows.${column}`;
+export const detectorRowRemarksSectionKey = "detectorRows.remarks";
+export const groupedRemarkSectionKey = (group: string, rowKey: string) => `${group}.${rowKey}`;
+
+const prefixed = (group: string, rowKeys: readonly string[]) => rowKeys.map((rowKey) => groupedRemarkSectionKey(group, rowKey));
+const suppressionKeys = [
+  ...(Object.keys(suppressionRemarkRows) as Array<keyof typeof suppressionRemarkRows>)
+    .flatMap((group) => prefixed(group, suppressionRemarkRows[group])),
+  detectorRowRemarksSectionKey
+];
 
 const keysBySystem: Record<SectionRemarkSystemKey, readonly string[]> = {
   automatic_sprinkler: [
@@ -41,7 +87,25 @@ const keysBySystem: Record<SectionRemarkSystemKey, readonly string[]> = {
       .flatMap((section) => sprinklerChecklistRows[section].map((rowKey) => checklistRemarkSectionKey(section, rowKey))),
     ...sprinklerMeasurementRows.map(measurementRemarkSectionKey),
     commentsSectionKey
-  ]
+  ],
+  hose_reel: [
+    ...prefixed("checklist.waterTank", hoseReelRemarkRows.checklistWaterTank),
+    ...prefixed("checklist.pumpHouse", hoseReelRemarkRows.checklistPumpHouse),
+    ...prefixed("checklist.testRunFirePump", hoseReelRemarkRows.checklistTestRunFirePump),
+    ...hoseReelRemarkRows.measurements.map(measurementRemarkSectionKey),
+    ...hoseReelRemarkRows.rowColumns.map(rowColumnRemarkSectionKey),
+    rowRemarksSectionKey
+  ],
+  hydrant: [...hydrantRemarkColumns.map(rowColumnRemarkSectionKey), rowRemarksSectionKey],
+  fire_alarm_detector: [
+    ...prefixed("chargerAndBatteries", fireAlarmRemarkRows.chargerAndBatteries),
+    ...prefixed("mainFunctionKeys", fireAlarmRemarkRows.mainFunctionKeys),
+    "primaryRows.remarks",
+    ...fireAlarmRemarkRows.secondaryColumns.map((column) => `secondaryRows.${column}`),
+    "secondaryRows.remarks"
+  ],
+  fm200_fire_suppression: suppressionKeys,
+  co2_fire_extinguisher: suppressionKeys
 };
 
 export function isSectionRemarkSystemKey(value: unknown): value is SectionRemarkSystemKey {

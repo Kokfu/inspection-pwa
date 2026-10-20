@@ -79,7 +79,7 @@
         auth.resolve(json({ user: admin }));
         await waitFor(() => mount.querySelector("#manager-dashboard-title"), "dashboard");
         const sidebarLabels = [...mount.querySelectorAll('[aria-label="Primary navigation"] button')].map(button => button.textContent.trim());
-        if (sidebarLabels.at(-2) !== "Approvals" || sidebarLabels.at(-1) !== "Settings"
+        if (sidebarLabels.at(-3) !== "Approvals" || sidebarLabels.at(-2) !== "Photo KPI" || sidebarLabels.at(-1) !== "Settings"
           || sidebarLabels.some(label => ["Location Proposals", "Site Requests", "Repair Visits", "Email reminders", "Company Profile"].includes(label))) throw new Error("Sidebar did not regroup approval/settings destinations");
         clickContaining("Operations");
         await waitFor(() => window.location.hash === "#/manager-operations" && mount.querySelector("#manager-home-title") && mount.textContent.includes(visit.customer), "Manager Operations");

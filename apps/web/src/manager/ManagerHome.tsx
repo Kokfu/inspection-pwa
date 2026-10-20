@@ -5,7 +5,7 @@ import { InspectionTrend } from "./InspectionTrend";
 import { StatusDonut } from "./StatusDonut";
 import { KpiTiles } from "./KpiTiles";
 
-export type ManagerDashboardRoute = { name: "manager-approvals" | "manager-settings" | "manager-report-approvals" | "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" | "manager-site-proposals" };
+export type ManagerDashboardRoute = { name: "manager-approvals" | "manager-settings" | "manager-report-approvals" | "manager-repairs" | "manager-technicians" | "manager-operations" | "manager-customers" | "manager-add-customer" | "manager-common-remarks" | "manager-service-catalog" | "manager-services-done" | "manager-upcoming-services" | "manager-company-profile" | "manager-email-reminders" | "manager-location-proposals" | "manager-site-proposals" | "manager-photo-kpi" };
 
 /**
  * Single source of truth for the manager/supervisor top-level destinations, shared by the
@@ -13,14 +13,14 @@ export type ManagerDashboardRoute = { name: "manager-approvals" | "manager-setti
  */
 export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDashboardRoute["name"]]> {
   return supervisor
-    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Approvals", "manager-approvals"]]
+    ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Approvals", "manager-approvals"], ["Photo KPI", "manager-photo-kpi"]]
     : [
         ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
         ["Operations", "manager-operations"],
         ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
         ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
-        ["Approvals", "manager-approvals"], ["Settings", "manager-settings"]
+        ["Approvals", "manager-approvals"], ["Photo KPI", "manager-photo-kpi"], ["Settings", "manager-settings"]
       ];
 }
 

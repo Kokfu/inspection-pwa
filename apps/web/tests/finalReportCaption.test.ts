@@ -5,7 +5,7 @@ import { loadFinalReport } from "../src/jobs/finalReportApi.js";
 /** I-54: the evidence caption is optional, but when it is sent it must be text; anything else fails closed. */
 
 const report = (caption: unknown) => ({ report: { customer: "C", site: "S", systems: [], sections: [{ systemKey: "fire_rated_roller_shutter", label: "Roller", fields: [],
-  evidence: [{ field: "roller_shutter_schedule.roller_shutter_schedule_rows.rows.x.manual_mode", ...(caption === undefined ? {} : { caption }), available: true, captureSource: "camera" }] }] } });
+  evidence: [{ field: "roller_shutter_schedule.roller_shutter_schedule_rows.rows.x.manual_mode", ...(caption === undefined ? {} : { caption }), available: true, captureSource: "camera", capturedAt: null }] }] } });
 async function load(body: unknown) {
   const original = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } })) as never;

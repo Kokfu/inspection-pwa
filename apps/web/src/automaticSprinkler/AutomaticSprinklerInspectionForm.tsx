@@ -14,6 +14,7 @@ import { isOptionalPhotoResult } from "../attachments/optionalGoodPhoto";
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
+import { RemarkRequestStatus } from "../inspectionControls/RemarkRequestStatus";
 import { checklistRemarkSectionKey, commentsSectionKey, measurementRemarkSectionKey } from "../inspectionControls/remarkSections";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
@@ -356,6 +357,8 @@ export function AutomaticSprinklerInspectionForm({
         onChange={(comments) => setResponses((current) => ({ ...current, comments }))}
       />
     </fieldset>
+
+    <RemarkRequestStatus customerId={remarkCustomerId} systemKey="automatic_sprinkler" />
 
     {record.syncStatus === "Draft" ? <div className="form-actions sticky-form-actions">
       <button type="button" className="secondary-command" onClick={() => void save()}>Save Draft</button>

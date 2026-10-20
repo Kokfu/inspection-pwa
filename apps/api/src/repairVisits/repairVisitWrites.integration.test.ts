@@ -52,9 +52,9 @@ test("repair write lifecycle: authority, atomic evidence, retries, revisions, co
       previousVisit: null as { kind: "repair" | "service"; visitId: string } | null,
       items: [{ clientUuid: id(), identity: catalog.fields[0].identity }] });
     let color = 0;
-    async function stage(visit: string, item: string, revision = 1) {
+    async function stage(visit: string, item: string, revision = 1, source: "camera" | "gallery" = "camera") {
       const bytes = await sharp({ create: { width: 12,height: 10,channels: 3,background: { r: ++color*19%255,g: 33,b: 80 } } }).jpeg().toBuffer();
-      const photo = { photoUuid: id(),itemUuid: item,revision,sourceSha256: sha(bytes),sizeBytes: bytes.length,width: 12,height: 10,captureSource: "camera",capturedAt: new Date().toISOString() };
+      const photo = { photoUuid: id(),itemUuid: item,revision,sourceSha256: sha(bytes),sizeBytes: bytes.length,width: 12,height: 10,captureSource: source,capturedAt: new Date().toISOString() };
       const send = async () => { const source = path.join(uploads,`${id()}.upload`); await writeFile(source,bytes); return stageRepairVisitPhoto(db,owner,visit,photo,source); };
       const receipt = await send(); return { photo,receipt,send,bytes };
     }
@@ -178,7 +178,7 @@ test("repair write lifecycle: authority, atomic evidence, retries, revisions, co
       const b = newRequest(); b.previousVisit = { kind: "repair",visitId: prev }; b.items = [{ clientUuid: id(),identity: fields[0].identity }];
       await assert.rejects(createRepairVisit(db,foreign,b),code("REPAIR_VISIT_NOT_FOUND"));
       await assert.rejects(createRepairVisit(db,owner,{ ...b,siteId: id() }),code("SITE_INACTIVE"));
-      await createRepairVisit(db,owner,b); const p = await stage(b.clientUuid,b.items[0].clientUuid);
+      await createRepairVisit(db,owner,b); const p = await stage(b.clientUuid,b.items[0].clientUuid,1,"gallery");
       await submitRepairVisit(db,owner,b.clientUuid,submission(b,p.photo));
       assert.deepEqual((await db.query("SELECT before_snapshot FROM repair_visit_items WHERE visit_uuid=$1",[b.clientUuid])).rows[0].before_snapshot,fields[0].before);
       await decideRepairVisit(db,admin,b.clientUuid,decision(),false);
@@ -190,6 +190,9 @@ test("repair write lifecycle: authority, atomic evidence, retries, revisions, co
       assert.deepEqual(await repairVisitPdf(db,owner,prev,false,2),originalPdf);
       const detail = await readRepairVisit(db,owner,b.clientUuid);
       assert.equal(detail.visit.status,"approved"); assert.equal(detail.items[0].photoUuid,p.photo.photoUuid);
+      // P2: the source is internal. Admin/Manager reads carry it; the technician read has no such key.
+      assert.equal("photoSources" in detail,false,"technician read exposes no photo source");
+      for (const reviewer of [manager,admin]) assert.deepEqual((await readRepairVisit(db,reviewer,b.clientUuid) as { photoSources?: unknown }).photoSources,[{ photoUuid: p.photo.photoUuid,captureSource: "gallery",capturedAt: p.photo.capturedAt }]);
       assert.deepEqual(await readRepairVisitPhoto(db,manager,b.clientUuid,p.photo.photoUuid),await readFile(path.join(uploads,`repairs/${b.clientUuid}/${p.photo.photoUuid}.jpg`)));
       await assert.rejects(readRepairVisit(db,foreign,b.clientUuid),code("FORBIDDEN"));
       await assert.rejects(readRepairVisitPhoto(db,foreign,b.clientUuid,p.photo.photoUuid),code("FORBIDDEN"));
@@ -342,7 +345,7 @@ test("repair write lifecycle: authority, atomic evidence, retries, revisions, co
       }
       assert.equal((await db.query("SELECT count(*)::int AS n FROM repair_visit_photos WHERE visit_uuid=$1",[b.clientUuid])).rows[0].n,0);
       const bytes = await sharp({ create: { width: 3,height: 4,channels: 3,background: "red" } }).jpeg().toBuffer();
-      const photo = { photoUuid: id(),itemUuid: b.items[0].clientUuid,revision: 1,sourceSha256: sha(bytes),sizeBytes: bytes.length,width: 3,height: 4,captureSource: "camera",capturedAt: new Date().toISOString() };
+      const photo = { photoUuid: id(),itemUuid: b.items[0].clientUuid,revision: 1,sourceSha256: sha(bytes),sizeBytes: bytes.length,width: 3,height: 4,captureSource: "camera" as const,capturedAt: new Date().toISOString() };
       const form = new FormData(); form.set("metadata",JSON.stringify(photo)); form.set("file",new Blob([bytes]),"image.jpg");
       // Explicit JPEG type is mandatory.
       form.set("file",new Blob([bytes],{ type: "image/jpeg" }),"image.jpg");

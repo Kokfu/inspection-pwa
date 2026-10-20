@@ -35,7 +35,8 @@ export function createServiceCommonRemarksRouter(database: Pick<Pool, "query" | 
   router.get("/service-common-remarks", requireRole("admin", "inspector"), async (_request, response, next) => {
     try { const result = await database.query(`SELECT ${columns} FROM service_common_remarks WHERE active ORDER BY system_key, created_at, id`); response.setHeader("Cache-Control", "private, no-store"); response.json({ remarks: result.rows }); } catch (error) { next(error); }
   });
-  router.post("/service-common-remarks", requireRole("admin", "inspector"), requireExpectedActor("service_common_remark_create", "service_common_remark"), async (request, response, next) => {
+  // R4: a technician no longer adds to the system-wide list directly (they send a remark request); Manager (admin) and Admin (supervisor) do.
+  router.post("/service-common-remarks", requireRole("admin", "supervisor"), requireExpectedActor("service_common_remark_create", "service_common_remark"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {
       const data = parseBody(request.body, true);

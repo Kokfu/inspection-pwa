@@ -14,6 +14,7 @@ import { controlsForHoseReelSnapshot } from "../inspectionControls/definitionRes
 import { overriddenLabel } from "../inspections/labelOverrides";
 import { MeasurementValueInput } from "../inspectionControls/MeasurementValueInput";
 import { RemarksField } from "../inspectionControls/RemarksField";
+import { RemarkRequestStatus } from "../inspectionControls/RemarkRequestStatus";
 import { ResultSelector } from "../inspectionControls/ResultSelector";
 import {
   addHoseReelRow,
@@ -82,6 +83,7 @@ export function HoseReelInspectionForm({
   onClose
 }: Props) {
   const [responses, setResponses] = useState(record.responses);
+  const remarkCustomerId = record.inspectionSnapshot.customer.id;
   const [message, setMessage] = useState("");
   const [formatStatus, setFormatStatus] = useState<"idle" | "saving" | "pending" | "synced" | "failed">("idle");
   const [formatError, setFormatError] = useState("");
@@ -392,7 +394,7 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <RemarksField systemKey="hose_reel"
+            <RemarksField systemKey="hose_reel" sectionKey={`checklist.waterTank.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
               label="Remarks"
               definition={definition.remarks}
               value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -430,7 +432,7 @@ export function HoseReelInspectionForm({
               readOnly={readOnly}
               onChange={(result) => updateChecklist(definition.key, { result })}
             />
-            <RemarksField systemKey="hose_reel"
+            <RemarksField systemKey="hose_reel" sectionKey={`checklist.pumpHouse.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
               label="Remarks"
               definition={definition.remarks}
               value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -476,7 +478,7 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(result) => updateJockey({ result })}
           />
-          <RemarksField systemKey="hose_reel"
+          <RemarksField systemKey="hose_reel" sectionKey="measurements.jockey_pump_pressure" sectionLabel={labelAt("measurements.jockey_pump_pressure", jockeyDefinition.label)} customerId={remarkCustomerId} jobId={record.jobId}
             label="Remarks"
             definition={jockeyDefinition.remarks}
             value={responses.measurements.jockey_pump_pressure.remarks}
@@ -517,7 +519,7 @@ export function HoseReelInspectionForm({
             readOnly={readOnly}
             onChange={(result) => updateStandby({ result })}
           />
-          <RemarksField systemKey="hose_reel"
+          <RemarksField systemKey="hose_reel" sectionKey="measurements.standby_pump_cut_in" sectionLabel={labelAt("measurements.standby_pump_cut_in", standbyDefinition.label)} customerId={remarkCustomerId} jobId={record.jobId}
             label="Remarks"
             definition={standbyDefinition.remarks}
             value={responses.measurements.standby_pump_cut_in.remarks}
@@ -554,7 +556,7 @@ export function HoseReelInspectionForm({
                 readOnly={readOnly}
                 onChange={(result) => updateChecklist(definition.key, { result })}
               />
-              <RemarksField systemKey="hose_reel"
+              <RemarksField systemKey="hose_reel" sectionKey={`checklist.testRunFirePump.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
                 label="Remarks"
                 definition={definition.remarks}
                 value={responses.checklist[definition.key]?.remarks ?? ""}
@@ -713,7 +715,7 @@ export function HoseReelInspectionForm({
                   />
                   {isV7 && isHoseReelV7EvidenceFinding(result) ? (
                     <section>
-                      <RemarksField systemKey="hose_reel"
+                      <RemarksField systemKey="hose_reel" sectionKey={`rows.${definition.key}`} sectionLabel={shownLabel} customerId={remarkCustomerId} jobId={record.jobId}
                         label={`${shownLabel} Remark *`}
                         definition={controls.repeatableRows.remarks}
                         value={row.fieldRemarks?.[field] ?? ""}
@@ -733,7 +735,7 @@ export function HoseReelInspectionForm({
                 </div>
                 );
               })}
-              <RemarksField systemKey="hose_reel"
+              <RemarksField systemKey="hose_reel" sectionKey="rows.remarks" sectionLabel="Row remarks" customerId={remarkCustomerId} jobId={record.jobId}
                 label="Remarks"
                 definition={controls.repeatableRows.remarks}
                 value={row.remarks}
@@ -793,6 +795,8 @@ export function HoseReelInspectionForm({
           }))}
         />
       </fieldset>
+
+      <RemarkRequestStatus customerId={remarkCustomerId} systemKey="hose_reel" />
 
       {record.syncStatus === "Draft" ? (
         <div className="form-actions sticky-form-actions">

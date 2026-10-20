@@ -1,5 +1,5 @@
 import {
-  parseRepairVisit, parseRepairVisitEvent, parseRepairVisitItem, rvEnum, rvKeys, rvObject, rvPositive, rvUuid,
+  parseRepairVisit, parseRepairVisitEvent, parseRepairVisitItem, rvEnum, rvKeys, rvObject, rvPositive, rvTimestamp, rvUuid,
   type RepairVisit, type RepairVisitEvent, type RepairVisitItem
 } from "../repairVisits/repairVisitTypes";
 
@@ -12,7 +12,14 @@ export class RepairVisitsApiError extends Error {
   }
 }
 
-export type RepairVisitDetail = { visit: RepairVisit; items: RepairVisitItem[]; events: RepairVisitEvent[] };
+export type RepairVisitPhotoSource = { photoUuid: string; captureSource: "camera" | "gallery" | "unknown"; capturedAt: string };
+export type RepairVisitDetail = { visit: RepairVisit; items: RepairVisitItem[]; events: RepairVisitEvent[]; photoSources: RepairVisitPhotoSource[] };
+
+function parsePhotoSource(value: unknown): RepairVisitPhotoSource {
+  if (!rvObject(value) || !rvKeys(value, ["photoUuid", "captureSource", "capturedAt"]) || !rvUuid(value.photoUuid)
+    || !rvEnum(value.captureSource, ["camera", "gallery", "unknown"]) || !rvTimestamp(value.capturedAt)) return unavailable();
+  return value as RepairVisitPhotoSource;
+}
 export type RepairVisitDecisionReceipt = {
   operationUuid: string; clientUuid: string; revision: number; event: "returned" | "approved";
   reportNumber: string | null;
@@ -75,12 +82,15 @@ export async function loadRepairVisits(signal?: AbortSignal): Promise<RepairVisi
 
 export async function loadRepairVisit(visitId: string, signal?: AbortSignal): Promise<RepairVisitDetail> {
   const body = await json(await send(`/api/repair-visits/${enc(visitId)}`, "GET", undefined, signal));
-  if (!rvObject(body) || !rvKeys(body, ["visit", "items", "events"]) || !Array.isArray(body.items) || !Array.isArray(body.events)) return unavailable();
+  if (!rvObject(body) || !rvKeys(body, ["visit", "items", "events", "photoSources"]) || !Array.isArray(body.items) || !Array.isArray(body.events) || !Array.isArray(body.photoSources)) return unavailable();
   const detail: RepairVisitDetail = {
     visit: parseOrUnavailable(parseRepairVisit, body.visit),
     items: body.items.map(item => parseOrUnavailable(parseRepairVisitItem, item)),
-    events: body.events.map(event => parseOrUnavailable(parseRepairVisitEvent, event))
+    events: body.events.map(event => parseOrUnavailable(parseRepairVisitEvent, event)),
+    photoSources: body.photoSources.map(parsePhotoSource)
   };
+  const sourceIds = new Set(detail.photoSources.map(source => source.photoUuid));
+  if (sourceIds.size !== detail.photoSources.length || detail.items.some(item => item.photoUuid !== null && !sourceIds.has(item.photoUuid))) return unavailable();
   // Fail closed: the server must answer for exactly the visit that was asked for.
   if (detail.visit.clientUuid !== visitId || detail.items.some(item => item.visitUuid !== visitId) || detail.events.some(event => event.visitUuid !== visitId)) return unavailable();
   return detail;

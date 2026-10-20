@@ -1,6 +1,7 @@
 import { currentWorkspaceUserId, deviceDatabase, localDatabase, type SyncOutboxItem } from "../db/localDatabase";
 import { refreshCommonRemarks, type CommonRemark } from "../inspectionControls/commonRemarks";
 import { completeSectionRemark, parseSectionRemarkConfirmation, parseSectionRemarkOutboxPayload, refreshSectionRemarks, SectionRemarkNotConfirmedError } from "../inspectionControls/sectionRemarks";
+import { announceRemarkRequestsChanged, completeRemarkRequest, parseRemarkRequestConfirmation, parseRemarkRequestOutboxPayload, refreshOwnRemarkRequests, RemarkRequestNotConfirmedError } from "../inspectionControls/remarkRequests";
 import { outboxHasAutoSyncWork, type AutoSyncReason } from "./autoSync";
 import { readRefusalBody, syncRefusalMessage } from "./syncRefusal";
 import { syncPendingTechnicianCustomers, technicianCustomerSyncIdle } from "../jobs/technicianCustomerDraft";
@@ -243,6 +244,7 @@ function shouldSync(item: SyncOutboxItem) {
 async function syncPendingCommonRemarks() {
   const items = (await localDatabase.syncOutbox.where("entityType").equals("commonRemark").toArray()).filter(shouldSync);
   let confirmed = 0;
+  let discarded = 0;
   for (const item of items) {
     const current = await localDatabase.transaction("rw", localDatabase.syncOutbox, async () => {
       const pending = await localDatabase.syncOutbox.get(item.operationId);
@@ -256,14 +258,21 @@ async function syncPendingCommonRemarks() {
     try {
       if (!await localDatabase.syncOutbox.get(item.operationId)) continue;
       const response = await fetch("/api/service-common-remarks", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", ...expectedActorHeaders() }, body: JSON.stringify({ id: remark.id, systemKey: remark.systemKey, wording: remark.wording, detailLabel: remark.detailLabel, detailOptions: remark.detailOptions }) });
+      if (response.status === 403) {
+        // R4: only Admin / Manager add to the system-wide list now. A technician's older queued item can never succeed and was never
+        // confirmed: discard it instead of retrying and reporting a failure on every sync.
+        await localDatabase.syncOutbox.delete(item.operationId);
+        discarded++;
+        continue;
+      }
       const body = await response.json() as { remark?: { id?: unknown }; message?: string };
       if (!response.ok || body.remark?.id !== remark.id) throw new Error(body.message ?? "Common remark was not confirmed by the server");
       await localDatabase.syncOutbox.update(item.operationId, { status: "Completed", completedAt: new Date().toISOString(), lastError: undefined });
       confirmed++;
     } catch (error) { await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: failureMessage(error) }); }
   }
-  if (confirmed) await refreshCommonRemarks().catch(() => undefined);
-  return { confirmed, failed: items.length - confirmed, attempted: items.length };
+  if (confirmed || discarded) await refreshCommonRemarks().catch(() => undefined);
+  return { confirmed, failed: items.length - confirmed - discarded, attempted: items.length };
 }
 
 /** A queued section remark that gets no reply in this long is treated as unknown, not rejected, and retried. */
@@ -327,6 +336,77 @@ export async function syncPendingSectionRemarks() {
   }
   for (const customerId of refreshed) await refreshSectionRemarks(customerId).catch(() => undefined);
   return { confirmed, failed, attempted: items.length };
+}
+
+export type RemarkRequestSendOutcome = { state: "confirmed" | "refused" | "retry"; message?: string };
+
+/**
+ * R3: send this device's queued remark requests. Same discipline as section remarks: an item becomes Completed ONLY when the
+ * reply echoes the exact UUID that was queued and describes the same request (parseRemarkRequestConfirmation). A timeout,
+ * dropped connection, 5xx or 429 is an unknown result: the item goes back to Pending and the same UUID is sent again (the
+ * server is idempotent). A definite 4xx refusal (a duplicate, a request the server cannot accept) is Failed with the server's
+ * own message, which is what the row and the read-back show. The wording already in the visit is never touched here.
+ */
+export async function syncPendingRemarkRequests(actorUserId?: number) {
+  const held = await heldJobIds();
+  const items = (await localDatabase.syncOutbox.where("entityType").equals("remarkRequest").toArray())
+    .filter((item) => shouldSync(item) && !held.has(payloadJobId(item) ?? ""));
+  const actorHeaders = actorUserId === undefined ? expectedActorHeaders() : { "X-Expected-User-Id": String(actorUserId) };
+  let confirmed = 0;
+  let failed = 0;
+  let confirmedAny = false;
+  const outcomes: Record<string, RemarkRequestSendOutcome> = {};
+  for (const item of items) {
+    const current = await localDatabase.transaction("rw", localDatabase.syncOutbox, async () => {
+      const pending = await localDatabase.syncOutbox.get(item.operationId);
+      if (!pending || !shouldSync(pending)) return undefined;
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Syncing", attempts: pending.attempts + 1, lastAttemptAt: new Date().toISOString() });
+      return pending;
+    });
+    if (!current) continue;
+    const sent = parseRemarkRequestOutboxPayload(current.payload, current.entityId);
+    if (!sent) {
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: "Local remark request is malformed" });
+      outcomes[item.entityId] = { state: "refused", message: "Local remark request is malformed" }; failed++; continue;
+    }
+    const retryLater = async (message: string) => {
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Pending", lastError: message });
+      outcomes[sent.id] = { state: "retry", message };
+    };
+    const refuse = async (message: string) => {
+      await localDatabase.syncOutbox.update(item.operationId, { status: "Failed", lastError: message });
+      outcomes[sent.id] = { state: "refused", message }; failed++;
+    };
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), sectionRemarkRequestTimeoutMs);
+      let response: Response;
+      try {
+        response = await fetch(`/api/technician/customers/${sent.customerId}/systems/${sent.systemKey}/remark-requests`, {
+          method: "POST", credentials: "same-origin", signal: controller.signal,
+          headers: { "Content-Type": "application/json", ...actorHeaders },
+          body: JSON.stringify({ id: sent.id, sectionKey: sent.sectionKey, wording: sent.wording, ...(sent.jobId === undefined ? {} : { jobId: sent.jobId }) })
+        });
+      } finally { clearTimeout(timer); }
+      if (response.status === 401 || response.status === 403) { await refuse(syncRefusalMessage(response.status, await readRefusalBody(response))); continue; }
+      let body: unknown;
+      try { body = await response.json(); } catch { body = undefined; }
+      if (!response.ok) {
+        if (response.status >= 500 || response.status === 408 || response.status === 429) { await retryLater(`The server could not take this request yet (HTTP ${response.status}); it will be sent again.`); continue; }
+        const reason = typeof (body as { message?: unknown } | undefined)?.message === "string" ? (body as { message: string }).message : `The server refused this request (HTTP ${response.status}).`;
+        await refuse(reason); continue;
+      }
+      await completeRemarkRequest(item.operationId, sent, parseRemarkRequestConfirmation(body, sent));
+      outcomes[sent.id] = { state: "confirmed" }; confirmed++; confirmedAny = true;
+    } catch (error) {
+      if (error instanceof RemarkRequestNotConfirmedError) { await refuse(error.message); continue; }
+      // No answer (offline, timed out, connection dropped): the server may or may not have stored it.
+      await retryLater("Could not reach the server; this request will be sent again.");
+    }
+  }
+  if (confirmedAny) await refreshOwnRemarkRequests().catch(() => undefined);
+  if (items.length > 0) announceRemarkRequestsChanged();
+  return { confirmed, failed, attempted: items.length, outcomes };
 }
 
 function failureMessage(error: unknown) {
@@ -608,6 +688,7 @@ export async function syncPendingRecords(actorUserId?: number) {
 
     const commonRemarks = await syncPendingCommonRemarks();
     const sectionRemarks = await syncPendingSectionRemarks();
+    const remarkRequests = await syncPendingRemarkRequests(syncActorId);
 
     const v6Evidence = await syncPendingV6Evidence(held);
     const v7Evidence = await syncPendingV7Evidence(held);
@@ -617,7 +698,7 @@ export async function syncPendingRecords(actorUserId?: number) {
       .anyOf("Pending", "Failed")
       .toArray())
       .filter((item) =>
-        item.entityType !== "offlineServiceVisit" && item.entityType !== "rvVisit" && item.entityType !== "rvPhoto" && !held.has(payloadJobId(item) ?? "") && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
+        item.entityType !== "offlineServiceVisit" && item.entityType !== "rvVisit" && item.entityType !== "rvPhoto" && !held.has(payloadJobId(item) ?? "") && item.entityType !== "inspectionAttachment" && item.entityType !== "v6StagedEvidence" && item.entityType !== "v7StagedEvidence" && item.entityType !== "commonRemark" && item.entityType !== "sectionRemark" && item.entityType !== "remarkRequest" && item.entityType !== "technicianCustomer" && item.entityType !== "technicianLocationProposal" && shouldSync(item)
       );
     let items = await filterTerminalConflictWork(
       await validateFireAlarmWork(candidateItems)
@@ -632,8 +713,8 @@ export async function syncPendingRecords(actorUserId?: number) {
         started: true,
         message: visits.attempted ? `Service visit sync: ${visits.confirmed} confirmed, ${visits.failed} need attention`
           : repairVisits.attempted ? `Repair visit sync: ${repairVisits.confirmed} steps confirmed, ${repairVisits.failed} need attention`
-          : commonRemarks.attempted || sectionRemarks.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
-          ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${sectionRemarks.confirmed} section remarks confirmed, ${sectionRemarks.failed} section remarks failed, ${evidence.accepted} attachments confirmed`
+          : commonRemarks.attempted || sectionRemarks.attempted || remarkRequests.attempted || v6Evidence.accepted || v6Evidence.failed || v6Evidence.pending || v7Evidence.accepted || v7Evidence.failed || v7Evidence.pending || evidence.accepted || evidence.failed || evidence.pending
+          ? `Sync finished: ${commonRemarks.confirmed} common remarks confirmed, ${commonRemarks.failed} common remarks failed, ${sectionRemarks.confirmed} section remarks confirmed, ${sectionRemarks.failed} section remarks failed, ${evidence.accepted} attachments confirmed${remarkRequests.attempted ? `, ${remarkRequests.confirmed} remark requests confirmed, ${remarkRequests.failed} remark requests failed` : ""}`
           : "No pending records"
       };
     }

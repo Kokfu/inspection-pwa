@@ -25,7 +25,9 @@ test("I-45: the on-screen report prints no raw key, and the photo line names the
   expect(text).not.toMatch(/row uuid|sort order|roller_shutter_schedule\./i);
   await expect(section.locator(".evidence-confirmed")).toContainText("Photo evidence is included in the downloaded PDF: Roller Shutter Schedule - Manual Mode (Zone 1 — Roof).");
   await expect(section.locator(".evidence-confirmed")).toContainText("Captured by Camera");
-  // Another system's photo line is unchanged: the field text, no caption.
+  await expect(section.locator(".evidence-confirmed [data-testid=gallery-photo-label]")).toHaveCount(0);
+  // Another system's photo line is unchanged: the field text, no caption. A gallery photo shows the visible label.
+  await expect(page.locator("#report .report-section").nth(1).locator(".evidence-confirmed")).toContainText("GALLERY · uploaded 20 Oct 2026, 9:02");
   const other = page.locator("#report .report-section").nth(1).locator(".evidence-confirmed");
   await expect(other).toContainText("Photo evidence is included in the downloaded PDF: charger_batteries.charger_battery_checks.main Supply.");
 });
