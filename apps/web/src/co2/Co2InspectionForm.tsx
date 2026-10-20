@@ -73,7 +73,10 @@ export function Co2InspectionForm({ record, actorUserId, canUseServer, onBack, o
   }, [issues]);
   const readOnly = record.syncStatus !== "Draft";
 
-  useEffect(() => setResponses(countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [record]);
+  // A Draft is reset only when its stored version changes, so a stale startup-refresh copy cannot overwrite
+  // an unsaved edit. Non-Draft records still follow the object.
+  const responsesSource = record.syncStatus === "Draft" ? null : record;
+  useEffect(() => setResponses(countDriven && record.syncStatus === "Draft" ? normalizeDetectorRows(record.responses, record.inspectionSnapshot.system, record.inspectionSnapshot.instance) : record.responses), [responsesSource, record.clientUuid, record.localUpdatedAt, record.syncStatus]);
   const { submit: submitLocal } = useDraftAutosave({ record, responses, setResponses, save: onSaveDraft, submit: onSubmitLocal, enabled: record.syncStatus === "Draft" });
   useEffect(() => { if (record.masterTemplate.version === 7) { void listV7SuppressionPhotos(record.clientUuid).then(setPhotos); void collectV7SiblingEvidence(record).then(setSiblings); } else { setPhotos([]); setSiblings([]); } }, [record.clientUuid, record.groupKey, record.masterTemplate.version, record.localUpdatedAt]);
   useEffect(() => { setMessage(""); setShowValidation(false); }, [record.clientUuid]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CameraCaptureDialog } from "../attachments/CameraCaptureDialog";
+import { PhotoCaptureActions } from "../attachments/PhotoCaptureActions";
 import { beginWorkspaceActivity } from "../db/workspaceActivity";
 import { formatClientDate, formatClientDateTime } from "../uiPresentation";
 import { downloadBeforePhoto, readCachedBeforePhoto } from "./repairVisitOffline";
@@ -71,6 +71,7 @@ function AfterPhoto({ visit, item, photo, connected }: { visit: LocalRepairVisit
   }, [needsRemote, connected, visit.clientUuid, item.photoUuid]);
   if (photo) return <>
     <BlobImage blob={photo.blob} alt="After photo for this field" />
+    {photo.captureSource === "gallery" ? <strong className="source-badge">Uploaded from gallery</strong> : null}
     <p className="rv-meta">Taken {formatClientDateTime(photo.capturedAt)}</p>
   </>;
   if (remote.blob) return <BlobImage blob={remote.blob} alt="After photo for this field" />;
@@ -93,13 +94,10 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
   const [photoStatus, setPhotoStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [camera, setCamera] = useState(false);
   const pending = useRef<string | undefined>(undefined);
   const timer = useRef<number | undefined>(undefined);
   const chain = useRef<Promise<void>>(Promise.resolve());
   const mounted = useRef(true);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const cameraButton = useRef<HTMLButtonElement>(null);
   const uuid = item.clientUuid;
 
   function flush(): Promise<void> {
@@ -185,12 +183,9 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
           <div className="rv-photo">
             <p className="rv-label" id={`rv-photo-label-${uuid}`}>After photo (required)</p>
             <AfterPhoto visit={visit} item={item} photo={photo} connected={connected} />
-            <div className="rv-actions" role="group" aria-labelledby={`rv-photo-label-${uuid}`}>
-              <button ref={cameraButton} type="button" disabled={busy} onClick={() => setCamera(true)}>Take photo</button>
-              <button type="button" className="secondary-command" disabled={busy} onClick={() => fileInput.current?.click()}>{photo ? "Replace photo" : "Choose photo"}</button>
-            </div>
-            <input ref={fileInput} className="rv-file" type="file" accept="image/*" aria-label={`Choose After photo for ${item.fieldLabel}`} tabIndex={-1}
-              onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) void storePhoto(selected, "gallery"); }} />
+            <PhotoCaptureActions disabled={busy} hasPhoto={Boolean(photo)}
+              onCapture={blob => storePhoto(blob, "camera")}
+              onGallery={file => storePhoto(file, "gallery")} />
             {photoError ? <p className="rv-error" role="alert">Add an After photo.</p> : null}
           </div>
           <p className="rv-save-status" role="status" aria-live="polite"><span>{status}</span>{status && photoStatus ? " " : null}<span>{photoStatus}</span></p>
@@ -203,6 +198,5 @@ export function RepairItemCard({ visit, item, photo, editable, canRemove, attemp
         </>}
       </section>
     </div>
-    {camera ? <CameraCaptureDialog onClose={() => setCamera(false)} onCapture={async blob => { await storePhoto(blob, "camera"); setCamera(false); cameraButton.current?.focus(); }} /> : null}
   </article>;
 }

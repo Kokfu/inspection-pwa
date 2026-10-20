@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Photo actions component tests</title></head>
+<body><div id="root"></div><script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { PhotoCaptureActions } from '/src/attachments/PhotoCaptureActions.tsx';
+import { PhotoEvidenceField } from '/src/attachments/PhotoEvidenceField.tsx';
+import '/src/styles/app.css';
+function Host() {
+  const [source, setSource] = React.useState('');
+  const [saves, setSaves] = React.useState(0);
+  const save = async (value) => { setSource(value); setSaves(n => n + 1); };
+  return React.createElement('main', null,
+    React.createElement(PhotoCaptureActions, { hasPhoto: Boolean(source), onCapture: () => save('camera'), onGallery: () => save('gallery') }),
+    React.createElement('output', { id: 'source' }, source),
+    React.createElement('output', { id: 'saves' }, saves));
+}
+const params = new URLSearchParams(location.search);
+const legacy = params.get('legacy');
+createRoot(document.querySelector('#root')).render(legacy ? React.createElement(PhotoEvidenceField, {
+  record: { syncStatus: legacy, clientUuid: 'legacy-photo' }, fieldPath: 'test', policy: {}, onChange: async () => {},
+  attachment: { blob: new Blob(['fixture'], { type: 'image/jpeg' }), captureSource: params.get('source'),
+    capturedAt: '2026-10-20T00:00:00Z', sizeBytes: 1024, syncStatus: legacy }
+}) : React.createElement(Host));
+</script></body></html>

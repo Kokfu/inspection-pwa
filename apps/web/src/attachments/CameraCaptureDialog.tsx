@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 type Props = {
   onCapture: (blob: Blob, capturedAt: string) => Promise<void>;
   onClose: () => void;
+  onGallery?: () => void;
 };
 
 export function stopMediaStream(stream?: MediaStream) {
@@ -81,12 +82,26 @@ export async function captureCameraFrame(
   }
 }
 
-export function CameraCaptureDialog({ onCapture, onClose }: Props) {
+export function CameraCaptureDialog({ onCapture, onClose, onGallery }: Props) {
+  const titleId = useId();
+  const confirmTitleId = useId();
+  const confirmRef = useRef<HTMLDialogElement>(null);
+  const galleryLink = useRef<HTMLButtonElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const initializationGeneration = useRef(0);
   const [message, setMessage] = useState("Starting rear camera…");
   const [capturing, setCapturing] = useState(false);
+  const [startFailed, setStartFailed] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (!confirmOpen) return;
+    const dialog = confirmRef.current;
+    dialog?.showModal();
+    return () => { dialog?.close(); galleryLink.current?.focus(); };
+  }, [confirmOpen]);
 
   function stopCamera(stream = streamRef.current) {
     stopMediaStream(stream);
@@ -103,7 +118,8 @@ export function CameraCaptureDialog({ onCapture, onClose }: Props) {
     const isCurrent = () =>
       active && initializationGeneration.current === generation;
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setMessage("Camera is unavailable here. Close this view and choose an existing photo.");
+      setStartFailed(true);
+      setMessage("Camera is unavailable here.");
       return () => undefined;
     }
     stopCamera();
@@ -125,14 +141,16 @@ export function CameraCaptureDialog({ onCapture, onClose }: Props) {
     ).then((stream) => {
       if (stream && isCurrent() && streamRef.current === stream) {
         setMessage("");
+        setStarted(true);
       }
     }).catch((error: unknown) => {
       if (!isCurrent()) return;
       stopCamera();
+      setStartFailed(true);
       setMessage(
         error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Camera permission was denied. Close this view and choose an existing photo."
-          : "Camera could not be started. Close this view and choose an existing photo."
+          ? "Camera permission was denied."
+          : "Camera could not be started."
       );
     });
     return () => {
@@ -147,9 +165,11 @@ export function CameraCaptureDialog({ onCapture, onClose }: Props) {
   async function capture() {
     setCapturing(true);
     try {
-      const blob = await captureCameraFrame(videoRef.current, () => stopCamera());
+      // A frame error keeps the live stream available for another Capture attempt.
+      const blob = await captureCameraFrame(videoRef.current, () => undefined);
       await onCapture(blob, new Date().toISOString());
       onClose();
+      stopCamera();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Camera capture failed");
     } finally {
@@ -162,17 +182,38 @@ export function CameraCaptureDialog({ onCapture, onClose }: Props) {
     onClose();
   }
 
-  return <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="camera-dialog-title">
+  return <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby={titleId}>
     <section className="photo-dialog camera-dialog">
-      <h3 id="camera-dialog-title">Take Photo</h3>
+      <h3 id={titleId}>Take Photo</h3>
       <video ref={videoRef} autoPlay muted playsInline />
       {message ? <p className="form-message" role="status">{message}</p> : null}
+      {startFailed && onGallery ? <button ref={galleryLink} type="button" className="secondary-command"
+        onClick={() => setConfirmOpen(true)}>Camera not working? Upload from gallery</button> : null}
       <div className="inline-actions">
         <button type="button" className="secondary-command" onClick={close}>Cancel</button>
-        <button type="button" disabled={capturing || Boolean(message)} onClick={() => void capture()}>
+        <button type="button" disabled={capturing || !started} onClick={() => void capture()}>
           {capturing ? "Saving" : "Capture"}
         </button>
       </div>
     </section>
+    {confirmOpen ? <dialog ref={confirmRef} className="photo-dialog" role="dialog" aria-modal="true"
+      aria-labelledby={confirmTitleId} onCancel={event => { event.preventDefault(); setConfirmOpen(false); }}
+      onKeyDown={event => {
+        if (event.key !== "Tab") return;
+        const buttons = event.currentTarget.querySelectorAll("button");
+        const first = buttons[0]; const last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }}>
+      <h3 id={confirmTitleId}>This photo will be marked Uploaded from gallery for KPI.</h3>
+      <div className="inline-actions">
+        <button type="button" className="secondary-command" autoFocus onClick={() => setConfirmOpen(false)}>Cancel</button>
+        <button type="button" onClick={() => {
+          // Keep the picker call synchronous with this tap (required by mobile browsers).
+          onGallery?.();
+          setConfirmOpen(false);
+        }}>Confirm</button>
+      </div>
+    </dialog> : null}
   </div>;
 }

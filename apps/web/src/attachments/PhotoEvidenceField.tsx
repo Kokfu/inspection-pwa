@@ -8,7 +8,7 @@ import {
 } from "./attachmentRepository";
 import type { InspectionAttachmentRecord } from "./attachmentTypes";
 import type { AutomaticSprinklerPsiFieldPath } from "./automaticSprinklerEvidencePolicy";
-import { CameraCaptureDialog } from "./CameraCaptureDialog";
+import { PhotoCaptureActions } from "./PhotoCaptureActions";
 import {
   processInspectionPhoto,
   requestPersistentAttachmentStorage
@@ -29,8 +29,6 @@ export function PhotoEvidenceField({
   attachment,
   onChange
 }: Props) {
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
   const [fullViewOpen, setFullViewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -114,7 +112,7 @@ export function PhotoEvidenceField({
         <img src={previewUrl} alt="Attached PSI gauge evidence" width={320} height={240} />
       </button>
       <div className="photo-metadata">
-        {attachment.captureSource === "gallery" ? <strong className="source-badge">Gallery attachment</strong> : null}
+        {attachment.captureSource === "gallery" ? <strong className="source-badge">Uploaded from gallery</strong> : null}
         <span>{formatClientDateTime(attachment.capturedAt)}</span>
         <span>{Math.round(attachment.sizeBytes / 1024)} KB</span>
         {attachment.syncStatus === "Failed" || attachment.syncStatus === "Conflict"
@@ -123,32 +121,13 @@ export function PhotoEvidenceField({
       </div>
     </> : <p className="secondary-metadata">No photo attached</p>}
 
-    {editable ? <div className="photo-actions">
-      <button type="button" disabled={busy} onClick={() => setCameraOpen(true)}>
-        {attachment ? "Replace with Camera" : "Take Photo"}
-      </button>
-      <button type="button" className="secondary-command" disabled={busy} onClick={() => fileInput.current?.click()}>
-        {attachment ? "Replace from Gallery" : "Camera unavailable? Choose Existing Photo"}
-      </button>
+    {editable ? <PhotoCaptureActions disabled={busy} hasPhoto={Boolean(attachment)}
+      onCapture={(blob, capturedAt) => store(blob, "camera", capturedAt)}
+      onGallery={(file) => store(file, "gallery")}>
       {attachment ? <button type="button" className="danger-command" disabled={busy} onClick={() => void remove()}>Remove</button> : null}
-      <input
-        ref={fileInput}
-        className="visually-hidden"
-        type="file"
-        accept="image/*"
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (file) void store(file, "gallery");
-        }}
-      />
-    </div> : null}
+    </PhotoCaptureActions> : null}
     {message ? <p className="form-message" role="status">{message}</p> : null}
 
-    {cameraOpen ? <CameraCaptureDialog
-      onCapture={(blob, capturedAt) => store(blob, "camera", capturedAt)}
-      onClose={() => setCameraOpen(false)}
-    /> : null}
     {fullViewOpen && previewUrl ? <div className="photo-dialog-backdrop" role="dialog" aria-modal="true" aria-label="Attached PSI photo">
       <section className="photo-dialog photo-full-view">
         <img src={previewUrl} alt="Full-size attached PSI gauge evidence" width={1280} height={960} />

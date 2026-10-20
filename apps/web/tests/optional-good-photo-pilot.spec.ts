@@ -152,7 +152,7 @@ for (const systemKey of ["co2_fire_extinguisher", "wet_chemical"] as const) {
       const box = (await slot.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
       expect(box.x + box.width).toBeLessThanOrEqual(360);
-      for (const control of [slot.getByRole("button", { name: "Remove Photo" }), slot.getByRole("button", { name: "Replace with Camera" }), slot.getByRole("button", { name: "Replace from Gallery" })]) {
+      for (const control of [slot.getByRole("button", { name: "Remove Photo" }), slot.getByRole("button", { name: "Replace with Camera" })]) {
         expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(43.5);
       }
     });
