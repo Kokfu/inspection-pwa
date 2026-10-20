@@ -81,6 +81,12 @@ for (const size of [{ width: 360, height: 800 }, { width: 768, height: 1024 }, {
   test(`review layout, row labels, focus and touch targets at ${size.width}`, async ({ page }, testInfo) => {
     await page.setViewportSize(size); await api(page); await enter(page);
     await expect(page.getByRole("tab", { name: "Pending (1)", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const customerFilter = page.getByRole("combobox", { name: "Customer", exact: true });
+    await customerFilter.focus(); await page.keyboard.press("Tab");
+    const searchFilter = page.getByRole("searchbox", { name: "Search requests", exact: true });
+    await expect(searchFilter).toBeFocused();
+    expect(await searchFilter.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
     await page.screenshot({ path: testInfo.outputPath(`inbox-${size.width}.png`), fullPage: true });
     await open(page);
     const panel = review(page);
@@ -261,4 +267,32 @@ test("editing cannot override a refusal that has nothing to do with the zone", a
   await expect(page.getByRole("button", { name: "Approve with changes" })).toBeDisabled();
   await expect(review(page)).toContainText("Cannot approve: A location with this key already exists.");
   expect(writes).toHaveLength(0);
+});
+
+
+test("location customer and submitted search filters preserve counts, detail and tab requests", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const { requests } = await api(page, [proposal(), proposal({ id: otherId, customerId: otherId, customerDisplayName: "Another Customer", systemKey: "co2_fire_extinguisher", systemDisplayName: "CO2", payload: { kind: "add-location", locationKey: "room", displayName: "Lobby", zoneKey: null, newZone: { key: "east", displayName: "East wing" } } })]);
+  await enter(page);
+  const initialListReads = requests.filter(request => request === "GET /api/manager/location-proposals").length;
+  const customer = page.getByLabel("Customer", { exact: true });
+  const search = page.getByLabel("Search requests", { exact: true });
+  const cards = page.locator(".manager-location-proposals .proposal-card");
+  await expect(customer.locator("option")).toHaveText(["All customers", "Another Customer", "Customer Roller"]);
+  await search.fill("east WING"); await expect(cards).toHaveCount(2);
+  await page.getByRole("button", { name: "Search", exact: true }).click(); await expect(cards).toHaveCount(1);
+  await customer.selectOption(uuid); await expect(page.getByText("No requests match this filter.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(customer).toHaveValue(uuid); await expect(cards).toHaveCount(1);
+  await open(page); await search.fill("no match"); await search.press("Enter");
+  await expect(review(page).getByRole("heading", { name: "Customer Roller", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to requests" }).click(); await expect(cards).toHaveCount(0);
+  await page.getByRole("tab", { name: "Approved (0)" }).click();
+  await expect(customer).toHaveValue("");
+  await expect(page.getByRole("status")).toContainText("Customer filter cleared: no approved requests for Customer Roller.");
+  await expect(search).toHaveValue("no match");
+  await page.getByRole("tab", { name: "Pending (2)" }).click();
+  await expect(cards).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear", exact: true }).click(); await expect(cards).toHaveCount(2);
+  expect(requests.filter(request => request === "GET /api/manager/location-proposals")).toHaveLength(initialListReads + 2); // only the two tab changes fetch another list
 });

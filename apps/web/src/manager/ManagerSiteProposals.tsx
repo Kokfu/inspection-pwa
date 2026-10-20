@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { reviewerRoleLabel } from "./roleAccess";
 import {
   decideSiteProposal, loadSiteProposal, loadSiteProposals, ManagerApiError,
   type SiteProposal, type SiteProposalDecisionInput
 } from "./managerApi";
+import { useProposalFilters } from "./proposalFilters";
 import "./managerSiteProposals.css";
 
+const statuses = ["pending", "approved", "rejected"] as const;
 const names = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
 const date = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 const errorMessage = (reason: unknown) => reason instanceof Error ? reason.message : "Site requests could not be verified. Try again.";
 
 export function ManagerSiteProposals({ onAuthorityFailure }: { onAuthorityFailure: (error: ManagerApiError) => void }) {
+  const [statusFilter, setStatusFilter] = useState<typeof statuses[number]>("pending");
   const [items, setItems] = useState<SiteProposal[]>();
   const [listError, setListError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -72,9 +75,9 @@ export function ManagerSiteProposals({ onAuthorityFailure }: { onAuthorityFailur
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [note]);
-  function leave() {
+  function leave(restoreListFocus = true) {
     if (note.trim() && !window.confirm("Discard your unsaved review note?")) return false;
-    setSelectedId(undefined); setDetail(undefined); setNote(""); setMessage(""); restoreFocus.current = true;
+    setSelectedId(undefined); setDetail(undefined); setNote(""); setMessage(""); restoreFocus.current = restoreListFocus;
     return true;
   }
   async function submit(input: SiteProposalDecisionInput) {
@@ -116,26 +119,40 @@ export function ManagerSiteProposals({ onAuthorityFailure }: { onAuthorityFailur
     const input = attempts.current.get(key) ?? { requestId: crypto.randomUUID(), decision, ...(trimmed ? { note: trimmed } : {}) };
     attempts.current.set(key, input); setNoteError(""); void submit(input);
   }
-  const sorted = items?.slice().sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending") || b.submittedAt.localeCompare(a.submittedAt) || a.id.localeCompare(b.id));
+  const tabItems = useMemo(() => items?.filter(item => item.status === statusFilter), [items, statusFilter]);
+  const filters = useProposalFilters(tabItems, statusFilter);
+  const sorted = filters.visible?.slice().sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending") || b.submittedAt.localeCompare(a.submittedAt) || a.id.localeCompare(b.id));
   return <section className={`manager-home manager-site-proposals${selectedId ? " proposal-is-open" : ""}`} aria-labelledby="site-requests-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="site-requests-title">Site Requests</h2>
       <p>Review sites proposed by technicians. Approval adds exactly the submitted name and address to the customer's sites.</p>
       <p>Rejecting a request does not change the technician's visit.</p></div></div>
+    <div className="job-tabs" role="tablist" aria-label="Site request status">{statuses.map(value => <button key={value} type="button" role="tab" aria-selected={statusFilter === value} tabIndex={statusFilter === value ? 0 : -1} disabled={deciding}
+      onKeyDown={event => { const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0; if (offset || event.key === "Home" || event.key === "End") { event.preventDefault(); const index = event.key === "Home" ? 0 : event.key === "End" ? statuses.length - 1 : (statuses.indexOf(value) + offset + statuses.length) % statuses.length; const target = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[index]; target?.focus(); target?.click(); } }}
+      onClick={event => {
+        if (selectedId && !leave(false)) {
+          event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus();
+          return;
+        }
+        setStatusFilter(value); setMessage(""); event.currentTarget.focus();
+      }}>
+      {names[value]} ({items?.filter(item => item.status === value).length ?? "…"})</button>)}</div>
+    {filters.bar}{filters.result}
     {message ? <p className="form-message" role="status">{message}</p> : null}
     <div className="proposal-workspace">
       <section className="proposal-inbox" aria-labelledby="site-inbox-title"><h3 id="site-inbox-title" tabIndex={-1} ref={listHeading}>Requests{items ? ` · Pending: ${items.filter(item => item.status === "pending").length}` : ""}</h3>
         {listError ? <div role="alert" className="form-message"><p>{listError}</p><button type="button" onClick={() => setRevision(value => value + 1)}>Retry list</button></div>
           : !sorted ? <div role="status" className="proposal-skeleton">Loading site requests…</div>
-          : !sorted.length ? <p className="empty-state">No site requests.</p>
+          : !sorted.length ? <p className="empty-state">{filters.active ? "No requests match this filter." : `No ${statusFilter} site requests.`}</p>
           : <ul className="job-card-list">{sorted.map(item => <li key={item.id}><button type="button" className="secondary-command proposal-card" aria-pressed={selectedId === item.id} disabled={deciding}
             onClick={() => { if (item.id === selectedId || (selectedId && !leave())) return; setSelectedId(item.id); setMessage(""); }}>
             <strong>{item.customerDisplayName}</strong><span>{item.proposedDisplayName}</span><span>{item.proposedAddress ?? "Address not specified"}</span>
             <span className={`proposal-status proposal-status-${item.status}`}>{names[item.status]}</span>
+            {item.jobReference ? <small>Visit: {item.jobReference}</small> : null}
             <small>Submitted by {item.submittedBy}</small><small>Submitted at {date(item.submittedAt)}</small>
           </button></li>)}</ul>}
       </section>
       <section className="proposal-detail" aria-label="Site request review">
-        {selectedId ? <button type="button" className="secondary-command proposal-back" disabled={deciding} onClick={leave}>Back to requests</button> : <p className="empty-state">Choose a site request to review.</p>}
+        {selectedId ? <button type="button" className="secondary-command proposal-back" disabled={deciding} onClick={() => leave()}>Back to requests</button> : <p className="empty-state">Choose a site request to review.</p>}
         {selectedId && !detail ? detailError ? <div role="alert" className="form-message"><p>{detailError}</p>
           {retry ? <button type="button" disabled={deciding} onClick={() => void submit(retry)}>Retry decision</button> : null}
           <button type="button" disabled={deciding} onClick={() => setDetailRevision(value => value + 1)}>Reload proposal</button>

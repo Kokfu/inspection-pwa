@@ -69,7 +69,7 @@ for (const role of ["admin", "supervisor"]) {
     expect(reads.filter(x => x === "detail")).toHaveLength(2);
     await page.getByRole("button", { name: "Back to requests" }).click();
     await expect(page.getByRole("heading", { name: "Requests · Pending: 0" })).toBeVisible();
-    await page.reload(); await open(page); await expect(review(page)).toContainText("Approved by Reviewer");
+    await page.reload(); await page.getByRole("tab", { name: "Approved (1)", exact: true }).click(); await open(page); await expect(review(page)).toContainText("Approved by Reviewer");
   });
 }
 for (const decision of ["approved", "rejected"] as const) {
@@ -185,7 +185,7 @@ for (const mode of ["empty", "unavailable", "malformed", "unknown-status", "bad-
     const bad = mode === "unknown-status" ? proposal({ status: "withdrawn" }) : mode === "bad-time" ? proposal({ submittedAt: "2026-02-30T00:00:00.000Z" }) : mode === "bad-decision" ? proposal({ status: "approved" }) : { ...proposal(), unexpected: true };
     await page.route("**/api/manager/site-proposals", route => route.fulfill({ status: mode === "unavailable" ? 503 : 200, json: mode === "empty" ? { proposals: [] } : mode === "unavailable" ? {} : { proposals: [bad] } }));
     await enter(page);
-    if (mode === "empty") await expect(page.getByText("No site requests.", { exact: true })).toBeVisible();
+    if (mode === "empty") await expect(page.getByText("No pending site requests.", { exact: true })).toBeVisible();
     else { await expect(page.getByRole("button", { name: "Retry list" })).toBeVisible(); await expect(page.getByRole("button", { name: /Customer North/ })).toHaveCount(0); }
   });
 }
@@ -205,6 +205,12 @@ for (const size of [{ width: 360, height: 800 }, { width: 768, height: 1024 }, {
     await expect(cards.first()).toContainText("Pending"); await expect(cards.first()).toContainText("Customer North");
     await expect(cards.first()).toContainText("Technician's new site"); await expect(cards.first()).toContainText("22 Long Road");
     await expect(cards.first()).toContainText("Submitted by Field Technician"); await expect(cards.first()).toContainText("Submitted at");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const customerFilter = page.getByRole("combobox", { name: "Customer", exact: true });
+    await customerFilter.focus(); await page.keyboard.press("Tab");
+    const searchFilter = page.getByRole("searchbox", { name: "Search requests", exact: true });
+    await expect(searchFilter).toBeFocused();
+    expect(await searchFilter.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe("none");
     await page.screenshot({ path: testInfo.outputPath(`site-inbox-${size.width}.png`), fullPage: true });
     await cards.first().click(); await expect(review(page).getByRole("heading", { name: "Customer North" })).toBeFocused();
     await expect(page.getByText("Rejecting a request does not change the technician's visit.", { exact: true })).toBeVisible();
@@ -221,5 +227,105 @@ for (const size of [{ width: 360, height: 800 }, { width: 768, height: 1024 }, {
     await page.screenshot({ path: testInfo.outputPath(`site-review-${size.width}.png`), fullPage: true });
     await page.getByRole("button", { name: "Back to requests" }).click();
     await expect(page.getByRole("heading", { name: /Requests · Pending/ })).toBeFocused();
+  });
+}
+
+function decided(status: "approved" | "rejected", customerId = uuid) {
+  return proposal({ id: status === "approved" ? uuid : "30000000-0000-4000-8000-000000000001", customerId,
+    customerDisplayName: status === "approved" ? "Customer North" : "Rejected Customer", status,
+    decision: { id: uuid, decision: status, note: "Reviewed request", decidedBy: "Reviewer", decidedByRole: "supervisor", decidedAt: "2026-10-20T00:00:00.000Z", sequence: 1, requestId: uuid } });
+}
+test("site tabs, submitted search, immediate customer AND filter, resets and detail persistence", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const sameNameId = "40000000-0000-4000-8000-000000000001";
+  const { reads } = await api(page, {}, [proposal({ jobId: uuid, jobReference: "SV-VISIT-77" }),
+    proposal({ id: sameNameId, customerId: sameNameId, proposedDisplayName: "Second site" }),
+    decided("approved"), decided("rejected")]);
+  await enter(page);
+  const cards = page.locator(".manager-site-proposals .proposal-card");
+  await expect(page.getByRole("tab", { name: "Pending (2)" })).toHaveAttribute("aria-selected", "true");
+  await expect(cards).toHaveCount(2);
+  const customer = page.getByLabel("Customer", { exact: true });
+  await expect(customer.locator("option")).toHaveText(["All customers", "Customer North", "Customer North"]);
+  const search = page.getByLabel("Search requests", { exact: true });
+  await expect(search).toHaveAttribute("maxlength", "200");
+  await search.fill("  sv-visit-77  "); await expect(cards).toHaveCount(2);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(cards).toHaveCount(1); await expect(cards).toContainText("SV-VISIT-77");
+  await expect(page.getByRole("status")).toHaveText("Showing 1 of 2 requests");
+  await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+  await customer.selectOption(sameNameId); await expect(cards).toHaveCount(0);
+  await expect(page.getByText("No requests match this filter.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(customer).toHaveValue(sameNameId); await expect(search).toHaveValue(""); await expect(cards).toHaveCount(1);
+  await page.getByRole("tab", { name: "Approved (1)" }).click();
+  await expect(customer).toHaveValue("");
+  await expect(page.getByRole("status")).toContainText("Customer filter cleared: no approved requests for Customer North.");
+  await customer.selectOption(uuid); await search.fill("Customer"); await search.press("Enter");
+  await page.getByRole("tab", { name: "Pending (2)" }).click();
+  await expect(customer).toHaveValue(uuid); await expect(search).toHaveValue("Customer"); await expect(cards).toHaveCount(1);
+  await open(page); await search.fill("no match"); await search.press("Enter");
+  await expect(cards).toHaveCount(0); await expect(review(page).getByRole("heading", { name: "Customer North" })).toBeVisible();
+  await page.getByRole("button", { name: "Back to requests" }).click();
+  await expect(search).toHaveValue("no match");
+  await page.getByRole("tab", { name: "Pending (2)" }).focus(); await page.keyboard.press("End");
+  await expect(page.getByRole("tab", { name: "Rejected (1)" })).toBeFocused();
+  await page.getByRole("button", { name: "Clear", exact: true }).click(); await expect(cards).toContainText("Rejected Customer");
+  await page.keyboard.press("Tab");
+  const rejected = page.getByRole("tab", { name: "Rejected (1)" });
+  await rejected.focus(); await rejected.press("Home");
+  await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeFocused();
+  await page.keyboard.press("ArrowRight"); await expect(page.getByRole("tab", { name: "Approved (1)" })).toBeFocused();
+  await page.keyboard.press("ArrowLeft"); await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeFocused();
+  expect(reads.filter(read => read === "list")).toHaveLength(1);
+});
+
+test("site tab changes use the unsaved-note leave confirmation", async ({ page }) => {
+  await api(page); await enter(page); await open(page);
+  await page.getByLabel(/Decision note/).fill("Unsaved review");
+  page.removeAllListeners("dialog");
+  page.once("dialog", dialog => { expect(dialog.message()).toBe("Discard your unsaved review note?"); void dialog.dismiss(); });
+  await page.getByRole("tab", { name: "Approved (0)" }).click();
+  await expect(page.getByRole("tab", { name: "Pending (1)" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel(/Decision note/)).toHaveValue("Unsaved review");
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("tab", { name: "Approved (0)" }).click();
+  await expect(page.getByText("No approved site requests.")).toBeVisible();
+});
+
+for (const width of [360, 1280]) {
+  test(`site tab focus survives an open review and cancelled navigation at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    const { writes } = await api(page); await enter(page); await open(page);
+    const pending = page.getByRole("tab", { name: "Pending (1)", exact: true });
+    const approved = page.getByRole("tab", { name: "Approved (0)", exact: true });
+    const rejected = page.getByRole("tab", { name: "Rejected (0)", exact: true });
+    const note = page.getByLabel(/Decision note/);
+    await note.fill("Unsaved review");
+    page.removeAllListeners("dialog");
+    page.once("dialog", dialog => { expect(dialog.message()).toBe("Discard your unsaved review note?"); void dialog.dismiss(); });
+    await pending.focus(); await page.keyboard.press("ArrowRight");
+    await expect(pending).toBeFocused();
+    await expect(pending).toHaveAttribute("aria-selected", "true");
+    await expect(pending).toHaveAttribute("tabindex", "0");
+    await expect(approved).toHaveAttribute("tabindex", "-1");
+    await expect(note).toHaveValue("Unsaved review");
+
+    page.once("dialog", dialog => dialog.accept());
+    await page.keyboard.press("ArrowRight");
+    await expect(approved).toBeFocused();
+    await expect(approved).toHaveAttribute("aria-selected", "true");
+    await expect(approved).toHaveAttribute("tabindex", "0");
+    await expect(note).toHaveCount(0);
+    await page.keyboard.press("End"); await expect(rejected).toBeFocused();
+    await page.keyboard.press("Home"); await expect(pending).toBeFocused();
+    await page.keyboard.press("ArrowLeft"); await expect(rejected).toBeFocused();
+    await page.keyboard.press("ArrowRight"); await expect(pending).toBeFocused();
+
+    // A review without an unsaved note must also leave focus on the new tab.
+    await open(page); await pending.focus(); await page.keyboard.press("ArrowRight");
+    await expect(approved).toBeFocused();
+    await expect(approved).toHaveAttribute("aria-selected", "true");
+    expect(writes).toHaveLength(0);
   });
 }

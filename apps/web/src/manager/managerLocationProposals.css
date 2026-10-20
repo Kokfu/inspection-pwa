@@ -67,3 +67,13 @@
 @media (min-width: 521px) {
   .manager-location-proposals .job-tabs [role="tab"] { flex: 1 1 0; }
 }
+
+.manager-location-proposals .proposal-filters { display: grid; gap: var(--space-3); min-width: 0; margin-block: var(--space-4); }
+.manager-location-proposals .proposal-filters .manager-search-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.manager-location-proposals .proposal-filters input { flex: 1 1 100%; }
+.manager-location-proposals .proposal-filters select { color: var(--ink); background: var(--surface); }
+.manager-location-proposals .proposal-filters button { flex: 1; }
+@media (min-width: 768px) {
+  .manager-location-proposals .proposal-filters input { flex: 1; }
+  .manager-location-proposals .proposal-filters button { flex: 0 0 auto; }
+}

@@ -8,6 +8,7 @@ import {
 } from "./managerApi";
 import { validLocationProposalPatch } from "../jobs/locationProposalShape";
 import { diffLocationProposalRows, type ProposalRow } from "./locationProposalDiff";
+import { useProposalFilters } from "./proposalFilters";
 import "./managerLocationProposals.css";
 
 const statuses: LocationProposalStatus[] = ["pending", "approved", "rejected", "withdrawn"];
@@ -40,6 +41,7 @@ function PatchSummary({ patch, detail }: { patch: LocationProposalPatch; detail:
 export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFailure: (error: ManagerApiError) => void }) {
   const [statusFilter, setStatusFilter] = useState<LocationProposalStatus>("pending");
   const [inbox, setInbox] = useState<LocationProposalInbox>();
+  const filters = useProposalFilters(inbox?.proposals, statusFilter);
   const [listError, setListError] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
   const [detail, setDetail] = useState<LocationProposalDetail>();
@@ -171,13 +173,14 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
       onKeyDown={event => { const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0; if (offset || event.key === "Home" || event.key === "End") { event.preventDefault(); const index = event.key === "Home" ? 0 : event.key === "End" ? statuses.length - 1 : (statuses.indexOf(value) + offset + statuses.length) % statuses.length; const target = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[index]; target?.focus(); target?.click(); } }}
       onClick={() => { if (selectedId && !leaveDetail()) return; setStatusFilter(value); setMessage(""); }}>
       {statusNames[value]} ({inbox?.counts[value] ?? "…"})</button>)}</div>
+    {filters.bar}{filters.result}
     {message ? <p className="form-message" role="status">{message}</p> : null}
     <div className="proposal-workspace">
       <section className="proposal-inbox" aria-labelledby="proposal-inbox-title"><h3 id="proposal-inbox-title" ref={listHeading} tabIndex={-1}>{statusNames[statusFilter]} requests</h3>
         {listError ? <div className="form-message" role="alert"><p>{listError}</p><button type="button" onClick={() => setRevision(value => value + 1)}>Retry list</button></div> : !inbox ? <div role="status" aria-label="Loading location proposals"><div className="proposal-skeleton">Loading location proposals…</div><div className="proposal-skeleton" aria-hidden="true" /></div> : <>
           {inbox.unreadable.length ? <section className="offline-notice" role="alert"><h4>{inbox.unreadable.length} {inbox.unreadable.length === 1 ? "proposal cannot" : "proposals cannot"} be shown</h4><p>This version cannot read these proposals. They cannot be approved or rejected here. Ask an administrator to check them. Other proposals are not affected.</p><ul>{inbox.unreadable.map((item, index) => <li key={item.id ?? index}>{item.customerDisplayName ?? "Details unavailable"}{item.submittedBy ? ` · Submitted by ${item.submittedBy}` : ""}{item.id ? <small> (reference {item.id.slice(0, 8)})</small> : null}</li>)}</ul></section> : null}
-          {!inbox.proposals.length && !inbox.unreadable.length ? <p className="empty-state">No {statusFilter} location proposals.</p> : null}
-          <ul className="job-card-list">{inbox.proposals.map(proposal => <li key={proposal.id}><button type="button" className="secondary-command proposal-card" aria-pressed={selectedId === proposal.id} disabled={deciding} onClick={() => select(proposal.id)}>
+          {!filters.visible?.length && (filters.active || !inbox.unreadable.length) ? <p className="empty-state">{filters.active ? "No requests match this filter." : `No ${statusFilter} location proposals.`}</p> : null}
+          <ul className="job-card-list">{filters.visible?.map(proposal => <li key={proposal.id}><button type="button" className="secondary-command proposal-card" aria-pressed={selectedId === proposal.id} disabled={deciding} onClick={() => select(proposal.id)}>
             <strong>{proposal.customerDisplayName}</strong><span>{proposal.systemDisplayName ?? "System name unavailable"}</span><span>{proposal.payload.kind === "add-location" ? `New location: ${proposal.payload.displayName}` : `Update format · ${proposal.payload.rows.length} rows`}</span><span className={`proposal-status proposal-status-${proposal.status}`}>{statusName(proposal)}</span><small>Submitted by {proposal.submittedBy}</small>
           </button></li>)}</ul>
         </>}

@@ -78,3 +78,16 @@ test("a rejected legacy row stays isolated beside a readable rejected proposal",
   await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reject", exact: true })).toHaveCount(0);
 });
+
+
+test("unreadable notice survives customer and text filters", async ({ page }) => {
+  await install(page, [proposal({ id: legacyId, customerDisplayName: "Unreadable Customer", payload: { zones: [], locations: [] } }), proposal()]);
+  await enter(page);
+  await page.getByLabel("Customer", { exact: true }).selectOption(uuid);
+  await page.getByLabel("Search requests", { exact: true }).fill("no matches");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByText("No requests match this filter.")).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Unreadable Customer");
+  await expect(page.getByRole("heading", { name: "1 proposal cannot be shown" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+});
