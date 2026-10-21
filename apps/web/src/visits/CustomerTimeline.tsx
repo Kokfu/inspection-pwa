@@ -3,6 +3,8 @@ import type { AuthUser } from "../auth/authApi";
 import { VisitRow } from "./VisitRow";
 import { canOpenTimelineVisit, filterTimeline, readCustomerTimeline, timelineStatuses, validTimelineDate, type TimelineFilters, type TimelineVisit } from "./customerTimelineData";
 
+export type TimelineLoader = (customerId: string, actor: AuthUser, mode: "server" | "offline", canCommit: () => boolean) => ReturnType<typeof readCustomerTimeline>;
+
 export function CustomerTimelineRows({ visits, actor, onOpen }: { visits: TimelineVisit[]; actor: AuthUser; onOpen: (visit: TimelineVisit) => void }) {
   return <div className="customer-timeline__rows">{visits.map(visit => {
     const allowed = canOpenTimelineVisit(actor, visit);
@@ -11,7 +13,9 @@ export function CustomerTimelineRows({ visits, actor, onOpen }: { visits: Timeli
 }
 
 /** Shared by the technician route and the manager Timeline tab (S3b). */
-export function CustomerTimeline({ customerId, actor, mode, onOpen, initialStatus = "", onCountChange }: {
+export function CustomerTimeline({ customerId, actor, mode, onOpen, initialStatus = "", onCountChange, loadVisits = readCustomerTimeline, embedded = false }: {
+  embedded?: boolean;
+  loadVisits?: TimelineLoader;
   customerId: string; actor: AuthUser; mode: "server" | "offline" | "unavailable";
   onOpen: (visit: TimelineVisit) => void; initialStatus?: string;
   /** Total validated history, independent of the visible filters; unknown during refresh/error. */
@@ -32,16 +36,16 @@ export function CustomerTimeline({ customerId, actor, mode, onOpen, initialStatu
     let active = true;
     setResult(undefined); setError("");
     if (mode === "unavailable") { setError("Verify your session to view customer history."); return; }
-    void readCustomerTimeline(customerId, actor, mode, () => active).then(value => { if (active) setResult(value); })
+    void loadVisits(customerId, actor, mode, () => active).then(value => { if (active) setResult(value); })
       .catch(e => { if (active) setError(e instanceof Error ? e.message : "Customer history is unavailable."); });
     return () => { active = false; };
-  }, [customerId, actor.id, actor.role, mode, refresh]);
+  }, [customerId, actor.id, actor.role, mode, refresh, loadVisits]);
   const invalidDates = Boolean(filters.dateFrom && !validTimelineDate(filters.dateFrom) || filters.dateTo && !validTimelineDate(filters.dateTo)
     || filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo);
   const visits = invalidDates ? [] : filterTimeline(result?.visits ?? [], filters);
   const sites = new Map((result?.visits ?? []).filter(v => v.siteId).map(v => [v.siteId!, v.siteName ?? "Unnamed site"]));
   return <section className="customer-timeline" aria-label="Customer timeline">
-    <h2>Customer history</h2>
+    {embedded ? <h3>Customer history</h3> : <h2>Customer history</h2>}
     <div className="customer-timeline__filters" role="group" aria-label="Visit type">
       {([ ["all", "All"], ["service", "Services"], ["repair", "Repairs"] ] as const).map(([kind, label]) =>
         <button type="button" key={kind} aria-pressed={filters.kind === kind} onClick={() => setFilters(f => ({ ...f, kind }))}>{label}</button>)}

@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerCustomerServiceHistory, isServiceHistoryFilterValues, type ServiceHistoryFilterValues } from "./ManagerCustomerServiceHistory";
-import { loadManagerCustomers, loadManagerTechnicians, ManagerApiError, type ManagerCustomerSummary, type ManagerTechnician } from "./managerApi";
+import { loadManagerCustomers, loadManagerTechnicians, loadManagerServiceHistory, ManagerApiError, type ManagerCustomerSummary, type ManagerTechnician } from "./managerApi";
 import { readManagerSession, writeManagerSession } from "./managerReturnRoute";
 import { CustomerRepairVisits, useRepairVisitList } from "./repairVisits/RepairVisitEntries";
 
+import type { AuthUser } from "../auth/authApi";
+import { CustomerTimelineRoute } from "../visits/CustomerTimelineRoute";
+import type { TimelineLoader } from "../visits/CustomerTimeline";
+import { parseTimelinePage, type TimelineVisit } from "../visits/customerTimelineData";
+
 type Props = {
+  actor: AuthUser;
   supervisor?: boolean;
   message?: string;
   onAuthorityFailure: (error: unknown) => void;
@@ -17,7 +23,6 @@ type Props = {
 type RememberedSelection = { customerId: string; filters: ServiceHistoryFilterValues | null };
 
 const sessionKey = "manager-services-done:v1";
-const maxMatches = 10;
 
 function isRememberedSelection(value: unknown): value is RememberedSelection {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -26,27 +31,20 @@ function isRememberedSelection(value: unknown): value is RememberedSelection {
     && (candidate.filters === null || isServiceHistoryFilterValues(candidate.filters));
 }
 
-/**
- * Customer-first Services Done. Step 1 finds a customer (client-side over the unpaginated
- * GET /manager/customers); nothing is listed until one is chosen. Step 2 reuses the customer
- * service-history component in its "services-done" variant. The chosen customer and applied
- * filters are remembered for the browser session so Back from a report returns to the same list.
- */
-export function ManagerServicesDone({ supervisor = false, message = "", onAuthorityFailure, onViewServiceVisit, onViewRepairVisit, onViewReport, onDownloadReport }: Props) {
-  const mounted = useRef(false);
+/** Shared completed timeline plus the existing manager history/report/archive tools. */
+export function ManagerServicesDone({ actor, supervisor = false, message = "", onAuthorityFailure, onViewServiceVisit, onViewRepairVisit, onViewReport, onDownloadReport }: Props) {
   const [customers, setCustomers] = useState<ManagerCustomerSummary[]>([]);
   const [technicians, setTechnicians] = useState<ManagerTechnician[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
-  const [searchMessage, setSearchMessage] = useState("");
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const authorityFailure = useRef(onAuthorityFailure);
+  authorityFailure.current = onAuthorityFailure;
   // Both review roles may read repair visits; the verified role is enforced again by the server.
   const repairVisits = useRepairVisitList(supervisor ? "supervisor" : "admin", onAuthorityFailure);
   const [selection, setSelection] = useState<RememberedSelection | null>(() => readManagerSession(sessionKey, isRememberedSelection));
 
   useEffect(() => {
-    mounted.current = true;
     const controller = new AbortController();
     void Promise.all([loadManagerCustomers(controller.signal), loadManagerTechnicians(controller.signal)]).then(([customerRows, technicianRows]) => {
       if (controller.signal.aborted) return;
@@ -58,7 +56,7 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
       if (error instanceof ManagerApiError && error.kind === "domain") setLoadError(error.message);
       else onAuthorityFailure(error);
     }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => { mounted.current = false; controller.abort(); };
+    return () => { controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -70,22 +68,58 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
     writeManagerSession(sessionKey, next);
   };
 
-  const search = () => {
-    const trimmed = query.trim();
-    if (!trimmed) { setSubmittedQuery(null); setSearchMessage("Enter a customer name or code to search."); return; }
-    setSearchMessage("");
-    setSubmittedQuery(trimmed);
-  };
-  const clearSearch = () => { setQuery(""); setSubmittedQuery(null); setSearchMessage(""); };
+  const options = useMemo(() => customers.map(row => row.customer), [customers]);
+  // The manager API is authorized for both review roles; the technician summary API is not.
+  const loadVisits = useCallback<TimelineLoader>(async (id, user, _mode, canCommit) => {
+    const sites = customers.find(customer => customer.customer.id === id)?.sites ?? [];
+    const siteIdForName = (name: string) => {
+      const matches = sites.filter(site => site.displayName === name);
+      return matches.length === 1 ? matches[0].id : null;
+    };
+    const visits: TimelineVisit[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    try {
+      do {
+        const page = await loadManagerServiceHistory({ customerId: id, limit: 100, ...(cursor ? { cursor } : {}) });
+        if (!canCommit()) throw new Error("Customer history session changed.");
+        visits.push(...page.serviceVisits.map(visit => ({
+          id: visit.id, kind: "service" as const, date: visit.serviceDate ?? visit.createdAt.slice(0, 10), status: visit.status,
+          siteId: siteIdForName(visit.site),
+          siteName: visit.site, technicianId: visit.technician?.id ?? null,
+          technicianName: visit.technician?.displayName ?? null, ownedByCaller: visit.technician?.id === user.id
+        })));
+        cursor = page.nextCursor;
+        if (cursor && (cursors.has(cursor) || cursors.size >= 1000)) throw new Error("Service history contains an invalid cursor.");
+        if (cursor) cursors.add(cursor);
+      } while (cursor);
+      const repairs = await repairVisits.reload();
+      if (!canCommit()) throw new Error("Customer history session changed.");
+      if (!repairs) throw new Error("Repair visits could not be refreshed. Retry refreshing history.");
+      visits.push(...repairs.filter(visit => visit.customerId === id && visit.status !== "draft").map(visit => ({
+        id: visit.clientUuid, kind: "repair" as const, date: visit.visitDate, status: visit.status,
+        siteId: visit.siteId, siteName: sites.find(site => site.id === visit.siteId)?.displayName ?? null,
+        technicianId: visit.createdByUserId, technicianName: technicians.find(technician => technician.id === visit.createdByUserId)?.displayName
+          ?? technicians.find(technician => technician.id === visit.createdByUserId)?.username ?? null,
+        ownedByCaller: visit.createdByUserId === user.id
+      })));
+      return { visits: parseTimelinePage({ visits, nextCursor: null }, user).visits, offline: false, cached: false };
+    } catch (error) {
+      if (canCommit() && error instanceof ManagerApiError && error.kind === "authorization") authorityFailure.current(error);
+      throw error;
+    }
+  }, [customers, technicians, historyRevision, repairVisits.reload]);
 
-  const needle = submittedQuery?.toLocaleLowerCase() ?? "";
-  const matches = submittedQuery === null ? [] : customers.filter((row) =>
-    row.customer.displayName.toLocaleLowerCase().includes(needle) || row.customer.code.toLocaleLowerCase().includes(needle));
-
-  if (selectedCustomer) {
-    return <section className="manager-home" aria-labelledby="services-done-title">
-      <h2 id="services-done-title">Current Services Done</h2>
-      {message ? <p className="form-message" role="alert">{message}</p> : null}
+  return <section className="manager-home" aria-label="Current Services Done">
+    <CustomerTimelineRoute actor={actor} mode="server" initialStatus="closed" showBack={false}
+      heading="Current Services Done" eyebrow="Manager workspace" searchable customerOptions={options}
+      customerId={selectedCustomer?.customer.id} loadVisits={loadVisits}
+      onCustomer={id => choose(id ? { customerId: id, filters: null } : null)} onBack={() => {}}
+      onOpen={visit => visit.kind === "service" ? onViewServiceVisit(visit.id) : onViewRepairVisit(visit.id)} />
+    {message ? <p className="form-message" role="alert">{message}</p> : null}
+    {loading ? <p role="status">Loading customers…</p> : null}
+    {loadError ? <p className="form-message" role="alert">{loadError}</p> : null}
+    {selectedCustomer && <section aria-label="Manager visit tools">
       <div className="workspace-heading manager-selected-customer">
         <div><p className="eyebrow">Customer</p><h3>{selectedCustomer.customer.displayName}</h3><p className="job-reference">{selectedCustomer.customer.code}</p></div>
         <button type="button" className="secondary-command" onClick={() => choose(null)}>Change customer</button>
@@ -98,6 +132,7 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
         technicians={technicians}
         initialFilters={selection?.filters ?? undefined}
         onFiltersApplied={(filters) => choose({ customerId: selectedCustomer.customer.id, filters })}
+        onVisitsChanged={() => setHistoryRevision(revision => revision + 1)}
         onViewServiceVisit={onViewServiceVisit}
         onViewFinalReport={onViewReport}
         onDownloadFinalReport={onDownloadReport}
@@ -105,31 +140,6 @@ export function ManagerServicesDone({ supervisor = false, message = "", onAuthor
       />
       <CustomerRepairVisits customerId={selectedCustomer.customer.id} state={repairVisits.state} onRetry={repairVisits.reload}
         names={repairNames} onOpen={onViewRepairVisit} />
-    </section>;
-  }
-
-  return <section className="manager-home" aria-labelledby="services-done-title">
-    <h2 id="services-done-title">Current Services Done</h2>
-    {message ? <p className="form-message" role="alert">{message}</p> : null}
-    <p>Find a customer to see their service visits.</p>
-    <form className="manager-search-form" role="search" aria-label="Find customer" onSubmit={(event) => { event.preventDefault(); search(); }}>
-      <label htmlFor="services-done-customer-search">Customer name or code</label>
-      <div className="manager-search-row">
-        <input id="services-done-customer-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
-        <button type="submit" disabled={loading}>Search</button>
-        <button type="button" className="secondary-command" onClick={clearSearch}>Clear</button>
-      </div>
-    </form>
-    {loading ? <p role="status">Loading customers…</p> : null}
-    {loadError ? <p className="form-message" role="alert">{loadError}</p> : null}
-    {searchMessage ? <p className="form-message" role="status">{searchMessage}</p> : null}
-    {!loading && submittedQuery !== null ? (matches.length ? <section aria-label="Matching customers">
-      <p role="status">{matches.length === 1 ? "1 customer found" : `${matches.length} customers found`}{matches.length > maxMatches ? ` — showing the first ${maxMatches}; refine your search` : ""}</p>
-      <ul className="manager-technician-list">{matches.slice(0, maxMatches).map((row) => <li key={row.customer.id}>
-        <button type="button" className="manager-technician-open" onClick={() => choose({ customerId: row.customer.id, filters: null })}>
-          <strong>{row.customer.displayName}</strong><span>{row.customer.code}</span>
-        </button>
-      </li>)}</ul>
-    </section> : <p className="empty-state" role="status">No customers match “{submittedQuery}”.</p>) : null}
+    </section>}
   </section>;
 }

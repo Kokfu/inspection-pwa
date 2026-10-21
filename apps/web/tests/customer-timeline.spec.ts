@@ -84,7 +84,8 @@ test("Home and the customer-picker context reach the route; an owner can open a 
   await page.getByRole("button", { name: /^Technician/ }).click();
   await page.getByRole("button", { name: "Customer history", exact: true }).click();
   await expect(page).toHaveURL(/#\/customer-timeline$/);
-  await page.getByLabel("Customer", { exact: true }).selectOption(customerId);
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+  await page.getByLabel("Select customer", { exact: true }).selectOption(customerId);
   await expect(page.locator(".visit-row")).toHaveCount(2);
   await expect(page.locator("button.visit-row")).toHaveCount(1);
   await page.locator("button.visit-row").click();
@@ -93,6 +94,7 @@ test("Home and the customer-picker context reach the route; an owner can open a 
   await page.getByLabel("Primary navigation").getByRole("button", { name: "New Service Visit", exact: true }).click();
   await page.getByRole("button", { name: "Customer history", exact: true }).click();
   await expect(page).toHaveURL(/#\/customer-timeline$/);
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible();
 });
 
 test("manager taps every row; layout and focus at phone, tablet and desktop", async ({ page }, testInfo) => {

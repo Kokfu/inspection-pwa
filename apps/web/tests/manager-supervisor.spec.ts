@@ -54,7 +54,7 @@ async function installSupervisorApi(page: Page, startLoggedOut = false) {
       if (url.searchParams.has("from") && url.searchParams.has("to")) return json({ serviceVisits: [], nextCursor: null, totalCount: 0 });
       return url.searchParams.has("customerId")
         ? json({ serviceVisits: [url.searchParams.has("includeArchived") ? { ...visit, archivedAt: "2026-09-19T00:00:00.000Z" } : visit], nextCursor: null, totalCount: 1 })
-        : json({ serviceVisits: [visit] });
+        : json({ serviceVisits: [visit], nextCursor: null, totalCount: 1 });
     }
     if (path === `/api/manager/service-visits/${visit.id}`) return json({ serviceVisit: visit });
     if (path === `/api/manager/service-visits/${visit.id}/final-report.pdf`) return json({ error: "FINAL_REPORT_HAS_CORRECTIONS", message: "PDF unavailable until corrections are included." }, 409);
@@ -148,13 +148,72 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
   await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
 });
 
-test("supervisor Services Done searches the customer list without configuration", async ({ page }) => {
+test("Operations includes page-two work in counts, oldest-first order and combined filters with network blocked", async ({ page }) => {
+  await installSupervisorApi(page);
+  let reads = 0;
+  await page.route("**/api/manager/service-visits*", route => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/manager/service-visits" || url.searchParams.has("reportApproval") || url.searchParams.has("from")) return route.fallback();
+    reads++;
+    return route.fulfill({ json: {
+      serviceVisits: url.searchParams.has("cursor")
+        ? [{ ...visit, id: "c0000000-0000-4000-8000-000000000999", reference: "SV-OLDEST", status: "open", createdAt: "2026-01-01T00:00:00.000Z", technician: { id: 22, displayName: "Oldest technician" } }]
+        : Array.from({ length: 50 }, (_, index) => ({ ...visit, id: `c0000000-0000-4000-8000-${String(index).padStart(12, "0")}`, reference: `SV-RECENT-${index}` })),
+      nextCursor: url.searchParams.has("cursor") ? null : "older-page", totalCount: 51
+    } });
+  });
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await enterAsSupervisor(page);
+  await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Total 51", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open 1", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Completed 50", exact: true })).toBeVisible();
+  await expect(page.locator(".ops-table tbody tr").first()).toContainText("SV-OLDEST");
+  expect(reads).toBe(2);
+  // Block requests without firing a connectivity event: this isolates filtering from
+  // the app's separate authentication/reachability refresh on connectivity changes.
+  let blockedRequests = 0;
+  await page.route("**/*", route => { blockedRequests++; return route.abort("internetdisconnected"); });
+  await page.getByLabel("Search", { exact: true }).fill("  sv-oldest  ");
+  await page.getByRole("combobox", { name: "Technician", exact: true }).selectOption("21");
+  await expect(page.getByText("No service visits match.")).toBeVisible();
+  await page.getByRole("combobox", { name: "Technician", exact: true }).selectOption("22");
+  await expect(page.locator(".ops-table tbody tr")).toHaveCount(1);
+  await page.locator(".ops-row-open").focus();
+  await expect(page.locator(".ops-row-open")).toBeFocused();
+  expect(reads).toBe(2);
+  expect(blockedRequests).toBe(0);
+});
+
+for (const failure of ["unknown-status", "unavailable"] as const) {
+  test(`Operations refresh drops prior work when the later page is ${failure}`, async ({ page }) => {
+    await installSupervisorApi(page);
+    let fail = false;
+    await page.route("**/api/manager/service-visits*", route => {
+      const url = new URL(route.request().url());
+      if (url.pathname !== "/api/manager/service-visits" || url.searchParams.has("reportApproval") || url.searchParams.has("from")) return route.fallback();
+      if (!fail) return route.fulfill({ json: { serviceVisits: [visit], nextCursor: null, totalCount: 1 } });
+      if (!url.searchParams.has("cursor")) return route.fulfill({ json: { serviceVisits: [visit], nextCursor: "next", totalCount: 2 } });
+      return failure === "unavailable"
+        ? route.fulfill({ status: 503, json: {} })
+        : route.fulfill({ json: { serviceVisits: [{ ...visit, id: "c0000000-0000-4000-8000-000000000999", status: "unknown" }], nextCursor: null, totalCount: 2 } });
+    });
+    await enterAsSupervisor(page);
+    await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
+    await expect(page.getByRole("button", { name: /SV-SUPERVISOR-830/ })).toBeVisible();
+    fail = true;
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(page.getByText("Manager server data is currently unavailable.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /SV-SUPERVISOR-830/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Admin Review/ })).toBeVisible();
+  });
+}
+
+test("supervisor Services Done selects a customer without configuration", async ({ page }) => {
   const requests = await installSupervisorApi(page);
   await enterAsSupervisor(page);
   await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
-  await page.getByLabel("Customer name or code").fill("supervisor");
-  await page.getByLabel("Customer name or code").press("Enter");
-  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Supervisor Review Customer/ }).click();
+  await page.getByLabel("Select customer", { exact: true }).selectOption(customerSummary.customer.id);
   await expect(page.getByRole("heading", { name: "Supervisor Review Customer", exact: true })).toBeVisible();
   await expect(page.getByLabel("Technician").locator("option")).toHaveText(["All technicians", "technician-one"]);
   await expect(page.getByRole("button", { name: "View Final Report" })).toBeVisible();
@@ -164,6 +223,61 @@ test("supervisor Services Done searches the customer list without configuration"
   await page.getByRole("checkbox", { name: "Show archived visits" }).check();
   await expect(page.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
   expect(requests.filter((entry) => /\/api\/manager\/customers\/./.test(entry))).toEqual([]);
+});
+
+test("Services Done shares completed repair and site filters and opens a supervisor's timeline rows", async ({ page }) => {
+  await installSupervisorApi(page);
+  await page.route("**/api/repair-visits", route => route.fulfill({ json: { visits: [{ ...repairVisit,
+    status: "approved", reportNumber: "MFE/RR/2026/0001", approvedByUserId: supervisor.id, approvedAt: "2026-10-20T00:00:00.000Z"
+  }] } }));
+  await enterAsSupervisor(page);
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Select customer", { exact: true }).selectOption(customerSummary.customer.id);
+  const timeline = page.getByRole("region", { name: "Customer timeline", exact: true });
+  await expect(timeline.locator("button.visit-row")).toHaveCount(2);
+  await timeline.getByLabel("Site", { exact: true }).selectOption(customerSummary.sites[0].id);
+  await expect(timeline.locator("button.visit-row")).toHaveCount(2);
+  await timeline.getByRole("button", { name: "Repairs", exact: true }).click();
+  await expect(timeline.locator("button.visit-row")).toHaveCount(1);
+  await timeline.locator("button.visit-row").click();
+  await expect(page).toHaveURL(new RegExp(`#/manager-repairs/${repairVisit.clientUuid}$`));
+});
+
+test("Refresh history fetches current repairs for both lists and drops timeline rows on malformed or failed refresh", async ({ page }) => {
+  await installSupervisorApi(page);
+  let approved = false;
+  let failure: "malformed" | "unavailable" | null = null;
+  let repairReads = 0;
+  await page.route("**/api/repair-visits", route => {
+    repairReads++;
+    if (failure === "unavailable") return route.fulfill({ status: 503, json: { error: "UNAVAILABLE" } });
+    if (failure === "malformed") return route.fulfill({ json: { visits: [{ ...repairVisit, status: "unknown" }] } });
+    return route.fulfill({ json: { visits: [approved ? { ...repairVisit, status: "approved", reportNumber: "MFE/RR/2026/0001", approvedByUserId: supervisor.id, approvedAt: "2026-10-20T00:00:00.000Z" } : repairVisit] } });
+  });
+  await enterAsSupervisor(page);
+  await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Select customer", { exact: true }).selectOption(customerSummary.customer.id);
+  const timeline = page.getByRole("region", { name: "Customer timeline", exact: true });
+  const repairList = page.getByRole("region", { name: "Repair visits", exact: true });
+  await expect(timeline.locator(".visit-row")).toHaveCount(1);
+  await expect(repairList).toContainText("Awaiting approval");
+  approved = true;
+  const readsBeforeRefresh = repairReads;
+  await timeline.getByRole("button", { name: "Refresh history", exact: true }).click();
+  await expect(timeline.locator(".visit-row")).toHaveCount(2);
+  expect(repairReads).toBe(readsBeforeRefresh + 1);
+  await expect(repairList).toContainText("Approved");
+  for (const badResponse of ["malformed", "unavailable"] as const) {
+    failure = badResponse;
+    await timeline.getByRole("button", { name: "Refresh history", exact: true }).click();
+    await expect(timeline.getByRole("alert")).toContainText("Repair visits could not be refreshed");
+    await expect(timeline.locator(".visit-row")).toHaveCount(0);
+    await expect(page.getByText("Repair visits could not be refreshed:", { exact: false })).toBeVisible();
+    failure = null;
+    await timeline.getByRole("button", { name: "Refresh history", exact: true }).click();
+    await expect(timeline.locator(".visit-row")).toHaveCount(2);
+    await expect(repairList).toContainText("Approved");
+  }
 });
 
 test("supervisor sees awaiting repair visits from the Repair Visits menu and under the customer in Services Done", async ({ page }) => {
@@ -180,9 +294,7 @@ test("supervisor sees awaiting repair visits from the Repair Visits menu and und
   await expect(page).toHaveURL(new RegExp(`#/manager-repairs/${repairVisit.clientUuid}$`));
   await expect.poll(() => requests.includes(`GET /api/repair-visits/${repairVisit.clientUuid}`)).toBe(true);
   await sidebar(page).getByRole("button", { name: "Current Services Done", exact: true }).click();
-  await page.getByLabel("Customer name or code").fill("supervisor");
-  await page.getByLabel("Customer name or code").press("Enter");
-  await page.getByRole("region", { name: "Matching customers" }).getByRole("button", { name: /Supervisor Review Customer/ }).click();
+  await page.getByLabel("Select customer", { exact: true }).selectOption(customerSummary.customer.id);
   const repairRows = page.getByRole("region", { name: "Repair visits", exact: true });
   await expect(repairRows).toContainText("RV-20261019-3");
   await repairRows.getByRole("button", { name: /Review repair visit/ }).click();
@@ -225,7 +337,7 @@ test("a reload restores the Supervisor experience (T3)", async ({ page }) => {
   // Reload the mounted workspace, after its initial requests have completed. The hash changes
   // before React finishes the navigation, so the URL alone is not a readiness signal.
   await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Search", exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Select customer", { exact: true }).locator("option")).toHaveCount(2);
   await page.reload();
   await expect(page).toHaveURL(/#\/manager-services-done$/);
   await expect(page.getByRole("heading", { name: "Current Services Done", exact: true })).toBeVisible();

@@ -26,6 +26,7 @@ import {
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
 import { ServiceJobCard } from "./ServiceJobCard";
+import { OpenWorkSection, matchesOpenWork } from "./OpenWorkSection";
 import { isLocalVisitReference, presentLocalVisit, withConfirmedReference } from "./offlineServiceVisitStore";
 import { deleteUnsyncedLocalVisit, prefetchCustomerSitesForOffline, requeueOfflineServiceVisit } from "./offlineServiceVisitLocal";
 import { useOfflineServiceVisits } from "./useOfflineServiceVisits";
@@ -158,6 +159,8 @@ export function TechnicianHome({
     return merged;
   }, [serverJobs, localVisits, localVisitsLoaded, localById]);
   const [localMessage, setLocalMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
   useEffect(() => {
     // Keep each customer's sites on the device so a visit can be started later with no signal.
     if (authState.status === "verified") void prefetchCustomerSitesForOffline().catch(() => undefined);
@@ -304,6 +307,13 @@ export function TechnicianHome({
   const openRepairs = repairs.visits.filter(visit => visit.createdByUserId === actorId
     && presentRepairVisit(visit).tab === "in-progress")
     .sort((a, b) => b.visitDate.localeCompare(a.visitDate) || b.localCreatedAt.localeCompare(a.localCreatedAt));
+  const filteredJobs = currentJobs.filter(job => matchesOpenWork(query, [
+    job.configurationSnapshot.customer.displayName, job.site?.displayName, job.title, job.reference
+  ]));
+  const filteredRepairs = openRepairs.filter(visit => matchesOpenWork(query, [
+    visit.customerName, visit.siteName, visit.visitNumber
+  ]));
+  const matchCount = filteredJobs.length + filteredRepairs.length;
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
     const local = localPresentation(job.id);
@@ -486,14 +496,28 @@ export function TechnicianHome({
         </ul>
       </section>
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
-      <section aria-labelledby="available-jobs-title">
-        <h3 id="available-jobs-title">Service visits ({currentJobs.length})</h3>
-        {currentJobs.length ? <ul className="job-card-list">{currentJobs.map(jobCard)}</ul>
-          : <p className="empty-state">No open service visits. Start a new service visit to begin.</p>}
-        <h3>Repair visits ({openRepairs.length})</h3>
+      <section aria-label="Open visits">
+        <div className="open-work-search">
+          <label htmlFor="open-work-search">Search open work</label>
+          <input id="open-work-search" type="search" value={search}
+            placeholder="Customer, site / service or SV / RV number"
+            onChange={event => setSearch(event.target.value)} />
+          {query ? <p role="status">Showing {matchCount} of {currentJobs.length + openRepairs.length}</p> : null}
+          {query && matchCount === 0 ? <div className="empty-state">
+            <p>No visits match</p>
+            <button type="button" className="secondary-command" onClick={() => setSearch("")}>Clear</button>
+          </div> : null}
+        </div>
+        <OpenWorkSection key={`service:${actorId}`} userId={actorId} section="service" title="Service visits"
+          count={currentJobs.length} matchCount={filteredJobs.length} query={query}>
+          {filteredJobs.length ? <ul className="job-card-list">{filteredJobs.map(jobCard)}</ul>
+            : !query ? <p className="empty-state">No open service visits. Start a new service visit to begin.</p> : null}
+        </OpenWorkSection>
+        <OpenWorkSection key={`repair:${actorId}`} userId={actorId} section="repair" title="Repair visits"
+          count={openRepairs.length} matchCount={filteredRepairs.length} query={query}>
         {!repairs.loaded ? <p role="status">Loading repair visits...</p>
           : repairs.failed ? <p role="alert">The repair visits on this device could not be read. Open Repair List and reload.</p>
-          : openRepairs.length ? <ul className="job-card-list">{openRepairs.map(visit => {
+          : filteredRepairs.length ? <ul className="job-card-list">{filteredRepairs.map(visit => {
             const state = presentRepairVisit(visit);
             return <li key={visit.clientUuid}><a className="job-card" href={`#/repair-visits/${encodeURIComponent(visit.clientUuid)}`}>
               <span className="job-card-heading"><strong>Repair visit - {visitNumberText(visit)}</strong>
@@ -501,9 +525,10 @@ export function TechnicianHome({
               <span>{visit.visitDate}</span>
               {state.reason ? <span>{state.reason}</span> : null}
             </a></li>;
-          })}</ul> : <p className="empty-state">No open repair visits saved on this device.</p>}
+          })}</ul> : !query ? <p className="empty-state">No open repair visits saved on this device.</p> : null}
         <p className="support-metadata">Repair visits show the last known state on this device. Open Repair List to refresh, retry sync or start a visit.</p>
         <a className="secondary-command" href="#/repair-visits">Repair List</a>
+        </OpenWorkSection>
       </section>
     ) : null}
   </section>;

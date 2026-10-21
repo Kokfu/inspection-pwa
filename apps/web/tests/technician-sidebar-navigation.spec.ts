@@ -38,6 +38,12 @@ test("technician sidebar opens all six destinations at phone and desktop widths"
     await expect(page).toHaveURL(new RegExp(`#/${route}$`));
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     await expect(link).toHaveAttribute("aria-current", "page");
+    if (route === "technician-completed-services") {
+      await expect(page.getByRole("button", { name: "Back", exact: true })).toHaveCount(0);
+      await expect(page.getByLabel("Select customer", { exact: true })).toBeVisible();
+      await expect(page.getByText("Technician workspace", { exact: true })).toBeVisible();
+      await expect(page.getByText("Pick a customer to see their finished visits.", { exact: true })).toBeVisible();
+    }
   }
   for (const width of [1280, 1920]) {
     await page.setViewportSize({ width, height: 800 });

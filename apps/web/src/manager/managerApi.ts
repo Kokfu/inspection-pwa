@@ -301,12 +301,35 @@ async function readResponse<T>(response: Response, key: string): Promise<T> {
 }
 
 export async function loadManagerServiceVisits(signal?: AbortSignal) {
-  let response: Response;
-  try { response = await fetch("/api/manager/service-visits", { credentials: "same-origin", cache: "no-store", signal }); }
-  catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
-  const visits = await readResponse<unknown>(response, "serviceVisits");
-  if (!Array.isArray(visits)) throw new ManagerApiError("Manager server data is currently unavailable.", "unavailable");
-  return visits as ManagerServiceVisit[];
+  const visits: ManagerServiceVisit[] = [];
+  const ids = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    signal?.throwIfAborted();
+    const query = cursor === null ? "" : `?${new URLSearchParams({ cursor })}`;
+    let response: Response;
+    try { response = await fetch(`/api/manager/service-visits${query}`, { credentials: "same-origin", cache: "no-store", signal }); }
+    catch { throw new ManagerApiError("Manager Operations cannot be verified or refreshed right now.", "unavailable"); }
+    const data = await readBody(response);
+    signal?.throwIfAborted();
+    if (!Array.isArray(data.serviceVisits)
+      || !Number.isSafeInteger(data.totalCount) || Number(data.totalCount) < 0
+      || !(data.nextCursor === null || typeof data.nextCursor === "string" && data.nextCursor.trim().length > 0)) unavailable();
+    for (const visit of data.serviceVisits) {
+      if (!isPlainObject(visit) || typeof visit.id !== "string" || !visit.id.trim() || ids.has(visit.id)
+        || (visit.status !== "open" && visit.status !== "closed")) unavailable();
+      ids.add(visit.id);
+      visits.push(visit as ManagerServiceVisit);
+    }
+    cursor = data.nextCursor as string | null;
+    if (cursor !== null) {
+      if (data.serviceVisits.length === 0 || visits.length >= Number(data.totalCount) || cursors.has(cursor)) unavailable();
+      cursors.add(cursor);
+    } else if (visits.length !== data.totalCount) unavailable();
+  } while (cursor !== null);
+  // Publish only the complete, validated list. A failed later page never yields a partial result.
+  return visits;
 }
 
 /** B0: server-scoped, oldest-first reports awaiting an explicit approval. */

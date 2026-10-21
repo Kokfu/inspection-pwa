@@ -8,16 +8,25 @@ import { ManagerAddCustomer } from "/src/manager/ManagerAddCustomer.tsx";
 import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
 import { ManagerCompanyProfile } from "/src/manager/ManagerCompanyProfile.tsx";
 import { ManagerOperations } from "/src/manager/ManagerOperations.tsx";
+import { AwaitingRepairVisitsBanner } from "/src/manager/repairVisits/ManagerRepairVisits.tsx";
 
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const customer = { customer: { id: id(1), code: "C1", displayName: "Alpha Customer" }, sites: [{ id: id(2), code: "S1", displayName: "Main Site" }], configuration: { id: id(3), revision: 1, enabledSystems: [] }, supportedSystems: [{ key: "hose_reel", displayName: "Hose Reel", assignable: true, sortOrder: 1 }] };
 const profile = { legalName: "Example Company", registrationNo: "123", address: "Main Street", tel: "123", fax: "", email: "test@example.com", complaintHotline: "123", verifiedBy: { name: "Person", title: "Manager" }, reportNumberFormat: "SR/{YYYY}/{SEQ4}", confirmed: false, logoFile: "logo.png" };
-const visit = (n, status, customerName, technicianId, accepted) => ({ id: id(n), reference: `SV-${n}`, customer: customerName, site: "Main Site", createdAt: "2026-09-01T00:00:00.000Z", serviceDate: "2026-09-01", serviceTime: "10:00", status, technician: { id: technicianId, displayName: `Tech ${technicianId}` }, systems: ["Hose Reel"], inspectionProgress: { accepted, required: 1 }, hasAcceptedRecords: accepted > 0, completion: { completedAt: null, completedBy: null }, archivedAt: null });
-const visits = [visit(10, "open", "Alpha Customer", 1, 0), visit(11, "open", "Beta Customer", 2, 1), visit(12, "closed", "Alpha Customer", 2, 1)];
+const visit = (n, status, customerName, technicianId, accepted, createdAt = "2026-09-01T00:00:00.000Z", site = "Main Site") => ({ id: id(n), reference: `SV-${n}`, customer: customerName, site, createdAt, serviceDate: "2026-09-01", serviceTime: "10:00", status, technician: { id: technicianId, displayName: `Tech ${technicianId}` }, systems: ["Hose Reel"], inspectionProgress: { accepted, required: 1 }, hasAcceptedRecords: accepted > 0, completion: { completedAt: null, completedBy: null }, archivedAt: null });
+// Fixed clock: SV-11 is created exactly 2 days before it (not older than the threshold), SV-10 nine days before it.
+const clock = Date.parse(new URLSearchParams(location.search).get("now") ?? "2026-09-10T00:00:00.000Z");
+const visits = [visit(11, "open", "Beta Customer", 2, 1, "2026-09-08T00:00:00.000Z", "Rooftop Pump Room"), visit(12, "closed", "Alpha Customer", 2, 1, "2026-09-05T00:00:00.000Z"), visit(10, "open", "Alpha Customer", 1, 0)];
+window.selectedVisits = [];
 window.deletedVisits = [];
 const json = (data) => new Response(JSON.stringify(data), { headers: { "content-type": "application/json" } });
 const realFetch = window.fetch;
-window.fetch = (input, init) => { const url = String(input); if (url.includes("/api/manager/service-catalog")) return Promise.resolve(json({ systems: customer.supportedSystems })); if (url.includes("/api/manager/company-profile")) return Promise.resolve(json({ companyProfile: profile })); if (url.includes("/api/manager/service-visits")) return Promise.resolve(json({ serviceVisits: [], nextCursor: null, totalCount: 0 })); return realFetch(input, init); };
+const params = new URLSearchParams(location.search);
+// The repair-visit list for the banner: ?awaiting=N awaiting visits plus one approved one; ?fail=403|500 fails the load.
+const repairVisit = (n, status) => ({ clientUuid: id(200 + n), visitNumber: `RV-20261012-${n}`, customerId: id(1), siteId: id(2), createdByUserId: 1, configurationRevisionId: id(3), serviceCallNumber: null, arrivalTime: "09:00", visitDate: "2026-10-12", deviceCreatedAt: "2026-10-12T01:00:00.000Z", previousVisit: null, status, revision: 1, reportNumber: status === "approved" ? "MFE/RR/2026/0001" : null, approvedByUserId: status === "approved" ? 1 : null, approvedAt: status === "approved" ? "2026-10-12T02:00:00.000Z" : null, createdAt: "2026-10-12T01:00:00.000Z", updatedAt: "2026-10-12T01:00:00.000Z" });
+window.repairRequests = 0;
+const repairResponse = () => { window.repairRequests += 1; const fail = params.get("fail"); if (fail) return Promise.resolve(new Response("{}", { status: Number(fail), headers: { "content-type": "application/json" } })); return Promise.resolve(json({ visits: [...Array(Number(params.get("awaiting") ?? 0)).keys()].map((n) => repairVisit(n + 1, "awaiting_approval")).concat([repairVisit(90, "approved")]) })); };
+window.fetch = (input, init) => { const url = String(input); if (url.endsWith("/api/repair-visits")) return repairResponse(); if (url.includes("/api/manager/service-catalog")) return Promise.resolve(json({ systems: customer.supportedSystems })); if (url.includes("/api/manager/company-profile")) return Promise.resolve(json({ companyProfile: profile })); if (url.includes("/api/manager/service-visits")) return Promise.resolve(json({ serviceVisits: [], nextCursor: null, totalCount: 0 })); return realFetch(input, init); };
 const root = createRoot(document.querySelector("#root"));
 const noop = () => {};
 function render() {
@@ -25,8 +34,9 @@ function render() {
   const content = screen === "technician" ? React.createElement(TechnicianAddCustomer, { actorUserId: 1, canUseServer: false, onStartVisit: noop, onBackHome: noop })
     : screen === "manager" ? React.createElement(ManagerAddCustomer, { onCreated: noop, onAuthorityFailure: noop })
     : screen === "configuration" ? React.createElement(ManagerCustomerConfigurationDetail, { customer, onSaved: noop, onBack: noop, onOpenService: noop, onViewServiceVisit: noop, onViewFinalReport: noop, onDownloadFinalReport: async () => {}, onAuthorityFailure: noop })
+    : screen === "banner" ? React.createElement(React.Fragment, null, React.createElement(AwaitingRepairVisitsBanner, { role: "admin", onAuthorityFailure: () => { window.authorityFailures = (window.authorityFailures ?? 0) + 1; } }))
     : screen === "profile" ? React.createElement(ManagerCompanyProfile, { onAuthorityFailure: noop })
-    : React.createElement(ManagerOperations, { visits, loading: false, message: "", onRefresh: async () => {}, onSelect: noop, onBack: noop, onViewReport: noop, onDownloadReport: async () => {}, onDelete: async (visit) => { window.deletedVisits.push(visit.id); } });
+    : React.createElement(ManagerOperations, { visits, loading: false, message: "", nowMs: () => clock, onRefresh: async () => {}, onSelect: (visit) => { window.selectedVisits.push(visit.id); }, onBack: noop, onViewReport: noop, onDownloadReport: async () => {}, onDelete: async (visit) => { window.deletedVisits.push(visit.id); } });
   root.render(React.createElement("main", { className: "manager-home", style: { boxSizing: "border-box", margin: "0 auto", padding: "24px" } }, content));
 }
 render();

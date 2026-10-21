@@ -10,7 +10,13 @@ const system={enabledSystemId:ids.system,systemKey:"hose_reel",displayName:"Hose
 const users=[{id:901,username:"tech-a",role:"inspector"},{id:902,username:"tech-b",role:"inspector"}];
 let actor=users[0]; const requests=[]; window.requests=requests;
 const first={...job, reference:"A-NEW", serviceDate:"2026-09-17",serviceTime:null,site:{id:id(50),displayName:"Site A"},createdAt:"2026-09-17T03:00:00.000Z",configurationSnapshot:{...job.configurationSnapshot,customer:{...job.configurationSnapshot.customer,displayName:"Customer A"}}};
+if (new URLSearchParams(location.search).has("open-work")) {
+ first.reference="SV-184"; first.title="Annual inspection";
+ first.configurationSnapshot.customer.displayName="Acme Engineering";
+ first.site.displayName="North Depot";
+}
 const older={...first,id:id(51),reference:"A-OLD",createdAt:"2026-09-16T03:00:00.000Z"};
+if (new URLSearchParams(location.search).has("open-work")) older.site={...first.site,displayName:"South Warehouse"};
 const done={...first,id:id(52),reference:"A-DONE",status:"closed"};
 const other={...first,id:id(53),reference:"B-ONLY",configurationSnapshot:{...first.configurationSnapshot,customer:{...first.configurationSnapshot.customer,displayName:"Customer B"}}};
 if (!sessionStorage.getItem("home-fixture-seeded")) {
@@ -21,7 +27,7 @@ for (const user of users) {
  await localDatabase.referenceData.put({key:`inspection-jobs:user:${user.id}`,payload:user.id===901?[older,done,first]:[other],version:"1",fetchedAt:at,expiresAt:at});
  await localDatabase.referenceData.put({key:"inspection-catalog:MFE-FSSR:1",payload:{template:catalog},version:"1",fetchedAt:at,expiresAt:at});
 }
-const repairBase={customerId:ids.customer,siteId:id(50),createdByUserId:901,configurationRevisionId:ids.revision,
+const repairBase={customerName:"Beacon Industries",siteName:"West Workshop",customerId:ids.customer,siteId:id(50),createdByUserId:901,configurationRevisionId:ids.revision,
  serviceCallNumber:null,arrivalTime:"08:00",visitDate:"2026-10-21",deviceCreatedAt:"2026-10-21T00:00:00.000Z",previousVisit:null,
  revision:1,reportNumber:null,approvedByUserId:null,approvedAt:null,createdAt:"2026-10-21T00:00:00.000Z",updatedAt:"2026-10-21T00:00:00.000Z",
  localCreatedAt:"2026-10-21T00:00:00.000Z",localUpdatedAt:"2026-10-21T00:00:00.000Z"};

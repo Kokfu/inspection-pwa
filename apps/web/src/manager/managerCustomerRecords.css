@@ -15,10 +15,42 @@
 .customer-filter-chip { min-height: var(--tap); }
 .customer-filter-chip[aria-pressed="true"] { box-shadow: var(--focus-ring); font-weight: bold; }
 .customer-added-by { color: var(--text-muted, inherit); }
+.customer-records-table .customer-desktop-only { display: none; }
 @media (min-width: 768px) {
+  .customer-records-table { table-layout: fixed; }
+  .customer-records-table colgroup.customer-desktop-only { display: table-column-group; }
+  .customer-column-name { width: 27%; }
+  .customer-column-contact { width: 22%; }
+  .customer-column-visit { width: 18%; }
+  .customer-column-open { width: 9%; }
+  .customer-column-actions { width: 24%; }
+  .customer-records-table .customer-phone-only { display: none; }
+  .customer-records-table .customer-desktop-only { display: block; }
+  .customer-records-table td.customer-actions { display: table-cell; white-space: nowrap; }
+  .customer-records-table th, .customer-records-table td { white-space: nowrap; vertical-align: middle; }
+  .customer-records-table .customer-name { display: block; max-width: 100%; min-width: 0; padding: 0; background: transparent; color: var(--ink); font-weight: bold; text-align: left; }
+  .customer-name, .customer-code, .customer-text-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .customer-records-table td[data-label="Open"] { overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .customer-records-table .customer-name:hover:not(:disabled) { background: transparent; border-color: transparent; text-decoration: underline; }
+  .customer-text-line { display: block; }
+  .customer-records-table .customer-code, .customer-site-count, .customer-muted { color: var(--muted); }
+  .customer-site-count { font-size: var(--text-sm); }
+  .customer-records-table .customer-status { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+  .customer-status .status-badge { font-size: var(--text-xs); }
+  .customer-action-buttons { display: flex; gap: var(--space-2); align-items: center; }
+  .customer-actions button, .customer-actions summary { white-space: nowrap; flex-shrink: 0; }
+  .customer-actions button { padding-inline: var(--space-3); }
+  .customer-action-menu { position: relative; }
+  .customer-action-menu summary { display: flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: var(--tap); border-radius: var(--radius-xs); background: var(--surface-sunken); cursor: pointer; list-style: none; }
+  .customer-action-menu summary::-webkit-details-marker { display: none; }
+  .customer-action-menu summary:focus-visible { outline: var(--focus-outline); box-shadow: var(--focus-ring); }
+  .customer-action-menu > div { position: absolute; z-index: 1; right: 0; top: 100%; padding: var(--space-2); background: var(--surface); border: thin solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
   .customer-records-table thead { display: table-header-group; }
   .customer-records-table tbody { display: table-row-group; }
   .customer-records-table tr { display: table-row; }
   .customer-records-table th, .customer-records-table td { display: table-cell; text-align: left; padding: var(--space-3); border-bottom: thin solid var(--border); }
   .customer-records-table td::before { display: none; }
+}
+@media (min-width: 768px) and (hover: hover) {
+  .customer-records-table tbody tr:hover, .customer-action-menu summary:hover { background: var(--surface-sunken); }
 }

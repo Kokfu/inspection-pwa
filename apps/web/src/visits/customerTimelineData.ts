@@ -58,7 +58,7 @@ export function filterTimeline(visits: TimelineVisit[], f: TimelineFilters) {
     && (!f.dateFrom || v.date >= f.dateFrom) && (!f.dateTo || v.date <= f.dateTo) && (!f.siteId || v.siteId === f.siteId))
     .sort((a, b) => b.date.localeCompare(a.date) || b.kind.localeCompare(a.kind) || b.id.localeCompare(a.id));
 }
-export const canOpenTimelineVisit = (actor: AuthUser, visit: TimelineVisit) => actor.role === "admin"
+export const canOpenTimelineVisit = (actor: AuthUser, visit: TimelineVisit) => actor.role === "admin" || actor.role === "supervisor"
   || actor.role === "inspector" && visit.ownedByCaller && visit.technicianId === actor.id;
 
 export async function readCustomerTimeline(customerId: string, actor: AuthUser, mode: "server" | "offline", canCommit = () => true) {

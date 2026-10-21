@@ -46,7 +46,7 @@ async function installApi(page: Page, options: { conflict?: boolean; contractVio
     const path = new URL(request.url()).pathname;
     const json = (payload: unknown, status = 200) => route.fulfill({ status, json: payload, headers: { "cache-control": "no-store" } });
     if (path === "/api/auth/me") return json({ user: supervisor });
-    if (path === "/api/manager/service-visits") return json({ serviceVisits: [visit] });
+    if (path === "/api/manager/service-visits") return json({ serviceVisits: [visit], nextCursor: null, totalCount: 1 });
     if (path === `/api/manager/service-visits/${jobId}`) return json({ serviceVisit: visit });
     const review = (count: number) => state.reviewedCount === count
       ? { status: "reviewed", correctionCount: count, reviewedBy: supervisor.username, reviewedAt: "2026-09-20T03:00:00.000Z" }

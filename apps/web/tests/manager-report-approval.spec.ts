@@ -36,7 +36,7 @@ async function installApi(page: Page, actor: typeof supervisor | typeof admin, i
     const path = new URL(request.url()).pathname;
     const json = (payload: unknown, status = 200) => route.fulfill({ status, json: payload, headers: { "cache-control": "no-store" } });
     if (path === "/api/auth/me") return json({ user: actor });
-    if (path === "/api/manager/service-visits") return json({ serviceVisits: [{ ...visitBase, reportApproval: state.approval }] });
+    if (path === "/api/manager/service-visits") return json({ serviceVisits: [{ ...visitBase, reportApproval: state.approval }], nextCursor: null, totalCount: 1 });
     if (path === `/api/manager/service-visits/${jobId}`) return json({ serviceVisit: { ...visitBase, reportApproval: state.approval } });
     if (path === `/api/manager/service-visits/${jobId}/final-report`) return json({ report });
     if (path === `/api/manager/service-visits/${jobId}/final-report.pdf`) {

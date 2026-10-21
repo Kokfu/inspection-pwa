@@ -1,0 +1,21 @@
+.ops-repair-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-4); border: 1px solid var(--warning-border); border-radius: var(--radius-md); background: var(--warning-soft); color: var(--warning-ink); font-weight: 700; }
+.ops-repair-banner a { display: inline-flex; align-items: center; min-height: var(--tap); color: inherit; text-decoration: underline; }
+.ops-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.ops-chip { min-height: var(--tap); padding-inline: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--ink); background: var(--surface); font-weight: 600; }
+.ops-chip[aria-pressed="true"] { border-color: var(--brand-dark); color: var(--on-brand); background: var(--brand-dark); }
+.ops-chip-count { font-variant-numeric: tabular-nums; font-weight: 800; }
+.ops-table { width: 100%; border-collapse: collapse; }
+.ops-table th, .ops-table td { padding: var(--space-2) var(--space-3); border-bottom: thin solid var(--border); text-align: left; vertical-align: middle; }
+.ops-table th { color: var(--muted); font-size: var(--text-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.ops-row { cursor: pointer; }
+.ops-row-open { display: grid; align-content: center; min-height: var(--tap); padding: 0; border: 0; background: transparent; color: var(--ink); font-weight: 700; text-align: left; overflow-wrap: anywhere; }
+.ops-muted { display: block; color: var(--muted); font-size: var(--text-xs); }
+.ops-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ops-age--old { color: var(--danger-ink); font-weight: 800; }
+.ops-row-actions { flex-wrap: wrap; justify-content: flex-end; }
+@media (hover: hover) {
+  .ops-row:hover { background: var(--surface-sunken); }
+  .ops-row-open:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+}
+.manager-filter-form.ops-filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.manager-filter-form.ops-filters .inline-actions { grid-column: auto; }

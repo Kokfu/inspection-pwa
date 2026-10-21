@@ -30,7 +30,10 @@ export function useRepairVisitList(role: AuthUser["role"], onAuthorityFailure?: 
     setState({ phase: "loading" });
     try {
       const visits = await loadRepairVisits(signal);
-      if (!signal?.aborted && id === current.current) setState({ phase: "ready", visits });
+      if (!signal?.aborted && id === current.current) {
+        setState({ phase: "ready", visits });
+        return visits;
+      }
     } catch (caught) {
       if (signal?.aborted || id !== current.current || (caught instanceof DOMException && caught.name === "AbortError")) return;
       if (caught instanceof RepairVisitsApiError && caught.kind === "authorization") authority.current?.(caught);
@@ -44,7 +47,9 @@ export function useRepairVisitList(role: AuthUser["role"], onAuthorityFailure?: 
     return () => { controller.abort(); current.current += 1; };
   }, [reload]);
 
-  return { state, reload: () => reload() };
+  // Stable identity lets sibling timeline loaders request fresh repairs without reload loops.
+  const retry = useCallback(() => reload(), [reload]);
+  return { state, reload: retry };
 }
 
 export const repairVisitsForCustomer = (visits: readonly RepairVisit[], customerId: string) =>

@@ -4,6 +4,7 @@ import { loadManagerCustomer, ManagerApiError, type ManagerCustomer } from "./ma
 import "./managerCustomerRecords.css";
 
 const fields = ["displayName", "contactPerson", "contactPhone", "fax", "contractNumber", "serviceFrequency"] as const;
+const customerVisitDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 type Details = Record<typeof fields[number], string | null>;
 const detailsOf = (customer: ManagerCustomer): Details => Object.fromEntries(fields.map((key) => [key, customer.customer[key] ?? null])) as Details;
 const normalized = (details: Details): Details => Object.fromEntries(fields.map((key) => [key, details[key]?.trim().replace(/\s+/g, " ") || null])) as Details;
@@ -25,19 +26,34 @@ export function customerMatches(customer: ManagerCustomer, query: string) {
 }
 
 export function ManagerCustomerTable({ customers, onManage, onArchive, archivingId }: { customers: ManagerCustomer[]; onManage: (customer: ManagerCustomer) => void; onArchive?: (customer: ManagerCustomer) => void; archivingId?: string | null }) {
-  return <table className="customer-records-table"><caption className="sr-only">Customers</caption>
-    <thead><tr>{["Customer", "Contact", "Sites", "Last visit", "Open", "Status"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+  const tableRef = useRef<HTMLTableElement>(null);
+  useEffect(() => {
+    const dismissOutside = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      tableRef.current?.querySelectorAll<HTMLDetailsElement>("details.customer-action-menu[open]").forEach((menu) => {
+        if (!menu.contains(event.target as Node)) menu.open = false;
+      });
+    };
+    // Capture also sees clicks on controls that stop propagation, including other rows' actions.
+    document.addEventListener("click", dismissOutside, true);
+    return () => document.removeEventListener("click", dismissOutside, true);
+  }, []);
+  return <table ref={tableRef} className="customer-records-table"><caption className="sr-only">Customers</caption>
+    <colgroup className="customer-desktop-only"><col className="customer-column-name" /><col className="customer-column-contact" /><col className="customer-column-visit" /><col className="customer-column-open" /><col className="customer-column-actions" /></colgroup>
+    <thead><tr>{["Customer", "Contact", "Last visit", "Open", "Actions"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
     <tbody>{customers.map((row) => {
       const summary = (row as ManagerCustomer & { tableSummary?: { lastVisit: string | null; openCount: number } }).tableSummary;
       const validSummary = summary && (summary.lastVisit === null || (typeof summary.lastVisit === "string" && /^\d{4}-\d{2}-\d{2}$/.test(summary.lastVisit)))
+        && (summary.lastVisit === null || Number.isFinite(Date.parse(`${summary.lastVisit}T00:00:00Z`)))
         && Number.isSafeInteger(summary.openCount) && summary.openCount >= 0;
       return <tr key={row.customer.id} onClick={() => onManage(row)}>
-        <td data-label="Customer"><button className="secondary-command" type="button" onClick={(event) => { event.stopPropagation(); onManage(row); }}>{row.customer.displayName}</button><small>{row.customer.code}</small></td>
-        <td data-label="Contact"><span>{row.customer.contactPerson || "—"}<br />{row.customer.contactPhone || "—"}</span></td>
-        <td data-label="Sites">{row.sites.map((site) => site.displayName).join(", ") || "No active sites"}</td>
-        <td data-label="Last visit">{validSummary ? summary.lastVisit ?? "No visits" : "Unavailable"}</td>
-        <td data-label="Open">{validSummary ? summary.openCount : "Unavailable"}</td>
-        <td data-label="Status"><span>Active{isUnconfirmed(row) ? <span className="status-badge status-badge--waiting customer-unconfirmed-badge">Unconfirmed</span> : null}{onArchive ? <button type="button" className="secondary-command" disabled={archivingId === row.customer.id} onClick={(event) => { event.stopPropagation(); onArchive(row); }}>Archive</button> : null}</span></td>
+        <td data-label="Customer"><button className="secondary-command customer-name" title={row.customer.displayName} type="button" onClick={(event) => { event.stopPropagation(); onManage(row); }}>{row.customer.displayName}</button><small className="customer-code" title={row.customer.code}>{row.customer.code}</small><span className="customer-desktop-only customer-site-count">{row.sites.length} {row.sites.length === 1 ? "site" : "sites"}</span><span className="customer-desktop-only customer-status"><span className="status-badge status-badge--complete">Active</span>{isUnconfirmed(row) ? <span className="status-badge status-badge--waiting customer-unconfirmed-badge">Unconfirmed</span> : null}</span></td>
+        <td data-label="Contact"><span className="customer-phone-only">{row.customer.contactPerson || "—"}<br />{row.customer.contactPhone || "—"}</span><span className="customer-desktop-only">{row.customer.contactPerson?.trim() || row.customer.contactPhone?.trim() ? <>{row.customer.contactPerson?.trim() ? <span className="customer-text-line" title={row.customer.contactPerson}>{row.customer.contactPerson}</span> : null}{row.customer.contactPhone?.trim() ? <span className="customer-text-line" title={row.customer.contactPhone}>{row.customer.contactPhone}</span> : null}</> : <span className="customer-muted">No contact</span>}</span></td>
+        <td data-label="Sites" className="customer-phone-only">{row.sites.map((site) => site.displayName).join(", ") || "No active sites"}</td>
+        <td data-label="Last visit"><span className="customer-phone-only">{validSummary ? summary.lastVisit ?? "No visits" : "Unavailable"}</span><span className={`customer-desktop-only${validSummary && summary.lastVisit ? "" : " customer-muted"}`}>{validSummary ? summary.lastVisit ? customerVisitDate.format(new Date(`${summary.lastVisit}T00:00:00Z`)) : "No visits" : "Unavailable"}</span></td>
+        <td data-label="Open" title={validSummary ? String(summary.openCount) : "Unavailable"}>{validSummary ? summary.openCount : "Unavailable"}</td>
+        <td data-label="Status" className="customer-phone-only"><span>Active{isUnconfirmed(row) ? <span className="status-badge status-badge--waiting customer-unconfirmed-badge">Unconfirmed</span> : null}{onArchive ? <button type="button" className="secondary-command" disabled={archivingId === row.customer.id} onClick={(event) => { event.stopPropagation(); onArchive(row); }}>Archive</button> : null}</span></td>
+        <td data-label="Actions" className="customer-desktop-only customer-actions" onClick={(event) => event.stopPropagation()}><div className="customer-action-buttons"><button type="button" className="secondary-command" onClick={() => onManage(row)}>Manage</button>{onArchive ? <details className="customer-action-menu" onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary aria-label={`More actions for ${row.customer.displayName}`}>⋯</summary><div><button type="button" className="secondary-command" disabled={archivingId === row.customer.id} onClick={(event) => { const menu = event.currentTarget.closest("details"); if (menu) { menu.open = false; menu.querySelector("summary")?.focus(); } onArchive(row); }}>Archive</button></div></details> : null}</div></td>
       </tr>;
     })}</tbody>
   </table>;

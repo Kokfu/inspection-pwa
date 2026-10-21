@@ -52,7 +52,7 @@ function toQuery(customerId: string, filters: ServiceHistoryFilterValues, includ
  */
 export function ManagerCustomerServiceHistory({
   customer, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onAuthorityFailure,
-  variant = "configuration", technicians = [], initialFilters, onFiltersApplied, canManageVisits = true
+  variant = "configuration", technicians = [], initialFilters, onFiltersApplied, onVisitsChanged, canManageVisits = true
 }: {
   customer: ManagerCustomerSummary;
   onViewServiceVisit: (jobId: string) => void;
@@ -63,6 +63,8 @@ export function ManagerCustomerServiceHistory({
   technicians?: ManagerTechnician[];
   initialFilters?: ServiceHistoryFilterValues;
   onFiltersApplied?: (filters: ServiceHistoryFilterValues) => void;
+  /** Notify sibling history views after a confirmed archive/restore. */
+  onVisitsChanged?: () => void;
   canManageVisits?: boolean;
 }) {
   const explicitApply = variant === "services-done";
@@ -80,6 +82,11 @@ export function ManagerCustomerServiceHistory({
   // Bumped by every filter/customer change and on unmount: a Load more response from an older
   // generation must never append old-filter rows or an old cursor to the current list.
   const requestGeneration = useRef(0);
+  const customerGeneration = useRef(0);
+  useEffect(() => {
+    customerGeneration.current += 1;
+    return () => { customerGeneration.current += 1; };
+  }, [customer.customer.id]);
 
   const fail = (reason: unknown) => {
     if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -146,15 +153,27 @@ export function ManagerCustomerServiceHistory({
     const inProgressNotice = visit.status === "closed" ? "" :
       " This visit is still in progress: the technician can keep working on it and syncing evidence — archiving only removes it from this list, it does not stop or notify them.";
     if (!window.confirm(`Archive service visit ${visit.reference}? It will no longer appear in active history, and can be restored later.${inProgressNotice}`)) return;
+    const generation = customerGeneration.current;
     setArchivingId(visit.id); setError("");
-    try { await archiveManagerServiceVisit(visit.id); await reload(); }
+    try {
+      await archiveManagerServiceVisit(visit.id);
+      if (generation !== customerGeneration.current) return;
+      onVisitsChanged?.();
+      await reload();
+    }
     catch (reason) { fail(reason); }
     finally { setArchivingId(null); }
   };
 
   const restore = async (visit: ManagerServiceVisit) => {
+    const generation = customerGeneration.current;
     setRestoringId(visit.id); setError("");
-    try { await restoreManagerServiceVisit(visit.id); await reload(); }
+    try {
+      await restoreManagerServiceVisit(visit.id);
+      if (generation !== customerGeneration.current) return;
+      onVisitsChanged?.();
+      await reload();
+    }
     catch (reason) { fail(reason); }
     finally { setRestoringId(null); }
   };

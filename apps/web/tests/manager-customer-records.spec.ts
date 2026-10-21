@@ -8,6 +8,131 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/customers/*/visit-summaries?*", route => route.fulfill({ json: { visits: [], nextCursor: null } }));
 });
 
+test("desktop customer actions stay single-line, empty contacts and long text are readable", async ({ page }) => {
+  const longName = "Alpha Customer with a very long customer name ".repeat(5);
+  const stored = { ...fixture(), customer: { ...fixture().customer, displayName: longName, contactPerson: null, contactPhone: null } };
+  const second = { ...fixture(), customer: { ...fixture().customer, id: "71000000-0000-4000-8000-000000000009", contactPerson: "Long contact name ".repeat(12), contactPhone: "0123456789".repeat(8) } };
+  await page.route("**/api/manager/customers{,/**}", route => route.fulfill({ json: route.request().url().endsWith("/customers")
+    ? { customers: [{ ...stored, tableSummary: { lastVisit: "2026-10-21", openCount: 2 } }, { ...second, tableSummary: { lastVisit: null, openCount: 0 } }] } : { customer: stored } }));
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/tests/manager-customer-records.html");
+  const row = page.locator("tbody tr").first();
+  await expect(row.getByText("No contact", { exact: true })).toBeVisible();
+  expect(await row.locator('[data-label="Contact"]').innerText()).toBe("No contact");
+  await expect(row.locator('[data-label="Last visit"] .customer-desktop-only')).toHaveText("21 Oct 2026");
+  await expect(row.getByText("1 site", { exact: true })).toBeVisible();
+  await expect(row.locator(".customer-name")).toHaveAttribute("title", longName);
+  await expect(row.locator(".customer-name")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator("table")).toHaveCSS("table-layout", "fixed");
+  await expect(row.getByRole("button", { name: "Archive", exact: true })).not.toBeVisible();
+  const more = row.locator("summary");
+  await more.focus(); await page.keyboard.press("Enter");
+  await expect(row.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+  const sizes = await row.locator(".customer-actions button").evaluateAll(buttons => buttons.map(button => {
+    const style = getComputedStyle(button);
+    const text = document.createRange(); text.selectNodeContents(button);
+    return { height: button.getBoundingClientRect().height, singleLineHeight: text.getBoundingClientRect().height + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth), minHeight: parseFloat(style.minHeight), lineHeight: parseFloat(style.lineHeight), textHeight: text.getBoundingClientRect().height };
+  }));
+  for (const size of sizes) {
+    expect(size.textHeight).toBeLessThanOrEqual(size.lineHeight);
+    expect(size.height).toBeCloseTo(Math.max(size.minHeight, size.lineHeight + size.singleLineHeight - size.textHeight), 0);
+  }
+  await page.screenshot({ path: test.info().outputPath("customers-1920.png"), fullPage: true });
+  await page.keyboard.press("Escape"); await expect(more).toBeFocused();
+  await expect(row.locator("details")).not.toHaveAttribute("open", "");
+  await row.locator('[data-label="Open"]').click();
+  await expect(page.getByRole("heading", { name: longName, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to Customers" }).click();
+  await row.getByRole("button", { name: "Manage", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: longName, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to Customers" }).click();
+  for (const [width, height] of [[375, 800], [360, 800], [768, 1024], [1280, 800]]) {
+    await page.setViewportSize({ width, height });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (width >= 768) {
+      await row.locator(".customer-name").hover();
+      await expect(row.locator(".customer-name")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    }
+    await page.screenshot({ path: test.info().outputPath(`customers-long-${width}.png`), fullPage: true });
+  }
+});
+
+test("customer actions dismiss outside and retain keyboard focus after Archive cancellation", async ({ page }) => {
+  const stored = fixture();
+  let writes = 0;
+  await page.route("**/api/manager/customers{,/**}", route => {
+    if (route.request().method() === "PUT") writes++;
+    return route.fulfill({ json: route.request().url().endsWith("/customers") ? { customers: [stored] } : { customer: stored } });
+  });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/tests/manager-customer-records.html");
+  const menu = page.locator("details.customer-action-menu");
+  const more = menu.locator("summary");
+  await more.click();
+  await expect(menu).toHaveAttribute("open", "");
+  await page.getByRole("heading", { name: "Customers", exact: true }).click();
+  await expect(menu).not.toHaveAttribute("open", "");
+  await more.click();
+  const search = page.getByRole("searchbox", { name: "Name, contact, site or phone" });
+  await search.click();
+  await expect(menu).not.toHaveAttribute("open", "");
+  await expect(search).toBeFocused();
+
+  await more.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(menu.getByRole("button", { name: "Archive", exact: true })).toBeFocused();
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.keyboard.press("Enter");
+  await expect(menu).not.toHaveAttribute("open", "");
+  await expect(more).toBeFocused();
+  expect(writes).toBe(0);
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Show archived customers", exact: true })).toBeFocused();
+});
+
+for (const failure of ["domain", "offline", "authorization"] as const) {
+  test(`desktop Archive retains confirmation and ${failure} handling`, async ({ page }) => {
+    const stored = fixture(); let writes = 0;
+    await page.route("**/api/manager/customers{,/**}", async route => {
+      if (route.request().method() === "PUT") {
+        writes++;
+        if (failure === "offline") return route.abort();
+        return route.fulfill({ status: failure === "authorization" ? 403 : 409, json: { message: "Archive refused" } });
+      }
+      return route.fulfill({ json: route.request().url().endsWith("/customers") ? { customers: [stored] } : { customer: stored } });
+    });
+    await page.goto("/tests/manager-customer-records.html");
+    const row = page.locator("tbody tr").first();
+    await row.locator("summary").click();
+    page.once("dialog", dialog => dialog.dismiss());
+    await row.getByRole("button", { name: "Archive", exact: true }).click();
+    expect(writes).toBe(0);
+    await row.locator("summary").click();
+    page.once("dialog", dialog => dialog.accept());
+    await row.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(page.getByRole("alert")).toBeVisible();
+    expect(writes).toBe(1);
+    expect(await page.evaluate(() => (window as any).authorityKind)).toBe(failure === "domain" ? undefined : failure === "authorization" ? "authorization" : "unavailable");
+    if (failure === "domain") await expect(row.getByRole("button", { name: "Manage", exact: true })).toBeVisible();
+    else await expect(row).toHaveCount(0);
+  });
+}
+
+test("archived customers retain their distinct status and Restore action", async ({ page }) => {
+  const stored = fixture();
+  const archived = { ...stored, customer: { ...stored.customer, id: "71000000-0000-4000-8000-000000000009", displayName: "Archived Customer" } };
+  await page.route("**/api/manager/customers{,/**}", route => route.fulfill({ json: route.request().url().endsWith("/archived")
+    ? { customers: [archived] } : route.request().url().endsWith("/customers") ? { customers: [stored] } : { customer: stored } }));
+  await page.goto("/tests/manager-customer-records.html");
+  await page.getByRole("button", { name: "Show archived customers" }).click();
+  const card = page.locator("li").filter({ hasText: "Archived Customer" });
+  await expect(card.locator(".status-badge")).toHaveText("Archived");
+  await expect(card.getByRole("button", { name: "Restore", exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Manage", exact: true })).toHaveCount(0);
+});
+
 const service = { id: "72000000-0000-4000-8000-000000000001", kind: "service", date: "2026-10-21", status: "closed",
   siteId: null, siteName: null, technicianId: 12, technicianName: "Other technician", ownedByCaller: false };
 const repair = { ...service, id: "72000000-0000-4000-8000-000000000002", kind: "repair", date: "2026-10-20", status: "approved" };
@@ -104,7 +229,7 @@ test("customers table search, responsive cards, tabs, edit round-trip and discar
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByText("Changes saved.", { exact: true })).toBeVisible(); expect(patches).toBe(1);
   await page.getByRole("button", { name: "Back to Customers", exact: true }).click();
-  await expect(page.locator('.customer-records-table td[data-label="Last visit"]')).toHaveText("2026-10-20");
+  await expect(page.locator('.customer-records-table td[data-label="Last visit"] .customer-desktop-only')).toHaveText("20 Oct 2026");
   await expect(page.locator('.customer-records-table td[data-label="Open"]')).toHaveText("2");
   await page.reload(); await page.getByRole("button", { name: "Renamed Customer", exact: true }).click();
   await expect(page.getByLabel("Contact person", { exact: true })).toHaveValue("New Contact");
@@ -255,7 +380,7 @@ test("Unconfirmed status, chip filter and Confirm details header", async ({ page
   const chip = page.getByRole("button", { name: "Unconfirmed (1)", exact: true });
   await expect(chip).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator("tbody tr")).toHaveCount(2);
-  await expect(page.locator("tbody tr").filter({ hasText: "Alpha Customer" }).locator(".customer-unconfirmed-badge")).toHaveText("Unconfirmed");
+  await expect(page.locator("tbody tr").filter({ hasText: "Alpha Customer" }).locator(".customer-unconfirmed-badge").filter({ visible: true })).toHaveText("Unconfirmed");
   await expect(page.locator("tbody tr").filter({ hasText: "Beta Customer" }).locator(".customer-unconfirmed-badge")).toHaveCount(0);
   for (const [width, height] of [[360, 800], [1280, 800]]) {
     await page.setViewportSize({ width, height });

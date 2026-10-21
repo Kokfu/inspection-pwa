@@ -28,7 +28,7 @@ test("Home shows only open service and repair work; completed shortcut retains f
   await page.evaluate(()=>(window as any).approveRepair());
   await expect(page.getByRole("heading",{name:"Repair visits (5)"})).toBeVisible();
   await page.getByRole("link",{name:"Recent completed",exact:true}).click();
-  await page.getByLabel("Customer",{exact:true}).selectOption("41000000-0000-4000-8000-000000000002");
+  await page.getByLabel("Select customer",{exact:true}).selectOption("41000000-0000-4000-8000-000000000002");
   await expect(page.getByLabel("Status",{exact:true})).toHaveValue("closed");
   await expect(page.locator(".visit-row")).toHaveCount(2);
   await page.reload();
@@ -37,7 +37,7 @@ test("Home shows only open service and repair work; completed shortcut retains f
   await page.getByRole("button",{name:"Repairs",exact:true}).click();
   await expect(page.locator(".visit-row")).toHaveCount(1);
   await expect(page.locator(".visit-row")).toContainText("Approved");
-  await page.getByRole("button",{name:"Back",exact:true}).click();
+  await page.getByRole("navigation",{name:"Primary navigation"}).getByRole("button",{name:"Home",exact:true}).click();
   await page.getByRole("link",{name:"Repair List",exact:true}).click();
   await expect(page.getByRole("link",{name:"+ New Repair Visit",exact:true})).toHaveAttribute("href","#/repair-visits/new");
 });
