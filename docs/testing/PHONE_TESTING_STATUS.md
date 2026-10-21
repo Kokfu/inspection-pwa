@@ -703,3 +703,18 @@ Manager pass on the phone (2026-10-22, build `20261021T165902Z`, mobiletest): al
 20 px gap, 26 px title, "MANAGER WORKSPACE" eyebrow, no horizontal scroll, no target under 44 px, no input under 16 px. Customers shows as cards.
 Admin (Supervisor1) checked in the desktop browser pane at 360/768/1280 (10 screens): clean. Not tested on the phone: Admin, camera, true offline.
 P3 seen on the phone: Customers "Add customer" and "Refresh" stack at different widths (262 vs 458 px) and "Back to Home" touches the Menu bar.
+
+## Fix-round recheck after `fcb4a8d` (2026-10-22, build `build-20261021T175039Z`)
+
+Changes under test: Admin eyebrow on every page, Customers header buttons one width, 20 px Menu-bar gap, "Add Customer" rename, sidebar section heading 12 px.
+
+| Check | Result |
+|---|---|
+| Admin (Supervisor1), browser pane, 360 / 768 / 1280, 10 screens (Home, Operations, Current Services Done, Approvals, Photo KPI, Location Proposals, Site Requests, Repair Visits, Service Reports, Remark Requests) | PASS: eyebrow "Admin workspace" on every screen at all three widths, no horizontal overflow, no "unavailable" error. At 360: no target under 44 px, Menu-to-content gap 20 px. |
+| Manager (mobiletest) on the phone CPH2375, 360 px, build updated with **Update now** (real tap after Chrome force-stop and reopen) | PASS: 19 screens, "Manager workspace" eyebrow, no overflow, no target under 44 px, no input under 16 px, Menu-to-content gap 20 px on every screen. |
+| Phone Customers header (P3 from the 2026-10-22 Manager pass) | FIXED: "Add Customer" 165x44 at x=9 and "Refresh" 165x44 at x=186, side by side with a 12 px gap; "Back to Home" now 20 px below the Menu bar (was 8 px). |
+| Manager (mobiletest) and Technician (technician-demo) in the browser pane, 360 / 768 / 1280 | PASS: Manager 19 screens, Technician 7 screens (Open Work, New Service Visit, Upcoming, Completed, Repair List, New Repair Visit, Add Customer). Correct eyebrow on every screen, no horizontal overflow, no "unavailable" error; at 360 no target under 44 px, no input under 16 px, Menu-to-content gap 20 px. |
+| Technician (technician-demo) on the phone CPH2375, 360 px, same build | PASS: 7 screens, "Technician workspace" / setup eyebrows, no overflow, no target under 44 px, no input under 16 px, gap 20 px. Repair List: 3 cards, ids such as `RV-20261021-4` on one line (24 px high), scrollWidth 360. Signed out and in with real taps; the form fields were set through CDP. |
+
+Checks used CDP to read state and navigate by hash; the update, sign-out, role choice and Sign in were real taps. Not tested: installed WebAPK, HTTPS, camera, true offline. No new issues; the 2026-10-22 P3 (Customers buttons and Back to Home) is fixed. The phone is now signed in as technician-demo.
+
