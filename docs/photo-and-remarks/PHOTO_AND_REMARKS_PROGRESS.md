@@ -2,7 +2,7 @@
 
 Opened: 2026-10-20 · Branch: `phase-8e-client-demo-polish` (clean at `4285448`) · Prompts: [PHOTO_AND_REMARKS_PROMPTS.md](PHOTO_AND_REMARKS_PROMPTS.md)
 
-Status: **P1, R1, R2, R3 and R4 implemented and automated gates green (2026-10-21); ready for focused review. Other tracks retain their individual statuses below.**
+Status (reviewed 2026-10-21): **All build steps (P1, P2, P4, R1, R2, R3, R4) are implemented and committed** (`3e3feae`, `2442bc0`, `a97ddfb`, `340556c`; R4 phone check recorded in `3204a72`). Automated gates are green. **Open: physical-phone acceptance for P1, P2, P4 and the R3 Sprinkler flow (track T), and the pending items in section 11.**
 
 Role names (CR-11): the UI's **Manager** = code role `admin`; the UI's **Admin** = code role `supervisor`.
 "Admin/Manager" below therefore means code roles `admin` + `supervisor`.
@@ -11,15 +11,15 @@ Role names (CR-11): the UI's **Manager** = code role `admin`; the UI's **Admin**
 |---|---|---|
 | 0 | Investigation + findings (this file) | Done 2026-10-20 |
 | 0 | Owner decisions P-Q1..P-Q7, R-Q1..R-Q9 | **Answered 2026-10-20** (all confirmed) |
-| P1 | Camera-first photo controls; gallery only after the camera fails; "Uploaded from gallery" badge (web only) | **Done 2026-10-20; automated gates pass; focused review / physical-phone acceptance next** |
-| P2 | Gallery label on Admin/Manager internal screens (NOT the customer PDF) | **Done 2026-10-20; automated gates pass (migration 058 added, owner-approved); focused review next** |
+| P1 | Camera-first photo controls; gallery only after the camera fails; "Uploaded from gallery" badge (web only) | **Done, committed `3e3feae`; automated gates pass; physical-phone acceptance not recorded** |
+| P2 | Gallery label on Admin/Manager internal screens (NOT the customer PDF) | **Done, committed in `340556c` (migration 058, owner-approved); automated gates pass; phone check not recorded** |
 | P3 | Gallery reason stored on the server | **Dropped** (P-Q1 = c, no reason) |
-| P4 | New KPI page: camera / gallery / gallery % per technician + all technicians, charts | **Done 2026-10-21; automated gates pass; focused review / phone check next** |
-| R1 | One remark per row: picker redesign (web only) | **Review P2 fixed 2026-10-20; 41 unit + 14 browser checks pass; focused re-review / physical-phone acceptance next** |
-| R2 | "Add to common remarks" becomes a request + approval: API + migration (Level 2) | **Done 2026-10-20; Level 2 gates pass; ready for focused review, then R3** |
-| R3 | Technician request flow (offline outbox) + Admin/Manager "Remark requests" page, Automatic Sprinkler | **Done 2026-10-20; automated gates pass; ready for focused review; physical-phone acceptance pending (see R3 verification)** |
-| R4 | Roll out to Hose Reel, Hydrant, Fire Alarm, FM200, CO2 | **Done 2026-10-21; automated gates pass; ready for focused review; physical-phone acceptance pending (see R4 verification)** |
-| T | Phone test (camera, camera failure -> gallery, offline, approval) | After each track |
+| P4 | New KPI page: camera / gallery / gallery % per technician + all technicians, charts | **Done, committed in `340556c`; automated gates pass; phone check not recorded** |
+| R1 | One remark per row: picker redesign (web only) | **Done, committed `2442bc0`; review P2 fixed; 41 unit + 14 browser checks pass; phone check covered by the R4 phone check (picker on 6 systems)** |
+| R2 | "Add to common remarks" becomes a request + approval: API + migration (Level 2) | **Done, committed `a97ddfb`; Level 2 gates pass (133 tests)** |
+| R3 | Technician request flow (offline outbox) + Admin/Manager "Remark requests" page, Automatic Sprinkler | **Done, committed in `340556c`; automated gates pass; request flow phone-checked on FM200/Hose Reel/Hydrant/Fire Alarm/CO2 in the R4 check; Automatic Sprinkler and the Manager Remark requests page not phone-checked** |
+| R4 | Roll out to Hose Reel, Hydrant, Fire Alarm, FM200, CO2 | **Done, committed in `340556c`; phone-checked 2026-10-21 (build `20261021T020230Z`, see `PHONE_TESTING_STATUS.md` "R4 phone check"): all 5 systems PASS** |
+| T | Phone test (camera, camera failure -> gallery, offline, approval) | **Partly done:** R4 phone check passed 2026-10-21; P1 camera/gallery, P2 labels, P4 KPI and R3 Sprinkler/Manager page still to do |
 
 ---
 
@@ -793,3 +793,20 @@ Gates:
 P0/P1/P2 introduced by R4: 0/0/0. Limitations: the browser tests use an in-memory server that follows the R2 contract (the real API is covered by the integration sub-test); the per-field remarks of Hose Reel / Hydrant / Fire Alarm (shown only for a finding) share the row picker code and are covered by the allowlist and form-site tests, not a browser scenario of their own; the section label shown to reviewers is the template default; the Comments-button decision above needs the owner's OK; no physical phone, installed PWA or deployment test.
 
 Reproduce (PowerShell): `cd apps\web; ..\api\node_modules\.bin\tsx.cmd --test tests/remarkSectionsParity.test.ts tests/remarkRequests.test.ts tests/sectionRemarks.test.ts; npx playwright test --config tests/remark-requests-r4.config.ts remark-requests-r4 common-remarks remarks-r1 section-remarks-form remark-requests-flow --workers=1; npm run typecheck; npm run build`, then from the repo root `& .\apps\api\src\routes\verifyR2RemarkRequests.ps1`.
+
+## 11. Status review (2026-10-21)
+
+Everything above is committed and the working tree is clean. Remaining, none blocking:
+
+| Item | Where it stands |
+|---|---|
+| Phone check: P1 (camera-first, gallery after camera failure, badge) | Not recorded. Needs a real camera denial on the phone. |
+| Phone check: P2 (GALLERY label on Manager/Admin screens, PDF unchanged) | Not recorded. |
+| Phone check: P4 Photo KPI page | Not recorded. |
+| Phone check: R3 Automatic Sprinkler request flow + Manager "Remark requests" page | Sprinkler and the Manager page not covered by the R4 check. |
+| R4 phone gaps | 403 discard of an old queued `commonRemark` item; per-field remarks on a finding; installed WebAPK / production HTTPS. |
+| R3 P2 | Reviewer screens show the template default section label, not a per-customer override (display only). |
+| R3 limitation | Remark requests are not in the Home pending total. |
+| Pre-existing test failures | `final-ui-acceptance.test.tsx` (node cannot import `ManagerApprovals.css`) and `generalLayoutManager.test.ts`; 8 online `row-layout-*` "layout sent to an Admin" cases from R4 were not re-run on a clean tree. |
+| P2 limitations | Repair review labels only the After photo; pre-058 gallery photos show "GALLERY" without a time. |
+| Test data left on the demo DB | Two `section_remark_requests` rows from the R4 check plus two stray Hose Reel rows. |

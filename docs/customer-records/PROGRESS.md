@@ -1,6 +1,6 @@
 # Customer-centred history — progress
 
-Last updated: 2026-10-21 (S7 verification logged; S5 implemented, in Review; other step statuses retained below); S6 implemented and verified, ready for review
+Last updated: 2026-10-21 (status review: S1-S7 all done and committed; open items listed in the final section)
 
 RULE: whoever finishes a step MUST update this file in the same task: status, date, files changed, tests run, findings, limitations. Do not mark Done with an open P0/P1. Git is handled by the user.
 
@@ -27,7 +27,7 @@ Steps in the same wave touch different files and may run in parallel chats. Run 
 | B | S5 | Confirmed flag + Unconfirmed chip + Confirm action | S3a | Yes (059, additive) | Done (reviewed) | 2026-10-21 |
 | C | S3b | Timeline tab inside manager customer detail | S2, S3a | No | Done (reviewed) | 2026-10-21 |
 | C | S6 | Technician Home: Open work + Recent completed shortcut | S2 | No | Done (reviewed) | 2026-10-21 |
-| D | S7 | Verification, phone check, docs | all | No | Review (automated + phone checks green) | 2026-10-21 |
+| D | S7 | Verification, phone check, docs | all | No | Done (committed `db85dd9`, docs `4454fe8`; automated + phone checks green, WebAPK/production HTTPS not done) | 2026-10-21 |
 
 ## Step log
 (Append an entry per step when work happens. Format below.)
@@ -402,3 +402,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Whitespace check failed' }
 - Diff read: inspectionJobs.ts detail guard (owner = created_by_user_id, same rule as before; admin reads all), repairVisitWrites.ts message only, managerCustomers.ts confirm route + creator provenance, migration 059 (additive, existing rows confirmed), server.ts registration.
 - P2 (document, no fix needed): (1) non-owner technician opening a service-visit detail now gets 403 with a message instead of the old 404 JOB_NOT_FOUND, and that read is no longer audited by the removed middleware; acceptable because summaries already expose the row. (2) S6 widened the "Completed" filter to closed services + approved repairs and edited S2's browser expectations accordingly; this matches the Home shortcut intent, confirm in S7 UI check. (3) "Added by" shows username, not display name (users table has no display name). (4) Working tree also holds unrelated upcoming-services edits (TechnicianUpcomingServices, ManagerUpcomingServices, UpcomingServiceDrawer, docs/upcoming-services): commit them separately from this feature.
 - Next: commit this feature (user), then S7.
+
+### Status review — 2026-10-21
+- All steps S1-S7 are done and committed (`db85dd9` feature, `4454fe8` S7 docs). The per-step headings above still say "Review" in places; the table at the top is the current status.
+- Still open (none P0/P1): S2 non-owner detail returns 403 not 404 and is no longer audited; "Completed" filter now means closed services + approved repairs; "Added by" shows username; migration 059 not yet applied to a production-sized database; WebAPK / production HTTPS acceptance and the near-match "Use existing" path on the phone not done; web bundle-size advisory.
+- Test debris: customer "All Servicess" (confirmed, site "S7 Phone Site", no visits) left in the demo DB.
+- Separate failing spec noted by Upcoming Services: `manager-dashboard-navigation.spec.ts` (2 tests) still expects the old "Customer Configuration" heading, now "Customers"; this feature's owner must update it.
