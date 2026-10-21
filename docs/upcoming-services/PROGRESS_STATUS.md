@@ -29,8 +29,8 @@ Role names: code role `admin` = UI **Manager**; code role `supervisor` = UI **Ad
 | **R1** | Rebuild web on the local stack, browser (1024 px + 360 px) check of both screens | U2 and U3 | ☑ Browser check done 2026-10-21 on build `20261021T041245Z`. Fixes made and retested: P3-1 technician load failure now shows a friendly message + Retry; P3-2 manager save/clear notice; P3-3 body scroll lock while a drawer is open. 33/33 specs. Reviewed: P0 0 / P1 0 / P2 0. **Fixes not yet committed** (files: TechnicianUpcomingServices.tsx, ManagerUpcomingServices.tsx, UpcomingServiceDrawer.tsx, manager-upcoming-services.spec.ts, technician-upcoming-services.spec.ts) |
 | **R2** | Physical phone + real offline check | R1 ☑ | ☑ Agent-run 2026-10-21: Chromium offline (Playwright `setOffline`, 360 px) and the USB phone (CPH2375, build `20261021T044424Z`, proxy-stop offline + Chrome force-stop). PASS on rows 1-12; no P0/P1/P2. Not tested: installed WebAPK force-close, true airplane mode, human touch (taps were DOM events over CDP). Owner may still spot-check by hand. |
 | **D1** | Owner approves a calendar mockup (month grid, status colours) | R2 | ☑ Approved by owner 2026-10-21 (mockup described in §5) |
-| **U4** | Calendar month view (reuses U1 helper and U3 filters) | D1 ☑ | ✅ Ready — start after the R1 fixes are committed (shared files) |
-| **R3** | Browser + phone check of the calendar (same style as R1/R2) | U4 | ⏸ |
+| **U4** | Calendar month view (reuses U1 helper and U3 filters) | D1 ☑ | ☑ Done 2026-10-21 — reviewed: web typecheck + build clean, 9/9 `test:calendar-month`, 9/9 `test:due-status`, 52/52 Playwright (new calendar specs + existing upcoming/email-reminder/sidebar/compliance specs). P0 0 / P1 0 / P2 1 (below). **Not committed yet** |
+| **R3** | Agent browser/offline check of the calendar, then commit U4 (prompt in PROMPTS.md); owner phone rows after | U4 ☑ | ✅ Ready |
 
 Status legend: ⏸ waiting · ✅ ready · 🔧 in progress · 🔍 in review · ☑ done (owner commits).
 
@@ -78,6 +78,7 @@ D1 -> U4  last
 - [x] "Routine" column: omitted in U3 (data not available without an API change). Revisit only if the owner wants it (would need an API task).
 - [ ] P3: `manager-dashboard-navigation.spec.ts` (2 tests) fails because the separate customer-records work renamed the "Customer Configuration" page heading to "Customers". Not from this redesign; the customer-records owner must update that spec.
 - [x] Calendar mockup (D1) shown and approved 2026-10-21.
+- [x] **P2 (U4) fixed 2026-10-21 (owner approved):** switching Table -> Calendar now selects the "All" chip (a chip chosen inside the calendar is kept until the next switch). `showCalendar` in `ManagerUpcomingServices.tsx` + test "switching to Calendar selects the All chip…" in `manager-upcoming-calendar.spec.ts`; typecheck clean, 28/28 for calendar + manager upcoming + email-reminders specs. Not committed yet (goes in with U4 via R3).
 
 ## 7. Log
 

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { groupByDate, monthOf, weekdayDate, type YearMonth } from "../schedule/calendarMonth";
+import { DueCalendar, useCompactViewport, type CalendarItem, type CalendarStatus } from "../schedule/DueCalendar";
 import { classifyDue, compareByUrgency, dueLabel, formatDueDate, localToday, type DueStatus } from "../schedule/dueStatus";
 import { loadUpcomingServices, saveCustomerNextServiceDueDate, ManagerApiError, type UpcomingServices } from "./managerApi";
 import { ManagerReminderPlan } from "./ManagerReminderPlan";
 import { ManagerServiceRecurrence } from "./ManagerServiceRecurrence";
 import { UpcomingServiceDrawer } from "./UpcomingServiceDrawer";
 import type { UpcomingServiceAction } from "./UpcomingServiceRowMenu";
-import { UpcomingServicesTable, type UpcomingRow, type UpcomingSort } from "./UpcomingServicesTable";
+import { UpcomingRowActions, UpcomingServicesTable, type UpcomingRow, type UpcomingSort } from "./UpcomingServicesTable";
 import "./managerUpcomingServices.css";
 
 type StatusFilter = DueStatus | "all";
@@ -24,6 +26,13 @@ function accepted(rows: UpcomingServices): UpcomingServices {
   return rows;
 }
 
+type UpcomingView = "table" | "calendar";
+
+function calendarStatus(dueDate: string, today: string): CalendarStatus {
+  const { status } = classifyDue(dueDate, today);
+  return status === "overdue" ? "overdue" : status === "due_soon" ? "soon" : "later";
+}
+
 export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFailure: (error: unknown) => void }) {
   const [data, setData] = useState<UpcomingServices>();
   const [busy, setBusy] = useState(false);
@@ -34,6 +43,10 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
   const [chosenFilter, setChosenFilter] = useState<StatusFilter>();
   const [sort, setSort] = useState<UpcomingSort>({ key: "due", dir: "asc" });
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<UpcomingView>("table");
+  const [calMonth, setCalMonth] = useState<YearMonth>(() => monthOf(localToday()));
+  const [selectedDate, setSelectedDate] = useState<string | null>(() => localToday());
+  const compact = useCompactViewport();
   const mounted = useRef(false);
   const latestData = useRef(data);
   latestData.current = data;
@@ -114,6 +127,24 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
     });
   }, [searched, filter, sort]);
 
+  const calendarItems = useMemo<CalendarItem[]>(() => visible.flatMap(({ customer }) =>
+    customer.nextServiceDueDate ? [{ id: customer.id, name: customer.displayName, dueDate: customer.nextServiceDueDate }] : []), [visible]);
+  const dayRows = useMemo(() => {
+    const items = selectedDate ? groupByDate(calendarItems, (item) => item.dueDate).get(selectedDate) ?? [] : [];
+    return items.flatMap((item) => visible.filter((row) => row.customer.id === item.id));
+  }, [calendarItems, visible, selectedDate]);
+  const monthStart = `${String(calMonth.year).padStart(4, "0")}-${String(calMonth.month).padStart(2, "0")}-01`;
+  const overdueEarlier = useMemo(() => searched.filter((row) => row.status === "overdue" && row.customer.nextServiceDueDate !== null && row.customer.nextServiceDueDate < monthStart).length, [searched, monthStart]);
+  const changeMonth = useCallback((next: YearMonth) => {
+    setCalMonth(next);
+    setSelectedDate((current) => {
+      const kept = current !== null && monthOf(current).year === next.year && monthOf(current).month === next.month;
+      return kept ? current : null;
+    });
+  }, []);
+  // The calendar opens on every scheduled customer; the default Overdue chip would leave the current month looking empty.
+  const showCalendar = useCallback(() => { if (view !== "calendar") setChosenFilter("all"); setView("calendar"); }, [view]);
+  const showOverdueInTable = useCallback(() => { setChosenFilter("overdue"); setView("table"); }, []);
   const onSort = useCallback((key: UpcomingSort["key"]) => setSort((current) => current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }), []);
   const closePicker = useCallback(() => { pendingFocus.current = true; setPickerId(null); }, []);
   const closeDrawer = useCallback(() => { pendingFocus.current = true; setDrawer(undefined); }, []);
@@ -133,11 +164,17 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
     {message && <p role="alert" className="form-message">{message}</p>}
     {notice && <p role="status" className="form-message">{notice}</p>}
     {hasAnyCustomers ? <div className="upcoming-toolbar">
-      <div className="manager-search-form" role="search" aria-label="Filter customers">
-        <label htmlFor="manager-upcoming-search">Filter by customer name or code</label>
-        <div className="manager-search-row">
-          <input id="manager-upcoming-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
-          {query ? <button type="button" className="secondary-command" onClick={() => setQuery("")}>Clear</button> : null}
+      <div className="upcoming-toolbar-top">
+        <div className="manager-search-form" role="search" aria-label="Filter customers">
+          <label htmlFor="manager-upcoming-search">Filter by customer name or code</label>
+          <div className="manager-search-row">
+            <input id="manager-upcoming-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
+            {query ? <button type="button" className="secondary-command" onClick={() => setQuery("")}>Clear</button> : null}
+          </div>
+        </div>
+        <div className="upcoming-view-toggle" role="group" aria-label="View">
+          <button type="button" className="upcoming-chip" aria-pressed={view === "table"} onClick={() => setView("table")}>Table</button>
+          <button type="button" className="upcoming-chip" aria-pressed={view === "calendar"} onClick={showCalendar}>Calendar</button>
         </div>
       </div>
       <div className="upcoming-chips" role="group" aria-label="Filter by status">
@@ -147,6 +184,25 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
     </div> : null}
     {!data ? <p role="status">Loading upcoming services…</p> : !hasAnyCustomers ? <p className="empty-state">No customers.</p>
       : searched.length === 0 ? <p className="empty-state">No customer matches "{query.trim()}".</p>
+      : view === "calendar" ? (filter === "not_scheduled"
+        ? <p className="empty-state">Unscheduled customers are not on the calendar. Switch to Table to see them.</p>
+        : <div className="upcoming-calendar">
+          {overdueEarlier > 0 && <div className="upcoming-cal-banner">
+            <span>{overdueEarlier} {overdueEarlier === 1 ? "customer" : "customers"} overdue from earlier months</span>
+            <button type="button" className="secondary-command" onClick={showOverdueInTable}>Show in table</button>
+          </div>}
+          <DueCalendar month={calMonth} items={calendarItems} selectedDate={selectedDate} onSelectDate={setSelectedDate} onMonthChange={changeMonth}
+            today={today} compact={compact} statusOf={(dueDate) => calendarStatus(dueDate, today)} />
+          <section className="upcoming-day" aria-labelledby="upcoming-day-title">
+            <h3 id="upcoming-day-title">{selectedDate === null ? "No day selected" : `${weekdayDate(selectedDate)}, ${dayRows.length === 0 ? "no customers" : `${dayRows.length} ${dayRows.length === 1 ? "customer" : "customers"}`}`}</h3>
+            {selectedDate === null ? <p className="secondary-metadata">Select a day to see its customers.</p>
+              : <ul className="upcoming-day-list">{dayRows.map((row) => <li key={row.customer.id} className="upcoming-day-item">
+                <div className="upcoming-customer"><strong>{row.customer.displayName}</strong><span className="secondary-metadata">{row.customer.code}</span></div>
+                <span className={`upcoming-status upcoming-status--${row.status}`}>{row.label}</span>
+                <div className="upcoming-actions"><UpcomingRowActions customer={row.customer} busy={busy} pickerOpen={pickerId === row.customer.id} handlers={handlers} /></div>
+              </li>)}</ul>}
+          </section>
+        </div>)
       : visible.length === 0 ? <p className="empty-state">{activeFilter.empty}</p>
       : <UpcomingServicesTable rows={visible} sort={sort} onSort={onSort} busy={busy} pickerId={pickerId} handlers={handlers} />}
     {showDrawer && drawerCustomer && <UpcomingServiceDrawer kindLabel={drawer.action === "reminders" ? "Reminder recipients" : "Service routine"} customerName={drawerCustomer.displayName} onClose={closeDrawer}>

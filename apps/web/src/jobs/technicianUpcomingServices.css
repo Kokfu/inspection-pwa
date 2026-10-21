@@ -24,3 +24,6 @@
 .tech-upcoming-status--overdue { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-ink); }
 .tech-upcoming-status--this_week { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-ink); }
 .tech-upcoming-status--later { background: var(--brand-tint); border-color: var(--brand-border); color: var(--brand-dark); }
+.tech-upcoming-day { margin-block: var(--space-4); }
+.tech-upcoming-day-title { margin: 0 0 var(--space-2); font-size: var(--text-base); }
+.tech-upcoming-hint { margin: 0; color: var(--muted); }

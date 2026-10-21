@@ -332,3 +332,55 @@ STOP when the DoD table is green. Do NOT commit.
 ```
 
 After U4: review, then the same R-style browser/phone check (R3) and the owner commits.
+
+---
+
+## R3 — Agent-run browser/offline check of the calendar, then commit U4 (explicit git override)
+
+Status: ✅ ready (U4 reviewed 2026-10-21). Physical-phone rows stay with the owner (table below).
+
+```
+Project: Inspection PWA (C:\PWA_OfflineRecordWebApp). Read AGENTS.md and .agents/skills/pwa-release-testing first.
+This task OVERRIDES the AGENTS.md git rule for ONE commit only, as described in part B. Nothing else in git.
+
+PART A — verification only (no code change unless a P0/P1 is found; if found, STOP and report instead of fixing)
+1. Rebuild web only (never API/DB/Docker volumes) and confirm the served bundle contains the calendar ("Service calendar").
+2. Browser, real Chromium offline mode (setOffline / CDP, NOT a fetch override):
+   a. Manager `mobiletest` at 1280 px: Table/Calendar toggle, calendar opens on the current month with today outlined, chips + "+n more",
+      prev/next/Today, select a day -> day list, Reschedule saves and the calendar re-derives, row menu opens both drawers,
+      search and status chip change the calendar, "overdue from earlier months" banner + "Show in table", Not scheduled chip message.
+   b. Manager at 360 px: compact dot calendar, 44 px targets, no horizontal scroll, day list actions work.
+   c. Technician `technician-demo` at 360 px: Cards/Calendar toggle, compact calendar read-only (no card action), keyboard arrows,
+      PageUp/PageDown, Home/End.
+   d. Offline: reload both screens offline -> friendly failure, no calendar, no stale rows; back online -> Retry works.
+3. Restore any test data you changed.
+4. Report a table: step, PASS/FAIL, evidence. Anything not done = NOT TESTED. State that real phone, PWA force-close and
+   physical airplane mode were NOT performed by you.
+5. Look specifically at this open P2: the manager Calendar inherits the status chip, and the default chip is Overdue, so the
+   calendar opens showing only overdue customers (the current month can look empty). Report what you see; do not change it.
+
+PART B — commit U4 (only if Part A has no P0/P1)
+Stage and commit EXACTLY these paths, nothing else (the working tree may hold unrelated work; never use git add . or -A):
+  apps/web/package.json
+  apps/web/src/schedule/DueCalendar.tsx
+  apps/web/src/schedule/calendarMonth.ts
+  apps/web/src/schedule/dueCalendar.css
+  apps/web/src/jobs/TechnicianUpcomingServices.tsx
+  apps/web/src/jobs/technicianUpcomingServices.css
+  apps/web/src/manager/ManagerUpcomingServices.tsx
+  apps/web/src/manager/UpcomingServicesTable.tsx
+  apps/web/src/manager/managerUpcomingServices.css
+  apps/web/tests/calendarMonth.test.ts
+  apps/web/tests/manager-upcoming-calendar.spec.ts
+  apps/web/tests/technician-upcoming-calendar.spec.ts
+  docs/upcoming-services/PROGRESS_STATUS.md
+  docs/upcoming-services/PROMPTS.md
+Before committing: `git diff --cached --name-only` must list only those paths. If package.json (or any listed file) contains hunks
+unrelated to the calendar, STOP and report instead of committing.
+Message: "U4: month calendar view for Upcoming Services (manager and technician)".
+No push, no amend, no branch change. Then print `git log --oneline -2` and `git status --short`.
+Final report: Part A table, commit hash, P0/P1/P2, limitations, verdict `SAFE FOR REVIEW: Y/N`.
+```
+
+Owner phone rows (R3): technician calendar (tap days, dots readable, keyboard-free use), manager calendar at phone width incl. day-list
+Reschedule and row menu, airplane-mode reload of both screens, rotate to landscape. Report each PASS/FAIL / NOT TESTED.

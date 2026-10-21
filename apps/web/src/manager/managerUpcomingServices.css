@@ -51,3 +51,17 @@
   .upcoming-popover { position: static; width: auto; flex: 1 1 100%; box-shadow: none; }
   .upcoming-menu-list { inset-inline-end: 0; max-width: calc(100vw - 32px); }
 }
+
+/* U4: Table / Calendar toggle, overdue banner and selected-day list. */
+.upcoming-toolbar-top { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.upcoming-toolbar-top .manager-search-form { flex: 1 1 18rem; min-width: 0; }
+.upcoming-view-toggle { display: flex; gap: var(--space-2); }
+.upcoming-calendar { display: grid; gap: var(--space-4); min-width: 0; }
+.upcoming-cal-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--danger-border); border-radius: var(--radius-md); color: var(--danger-ink); background: var(--danger-soft); font-weight: 700; }
+.upcoming-day h3 { margin: 0 0 var(--space-2); }
+.upcoming-day-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.upcoming-day-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card); }
+.upcoming-day-item .upcoming-customer { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
+.upcoming-day-item .upcoming-status { white-space: nowrap; }
+.upcoming-day-item .upcoming-actions { position: relative; flex: 0 1 auto; white-space: normal; }
+.upcoming-view-toggle .upcoming-chip:focus-visible { outline: var(--focus-outline); outline-offset: 2px; }

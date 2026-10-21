@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { loadTechnicianUpcomingServices, type TechnicianUpcomingServicesData } from "../referenceData/referenceDataApi";
+import { groupByDate, monthOf, weekdayDate, type YearMonth } from "../schedule/calendarMonth";
+import { DueCalendar, type CalendarItem, type CalendarStatus } from "../schedule/DueCalendar";
 import { compareByUrgency, dueLabel, formatDueDate, localToday, technicianGroup, type TechnicianGroup } from "../schedule/dueStatus";
 import "./technicianUpcomingServices.css";
 
 type DueGroup = Exclude<TechnicianGroup, "not_scheduled">;
 type Card = { id: string; name: string; dueDate: string };
+type UpcomingView = "cards" | "calendar";
 
 const GROUPS: ReadonlyArray<{ key: DueGroup; title: string }> = [
   { key: "overdue", title: "Overdue" },
@@ -27,12 +30,20 @@ function groupCustomers(customers: TechnicianUpcomingServicesData["customers"], 
   return grouped;
 }
 
+function calendarStatus(dueDate: string, today: string): CalendarStatus {
+  const group = technicianGroup(dueDate, today);
+  return group === "overdue" ? "overdue" : group === "this_week" ? "soon" : "later";
+}
+
 export function TechnicianUpcomingServices() {
   const [data, setData] = useState<TechnicianUpcomingServicesData>();
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState<DueGroup | null>(null);
   const [showUnscheduled, setShowUnscheduled] = useState(false);
+  const [view, setView] = useState<UpcomingView>("cards");
+  const [calMonth, setCalMonth] = useState<YearMonth>(() => monthOf(localToday()));
+  const [selectedDate, setSelectedDate] = useState<string | null>(() => localToday());
   useEffect(() => {
     const controller = new AbortController();
     void loadTechnicianUpcomingServices(controller.signal)
@@ -50,6 +61,13 @@ export function TechnicianUpcomingServices() {
     ? [...data.unscheduledCustomers].sort((a, b) => a.displayName.localeCompare(b.displayName, "en", { sensitivity: "base" }))
     : [], [data]);
 
+  const calendarItems = useMemo<CalendarItem[]>(() => grouped && grouped !== "malformed" ? Object.values(grouped).flat() : [], [grouped]);
+  const dayCards = useMemo(() => selectedDate ? groupByDate(calendarItems, (item) => item.dueDate).get(selectedDate) ?? [] : [], [calendarItems, selectedDate]);
+  const changeMonth = (next: YearMonth) => {
+    setCalMonth(next);
+    setSelectedDate((current) => current !== null && monthOf(current).year === next.year && monthOf(current).month === next.month ? current : null);
+  };
+
   const body = () => {
     if (error) return <>
       <p role="alert" className="form-message">{error}</p>
@@ -59,7 +77,26 @@ export function TechnicianUpcomingServices() {
     if (grouped === "malformed") return <p role="alert" className="form-message">{UNAVAILABLE}</p>;
     if (!data.customers.length && !data.unscheduledCustomers.length) return <p className="empty-state">No serviced customers yet.</p>;
     const shown = GROUPS.filter(({ key }) => (selected === null || selected === key) && grouped[key].length);
+    const toggle = <div className="tech-upcoming-chips" role="group" aria-label="View">
+      <button type="button" className="tech-upcoming-chip" aria-pressed={view === "cards"} onClick={() => setView("cards")}>Cards</button>
+      <button type="button" className="tech-upcoming-chip" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Calendar</button>
+    </div>;
+    if (view === "calendar") return <>
+      {toggle}
+      <DueCalendar month={calMonth} items={calendarItems} selectedDate={selectedDate} onSelectDate={setSelectedDate} onMonthChange={changeMonth}
+        today={today} compact scheme="technician" statusOf={(dueDate) => calendarStatus(dueDate, today)} />
+      <section className="tech-upcoming-day" aria-labelledby="tech-upcoming-day-title">
+        <h3 id="tech-upcoming-day-title" className="tech-upcoming-day-title">{selectedDate === null ? "No day selected" : `${weekdayDate(selectedDate)}, ${dayCards.length === 0 ? "no customers" : `${dayCards.length} ${dayCards.length === 1 ? "customer" : "customers"}`}`}</h3>
+        {selectedDate === null ? <p className="tech-upcoming-hint">Select a day to see its customers.</p>
+          : <ul className="tech-upcoming-list">{dayCards.map((card) => <li key={card.id} className="tech-upcoming-card">
+            <strong className="tech-upcoming-name">{card.name}</strong>
+            <span className="tech-upcoming-date">Due {formatDueDate(card.dueDate)}</span>
+            <span className={`tech-upcoming-status tech-upcoming-status--${technicianGroup(card.dueDate, today)}`}>{dueLabel(card.dueDate, today)}</span>
+          </li>)}</ul>}
+      </section>
+    </>;
     return <>
+      {toggle}
       <div className="tech-upcoming-chips" role="group" aria-label="Filter by due status">
         {GROUPS.map(({ key, title }) => <button key={key} type="button" className={`tech-upcoming-chip tech-upcoming-chip--${key}`}
           aria-pressed={selected === key} onClick={() => setSelected(selected === key ? null : key)}>

@@ -7,26 +7,33 @@ import { UpcomingServiceRowMenu, type UpcomingServiceAction } from "./UpcomingSe
 export type UpcomingRow = { customer: ScheduledCustomer; status: DueStatus; label: string; dateText: string | null };
 export type UpcomingSort = { key: "name" | "due"; dir: "asc" | "desc" };
 
-type RowHandlers = {
+export type RowHandlers = {
   onOpenPicker: (customerId: string, opener: HTMLElement | null) => void;
   onSavePicker: (customerId: string, value: string) => void;
   onCancelPicker: () => void;
   onAction: (customerId: string, action: UpcomingServiceAction, opener: HTMLElement | null) => void;
 };
 
+/** Reschedule / Set date button, row menu and date popover for one customer; shared by the table and the calendar day list. */
+export function UpcomingRowActions({ customer, busy, pickerOpen, handlers }: { customer: ScheduledCustomer; busy: boolean; pickerOpen: boolean; handlers: RowHandlers }) {
+  const rescheduleRef = useRef<HTMLButtonElement>(null);
+  return <>
+    <button ref={rescheduleRef} type="button" aria-haspopup="dialog" aria-expanded={pickerOpen} aria-label={`${customer.nextServiceDueDate ? "Reschedule" : "Set date"} for ${customer.displayName}`}
+      onClick={() => handlers.onOpenPicker(customer.id, rescheduleRef.current)}>{customer.nextServiceDueDate ? "Reschedule" : "Set date"}</button>
+    <UpcomingServiceRowMenu customerName={customer.displayName} hasDueDate={customer.nextServiceDueDate !== null} onSelect={(action, opener) => handlers.onAction(customer.id, action, opener)} />
+    {pickerOpen && <UpcomingServiceDatePopover customerName={customer.displayName} initial={customer.nextServiceDueDate ?? ""} busy={busy}
+      onSave={(value) => handlers.onSavePicker(customer.id, value)} onCancel={handlers.onCancelPicker} />}
+  </>;
+}
+
 const UpcomingTableRow = memo(function UpcomingTableRow({ row, busy, pickerOpen, handlers }: { row: UpcomingRow; busy: boolean; pickerOpen: boolean; handlers: RowHandlers }) {
   const { customer } = row;
-  const rescheduleRef = useRef<HTMLButtonElement>(null);
   return <tr>
     <td data-label="Customer" className="upcoming-customer"><strong>{customer.displayName}</strong><span className="secondary-metadata">{customer.code}</span></td>
     <td data-label="Next due">{row.dateText ?? <span className="secondary-metadata">Not set</span>}</td>
     <td data-label="Status"><span className={`upcoming-status upcoming-status--${row.status}`}>{row.label}</span></td>
     <td data-label="Actions" className="upcoming-actions">
-      <button ref={rescheduleRef} type="button" aria-haspopup="dialog" aria-expanded={pickerOpen} aria-label={`${customer.nextServiceDueDate ? "Reschedule" : "Set date"} for ${customer.displayName}`}
-        onClick={() => handlers.onOpenPicker(customer.id, rescheduleRef.current)}>{customer.nextServiceDueDate ? "Reschedule" : "Set date"}</button>
-      <UpcomingServiceRowMenu customerName={customer.displayName} hasDueDate={customer.nextServiceDueDate !== null} onSelect={(action, opener) => handlers.onAction(customer.id, action, opener)} />
-      {pickerOpen && <UpcomingServiceDatePopover customerName={customer.displayName} initial={customer.nextServiceDueDate ?? ""} busy={busy}
-        onSave={(value) => handlers.onSavePicker(customer.id, value)} onCancel={handlers.onCancelPicker} />}
+      <UpcomingRowActions customer={customer} busy={busy} pickerOpen={pickerOpen} handlers={handlers} />
     </td>
   </tr>;
 });
