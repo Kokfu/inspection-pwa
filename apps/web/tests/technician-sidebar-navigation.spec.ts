@@ -25,10 +25,10 @@ test("technician sidebar opens all six destinations at phone and desktop widths"
   const destinations = [
     ["Home", "jobs", "Open Work"],
     ["New Service Visit", "new-service-visit", "New Service Visit"],
-    ["Repair List", "repair-visits", "Repair List"],
-    ["Add Customer", "technician-add-customer", "Add Customer"],
+    ["Upcoming Services", "technician-upcoming-services", "Upcoming Services"],
     ["Completed Services", "technician-completed-services", "Completed Services"],
-    ["Upcoming Services", "technician-upcoming-services", "Upcoming Services"]
+    ["Repair List", "repair-visits", "Repair List"],
+    ["Add Customer", "technician-add-customer", "Add Customer"]
   ] as const;
   await expect(sidebar.getByRole("button")).toHaveCount(6);
   await expect(sidebar.getByRole("button")).toHaveText(destinations.map(([label]) => label));

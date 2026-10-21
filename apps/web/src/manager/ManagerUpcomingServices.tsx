@@ -9,6 +9,7 @@ import { UpcomingServiceDrawer } from "./UpcomingServiceDrawer";
 import type { UpcomingServiceAction } from "./UpcomingServiceRowMenu";
 import { UpcomingRowActions, UpcomingServicesTable, type UpcomingRow, type UpcomingSort } from "./UpcomingServicesTable";
 import "./managerUpcomingServices.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 type StatusFilter = DueStatus | "all";
 const FILTERS: Array<{ key: StatusFilter; label: string; empty: string }> = [
@@ -160,7 +161,7 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
   const showDrawer = !!drawer && !!drawerCustomer && (drawer.action === "routine" || drawerDueDate !== null);
   const hasAnyCustomers = allRows.length > 0;
   const activeFilter = FILTERS.find((entry) => entry.key === filter)!;
-  return <section className="page-stack" aria-labelledby="upcoming-title"><div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="upcoming-title" ref={titleRef} tabIndex={-1}>Next Upcoming Service</h2></div></div>
+  return <section className="page-stack" aria-labelledby="upcoming-title"><div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="upcoming-title" ref={titleRef} tabIndex={-1}>Next Upcoming Service</h2></div></div>
     {message && <p role="alert" className="form-message">{message}</p>}
     {notice && <p role="status" className="form-message">{notice}</p>}
     {hasAnyCustomers ? <div className="upcoming-toolbar">

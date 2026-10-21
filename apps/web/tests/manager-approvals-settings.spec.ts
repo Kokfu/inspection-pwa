@@ -161,7 +161,7 @@ test("Settings is Manager-only, last, and contains both removed sidebar destinat
   await expect(nav.locator("button").last()).toHaveText("Settings");
   await expect(nav.locator("button").nth(-3)).toHaveText("Approvals");
   await expect(nav.locator("button").nth(-2)).toHaveText("Photo KPI");
-  await expect(nav.locator("button").nth(-4)).toHaveText("Service Catalog");
+  await expect(nav.locator("button").nth(-4)).toHaveText("Service Common Remarks");
   await expect(nav.locator("button").filter({ hasText: /Email reminders|Company Profile|Location Proposals|Site Requests|Repair Visits/ })).toHaveCount(0);
   await expect(cards(page).locator("strong")).toHaveText(["Email Reminders", "Company Profile"]);
   for (const [title, hash] of [["Email reminders", "manager-email-reminders"], ["Company profile", "manager-company-profile"]]) {

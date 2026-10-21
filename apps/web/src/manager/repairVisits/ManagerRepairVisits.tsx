@@ -3,6 +3,7 @@ import type { AuthUser } from "../../auth/authApi";
 import { isManagerRole } from "../roleAccess";
 import { loadManagerCustomers } from "../managerApi";
 import { AwaitingRepairVisits, awaitingRepairVisits, useRepairVisitList, type RepairVisitRowNames } from "./RepairVisitEntries";
+import { WorkspaceEyebrow } from "../WorkspaceEyebrow";
 
 type Props = { role: AuthUser["role"]; onAuthorityFailure: (error: unknown) => void; onOpen: (visitId: string) => void };
 
@@ -53,7 +54,7 @@ export function AwaitingRepairVisitsBanner({ role, onAuthorityFailure }: Omit<Pr
 export function ManagerRepairVisits(props: Props) {
   return (
     <section className="manager-home page-stack" aria-labelledby="manager-repair-visits-title">
-      <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-repair-visits-title">Repair Visits</h2></div></div>
+      <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-repair-visits-title">Repair Visits</h2></div></div>
       <AwaitingRepairVisitsPanel {...props} />
     </section>
   );

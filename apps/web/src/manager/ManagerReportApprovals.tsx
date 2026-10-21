@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { loadReportApprovals, ManagerApiError, type ManagerServiceVisit } from "./managerApi";
 import { formatMalaysiaDateTime } from "../uiPresentation";
 import "./ManagerReportApprovals.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 export function ManagerReportApprovals({ onOpen, onAuthorityFailure }: {
   onOpen: (jobId: string) => void;
@@ -41,7 +42,7 @@ export function ManagerReportApprovals({ onOpen, onAuthorityFailure }: {
     return () => { controller.current?.abort(); busy.current = false; };
   }, [attempt]);
   return <section className="manager-hub page-stack" aria-labelledby="manager-report-approvals-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-report-approvals-title">Service Reports</h2></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-report-approvals-title">Service Reports</h2></div></div>
     {error ? <><p className="form-message" role="alert">Service reports could not be loaded. Check the connection and retry.</p><button type="button" className="secondary-command" onClick={() => setAttempt(value => value + 1)}>Retry</button></> : null}
     {loading ? <p role="status">Loading service reports…</p> : null}
     {!loading && !error && visits.length === 0 ? <p className="empty-state">No reports are waiting for approval.</p> : null}

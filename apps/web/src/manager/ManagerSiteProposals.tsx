@@ -6,6 +6,7 @@ import {
 } from "./managerApi";
 import { useProposalFilters } from "./proposalFilters";
 import "./managerSiteProposals.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const statuses = ["pending", "approved", "rejected"] as const;
 const names = { pending: "Pending", approved: "Approved", rejected: "Rejected" };
@@ -123,7 +124,7 @@ export function ManagerSiteProposals({ onAuthorityFailure }: { onAuthorityFailur
   const filters = useProposalFilters(tabItems, statusFilter);
   const sorted = filters.visible?.slice().sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending") || b.submittedAt.localeCompare(a.submittedAt) || a.id.localeCompare(b.id));
   return <section className={`manager-home page-stack manager-site-proposals${selectedId ? " proposal-is-open" : ""}`} aria-labelledby="site-requests-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="site-requests-title">Site Requests</h2>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="site-requests-title">Site Requests</h2>
       <p>Review sites proposed by technicians. Approval adds exactly the submitted name and address to the customer's sites.</p>
       <p>Rejecting a request does not change the technician's visit.</p></div></div>
     <div className="job-tabs" role="tablist" aria-label="Site request status">{statuses.map(value => <button key={value} type="button" role="tab" aria-selected={statusFilter === value} tabIndex={statusFilter === value ? 0 : -1} disabled={deciding}

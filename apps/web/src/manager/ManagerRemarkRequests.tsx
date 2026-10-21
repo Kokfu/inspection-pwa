@@ -11,6 +11,7 @@ import {
 import { reviewerRoleLabel } from "./roleAccess";
 import "./managerLocationProposals.css";
 import "./managerRemarkRequests.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 type Tab = "pending" | "decided" | "inuse";
 const tabs: Array<[Tab, string]> = [["pending", "Pending"], ["decided", "Decided"], ["inuse", "Remarks in use"]];
@@ -164,7 +165,7 @@ export function ManagerRemarkRequests({ onAuthorityFailure }: { onAuthorityFailu
   }, {})).sort(([a], [b]) => sectionDisplayLabel(a.split("|")[1]!, a.split("|")[0]).localeCompare(sectionDisplayLabel(b.split("|")[1]!, b.split("|")[0]))) : [];
 
   return <section className={`manager-home page-stack manager-location-proposals manager-remark-requests${selectedId && tab !== "inuse" ? " proposal-is-open" : ""}`} aria-labelledby="manager-remark-requests-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-remark-requests-title">Remark Requests</h2>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-remark-requests-title">Remark Requests</h2>
       <p>Technicians ask for a typed remark to be offered in one row. Approving it offers the wording in that row for every customer.</p></div></div>
     <div className="job-tabs" role="tablist" aria-label="Remark request views">{tabs.map(([value, name]) => <button key={value} type="button" role="tab" aria-selected={tab === value}
       tabIndex={tab === value ? 0 : -1} disabled={deciding} onClick={() => chooseTab(value)}>{name}</button>)}</div>

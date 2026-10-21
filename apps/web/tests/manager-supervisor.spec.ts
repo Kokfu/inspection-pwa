@@ -135,6 +135,12 @@ test("supervisor Home shows only the review cards; Services, visit detail and Fi
 
   await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
   await expect(page.getByText("Admin workspace")).toBeVisible();
+  for (const label of ["Current Services Done", "Approvals"]) {
+    await sidebar(page).getByRole("button", { name: label, exact: true }).click();
+    await expect(page.getByText("Admin workspace", { exact: true })).toBeVisible();
+    await expect(page.getByText("Manager workspace")).toHaveCount(0);
+  }
+  await sidebar(page).getByRole("button", { name: "Services", exact: true }).click();
   await page.getByRole("button", { name: /SV-SUPERVISOR-830/ }).click();
   await expect(page.getByText(/Completed .* by technician-one\./)).toBeVisible();
   await expect(page.getByText(/2026-09-18T10:00:00/)).toHaveCount(0);

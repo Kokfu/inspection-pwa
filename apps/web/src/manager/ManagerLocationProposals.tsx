@@ -10,6 +10,7 @@ import { validLocationProposalPatch } from "../jobs/locationProposalShape";
 import { diffLocationProposalRows, type ProposalRow } from "./locationProposalDiff";
 import { useProposalFilters } from "./proposalFilters";
 import "./managerLocationProposals.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const statuses: LocationProposalStatus[] = ["pending", "approved", "rejected", "withdrawn"];
 const statusNames = { pending: "Pending", approved: "Approved", rejected: "Rejected", withdrawn: "Withdrawn" };
@@ -168,7 +169,7 @@ export function ManagerLocationProposals({ onAuthorityFailure }: { onAuthorityFa
   }
 
   return <section className={`manager-home page-stack manager-location-proposals${selectedId ? " proposal-is-open" : ""}`} aria-labelledby="manager-location-proposals-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-location-proposals-title">Location Proposals</h2><p>Review location and format requests before applying them to future visits.</p></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-location-proposals-title">Location Proposals</h2><p>Review location and format requests before applying them to future visits.</p></div></div>
     <div className="job-tabs" role="tablist" aria-label="Location proposal status">{statuses.map(value => <button key={value} type="button" role="tab" aria-selected={statusFilter === value} tabIndex={statusFilter === value ? 0 : -1} disabled={deciding}
       onKeyDown={event => { const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0; if (offset || event.key === "Home" || event.key === "End") { event.preventDefault(); const index = event.key === "Home" ? 0 : event.key === "End" ? statuses.length - 1 : (statuses.indexOf(value) + offset + statuses.length) % statuses.length; const target = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[index]; target?.focus(); target?.click(); } }}
       onClick={() => { if (selectedId && !leaveDetail()) return; setStatusFilter(value); setMessage(""); }}>

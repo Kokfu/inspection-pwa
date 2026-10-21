@@ -32,6 +32,7 @@ import {
 import { customerMatches, isUnconfirmed, ManagerCustomerTable, ManagerCustomerDetailsEditor } from "./ManagerCustomerRecords";
 import { ManagerCustomerServices } from "./ManagerCustomerServices";
 import { locationNameWarnings } from "../referenceData/locationNameWarnings";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 export function ManagerCustomerConfiguration({ customers, loading, message, onRefresh, onManage, onAuthorityFailure }: {
   customers: ManagerCustomer[]; loading: boolean; message: string; onRefresh: () => Promise<void>; onManage: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
@@ -92,7 +93,7 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   };
 
   return <section className="page-stack" aria-labelledby="manager-customers-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-customers-title">Customers</h2><p>Manage customer details, sites and services.</p></div><div className="inline-actions"><a className="secondary-command customer-add-link" href="#/manager-add-customer">Add customer</a><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>Refresh</button></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-customers-title">Customers</h2><p>Manage customer details, sites and services.</p></div><div className="inline-actions"><a className="secondary-command customer-add-link" href="#/manager-add-customer">Add Customer</a><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>Refresh</button></div></div>
     {message || error ? <p className="form-message" role="alert">{error || message}</p> : null}
     <form className="manager-search-form" role="search" aria-label="Find active customer" onSubmit={(event) => { event.preventDefault(); search(); }}>
       <label htmlFor="customer-configuration-search">Name, contact, site or phone</label>

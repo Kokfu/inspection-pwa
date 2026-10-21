@@ -8,6 +8,7 @@ import type { AuthUser } from "../auth/authApi";
 import { CustomerTimelineRoute } from "../visits/CustomerTimelineRoute";
 import type { TimelineLoader } from "../visits/CustomerTimeline";
 import { parseTimelinePage, type TimelineVisit } from "../visits/customerTimelineData";
+import { useWorkspaceLabel } from "./WorkspaceEyebrow";
 
 type Props = {
   actor: AuthUser;
@@ -110,9 +111,10 @@ export function ManagerServicesDone({ actor, supervisor = false, message = "", o
     }
   }, [customers, technicians, historyRevision, repairVisits.reload]);
 
+  const workspaceLabel = useWorkspaceLabel();
   return <section className="manager-home page-stack" aria-label="Current Services Done">
     <CustomerTimelineRoute actor={actor} mode="server" initialStatus="closed" showBack={false}
-      heading="Current Services Done" eyebrow="Manager workspace" searchable customerOptions={options}
+      heading="Current Services Done" eyebrow={workspaceLabel} searchable customerOptions={options}
       customerId={selectedCustomer?.customer.id} loadVisits={loadVisits}
       onCustomer={id => choose(id ? { customerId: id, filters: null } : null)} onBack={() => {}}
       onOpen={visit => visit.kind === "service" ? onViewServiceVisit(visit.id) : onViewRepairVisit(visit.id)} />

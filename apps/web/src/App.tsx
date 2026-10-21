@@ -116,6 +116,7 @@ import { ManagerApprovals } from "./manager/ManagerApprovals";
 import { ManagerPhotoKpi } from "./manager/ManagerPhotoKpi";
 import { ManagerSettings } from "./manager/ManagerSettings";
 import { ManagerReportApprovals } from "./manager/ManagerReportApprovals";
+import { WorkspaceLabelContext } from "./manager/WorkspaceEyebrow";
 import { ManagerHome, managerNavLinks, managerNavSections, managerNavPinned, type ManagerDashboardRoute } from "./manager/ManagerHome";
 import { AppShell } from "./layout/AppShell";
 import { RepairVisitsScreen } from "./repairVisits/RepairVisitsScreen";
@@ -2848,6 +2849,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         </AppShell>
       ) : managerExperience ? (
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
+        <WorkspaceLabelContext.Provider value={supervisorExperience ? "Admin workspace" : "Manager workspace"}>
           mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
           sections={supervisorExperience ? { "manager-operations": "Services", "manager-approvals": "Review" } : managerNavSections}
@@ -2964,6 +2966,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         )}
         </AppShell>
       ) : null}
+        </WorkspaceLabelContext.Provider>
     </main>
   );
 }

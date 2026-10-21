@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { loadReminderSettings, loadReminderStaff, loadReminderStatus, saveReminderSettings, saveReminderStaffEmail, ManagerApiError, type ReminderSettings, type ReminderStaff, type ReminderStatus } from "./managerApi";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailure: (error: unknown) => void }) {
   const [settings, setSettings] = useState<ReminderSettings>();
@@ -42,7 +43,7 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
     catch (error) { fail(error); } finally { setBusy(false); }
   }
   return <section className="manager-reminder-settings page-stack" aria-labelledby="email-reminder-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="email-reminder-title">Email Reminders</h2>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="email-reminder-title">Email Reminders</h2>
       <p>At 09:00 Asia/Kuala_Lumpur on the day before a customer’s next service date, the worker emails each selected recipient individually.</p></div></div>
     {message && <p role="alert" className="form-message">{message}</p>}
     {loading && <p role="status">Loading email reminders…</p>}

@@ -6,6 +6,7 @@ import {
   restoreManagerServiceCatalogEntry,
   type ManagerServiceCatalogEntry
 } from "./managerApi";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 /**
  * System-wide service-catalog retirement page (route `manager-service-catalog`).
@@ -62,7 +63,7 @@ export function ManagerServiceCatalog({ onAuthorityFailure }: {
   const retired = systems.filter((entry) => entry.retiredAt);
 
   return <section className="page-stack" aria-labelledby="manager-service-catalog-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-service-catalog-title">Service Catalog</h2><p>Retire a system so it is no longer offered for new customer assignment. Existing assignments are unaffected.</p></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-service-catalog-title">Service Catalog</h2><p>Retire a system so it is no longer offered for new customer assignment. Existing assignments are unaffected.</p></div></div>
     {message ? <p className="form-message" role="alert">{message}</p> : null}
     {loading ? <p role="status">Loading service catalog…</p> : null}
     {!loading && active.length === 0 ? <p className="empty-state">No active services in the catalog.</p> : null}

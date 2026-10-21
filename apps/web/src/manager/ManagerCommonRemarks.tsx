@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { addCommonRemark, cachedCommonRemarks, onCommonRemarksChanged, refreshCommonRemarks, removeCommonRemark, remarkSystems, updateCommonRemark, type CommonRemark, type RemarkSystem } from "../inspectionControls/commonRemarks";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const systemNames: Record<RemarkSystem, string> = { automatic_sprinkler: "Automatic Sprinkler", hose_reel: "Hose Reel", hydrant: "Hydrant", fire_alarm_detector: "Fire Alarm Panel", fm200_fire_suppression: "FM200", co2_fire_extinguisher: "CO2" };
 export function ManagerCommonRemarks() {
@@ -33,7 +34,7 @@ export function ManagerCommonRemarks() {
     try { await removeCommonRemark(item.id); setMessage("Common remark removed."); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not remove common remark."); }
   }
-  return <section className="manager-home page-stack" aria-labelledby="manager-common-remarks-title"><div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-common-remarks-title">Service Common Remarks</h2></div></div>
+  return <section className="manager-home page-stack" aria-labelledby="manager-common-remarks-title"><div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-common-remarks-title">Service Common Remarks</h2></div></div>
     <label>Service<select value={systemKey} onChange={(event) => { setSystemKey(event.target.value as RemarkSystem); setEditing(null); }}>{remarkSystems.map((key) => <option key={key} value={key}>{systemNames[key]}</option>)}</select></label>
     <ul className="job-card-list">{remarks.filter((item) => item.systemKey === systemKey && item.active).map((item) => <li key={item.id} className="common-remark-card"><strong>{item.wording}</strong>{item.detailOptions.length ? <p>{item.detailOptions.join(", ")}</p> : null}<div className="inline-actions"><button type="button" className="secondary-command" onClick={() => startEdit(item)}>Edit</button><button type="button" className="secondary-command" onClick={() => void remove(item)}>Remove</button></div></li>)}</ul>
     {editing ? <div><h3 className="common-remark-edit-title">Edit common remark</h3><label>Wording<input maxLength={300} value={wording} onChange={(event) => setWording(event.target.value)} /></label><label>Detail label<input maxLength={80} value={detailLabel} onChange={(event) => setDetailLabel(event.target.value)} /></label><label>Detail choices (one per line)<textarea value={detailOptions} onChange={(event) => setDetailOptions(event.target.value)} /></label><button type="button" onClick={() => void saveEdit()}>Save changes</button><button type="button" className="secondary-command" onClick={() => setEditing(null)}>Cancel</button></div> : null}

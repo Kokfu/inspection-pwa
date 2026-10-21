@@ -8,6 +8,7 @@ import {
   uploadManagerCompanyLogo,
   type ManagerCompanyProfile as CompanyProfileData
 } from "./managerApi";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const logoMaxBytes = 2 * 1024 * 1024;
 
@@ -105,7 +106,7 @@ export function ManagerCompanyProfile({ onAuthorityFailure }: {
     <label>{label}<input type={options.type ?? "text"} autoComplete="off" maxLength={options.maxLength} required={options.required} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 
   return <section className="page-stack" aria-labelledby="manager-company-profile-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-company-profile-title">Company Profile</h2><p>Edit the company letterhead shown on every generated PDF report — no code change or redeploy needed.</p></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-company-profile-title">Company Profile</h2><p>Edit the company letterhead shown on every generated PDF report — no code change or redeploy needed.</p></div></div>
     {message ? <p role="status" className="form-message">{message}</p> : null}
     {error ? <p role="alert" className="form-message">{error}</p> : null}
     {loading ? <p role="status">Loading company profile…</p> : null}

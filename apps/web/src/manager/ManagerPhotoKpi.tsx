@@ -3,6 +3,7 @@ import { KpiTiles } from "./KpiTiles";
 import { ManagerApiError } from "./managerApi";
 import { loadPhotoKpi, PHOTO_KPI_MONTH, type PhotoCounts, type PhotoKpi, type PhotoKpiTechnician, type PhotoKpiTotal, type PhotoTrendPoint } from "./photoKpiApi";
 import "./managerPhotoKpi.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 function malaysiaMonth() {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -150,7 +151,7 @@ export function ManagerPhotoKpi({ onAuthorityFailure }: { onAuthorityFailure: (e
   const periodLabel = period === "all" ? "All time" : monthName(period);
 
   return <section className="manager-photo-kpi page-stack" aria-labelledby="photo-kpi-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="photo-kpi-title">Photo KPI</h2></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="photo-kpi-title">Photo KPI</h2></div></div>
     <p className="photo-kpi-note">Photos in accepted service visits and repair visits, by how they were added. Gallery means not taken with the in-app camera; unknown means the source was not recorded. Months use Malaysia time.</p>
 
     <div className="photo-kpi-period" role="group" aria-label="Period">

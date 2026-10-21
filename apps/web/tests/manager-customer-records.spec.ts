@@ -204,7 +204,7 @@ test("customers table search, responsive cards, tabs, edit round-trip and discar
   });
   await page.goto("/tests/manager-customer-records.html");
   await expect(page.getByRole("heading", { name: "Customers", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Add customer" })).toHaveAttribute("href", "#/manager-add-customer");
+  await expect(page.getByRole("link", { name: "Add Customer", exact: true })).toHaveAttribute("href", "#/manager-add-customer");
   for (const search of ["alpha", "jane", "warehouse", "012345", "main street", "S3A"]) {
     await page.locator("input[type=search]").fill(search); await page.getByRole("button", { name: "Search", exact: true }).click();
     await expect(page.getByRole("button", { name: "Alpha Customer", exact: true })).toBeVisible();

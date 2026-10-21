@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, resetManagerTechnicianPassword, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const passwordMin = 12;
 const passwordMax = 1024;
@@ -68,7 +69,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const visibleTechnicians = useMemo(() => trimmedQuery
     ? statusFiltered.filter((technician) => technician.username.toLowerCase().includes(trimmedQuery))
     : statusFiltered, [statusFiltered, trimmedQuery]);
-  return <section className="page-stack" aria-labelledby="technicians-title"><div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="technicians-title">Technician List</h2></div></div>
+  return <section className="page-stack" aria-labelledby="technicians-title"><div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="technicians-title">Technician List</h2></div></div>
     <form className="manager-inline-form" onSubmit={(event) => {
       event.preventDefault();
       void mutate(async () => { await createManagerTechnician({ username, password, displayName: newDisplayName.trim() || null, role }); setUsername(""); setPassword(""); setNewDisplayName(""); setRole("inspector"); });

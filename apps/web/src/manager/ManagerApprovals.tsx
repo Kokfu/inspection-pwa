@@ -3,6 +3,7 @@ import { loadLocationProposals, loadReportApprovals, loadSiteProposals, ManagerA
 import { loadRepairVisits, RepairVisitsApiError } from "./repairVisitsApi";
 import { loadPendingRemarkRequestCount } from "./remarkRequestsApi";
 import "./ManagerApprovals.css";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 export const approvalCards = [
   ["Location Proposals", "Location and format changes", "manager-location-proposals"],
@@ -62,7 +63,7 @@ export function ManagerApprovals({ navigate, onAuthorityFailure }: {
     return () => controller.abort();
   }, []);
   return <section className="manager-hub page-stack" aria-labelledby="manager-approvals-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-approvals-title">Approvals</h2></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-approvals-title">Approvals</h2></div></div>
     <div className="manager-dashboard manager-hub-grid">{approvalCards.map(([title, description, name]) =>
       <button type="button" className="manager-dashboard-card manager-hub-card" key={name} onClick={() => navigate({ name })}>
         <span className="manager-hub-copy"><strong>{title}</strong><span>{description}</span></span><PendingCount count={name === "manager-remark-requests" ? remarkCount : counts[name]} />

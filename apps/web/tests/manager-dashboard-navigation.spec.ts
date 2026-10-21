@@ -17,7 +17,7 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     else if (url.pathname.endsWith("/dashboard/clients")) json = { totalClients: 12 };
     else if (url.pathname.endsWith("/dashboard/inspections-per-day")) json = { days: [{ day: url.searchParams.get("to"), count: 2 }] };
     else if (url.pathname.endsWith("/dashboard/inspection-status")) json = { passed: 1, notOk: 3, na: 1 };
-    else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 7 };
+    else if (url.pathname.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: url.search ? 7 : 0 };
     else if (url.pathname.endsWith("/inspection-jobs")) json = { jobs: [] };
     else if (url.pathname.endsWith("/compliance-reminders")) json = { overdue: [], dueSoon: [], dueSoonWindowDays: 7 };
     await route.fulfill({ json });

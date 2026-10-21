@@ -8,6 +8,7 @@ import {
   ManagerApiError,
   type ManagerServiceCatalogEntry
 } from "./managerApi";
+import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 /**
  * Standalone "Add Customer" page (route `manager-add-customer`). Extracted out
@@ -84,7 +85,7 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
   };
 
   return <section className="page-stack" aria-labelledby="manager-add-customer-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-add-customer-title">Add Customer</h2><p>Create a new customer and assign its initial services.</p></div></div>
+    <div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="manager-add-customer-title">Add Customer</h2><p>Create a new customer and assign its initial services.</p></div></div>
     {error || catalogMessage ? <p className="form-message" role="alert">{error || catalogMessage}</p> : null}
     <form className="report-summary setup-card customer-form-card" onSubmit={submit}>
       <label>Customer display name<input required autoComplete="off" maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>

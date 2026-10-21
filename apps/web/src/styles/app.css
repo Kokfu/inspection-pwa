@@ -1298,8 +1298,8 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: var(-
   .home-utility-actions { margin-top: -2px; }
   .home-utility-actions button { min-height: var(--tap); padding-inline: 12px; }
   .workspace-heading, .job-context-title, .job-card-heading { align-items: stretch; }
-  .workspace-heading .inline-actions { display: flex; width: auto; }
-  .workspace-heading .inline-actions button { width: 100%; min-width: 0; }
+  .workspace-heading .inline-actions { display: flex; width: 100%; gap: var(--space-3); }
+  .workspace-heading .inline-actions > :is(button, a) { flex: 1 1 8.75rem; width: auto; min-width: 0; justify-content: center; }
   .job-card-facts, .job-facts { grid-template-columns: 1fr; }
   .job-card { padding: 13px 34px 11px 14px; }
   .job-card-heading { align-items: flex-start; }
@@ -1476,7 +1476,7 @@ a.secondary-command { display: inline-flex; box-sizing: border-box; width: fit-c
 }
 .app-sidebar-link { display: flex; align-items: center; gap: 10px; min-height: var(--tap); margin: 0 10px; padding: 8px 14px; border: 0; border-radius: var(--radius-sm); background: transparent; color: rgb(255 255 255 / 82%); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
 .app-sidebar-link svg { flex: none; }
-.app-sidebar-section { margin: 12px 24px 2px; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 14%); color: rgb(255 255 255 / 55%); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.app-sidebar-section { margin: 12px 24px 2px; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 14%); color: rgb(255 255 255 / 55%); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .app-sidebar-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .app-sidebar-link.pinned { margin-top: auto; }
 @media (min-width: 768px) {
@@ -1632,7 +1632,7 @@ a[href]:focus-visible, summary:focus-visible, [role="tab"]:focus-visible, [role=
   .app-account { grid-area: acct; justify-self: end; flex-wrap: nowrap; }
   .header-live--status { grid-area: stat; min-width: 0; gap: var(--space-1) var(--space-2); }
   .app-build { grid-area: build; margin: 0; }
-  .app-mobile-navigation { margin-bottom: var(--space-2); }
+  .app-mobile-navigation { margin-bottom: var(--space-5); }
   .app-mobile-navigation summary { padding-block: 0; }
 }
 
