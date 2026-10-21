@@ -173,10 +173,10 @@ test("an unsynced, unstarted local visit can be deleted on the device", async ({
   await expect(page.getByRole("heading", { name: "Phone Test Customer" })).toBeVisible({ timeout: 15_000 });
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Delete unsynced visit" }).click();
-  await expect(page.getByText("No visits in progress. Start a new service visit to begin.")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("No open service visits. Start a new service visit to begin.")).toBeVisible({ timeout: 10_000 });
   expect(server.creates).toHaveLength(0);
   await page.reload();
-  await expect(page.getByText("No visits in progress. Start a new service visit to begin.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("No open service visits. Start a new service visit to begin.")).toBeVisible({ timeout: 15_000 });
 });
 
 test("online creation is unchanged: the server makes the visit and its SV number", async ({ page }) => {

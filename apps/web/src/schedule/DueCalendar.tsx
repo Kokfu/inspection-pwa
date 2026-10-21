@@ -7,6 +7,7 @@ export type CalendarItem = { id: string; name: string; dueDate: string };
 
 const WEEKDAYS = [["M", "Monday"], ["T", "Tuesday"], ["W", "Wednesday"], ["T", "Thursday"], ["F", "Friday"], ["S", "Saturday"], ["S", "Sunday"]] as const;
 const STATUS_ORDER: readonly CalendarStatus[] = ["overdue", "soon", "later"];
+const STATUS_WORDS: Record<CalendarStatus, string> = { overdue: "Overdue", soon: "Due soon", later: "Later" };
 const WIDE_CHIPS = 2;
 
 /** True while the viewport is narrower than the table/card breakpoint (700 px). */
@@ -119,11 +120,12 @@ export function DueCalendar({ month, items, selectedDate, onSelectDate, onMonthC
           const isToday = cell.date === today;
           const label = `${shortDate(cell.date)}, ${dayItems.length === 0 ? "no services" : `${dayItems.length} ${dayItems.length === 1 ? "service" : "services"}`}`;
           return <div role="gridcell" aria-selected={selected} key={cell.date} className="due-cal-cell">
-            <button type="button" aria-label={label} aria-current={isToday ? "date" : undefined} tabIndex={cell.date === rovingDate ? 0 : -1}
+            <button type="button" aria-label={label} aria-describedby={present.length ? `due-cal-status-${cell.date}` : undefined} aria-current={isToday ? "date" : undefined} tabIndex={cell.date === rovingDate ? 0 : -1}
               ref={(element) => { if (element) buttons.current.set(cell.date, element); else buttons.current.delete(cell.date); }}
               className={`due-cal-day${isToday ? " due-cal-day--today" : ""}${selected ? " due-cal-day--selected" : ""}`}
               onClick={() => { setFocusDate(cell.date); onSelectDate(cell.date); }} onKeyDown={(event) => onKeyDown(event, cell.date)}>
               <span className="due-cal-daynum">{day}</span>
+              {present.length ? <span id={`due-cal-status-${cell.date}`} className="visually-hidden">{present.map((status) => STATUS_WORDS[status]).join(", ")}</span> : null}
               {compact
                 ? present.length ? <span className="due-cal-dots" aria-hidden="true">{present.map((status) => <span key={status} className={`due-cal-dot due-cal-tone--${status}`} />)}</span> : null
                 : <span className="due-cal-chips" aria-hidden="true">

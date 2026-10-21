@@ -190,3 +190,13 @@ test("the calendar stays compact when the window is widened", async ({ page }) =
   await expect(page.locator(".due-calendar--compact")).toHaveCount(1);
   await expect(page.locator(".due-cal-chip")).toHaveCount(0);
 });
+
+test("I-81: a day's coloured dot also has its status in words for assistive technology", async ({ page }) => {
+  await open(page, { customers: scheduled, unscheduledCustomers: unscheduledRows });
+  await calendarButton(page).click();
+  const overdue = day(page, "10 Oct 2026, 2 services");
+  await expect(overdue).toHaveAccessibleDescription("Overdue");
+  await expect(overdue).toHaveAccessibleName("10 Oct 2026, 2 services");
+  await expect(day(page, "28 Oct 2026, 1 service")).toHaveAccessibleDescription("Due soon");
+  await expect(day(page, "22 Oct 2026, no services")).toHaveAccessibleDescription("");
+});

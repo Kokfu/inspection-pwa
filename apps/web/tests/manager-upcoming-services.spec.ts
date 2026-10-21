@@ -259,3 +259,28 @@ test("a malformed due date from the server fails closed and shows no rows", asyn
   await expect(page.locator("tbody tr")).toHaveCount(0);
   await expect(page.getByRole("group", { name: "Filter by status" })).toHaveCount(0);
 });
+
+test("I-80: Back closes the drawer and stays on the screen; closing the drawer by hand leaves no extra history entry", async ({ page }) => {
+  const customers = seed();
+  await mockServer(page, customers);
+  await page.route("**/api/manager/reminders/staff", (route) => route.fulfill({ json: { staff: [] } }));
+  await page.route("**/api/manager/reminders/recurrence/over", (route) => route.fulfill({ json: { recurrence: { dueDate: "2026-10-10", kind: null, interval: null, day: null } } }));
+  await page.goto("/tests/manager-upcoming-services.html");
+  const more = page.getByRole("button", { name: "More actions for Overdue Customer" });
+  const openDrawer = async () => { await more.click(); await page.getByRole("menuitem", { name: "Service routine" }).click(); await expect(page.getByRole("dialog", { name: /Overdue Customer/ })).toBeVisible(); await page.waitForTimeout(100); };
+  const startLength = await page.evaluate(() => history.length);
+  const startUrl = page.url();
+
+  await openDrawer();
+  await page.goBack();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(page.url(), "Back closed only the drawer").toBe(startUrl);
+  await expect(more).toBeVisible();
+
+  await openDrawer();
+  await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => history.length), "no stray history entry after closing by hand").toBeLessThanOrEqual(startLength + 1);
+  expect(page.url()).toBe(startUrl);
+});

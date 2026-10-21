@@ -10,6 +10,23 @@ export function UpcomingServiceDrawer({ kindLabel, customerName, onClose, childr
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => { panelRef.current?.querySelector<HTMLElement>("button")?.focus(); }, []);
+  // I-80: Android Back should close the drawer, not leave the screen. The drawer owns one history entry (same URL, so no
+  // route change); Back pops it and closes, and closing any other way pops it so the history stays clean. The push is
+  // deferred one tick so React's development double-mount never leaves a stray entry.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    let pushed = false;
+    let poppedByBack = false;
+    const timer = window.setTimeout(() => { history.pushState({ ...(history.state as object | null), upcomingDrawer: true }, ""); pushed = true; }, 0);
+    const onPop = () => { if (!pushed) return; poppedByBack = true; pushed = false; closeRef.current(); };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("popstate", onPop);
+      if (pushed && !poppedByBack && (history.state as { upcomingDrawer?: boolean } | null)?.upcomingDrawer) history.back();
+    };
+  }, []);
   // Keep the page behind the modal drawer from scrolling.
   useEffect(() => {
     const previous = document.body.style.overflow;

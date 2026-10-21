@@ -1,0 +1,54 @@
+<!doctype html><html><body><button id="run">Run route loading heading checks</button><pre id="result">Ready</pre><div id="mount"></div><script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { App } from "/src/App.tsx";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { masterServiceReportV7 } from "../../api/src/inspections/templates/masterServiceReportV7.ts";
+import { getOrCreateHoseReelInspection } from "/src/hoseReel/hoseReelRepository.ts";
+import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+
+const hid = (n) => `99000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const systemKey = "hose_reel";
+const user={id:42,username:"hose-reel-route-test",role:"inspector"};
+const enabledSystemId = hid(4);
+const savedRows = [{ assetReference: "D-1", locationText: "Pump room", drumType: "swing" }, { assetReference: "D-2", locationText: "Roof", drumType: "fixed" }];
+const locations = false
+  ? [{ id: hid(11), enabledSystemId, zoneId: null, key: "general", displayName: "General", presetRowCount: savedRows.length, rowPreset: { rows: savedRows }, sortOrder: 1 }]
+  : [];
+const system = { enabledSystemId, systemKey, displayName: "Hose Reel", sortOrder: 2, definitionStatus: "confirmed", zones: [], locations };
+const template = { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7, systems: masterServiceReportV7.systems.map((s) => ({ ...s, enabledSystemId: s.key === systemKey ? enabledSystemId : hid(900), systemKey: s.key, displayName: s.displayName ?? s.key, definition: s })) };
+const catalog = { templates: [template], template };
+const job = { id: hid(1), reference: "HR-LAYOUT", title: "Hose reel layout", status: "open", createdAt: "2026-10-11T00:00:00.000Z", serviceDate: null, serviceTime: null, site: null,
+  configurationSnapshot: { schemaVersion: 1, customer: { id: hid(2), code: "HR", displayName: "Hose Reel Customer" }, configuration: { revisionId: hid(3), revisionNumber: 1 }, template: { id: masterServiceReportV7.id, code: "MFE-FSSR", name: "MFE", version: 7 }, enabledSystems: [system] } };
+
+
+const waitFor=async predicate=>{for(let attempt=0;attempt<120;attempt+=1){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,50));}throw new Error("Timed out waiting for routed Hose Reel UI")};
+async function clear(){await localDatabase.open();await localDatabase.transaction("rw",localDatabase.masterSystemInspections,localDatabase.syncOutbox,localDatabase.authState,async()=>{await localDatabase.masterSystemInspections.clear();await localDatabase.syncOutbox.clear();await localDatabase.authState.clear();});}
+
+// I-77: open a saved Hose Reel Draft in the real App route, then let the autosave run; the form must not be re-created.
+document.querySelector('#run').onclick = async () => {
+  const output = document.querySelector('#result');
+  try {
+    await clear(); await storeVerifiedIdentity(user);
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === '/api/auth/me') return new Response(JSON.stringify({ user }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url.startsWith('/api/master-system-inspections?')) { await new Promise((resolve) => setTimeout(resolve, 400)); throw new TypeError('Failed to fetch'); } // a slow server probe, as on the phone
+      return new Response('', { status: 503 });
+    };
+    window.location.hash = '#/jobs';
+    const mount = document.querySelector('#mount'); mount.replaceChildren();
+    const root = ReactDomClient.createRoot(mount); root.render(React.createElement(App));
+    await waitFor(() => [...mount.querySelectorAll('button')].some((b) => b.textContent.startsWith('Technician')));
+    [...mount.querySelectorAll('button')].find((b) => b.textContent.startsWith('Technician')).click();
+    await waitFor(() => localDatabase.name === 'inspection-pwa:user:' + user.id);
+    const record = await getOrCreateHoseReelInspection(job, system, catalog, { id: user.id, username: user.username, role: 'inspector' });
+    window.location.hash = '#/jobs'; await new Promise((resolve) => setTimeout(resolve, 300));
+    window.location.hash = '#/inspection/' + record.clientUuid;
+    await waitFor(() => [...mount.querySelectorAll('button')].map((b) => b.textContent).some((t) => t === 'Save Draft' || t === 'Start Inspection'));
+    window.__removed = 0;
+    new MutationObserver((records) => records.forEach((r) => r.removedNodes.forEach((n) => { if (n.nodeType === 1 && (n.matches('section') || n.querySelector('input,textarea'))) window.__removed += 1; }))).observe(mount, { subtree: true, childList: true });
+    output.textContent = JSON.stringify({ status: 'READY' });
+  } catch (error) { output.textContent = JSON.stringify({ status: 'ERROR', message: String(error && error.stack || error) }); }
+};
+</script></body></html>

@@ -13,6 +13,7 @@ import { createServiceVisit, SiteAlreadyExistsError } from "./jobApi";
 import type { InspectionJob } from "./jobTypes";
 import { cacheCustomerSites, createLocalServiceVisit, getCachedCustomerSites, OfflineVisitUnavailableError } from "./offlineServiceVisitLocal";
 import { isServerUnreachable } from "./serverReachability";
+import { clearNewVisitDraft, isBlankDraft, loadNewVisitDraft, newVisitDraft, saveNewVisitDraft, type NewServiceVisitDraft } from "./newServiceVisitDraft";
 
 /** Offline, the shortcut opens the standalone Add Customer page, which saves a draft and queues the customer on this device (OA-5). */
 export const offlineAddCustomerRoute = "#/technician-add-customer";
@@ -76,9 +77,9 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   const [serviceCallNumber, setServiceCallNumber] = useState("");
   // Keep the same mutation identity for a retry after a lost response. It is
   // not a job identity; the server alone allocates the job and reference.
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId, setRequestId] = useState<string>(() => crypto.randomUUID());
   // Offline creation: the visit's identity is generated on the device and never changes across taps or retries.
-  const [localJobUuid] = useState(() => crypto.randomUUID());
+  const [localJobUuid, setLocalJobUuid] = useState<string>(() => crypto.randomUUID());
   // True when the server cannot be reached; the screen then works from the customers, sites and setup saved on the device.
   const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
   // Captured on the first Create tap and reused by retries, so a retry after a
@@ -87,6 +88,52 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState("");
+  // OA-7: the unfinished setup is kept on the device. `draftReady` = the saved setup has been read (or there is none).
+  const [draftReady, setDraftReady] = useState(false);
+  const [restored, setRestored] = useState(false);
+  // A create was started before the app closed and its outcome is unknown: only an exact replay or Start over is safe.
+  const [replayOnly, setReplayOnly] = useState(false);
+  const [sending, setSending] = useState(false);
+  const draftFinished = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadNewVisitDraft().then((saved) => {
+      if (!active) return;
+      const usable = saved && !isBlankDraft(saved) && (saved.sending || !initialCustomerId || saved.customerId === initialCustomerId);
+      if (saved && usable) {
+        setRequestId(saved.requestId); setLocalJobUuid(saved.localJobUuid);
+        deviceStartTime.current = saved.arrivalTime;
+        setCustomerId(saved.customerId); setSiteId(saved.siteId); setSystemKeys(saved.systemKeys);
+        setServiceCallNumber(saved.serviceCallNumber);
+        setAddingSite(saved.addingSite); setProposedSiteName(saved.proposedSiteName); setProposedSiteAddress(saved.proposedSiteAddress);
+        setSending(saved.sending); setReplayOnly(saved.sending); setRestored(true);
+        setLoading(Boolean(saved.customerId));
+        setMessage(saved.sending
+          ? "This visit was being created when the app closed, so it may already exist. Check your job list first. If it is not there, tap Create to send the same request again (it cannot create a second visit), or Start over."
+          : "Your unfinished setup was restored from this device.");
+      }
+      setDraftReady(true);
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady || draftFinished.current) return;
+    const draft: NewServiceVisitDraft = { schemaVersion: 1, requestId, localJobUuid, customerId, siteId, systemKeys, serviceCallNumber,
+      addingSite, proposedSiteName, proposedSiteAddress, ...(deviceStartTime.current ? { arrivalTime: deviceStartTime.current } : {}), sending };
+    if (isBlankDraft(draft)) void clearNewVisitDraft(); else void saveNewVisitDraft(draft);
+  }, [draftReady, requestId, localJobUuid, customerId, siteId, systemKeys, serviceCallNumber, addingSite, proposedSiteName, proposedSiteAddress, sending]);
+
+  function startOver() {
+    draftFinished.current = false;
+    deviceStartTime.current = undefined;
+    setRequestId(crypto.randomUUID()); setLocalJobUuid(crypto.randomUUID());
+    setServiceCallNumber(""); setSending(false); setReplayOnly(false); setRestored(false);
+    selectCustomer(initialCustomerId ?? "");
+    setSiteId(""); setSystemKeys([]); setAddingSite(false); setProposedSiteName(""); setProposedSiteAddress(""); setMessage("");
+  }
 
   useEffect(() => {
     // Follow the connection while this screen is open. Back online, Create uses the server again (same requestId, so a
@@ -159,9 +206,11 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
   const toggle = (key: string) => setSystemKeys((current) => current.includes(key)
     ? current.filter((candidate) => candidate !== key) : [...current, key]);
   const siteReady = addingSite ? !offline && Boolean(proposedSiteName.trim()) : Boolean(siteId);
-  const canCreate = !loading && !creating && configurationMatchesCustomer && Boolean(customerId && siteReady && systemKeys.length);
+  const busy = creating || replayOnly || !draftReady;
+  const canCreate = draftReady && !loading && !creating && configurationMatchesCustomer && Boolean(customerId && siteReady && systemKeys.length);
 
   function selectCustomer(nextCustomerId: string) {
+    if (nextCustomerId === customerId) return; // picking the customer already chosen (e.g. one restored from the device) changes nothing and must not leave the services loading
     setCustomerId(nextCustomerId);
     setSites([]); setConfiguration(undefined); setConfigurationCustomerId(undefined);
     setSiteId(""); setSystemKeys([]); setMessage(""); setLoading(Boolean(nextCustomerId));
@@ -215,6 +264,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
     const job = await createLocalServiceVisit({
       customer, site, configuration, systemKeys, serviceCallNumber, arrivalTime: deviceStartTime.current ?? deviceClockTime(), clientJobUuid: localJobUuid
     });
+    draftFinished.current = true; await clearNewVisitDraft();
     try { await onCreated(job); }
     catch {
       // The app shell only accepts a new job while the session is verified with the server. The visit is already
@@ -234,6 +284,10 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
       finally { setCreating(false); }
       return;
     }
+    // OA-7: record on the device that a create is starting, before anything is sent, so a close mid-request is recoverable.
+    setSending(true);
+    await saveNewVisitDraft({ schemaVersion: 1, requestId, localJobUuid, customerId, siteId, systemKeys, serviceCallNumber,
+      addingSite, proposedSiteName, proposedSiteAddress, arrivalTime: deviceStartTime.current, sending: true });
     try {
       const job = await createServiceVisit({
         requestId, customerId, systemKeys,
@@ -243,10 +297,13 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
         arrivalTime: deviceStartTime.current
       });
       if (!hasRealJobId(job)) throw new Error("Service visit could not be created.");
+      draftFinished.current = true; await clearNewVisitDraft();
       const confirmation = addingSite ? "Site sent for approval. Your visit continues." : undefined;
       await onCreated(job, confirmation);
       if (confirmation) setMessage(confirmation);
     } catch (error) {
+      // A reachable server that refused the create did not make a visit; only an unreachable server leaves the outcome unknown.
+      if (!isServerUnreachable(error)) { setSending(false); setReplayOnly(false); }
       if (error instanceof SiteAlreadyExistsError) {
         try {
           const nextSites = sites.some((site) => site.id === error.existingSiteId) ? sites : await loadCustomerSites(customerId);
@@ -269,29 +326,30 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
 
   return <section className="new-service-visit" aria-labelledby="new-service-visit-title">
     <button type="button" className="secondary-command back-command" onClick={onCancel} disabled={creating}>← Back to My Jobs</button>
+    {restored ? <button type="button" className="secondary-command" onClick={startOver} disabled={creating}>Start over</button> : null}
     <div className="setup-card">
       <div className="workspace-heading"><div><p className="eyebrow">Service visit setup</p><h2 id="new-service-visit-title">New Service Visit</h2><p>Select the customer, site, and fire systems for this visit.</p></div></div>
       <div className="setup-fields">
         {offline
           ? <p className="offline-notice" role="status">Offline — this visit is saved on this device with this device's date and time, and gets its SV number when it syncs. Add New Customer opens the Add Customer page, which saves it on this device until you reconnect.</p>
           : <p className="offline-notice">Service Visit Date &amp; Time will be recorded automatically by the server when created. Your arrival time is taken from this device's clock when you tap Create.</p>}
-        <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={creating || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={creating || addingCustomer}>+ Add New Customer</button></div>
+        <div className="form-field"><label htmlFor="service-customer">Customer</label><select id="service-customer" value={customerId} onChange={(event) => selectCustomer(event.target.value)} disabled={busy || addingCustomer}><option value="">Select customer</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.displayName}</option>)}</select><button type="button" className="secondary-command" onClick={() => void beginAddCustomer()} disabled={busy || addingCustomer}>+ Add New Customer</button></div>
         <div className="form-field"><label htmlFor="service-site">Site</label>
-          <select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || creating || addingSite}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select>
-          <button type="button" className="secondary-command" disabled={!customerId || offline || creating || addingCustomer || addingSite} aria-describedby={offline ? "new-site-connection" : undefined} onClick={() => { setSiteId(""); setAddingSite(true); setMessage(""); }}>+ Add new site</button>
+          <select id="service-site" value={siteId} onChange={(event) => setSiteId(event.target.value)} disabled={!customerId || loading || busy || addingSite}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.displayName}</option>)}</select>
+          <button type="button" className="secondary-command" disabled={!customerId || offline || busy || addingCustomer || addingSite} aria-describedby={offline ? "new-site-connection" : undefined} onClick={() => { setSiteId(""); setAddingSite(true); setMessage(""); }}>+ Add new site</button>
           {offline ? <p id="new-site-connection">Adding a new site needs a connection.</p> : null}
           {addingSite ? <section className="setup-fields" aria-label="Add new site">
-            <div className="form-field"><label htmlFor="proposed-site-name">Site name</label><input id="proposed-site-name" required maxLength={160} value={proposedSiteName} onChange={(event) => setProposedSiteName(event.target.value)} onBlur={() => setProposedSiteName((name) => name.trim().replace(/\s+/g, " "))} disabled={creating} /></div>
-            <div className="form-field"><label htmlFor="proposed-site-address">Site address (optional)</label><input id="proposed-site-address" maxLength={500} value={proposedSiteAddress} onChange={(event) => setProposedSiteAddress(event.target.value)} disabled={creating} /></div>
-            <button type="button" className="secondary-command" disabled={creating} onClick={() => { setAddingSite(false); setProposedSiteName(""); setProposedSiteAddress(""); }}>Cancel new site</button>
+            <div className="form-field"><label htmlFor="proposed-site-name">Site name</label><input id="proposed-site-name" required maxLength={160} value={proposedSiteName} onChange={(event) => setProposedSiteName(event.target.value)} onBlur={() => setProposedSiteName((name) => name.trim().replace(/\s+/g, " "))} disabled={busy} /></div>
+            <div className="form-field"><label htmlFor="proposed-site-address">Site address (optional)</label><input id="proposed-site-address" maxLength={500} value={proposedSiteAddress} onChange={(event) => setProposedSiteAddress(event.target.value)} disabled={busy} /></div>
+            <button type="button" className="secondary-command" disabled={busy} onClick={() => { setAddingSite(false); setProposedSiteName(""); setProposedSiteAddress(""); }}>Cancel new site</button>
           </section> : null}
         </div>
       </div>
-      {addingCustomer ? <section className="report-summary" aria-labelledby="new-customer-title"><h3 id="new-customer-title">Add New Customer</h3><p>This creates a shared customer and its first service format on the server.</p><div className="setup-fields"><div className="form-field"><label htmlFor="new-customer-name">Customer Name</label><input id="new-customer-name" maxLength={160} value={newCustomerName} onChange={(event) => setNewCustomerName(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-site">Primary Site</label><input id="new-customer-site" maxLength={160} value={newSiteName} onChange={(event) => setNewSiteName(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-site-address">Site Address</label><input id="new-site-address" maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-telephone">Telephone No</label><input id="new-customer-telephone" maxLength={40} value={newCustomerTelephone} onChange={(event) => setNewCustomerTelephone(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-fax">Fax</label><input id="new-customer-fax" maxLength={40} value={newCustomerFax} onChange={(event) => setNewCustomerFax(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-contact">Contact</label><input id="new-customer-contact" maxLength={160} value={newCustomerContact} onChange={(event) => setNewCustomerContact(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-contract">Contract No.</label><input id="new-customer-contract" maxLength={160} value={newCustomerContract} onChange={(event) => setNewCustomerContract(event.target.value)} disabled={creating} /></div><div className="form-field"><label htmlFor="new-customer-frequency">Service Frequency</label><select id="new-customer-frequency" value={newCustomerFrequency} onChange={(event) => setNewCustomerFrequency(event.target.value)} disabled={creating}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></div></div><fieldset className="system-picker" disabled={creating}><legend>Initial Service Format</legend><div className="system-picker-grid">{serviceFormatOptions.map((system) => <label key={system.key} className={`system-check-row ${newCustomerSystems.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={newCustomerSystems.includes(system.key)} onChange={() => setNewCustomerSystems((current) => current.includes(system.key) ? current.filter((key) => key !== system.key) : [...current, system.key])} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset><div className="inline-actions"><button type="button" className="secondary-command" disabled={creating} onClick={() => { setAddingCustomer(false); setMessage(""); }}>Cancel</button><button type="button" disabled={creating || !newCustomerName.trim() || !newSiteName.trim() || newCustomerSystems.length === 0} onClick={() => void createCustomer()}>{creating ? "Creating…" : "Create Customer"}</button></div></section> : null}
-      <fieldset className="system-picker" disabled={!customerId || loading || creating}><legend>Applicable Fire Systems</legend><div className="system-picker-grid">{serviceAvailability ? <p role="status">{serviceAvailability}</p> : systems.map((system) => <label key={system.id} className={`system-check-row ${systemKeys.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset>
-      {configurationMatchesCustomer && systems.length ? <button type="button" className="secondary-command" disabled={creating} onClick={() => setSystemKeys(systems.map((system) => system.key))}>Reuse Previous Service Format</button> : null}
+      {addingCustomer ? <section className="report-summary" aria-labelledby="new-customer-title"><h3 id="new-customer-title">Add New Customer</h3><p>This creates a shared customer and its first service format on the server.</p><div className="setup-fields"><div className="form-field"><label htmlFor="new-customer-name">Customer Name</label><input id="new-customer-name" maxLength={160} value={newCustomerName} onChange={(event) => setNewCustomerName(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-site">Primary Site</label><input id="new-customer-site" maxLength={160} value={newSiteName} onChange={(event) => setNewSiteName(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-site-address">Site Address</label><input id="new-site-address" maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-telephone">Telephone No</label><input id="new-customer-telephone" maxLength={40} value={newCustomerTelephone} onChange={(event) => setNewCustomerTelephone(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-fax">Fax</label><input id="new-customer-fax" maxLength={40} value={newCustomerFax} onChange={(event) => setNewCustomerFax(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-contact">Contact</label><input id="new-customer-contact" maxLength={160} value={newCustomerContact} onChange={(event) => setNewCustomerContact(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-contract">Contract No.</label><input id="new-customer-contract" maxLength={160} value={newCustomerContract} onChange={(event) => setNewCustomerContract(event.target.value)} disabled={busy} /></div><div className="form-field"><label htmlFor="new-customer-frequency">Service Frequency</label><select id="new-customer-frequency" value={newCustomerFrequency} onChange={(event) => setNewCustomerFrequency(event.target.value)} disabled={busy}><option value="">Not set</option><option value="MONTHLY">Monthly</option><option value="QUARTERLY">Quarterly</option><option value="HALF_YEARLY">Half-yearly</option><option value="ANNUALLY">Annually</option></select></div></div><fieldset className="system-picker" disabled={busy}><legend>Initial Service Format</legend><div className="system-picker-grid">{serviceFormatOptions.map((system) => <label key={system.key} className={`system-check-row ${newCustomerSystems.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={newCustomerSystems.includes(system.key)} onChange={() => setNewCustomerSystems((current) => current.includes(system.key) ? current.filter((key) => key !== system.key) : [...current, system.key])} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset><div className="inline-actions"><button type="button" className="secondary-command" disabled={busy} onClick={() => { setAddingCustomer(false); setMessage(""); }}>Cancel</button><button type="button" disabled={busy || !newCustomerName.trim() || !newSiteName.trim() || newCustomerSystems.length === 0} onClick={() => void createCustomer()}>{creating ? "Creating…" : "Create Customer"}</button></div></section> : null}
+      <fieldset className="system-picker" disabled={!customerId || loading || busy}><legend>Applicable Fire Systems</legend><div className="system-picker-grid">{serviceAvailability ? <p role="status">{serviceAvailability}</p> : systems.map((system) => <label key={system.id} className={`system-check-row ${systemKeys.includes(system.key) ? "system-check-row--selected" : ""}`}><input type="checkbox" checked={systemKeys.includes(system.key)} onChange={() => toggle(system.key)} /><span aria-hidden="true">✓</span><strong>{system.displayName}</strong></label>)}</div></fieldset>
+      {configurationMatchesCustomer && systems.length ? <button type="button" className="secondary-command" disabled={busy} onClick={() => setSystemKeys(systems.map((system) => system.key))}>Reuse Previous Service Format</button> : null}
       <div className="setup-fields">
-        <div className="form-field"><label htmlFor="service-call-number">Service Call No</label><input id="service-call-number" maxLength={80} value={serviceCallNumber} onChange={(event) => setServiceCallNumber(event.target.value)} disabled={creating} /></div>
+        <div className="form-field"><label htmlFor="service-call-number">Service Call No</label><input id="service-call-number" maxLength={80} value={serviceCallNumber} onChange={(event) => setServiceCallNumber(event.target.value)} disabled={busy} /></div>
       </div>
       {/* I-47: Site is required too, so say what is missing instead of "ready to create" next to a dimmed button. */}
       {systemKeys.length ? <p id="new-service-visit-summary" className="selected-services-summary" role="status">{systemKeys.length} {systemKeys.length === 1 ? "service selected" : "services selected"}{siteReady ? " and ready to create." : addingSite ? ". Enter a site name and connect to continue." : ". Choose a site to continue."}</p> : null}

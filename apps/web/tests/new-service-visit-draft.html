@@ -1,0 +1,41 @@
+<!doctype html><html><body><pre id="state">starting</pre><div id="mount"></div><script type="module">
+import * as React from "react";
+import * as ReactDom from "react-dom/client";
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import { NewServiceVisit } from "/src/jobs/NewServiceVisit.tsx";
+
+// OA-7: the real New Service Visit on a real per-user IndexedDB. sessionStorage survives page.reload() and only carries
+// the fake server's mode and what it received.
+const customer = { id: "customer-a", code: "A", displayName: "Customer A", isDemo: false };
+const site = { id: "site-a", customerId: customer.id, code: "PRIMARY", displayName: "Site A" };
+const configuration = { customer, configuration: { configurationId: "config", revision: 1, templateId: "template", templateCode: "MFE", templateName: "Master", templateVersion: 1, selectionPolicy: "preset_only", enabledSystems: [{ id: "system-a", key: "hose_reel", displayName: "Hose Reel", sortOrder: 1, definitionStatus: "confirmed", zones: [], locations: [] }] } };
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const read = (key, fallback) => { try { return JSON.parse(sessionStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; } };
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  if (url === "/api/customers") return json({ customers: [customer] });
+  if (url.endsWith("/sites")) return json({ sites: [site] });
+  if (url.endsWith("/configuration")) return json(configuration);
+  if (url === "/api/inspection-jobs/service-visits") {
+    const body = JSON.parse(init.body);
+    sessionStorage.setItem("posts", JSON.stringify([...read("posts", []), body]));
+    const mode = sessionStorage.getItem("mode") ?? "ok";
+    if (mode === "unreachable") throw new TypeError("Failed to fetch");
+    return json({ job: { id: "11111111-1111-4111-8111-111111111111", reference: "SV-1", requestId: body.requestId } }, 201);
+  }
+  return json({ message: "Unexpected request " + url }, 503);
+};
+window.__draft = async () => (await localDatabase.drafts.get("new-service-visit"))?.payload ?? null;
+await activateUserWorkspace(77);
+// What the phone already holds after an online session, so going offline mid-test shows the same cached lists.
+const stamp = new Date().toISOString(), later = new Date(Date.now() + 864e5).toISOString();
+await localDatabase.referenceData.bulkPut([
+  { key: "customers:active", payload: [customer], version: "t", fetchedAt: stamp, expiresAt: later },
+  { key: "customer-configuration:" + customer.id, payload: configuration, version: "t", fetchedAt: stamp, expiresAt: later }
+]);
+ReactDom.createRoot(document.querySelector("#mount")).render(React.createElement(NewServiceVisit, {
+  onCreated: async () => { sessionStorage.setItem("created", String(Number(sessionStorage.getItem("created") ?? 0) + 1)); },
+  onCancel: () => undefined
+}));
+document.querySelector("#state").textContent = "READY";
+</script></body></html>

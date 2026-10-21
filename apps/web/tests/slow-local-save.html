@@ -1,0 +1,11 @@
+<!doctype html><html><body><div id="mount"></div><script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import { SlowLocalSaveNotice, useSlowLocalSave } from "/src/pwa/useSlowLocalSave.tsx";
+import { beginWorkspaceActivity } from "/src/db/workspaceActivity.ts";
+// I-79: the real hook and notice, with a tracked local save that never finishes until released.
+function Host() { return React.createElement(SlowLocalSaveNotice, { slow: useSlowLocalSave() }); }
+ReactDomClient.createRoot(document.querySelector("#mount")).render(React.createElement(Host));
+window.__begin = () => { window.__finish = beginWorkspaceActivity(); };
+window.__end = () => window.__finish();
+</script></body></html>

@@ -108,6 +108,7 @@ import {
 } from "./auth/authStateTypes";
 import { beginAuthVerificationState, decideAuthRestoration } from "./auth/authRestoration";
 import { ConnectivityRecovery } from "./auth/connectivityRecovery";
+import { OFFLINE_REVERIFY_INTERVAL_MS, shouldReverifyAfterProbe } from "./auth/offlineReverify";
 import { useFormScrollContinuity } from "./jobs/formScrollContinuity";
 import { LoginForm } from "./auth/LoginForm";
 import { ManagerFinalReportView } from "./manager/ManagerFinalReportView";
@@ -231,6 +232,7 @@ import { createQuietPreparer } from "./jobs/quietOfflinePreparation";
 import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
 import { OtherTabsNotice } from "./pwa/OtherTabsNotice";
+import { SlowLocalSaveNotice, useSlowLocalSave } from "./pwa/useSlowLocalSave";
 import { useOtherTabCount } from "./pwa/useOtherTabs";
 import { AutosaveStatusLine } from "./inspectionControls/AutosaveStatusLine";
 import { isRouteRefresh, mergeResolvedRecord, routeRefreshKey } from "./jobs/routeRefresh";
@@ -430,6 +432,7 @@ export function App() {
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const pwaUpdate = usePwaUpdate(import.meta.env.PROD, () => isSafeForAppUpdate(route));
   const otherTabs = useOtherTabCount();
+  const slowLocalSave = useSlowLocalSave();
   const [managerVisits, setManagerVisits] = useState<ManagerServiceVisit[]>([]);
   const [managerVisit, setManagerVisit] = useState<ManagerServiceVisit>();
   // T5: the accepted records of the visit on screen, for review and correction.
@@ -1083,6 +1086,22 @@ export function App() {
     };
   }, []);
 
+  // I-78: an unverified start with the browser online has no "online" event to recover on; ask the server again quietly.
+  useEffect(() => {
+    if (authState.status !== "offline-unverified" || !initialAuthRestored) return;
+    let busy = false;
+    const check = async () => {
+      if (busy || document.visibilityState !== "visible" || navigator.onLine === false) return;
+      busy = true;
+      try {
+        if (shouldReverifyAfterProbe(await getCurrentUser())) await revalidateAuthentication();
+      } catch { /* stay unverified; the next tick asks again */ } finally { busy = false; }
+    };
+    const timer = window.setInterval(() => { void check(); }, OFFLINE_REVERIFY_INTERVAL_MS);
+    const onVisible = () => { void check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [authState.status, initialAuthRestored]);
   useEffect(() => {
     if (route.name === "inspection") {
       const record = masterSystemInspections.find((candidate) => candidate.clientUuid === route.clientUuid);
@@ -1167,14 +1186,22 @@ export function App() {
       : undefined;
     setActiveFm200Form((shown) => resolved ? mergeResolvedRecord(shown, resolved) : undefined);
   }, [masterSystemFormInstances, route]);
-  useEffect(()=>{if(route.name!=="inspection"){setServerHoseReel(undefined);setHoseReelAuthorityState("idle");setHoseReelRouteMessage("");return;}let current=true;setServerHoseReel(undefined);setHoseReelAuthorityState("loading");setHoseReelRouteMessage("");const local=masterSystemInspections.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="hose_reel") as MasterSystemInspectionRecord|undefined;void resolveHoseReelAuthority(authState.status,route.clientUuid,local,{findSummary:(jobId)=>findServerMasterSystemInspection(jobId,"hose_reel"),loadDetail:loadServerHoseReelDetail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveHoseReel(undefined);setServerHoseReel(resolution.inspection);setHoseReelAuthorityState("server");}else if(resolution.kind==="local"){setActiveHoseReel(resolution.record);setServerHoseReel(undefined);setHoseReelAuthorityState("local");}else{setActiveHoseReel(undefined);setServerHoseReel(undefined);setHoseReelAuthorityState(resolution.kind);setHoseReelRouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
-  useEffect(()=>{if(route.name!=="co2-form"){setServerCo2(undefined);setCo2AuthorityState("idle");setCo2RouteMessage("");return;}let current=true;setServerCo2(undefined);setCo2AuthorityState("loading");setCo2RouteMessage("");const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="co2_fire_extinguisher");void resolveCo2Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"co2_fire_extinguisher",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerCo2Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){setActiveCo2Form(undefined);setServerCo2(resolution.inspection);setCo2AuthorityState("server");}else if(resolution.kind==="local"){setActiveCo2Form(resolution.record);setServerCo2(undefined);setCo2AuthorityState("local");}else{setActiveCo2Form(undefined);setServerCo2(undefined);setCo2AuthorityState(resolution.kind);setCo2RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
+  const hoseReelResolvedKey=useRef<string|undefined>(undefined);
+  useEffect(()=>{if(route.name!=="inspection"){hoseReelResolvedKey.current=undefined;setServerHoseReel(undefined);setHoseReelAuthorityState("idle");setHoseReelRouteMessage("");return;}let current=true;const refreshKey=routeRefreshKey({authStatus:authState.status,authorityGeneration:authAuthorityGeneration,verifiedAt:authState.status==="verified"?authState.lastVerifiedAt:undefined,clientUuid:route.clientUuid});if(!isRouteRefresh(activeHoseReel,route.clientUuid,hoseReelResolvedKey.current,refreshKey)){setServerHoseReel(undefined);setHoseReelAuthorityState("loading");setHoseReelRouteMessage("");}const local=masterSystemInspections.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="hose_reel") as MasterSystemInspectionRecord|undefined;void resolveHoseReelAuthority(authState.status,route.clientUuid,local,{findSummary:(jobId)=>findServerMasterSystemInspection(jobId,"hose_reel"),loadDetail:loadServerHoseReelDetail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){hoseReelResolvedKey.current=undefined;setActiveHoseReel(undefined);setServerHoseReel(resolution.inspection);setHoseReelAuthorityState("server");}else if(resolution.kind==="local"){setActiveHoseReel(shown=>mergeResolvedRecord(shown,resolution.record));hoseReelResolvedKey.current=refreshKey;setServerHoseReel(undefined);setHoseReelAuthorityState("local");}else{hoseReelResolvedKey.current=undefined;setActiveHoseReel(undefined);setServerHoseReel(undefined);setHoseReelAuthorityState(resolution.kind);setHoseReelRouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemInspections,route]);
+  const co2ResolvedKey=useRef<string|undefined>(undefined);
+  useEffect(()=>{if(route.name!=="co2-form"){co2ResolvedKey.current=undefined;setServerCo2(undefined);setCo2AuthorityState("idle");setCo2RouteMessage("");return;}let current=true;const refreshKey=routeRefreshKey({authStatus:authState.status,authorityGeneration:authAuthorityGeneration,verifiedAt:authState.status==="verified"?authState.lastVerifiedAt:undefined,clientUuid:route.clientUuid});if(!isRouteRefresh(activeCo2Form,route.clientUuid,co2ResolvedKey.current,refreshKey)){setServerCo2(undefined);setCo2AuthorityState("loading");setCo2RouteMessage("");}const local=masterSystemFormInstances.find(record=>record.clientUuid===route.clientUuid&&record.systemKey==="co2_fire_extinguisher");void resolveCo2Authority(authState.status,route.clientUuid,local,{findSummary:(record)=>findServerMasterSystemInspection(record.jobId,"co2_fire_extinguisher",{configuredLocationId:record.configuredLocationId,instanceKey:record.instanceKey,configuredZoneId:record.configuredZoneId,displaySequence:record.displaySequence}),loadDetail:loadServerCo2Detail}).then(resolution=>{if(!current)return;if(resolution.kind==="server"){co2ResolvedKey.current=undefined;setActiveCo2Form(undefined);setServerCo2(resolution.inspection);setCo2AuthorityState("server");}else if(resolution.kind==="local"){setActiveCo2Form(shown=>mergeResolvedRecord(shown,resolution.record));co2ResolvedKey.current=refreshKey;setServerCo2(undefined);setCo2AuthorityState("local");}else{co2ResolvedKey.current=undefined;setActiveCo2Form(undefined);setServerCo2(undefined);setCo2AuthorityState(resolution.kind);setCo2RouteMessage(resolution.kind==="server-unavailable"?resolution.message:"");}});return()=>{current=false;};},[authAuthorityGeneration,authState.status,masterSystemFormInstances,route]);
+  const wetChemicalResolvedKey = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (route.name !== "wet-chemical-form") {
+      wetChemicalResolvedKey.current = undefined;
       setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("idle"); return;
     }
     let current = true;
-    setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("loading");
+    const refreshKey=routeRefreshKey({authStatus:authState.status,authorityGeneration:authAuthorityGeneration,verifiedAt:authState.status==="verified"?authState.lastVerifiedAt:undefined,clientUuid:route.clientUuid});
+    // Same-authority refreshes (after every autosave) must not unmount the open form.
+    if (!isRouteRefresh(activeCo2Form, route.clientUuid, wetChemicalResolvedKey.current, refreshKey)) {
+      setServerWetChemical(undefined); setWetChemicalRouteMessage(""); setWetChemicalAuthorityState("loading");
+    }
     const local = masterSystemFormInstances.find((record) => record.clientUuid === route.clientUuid && record.systemKey === "wet_chemical");
     void resolveWetChemicalAuthority(authState.status, route.clientUuid, local, {
       findSummary: (record) => findServerMasterSystemInspection(record.jobId, "wet_chemical", {
@@ -1187,10 +1214,13 @@ export function App() {
     }).then((resolution) => {
       if (!current) return;
       if (resolution.kind === "server") {
+        wetChemicalResolvedKey.current = undefined;
         setServerWetChemical(resolution.inspection); setActiveCo2Form(undefined); setWetChemicalAuthorityState("server");
       } else if (resolution.kind === "local") {
+        wetChemicalResolvedKey.current = refreshKey;
         setServerWetChemical(undefined); setWetChemicalAuthorityState("local");
       } else {
+        wetChemicalResolvedKey.current = undefined;
         setServerWetChemical(undefined); setActiveCo2Form(undefined); setWetChemicalAuthorityState(resolution.kind);
         setWetChemicalRouteMessage(resolution.kind === "server-unavailable" ? resolution.message : "");
       }
@@ -2462,6 +2492,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       />
 
       <OtherTabsNotice otherTabs={otherTabs} />
+      <SlowLocalSaveNotice slow={slowLocalSave} />
 
       <AutosaveStatusLine />
 

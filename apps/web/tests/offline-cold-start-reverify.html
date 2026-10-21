@@ -1,0 +1,34 @@
+<!doctype html><html><body><button id="run">Run cold start</button><pre id="result">Ready</pre><div id="mount"></div><script type="module">
+import * as React from "react";
+import * as ReactDomClient from "react-dom/client";
+import "/src/styles/app.css";
+import { App } from "/src/App.tsx";
+import { localDatabase } from "/src/db/localDatabase.ts";
+import { storeVerifiedIdentity } from "/src/auth/authStateRepository.ts";
+
+// I-78: the app starts with a cached technician while the server is unreachable (the browser still reports online).
+const user = { id: 78, username: "cold-start-tech", role: "inspector" };
+window.__serverUp = false; window.__meCalls = 0;
+document.querySelector("#run").onclick = async () => {
+  const output = document.querySelector("#result");
+  try {
+    await localDatabase.open();
+    await localDatabase.authState.clear();
+    await storeVerifiedIdentity(user);
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/me") {
+        window.__meCalls += 1;
+        if (!window.__serverUp) throw new TypeError("Failed to fetch");
+        return new Response(JSON.stringify({ user }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (!window.__serverUp) throw new TypeError("Failed to fetch");
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    window.location.hash = "#/jobs";
+    const mount = document.querySelector("#mount"); mount.replaceChildren();
+    ReactDomClient.createRoot(mount).render(React.createElement(App));
+    output.textContent = JSON.stringify({ status: "READY" });
+  } catch (error) { output.textContent = JSON.stringify({ status: "ERROR", message: String(error && error.stack || error) }); }
+};
+</script></body></html>
