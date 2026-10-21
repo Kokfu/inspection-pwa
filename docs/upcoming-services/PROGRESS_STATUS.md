@@ -26,9 +26,11 @@ Role names: code role `admin` = UI **Manager**; code role `supervisor` = UI **Ad
 | **U1** | Pure status helper + unit tests (web only, no UI change) | D0 ☑ | ☑ Done 2026-10-21 — reviewed: 9/9 `test:due-status`, web typecheck clean, P0 0 / P1 0 / P2 0; owner commits. Files: `apps/web/src/schedule/dueStatus.ts`, `apps/web/tests/dueStatus.test.ts`, `test:due-status` script |
 | **U2** | Technician Upcoming Services: grouped read-only cards | U1 ☑ | ☑ Done 2026-10-21 — reviewed, committed with U3. P0 0 / P1 0 |
 | **U3** | Manager Next Upcoming Service: table, filter chips, sort, row menu + drawer | U1 ☑ | ☑ Done 2026-10-21 — reviewed, committed with U2. P0 0 / P1 0. **Routine column omitted** (the loaded data has no routine text; no API change allowed) |
-| **R1** | Rebuild web on the local stack, browser (1024 px + 360 px) + phone check of both screens | U2 and U3 | ⏸ |
-| **D1** | Owner approves a calendar mockup (month grid, status colours) | R1 | ⏸ Not started |
-| **U4** | Calendar month view (reuses U1 helper and U3 filters) | D1 | ⏸ Last, by owner request |
+| **R1** | Rebuild web on the local stack, browser (1024 px + 360 px) check of both screens | U2 and U3 | ☑ Browser check done 2026-10-21 on build `20261021T041245Z`. Fixes made and retested: P3-1 technician load failure now shows a friendly message + Retry; P3-2 manager save/clear notice; P3-3 body scroll lock while a drawer is open. 33/33 specs. Reviewed: P0 0 / P1 0 / P2 0. **Fixes not yet committed** (files: TechnicianUpcomingServices.tsx, ManagerUpcomingServices.tsx, UpcomingServiceDrawer.tsx, manager-upcoming-services.spec.ts, technician-upcoming-services.spec.ts) |
+| **R2** | Physical phone + real offline check (owner runs the table in PROMPTS.md) | R1 ☑ | ✅ Ready — not tested yet |
+| **D1** | Owner approves a calendar mockup (month grid, status colours) | R2 | ☑ Approved by owner 2026-10-21 (mockup described in §5) |
+| **U4** | Calendar month view (reuses U1 helper and U3 filters) | D1 ☑ | ✅ Ready — start after the R1 fixes are committed (shared files) |
+| **R3** | Browser + phone check of the calendar (same style as R1/R2) | U4 | ⏸ |
 
 Status legend: ⏸ waiting · ✅ ready · 🔧 in progress · 🔍 in review · ☑ done (owner commits).
 
@@ -52,6 +54,9 @@ D1 -> U4  last
 | D3 | Manager row actions (**Reminder recipients**, **Service routine**) live in a **row menu**; the existing panels open in a drawer, unchanged. |
 | D4 | Calendar is **last**, after the table and cards are accepted. |
 | D5 | Reference: ServiceTitan Recurring Service Events (table, filters, due-date ordering). Statuses/chips are our own design. |
+| D6 | Calendar approved 2026-10-21: month grid, Monday-first, status-coloured chips (max 2 per day + "+n more"), selected-day list below, Table/Calendar toggle on the manager screen, compact dot calendar on the phone (technician read-only). |
+| D7 | Calendar shows scheduled customers only; unscheduled customers stay in the table. Overdue customers from earlier months appear as a banner with "Show in table". |
+| D8 | Calendar shares the table's search text and status chip filter; view choice is in-memory only (no storage). |
 
 ## 4. Constraints
 
@@ -72,12 +77,13 @@ D1 -> U4  last
 
 - [x] "Routine" column: omitted in U3 (data not available without an API change). Revisit only if the owner wants it (would need an API task).
 - [ ] P3: `manager-dashboard-navigation.spec.ts` (2 tests) fails because the separate customer-records work renamed the "Customer Configuration" page heading to "Customers". Not from this redesign; the customer-records owner must update that spec.
-- [ ] Calendar mockup (D1) not yet shown.
+- [x] Calendar mockup (D1) shown and approved 2026-10-21.
 
 ## 7. Log
 
 | Date | Event |
 |---|---|
 | 2026-10-21 | Research (ServiceTitan, Zoho FSM, Dynamics 365), mockups approved, files created. Nothing implemented. |
+| 2026-10-21 | R1 browser retest reviewed (3 P3 fixes). Not tested: real phone/offline, 1024 px layout of the save notice. Observation (P3, deferred): the saved notice sits at the top of the page and may be off-screen on a phone with many rows, and it is not cleared by a later routine/reminder action. |
 | 2026-10-21 | U2 + U3 reviewed: web typecheck + build clean, 32 Playwright tests pass (technician-upcoming-services, manager-upcoming-services, manager-email-reminders, technician-sidebar-navigation, manager-home-compliance-reminders); 2 unrelated manager-dashboard-navigation failures (see §6). Committed together. Next: R1. |
 | 2026-10-21 | U1 reviewed and accepted. Helper API: `classifyDue`, `technicianGroup`, `dueLabel`, `formatDueDate`, `localToday`, `compareByUrgency({dueDate, name})`; all throw on malformed dates (callers must fail closed). |

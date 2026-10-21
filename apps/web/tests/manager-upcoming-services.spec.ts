@@ -124,11 +124,13 @@ test("Reschedule and Set date save through the popover, reload, and return focus
   expect(saved).toEqual(["2026-10-01", "2027-02-01"]);
   await expect(names(page)).toHaveText(["Unscheduled Customer", "Overdue Customer"]);
   await expect(page.getByRole("heading", { name: "Next Upcoming Service" })).toBeFocused();
+  await expect(page.getByRole("status").filter({ hasText: "Next service date saved for Oldest Customer: 1 Feb 2027." })).toBeVisible();
   // Clearing the date saves null.
   await row(page, "Overdue Customer").getByRole("button", { name: /Reschedule/ }).click();
   await page.getByLabel("Next service due for Overdue Customer").fill("");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   expect(saved.at(-1)).toBeNull();
+  await expect(page.getByRole("status").filter({ hasText: "Next service date cleared for Overdue Customer." })).toBeVisible();
   await expect(chip(page, "Not scheduled")).toHaveText("Not scheduled 1");
 });
 
@@ -176,6 +178,7 @@ test("row menu opens Reminder recipients and Service routine in a drawer; Escape
   const drawer = page.getByRole("dialog", { name: /Overdue Customer/ });
   await expect(drawer).toHaveAttribute("aria-modal", "true");
   await expect(drawer.getByText("Reminder blocked: add recipients.")).toBeVisible();
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
   // Tab never leaves the drawer.
   for (let i = 0; i < 12; i += 1) {
     await page.keyboard.press("Tab");
@@ -183,6 +186,7 @@ test("row menu opens Reminder recipients and Service routine in a drawer; Escape
   }
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
   await expect(more).toBeFocused();
 
   await more.click();

@@ -199,8 +199,136 @@ STOP after the report.
 
 ---
 
+## R2 — Physical phone and offline check (owner runs; paste the report back)
+
+Status: ✅ ready (R1 browser fixes P3-1..P3-3 accepted). Not a coding task: do this on the phone, then paste the filled table to Claude.
+
+Setup: rebuild web (R1 build `20261021T041245Z` or newer), phone on the PWA over HTTPS, have at least one overdue, one due-this-week
+and one unscheduled customer (R1 test customers are fine). Log in as Technician `technician-demo`, then Manager `mobiletest`.
+
+| # | Step | Expect | Result |
+|---|---|---|---|
+| 1 | Technician: open Upcoming Services (online) | Cards grouped Overdue / This week / Later, status chips with text, "Not scheduled (n)" collapsed, no horizontal scroll | |
+| 2 | Tap a chip (Overdue), tap again | Filters to that group, tap again shows all | |
+| 3 | Tap a card | Nothing happens (read-only) | |
+| 4 | Expand and collapse "Not scheduled" | Names only | |
+| 5 | Airplane mode ON, open the screen fresh (force-close PWA first) | Friendly "could not be loaded" message + Retry (>= 44 px), no rows | |
+| 6 | Airplane mode OFF, tap Retry | Cards load | |
+| 7 | Manager: open Next Upcoming Service | Opens on Overdue (or All if none); table shows as stacked cards at phone width | |
+| 8 | Search a customer, switch chips | Counts follow the search text | |
+| 9 | Reschedule on a customer, pick a date, Save | "Next service date saved for <name>: <date>." and the row moves status | |
+| 10 | Set date on an unscheduled customer, then clear it again | Saved notice, then "cleared" notice | |
+| 11 | Row menu (three dots): Reminder recipients, then Service routine | Each opens in a side drawer; page behind does not scroll; Close and back gesture return you to the list | |
+| 12 | Manager screen with airplane mode ON | No stale rows shown as current; failure is visible | |
+| 13 | Anything odd: text cut off, tap targets too small, colour-only status | Note it | |
+
+Report back: each row PASS/FAIL, device and browser, any P0/P1/P2/P3. Mark anything you did not do as NOT TESTED.
+
+---
+
+## R2a — Agent-run browser/offline check, then commit R1 (explicit git override)
+
+Status: ✅ ready. Covers everything an agent can really do; the physical-phone rows stay with the owner (R2 table above).
+
+```
+Project: Inspection PWA (C:\PWA_OfflineRecordWebApp). Read AGENTS.md and .agents/skills/pwa-release-testing first.
+This task OVERRIDES the AGENTS.md git rule for ONE commit only, as described in part B. Nothing else in git.
+
+PART A — verification only (no code change unless a P0/P1 is found; if found, STOP and report instead of fixing)
+1. Confirm the running web build is 20261021T041245Z or newer (rebuild web only if older; never touch API/DB/Docker volumes).
+2. Browser at 360 px, real Chromium offline mode (context.setOffline or CDP Network.emulateNetworkConditions, NOT a fetch override):
+   a. Technician `technician-demo`, online: grouped cards, chips filter and toggle, cards not interactive, Not scheduled collapsed.
+   b. Go offline, hard-reload the Upcoming Services route: friendly message + Retry (>= 44 px), no rows. Go online, Retry loads rows.
+   c. Manager `mobiletest`, online: default chip, stacked cards at 360 px, search + counts, Reschedule saves and shows the
+      "saved" notice, clearing shows the "cleared" notice, row menu opens Reminder recipients and Service routine drawers,
+      body scroll locked while open and restored after Close and Escape.
+   d. Manager offline: no stale rows presented as current; the failure is visible.
+3. Restore any test data you changed (customers back to their original due dates).
+4. Report a table: step, PASS/FAIL, evidence. Anything not done = NOT TESTED. Say plainly that real phone, real PWA force-close
+   and physical airplane mode were NOT performed by you.
+
+PART B — commit R1 (only if Part A has no P0/P1)
+Stage and commit EXACTLY these paths, nothing else (the working tree holds unrelated customer-records work; never use git add . or -A):
+  apps/web/src/jobs/TechnicianUpcomingServices.tsx
+  apps/web/src/manager/ManagerUpcomingServices.tsx
+  apps/web/src/manager/UpcomingServiceDrawer.tsx
+  apps/web/tests/manager-upcoming-services.spec.ts
+  apps/web/tests/technician-upcoming-services.spec.ts
+  docs/upcoming-services/PROGRESS_STATUS.md
+  docs/upcoming-services/PROMPTS.md
+Before committing: `git diff --cached --name-only` must list exactly those paths (fewer is fine if a file has no change; extra is not).
+If any of these files also contains hunks from the customer-records work, STOP and report instead of committing.
+Message: "R1: technician load retry, manager save notice, drawer scroll lock for Upcoming Services".
+No push, no amend, no branch change, no other git command that rewrites anything. Then print `git log --oneline -2` and `git status --short`.
+Final report: Part A table, commit hash, P0/P1/P2, limitations, verdict `SAFE FOR REVIEW: Y/N`.
+```
+
+---
+
 ## D1 + U4 — Calendar (last)
 
-Status: ⏸ not started. Starts only after R1 is accepted. First show the owner a calendar mockup (D1); write the U4 prompt
-after approval. Intended scope: month grid, one dot or chip per due customer coloured by the same status helper,
-click a day to list customers, reuse U3 filters and search, read-only for technicians, no API change.
+Status: ✅ ready (D1 mockup approved 2026-10-21). **Start only after the R1 fixes are committed** (U4 edits
+ManagerUpcomingServices.tsx and TechnicianUpcomingServices.tsx, which hold uncommitted R1 changes until then).
+
+```
+<Standing rules>
+
+TASK
+Add a month Calendar view to both Upcoming Services screens (PROGRESS_STATUS.md §5 "Calendar", D1, D6-D8).
+Reuse schedule/dueStatus.ts for status, labels, today and sorting. No API, schema, Dexie or package-lock change.
+
+1. Pure helper (new file apps/web/src/schedule/calendarMonth.ts + unit test registered as a package.json script):
+   - monthGrid(year, month): 6 or 5 week rows, Monday-first, each cell { date: "YYYY-MM-DD", inMonth: boolean }.
+   - shiftMonth(year, month, delta), monthTitle(year, month) -> "October 2026" (fixed English names, not locale-dependent).
+   - groupByDate(items, getDate): Map of date -> items (sorted with compareByUrgency); items with a null date are skipped.
+   - Date-only math (Date.UTC), identical result in any process time zone (test with TZ Asia/Kuala_Lumpur and America/Los_Angeles).
+   - Tests: Oct 2026 starts on Thursday (3 leading out-of-month cells), Feb 2028 leap month, Dec -> Jan rollover, 28-day month,
+     6-row month, invalid year/month throws.
+2. Shared presentational component (new, e.g. apps/web/src/schedule/DueCalendar.tsx + css), used by BOTH roles:
+   - Props: month (year, month), items [{ id, name, dueDate }], selectedDate, onSelectDate, onMonthChange, today, compact.
+   - Header: previous month button, month title, next month button, "Today" button (jumps to the current month and selects today).
+   - Grid role="grid" with weekday header cells M T W T F S S. Each day is ONE button (role="gridcell" wrapper or button inside)
+     with aria-label like "28 Oct 2026, 2 services" (or "28 Oct 2026, no services"); out-of-month cells are muted and not selectable.
+   - Today has a visible outline; the selected day has a tinted background; both visible without colour (outline/weight).
+   - Roving tabindex with Arrow keys (+/-1 day, +/-7 days), Home/End (row), PageUp/PageDown (month), Enter/Space selects.
+   - Wide (manager desktop): each day shows up to 2 name chips coloured by status (text label stays in the chip, not colour-only)
+     plus "+n more". Compact (phone width < 700 px, and technician always): the cell shows the day number and a status dot per
+     status present (max 3) with the count in the aria-label; targets >= 44 px.
+   - Chip/dot colours come from the same status classes used by the table/cards (reuse tokens; no raw hex).
+3. Manager screen (ManagerUpcomingServices.tsx):
+   - Add a "Table / Calendar" toggle (two buttons, aria-pressed) beside the search box. Default = Table. The chosen view
+     lives in component state only (no storage).
+   - Calendar uses the SAME search text and the SAME status chip filter as the table (so counts stay consistent).
+     Unscheduled customers never appear in the calendar; when the chip is "Not scheduled", show the existing empty text
+     "Unscheduled customers are not on the calendar. Switch to Table to see them."
+   - Opens on the current month with today selected. Below the grid: the selected day's list ("Wed 28 Oct 2026, 2 customers")
+     with, per customer, name, status chip, Reschedule/Set date (existing popover) and the existing row menu (drawer).
+     Reuse the existing row components/handlers; do not duplicate the save logic.
+   - Red banner above the grid when there are overdue customers dated BEFORE the displayed month: "N customers overdue from
+     earlier months" + a "Show in table" button that switches to Table with the Overdue chip selected.
+   - After a save the list reloads as today; the calendar re-derives from the reloaded data.
+4. Technician screen (TechnicianUpcomingServices.tsx):
+   - Add the same Table(Cards) / Calendar toggle ("Cards" = current grouped view, default). Compact calendar, read-only:
+     the selected day's customers show name + status chip, no tap action on the cards (D2 still applies).
+   - Same prev/next/Today, same keyboard behaviour, same fail-closed handling (malformed date => the existing
+     "Upcoming services are unavailable." alert, no calendar).
+5. Fail closed everywhere on malformed dates; never place such a customer on a day.
+6. No new network calls, no new storage, works offline exactly as the list views do.
+
+Files you may edit: apps/web/src/schedule/* (new files), ManagerUpcomingServices.tsx, TechnicianUpcomingServices.tsx and their css,
+apps/web/package.json "scripts" only, apps/web/tests/*. Do NOT edit ManagerReminderPlan.tsx, ManagerServiceRecurrence.tsx, any API file,
+or customer-records files.
+
+DoD ADDITIONS
+- Unit tests for calendarMonth.ts (list in item 1), registered script passes.
+- Playwright (fixed "today" via page.clock or injected date): manager toggle Table<->Calendar, month navigation, Today, day select,
+  chips + "+n more", day list actions (Reschedule saves, row menu opens the drawers), shared search and chip filter,
+  overdue-from-earlier-months banner and its "Show in table" button, unscheduled-only message; technician calendar read-only
+  (no card action), keyboard navigation (arrows, PageUp/PageDown, Home/End), aria-labels, 360 px with no horizontal scroll and
+  44 px targets, malformed date => alert and no calendar.
+- Existing manager/technician upcoming-services specs still pass unchanged (state any expectation you had to change and why).
+
+STOP when the DoD table is green. Do NOT commit.
+```
+
+After U4: review, then the same R-style browser/phone check (R3) and the owner commits.

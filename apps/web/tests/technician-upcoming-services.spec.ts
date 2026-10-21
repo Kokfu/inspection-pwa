@@ -11,8 +11,9 @@ const scheduled = [
 ];
 const unscheduledRows = [row(8, "Nina Foods", null), row(9, "Mia Garage", null)];
 
-async function open(page: Page, body: unknown, status = 200) {
+async function open(page: Page, body: unknown, status = 200, abortFirst = false) {
   const requests: string[] = [];
+  let loads = 0;
   await page.setViewportSize({ width: 360, height: 800 });
   await page.clock.setFixedTime(new Date(2026, 9, 21, 10, 0, 0));
   await page.route("**/api/**", async (route) => {
@@ -21,7 +22,7 @@ async function open(page: Page, body: unknown, status = 200) {
     let json: unknown = {};
     if (path === "/api/auth/me") json = { user: { id: 805, username: "tech", role: "inspector" } };
     else if (path === "/api/customers/service-format-options") json = { systems: [] };
-    else if (path === "/api/customers/upcoming-service") return route.fulfill({ status, json: body });
+    else if (path === "/api/customers/upcoming-service") return (abortFirst && loads++ === 0) ? route.abort("failed") : route.fulfill({ status, json: body });
     else if (path === "/api/customers") json = { customers: [] };
     else if (path.endsWith("/inspection-jobs")) json = { jobs: [] };
     await route.fulfill({ json });
@@ -109,4 +110,13 @@ test("a failed load shows the alert and no rows", async ({ page }) => {
   await open(page, { message: "down" }, 503);
   await expect(page.getByRole("alert")).toHaveText("Upcoming services are currently unavailable.");
   await expect(page.locator(".tech-upcoming-card")).toHaveCount(0);
+});
+
+test("a network failure shows friendly text and Retry reloads the rows", async ({ page }) => {
+  await open(page, { customers: scheduled, unscheduledCustomers: unscheduledRows }, 200, true);
+  await expect(page.getByRole("alert")).toHaveText("Upcoming services could not be loaded. Check your connection and try again.");
+  await expect(page.locator(".tech-upcoming-card")).toHaveCount(0);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.locator(".tech-upcoming-card").first()).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

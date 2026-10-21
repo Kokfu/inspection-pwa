@@ -10,6 +10,12 @@ export function UpcomingServiceDrawer({ kindLabel, customerName, onClose, childr
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => { panelRef.current?.querySelector<HTMLElement>("button")?.focus(); }, []);
+  // Keep the page behind the modal drawer from scrolling.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, []);
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); return; }
     if (event.key !== "Tab") return;

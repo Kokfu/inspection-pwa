@@ -12,6 +12,7 @@ const GROUPS: ReadonlyArray<{ key: DueGroup; title: string }> = [
   { key: "later", title: "Later" }
 ];
 const UNAVAILABLE = "Upcoming services are unavailable.";
+const OFFLINE = "Upcoming services could not be loaded. Check your connection and try again.";
 
 /** Groups scheduled customers for a fixed "today"; throws on a malformed date so the caller fails closed. */
 function groupCustomers(customers: TechnicianUpcomingServicesData["customers"], today: string): Record<DueGroup, Card[]> {
@@ -29,15 +30,17 @@ function groupCustomers(customers: TechnicianUpcomingServicesData["customers"], 
 export function TechnicianUpcomingServices() {
   const [data, setData] = useState<TechnicianUpcomingServicesData>();
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState<DueGroup | null>(null);
   const [showUnscheduled, setShowUnscheduled] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void loadTechnicianUpcomingServices(controller.signal)
       .then((rows) => { if (!controller.signal.aborted) setData(rows); })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : UNAVAILABLE); });
+      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof TypeError ? OFFLINE : reason instanceof Error ? reason.message : UNAVAILABLE); });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
+  function retry() { setError(""); setData(undefined); setAttempt((count) => count + 1); }
   const today = localToday();
   const grouped = useMemo(() => {
     if (!data) return null;
@@ -48,7 +51,10 @@ export function TechnicianUpcomingServices() {
     : [], [data]);
 
   const body = () => {
-    if (error) return <p role="alert" className="form-message">{error}</p>;
+    if (error) return <>
+      <p role="alert" className="form-message">{error}</p>
+      <button type="button" className="secondary-command" onClick={retry}>Retry</button>
+    </>;
     if (!data || !grouped) return <p role="status">Loading upcoming services…</p>;
     if (grouped === "malformed") return <p role="alert" className="form-message">{UNAVAILABLE}</p>;
     if (!data.customers.length && !data.unscheduledCustomers.length) return <p className="empty-state">No serviced customers yet.</p>;

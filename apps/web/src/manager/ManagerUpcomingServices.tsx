@@ -28,12 +28,15 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
   const [data, setData] = useState<UpcomingServices>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
   const [drawer, setDrawer] = useState<{ customerId: string; action: UpcomingServiceAction }>();
   const [pickerId, setPickerId] = useState<string | null>(null);
   const [chosenFilter, setChosenFilter] = useState<StatusFilter>();
   const [sort, setSort] = useState<UpcomingSort>({ key: "due", dir: "asc" });
   const [query, setQuery] = useState("");
   const mounted = useRef(false);
+  const latestData = useRef(data);
+  latestData.current = data;
   const opener = useRef<HTMLElement | null>(null);
   const pendingFocus = useRef(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -61,8 +64,16 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
     (target?.isConnected ? target : titleRef.current)?.focus();
   });
   async function save(id: string, value: string): Promise<boolean> {
-    setBusy(true); setMessage("");
-    try { await saveCustomerNextServiceDueDate(id, value || null); if (!mounted.current) return false; const rows = accepted(await loadUpcomingServices()); if (mounted.current) setData(rows); return true; }
+    setBusy(true); setMessage(""); setNotice("");
+    const known = latestData.current;
+    const name = known?.customers.concat(known.unscheduledCustomers).find((customer) => customer.id === id)?.displayName ?? "customer";
+    try {
+      await saveCustomerNextServiceDueDate(id, value || null);
+      if (!mounted.current) return false;
+      const rows = accepted(await loadUpcomingServices());
+      if (mounted.current) { setData(rows); setNotice(value ? `Next service date saved for ${name}: ${formatDueDate(value)}.` : `Next service date cleared for ${name}.`); }
+      return true;
+    }
     catch (error) {
       if (!mounted.current) return false;
       if (error instanceof ManagerApiError && error.kind === "domain") setMessage(error.message);
@@ -120,6 +131,7 @@ export function ManagerUpcomingServices({ onAuthorityFailure }: { onAuthorityFai
   const activeFilter = FILTERS.find((entry) => entry.key === filter)!;
   return <section aria-labelledby="upcoming-title"><h2 id="upcoming-title" ref={titleRef} tabIndex={-1}>Next Upcoming Service</h2>
     {message && <p role="alert" className="form-message">{message}</p>}
+    {notice && <p role="status" className="form-message">{notice}</p>}
     {hasAnyCustomers ? <div className="upcoming-toolbar">
       <div className="manager-search-form" role="search" aria-label="Filter customers">
         <label htmlFor="manager-upcoming-search">Filter by customer name or code</label>
