@@ -674,7 +674,7 @@ CPH2375 over USB (`http://localhost:8081`, NOT production HTTPS), Chrome (DevToo
 
 ### New issues
 - **N-1 (P3, not fixed):** with 7 app tabs open a newly opened tab stays at "Preparing your service jobs…" until other tabs are closed (the I-79 family: IndexedDB contention between tabs). The "Too many open tabs" notice shows but there is no recovery text on that screen. Owner decision on I-79: note and ignore.
-- **N-2 (P3, test tooling):** `Start-AppOnPhone` always opens a new `/` tab on top of the restored tabs, so each force-stop/reopen adds a tab. Close extras with `curl http://localhost:9222/json/close/<id>` before I-79-style checks.
+- **N-2 (P3, test tooling):** `Start-AppOnPhone` always opens a new `/` tab on top of the restored tabs, so each force-stop/reopen adds a tab. **Fixed 2026-10-21:** it now launches Chrome without a URL (tabs only restore) and opens the app URL only if no `localhost:8081` tab came back; tab count stayed at 2 over two force-stop/reopen cycles. Close extras with `curl http://localhost:9222/json/close/<id>` before I-79-style checks.
 - No P0, P1 or P2 found. No source file was changed by this pass (the working tree also shows modified `apps/web` files that are not from this pass).
 
 ### Test data left behind (local demo DB and phone; safe to ignore or purge)

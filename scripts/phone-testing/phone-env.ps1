@@ -55,4 +55,11 @@ function Get-PhoneScreenshot([string]$Path = (Join-Path $env:TEMP 'phone.png')) 
 }
 
 function Stop-AppOnPhone { adb shell am force-stop com.android.chrome }   # simulates force-close
-function Start-AppOnPhone { adb shell "am start -a android.intent.action.VIEW -d http://localhost:8081/ com.android.chrome" | Out-Null; Start-Sleep 7; adb forward tcp:9222 localabstract:chrome_devtools_remote | Out-Null }
+function Start-AppOnPhone {
+  # Launch Chrome without a URL so it only restores its tabs (a VIEW intent always adds one more tab on top of them).
+  # Fall back to opening the app URL only when no localhost:8081 tab came back.
+  adb shell monkey -p com.android.chrome -c android.intent.category.LAUNCHER 1 2>$null | Out-Null; Start-Sleep 6
+  adb forward tcp:9222 localabstract:chrome_devtools_remote | Out-Null
+  $tabs = try { (Invoke-RestMethod http://localhost:9222/json/list) | Where-Object { $_.type -eq 'page' -and $_.url -like 'http://localhost:8081*' } } catch { @() }
+  if (-not $tabs) { adb shell "am start -a android.intent.action.VIEW -d http://localhost:8081/ com.android.chrome" | Out-Null; Start-Sleep 7 }
+}
