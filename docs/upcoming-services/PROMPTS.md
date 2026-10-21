@@ -265,6 +265,51 @@ Final report: Part A table, commit hash, P0/P1/P2, limitations, verdict `SAFE FO
 
 ---
 
+## RP — Physical phone check of Upcoming Services (R2 + R3 phone rows)
+
+Status: ✅ ready. Verification only; uses the existing USB-adb phone tooling (docs/testing/PHONE_TESTING_STATUS.md §3 and §9a).
+Before pasting: make sure the phone is on the PWA served by the current web build (`build-20261021T053827Z` or newer, i.e. it contains
+"Service calendar"). If it is older, rebuild the web container yourself first; the agent must not run Docker Compose.
+
+```
+Read docs/testing/PHONE_TESTING_STATUS.md (sections 1, 3, 5) and AGENTS.md first, then .agents/skills/pwa-release-testing and
+.agents/skills/mobile-first-ui. Also read docs/upcoming-services/PROGRESS_STATUS.md (decisions D1-D8, section 5).
+Rules: never run git writes (stage/commit/push/stash/restore/reset/checkout) - I do git; never run Docker Compose or touch the runtime DB or
+session rows; no code change (verification only - if you find a P0/P1, log it and STOP, do not fix); protected scope untouched.
+Phone: USB adb serial 182449ec; tools in scripts/phone-testing (I run `. .\scripts\phone-testing\phone-env.ps1; Initialize-PhoneEnv` myself).
+Do NOT type on the phone with adb (IME garbles it): set React fields through CDP native value setters + input events, then tap real
+buttons with `adb input tap`. Demo logins (technician-demo, mobiletest) - I give the passwords in chat; never write them to a file.
+Make sure the phone really runs the calendar build before testing (the served bundle contains "Service calendar").
+Test data: use the existing demo data; if you need dated customers, set a due date on temporary test customers through the UI and
+CLEAR them again at the end (list every change you made).
+
+TASK - run each step ON THE PHONE and report PASS / FAIL / NOT TESTED with evidence (screenshot or CDP read):
+Technician (technician-demo):
+ T1  Upcoming Services opens: grouped cards (Overdue / This week / Later), text status chips, Not scheduled collapsed, no horizontal scroll.
+ T2  Chips filter and toggle off; cards do nothing when tapped.
+ T3  Cards/Calendar toggle -> compact month, today outlined; tap days with dots -> day list below (name, due date, status text); tap
+     an empty day; Previous/Next/Today; targets feel >= 44 px.
+ T4  Rotate to landscape and back: no layout break.
+ T5  Real offline: Chrome "No internet" / airplane mode via the proxy or adb, force-stop the PWA (`am force-stop`), reopen offline,
+     open Upcoming Services -> friendly "could not be loaded" + Retry, no rows; go online, tap Retry -> rows load.
+Manager (mobiletest):
+ M1  Next Upcoming Service opens on Overdue (or All); stacked cards at phone width; search + status chips with counts.
+ M2  Reschedule a customer: date picker, Save -> "saved" notice, row status updates; Set date then clear -> "cleared" notice.
+ M3  Row menu: Reminder recipients and Service routine open the side drawer; page behind does not scroll; Close and Android back return.
+ M4  Table -> Calendar selects the All chip; compact calendar; pick a day -> day list with Reschedule + row menu; Reschedule moves the
+     customer to the new day; "overdue from earlier months" banner -> "Show in table" opens Table on Overdue.
+ M5  Not scheduled chip while in Calendar shows "Unscheduled customers are not on the calendar. Switch to Table to see them."
+ M6  Offline (same method as T5): manager screen shows no stale rows presented as current; recovers after reconnect.
+ M7  Anything odd: cut-off text, hard-to-hit targets, status shown by colour only.
+After the test: restore any test data; update docs/upcoming-services/PROGRESS_STATUS.md (add an RP row + log line; mark Close-out only if
+all steps PASS) and add a short "Upcoming Services phone check" section to docs/testing/PHONE_TESTING_STATUS.md (steps, results, any new
+issue as the next I-nn in section 5, "Last updated"); stop before staging.
+Final report: table of every step, files changed, test data created/cleared, P0/P1/P2/P3, limitations (what was NOT tested), verdict
+`UPCOMING SERVICES PHONE-ACCEPTED: Y/N`.
+```
+
+---
+
 ## D1 + U4 — Calendar (last)
 
 Status: ✅ ready (D1 mockup approved 2026-10-21). **Start only after the R1 fixes are committed** (U4 edits
