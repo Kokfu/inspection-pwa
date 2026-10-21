@@ -1,4 +1,4 @@
-# Customer-centred history â€” progress
+# Customer-centred history — progress
 
 Last updated: 2026-10-21 (S3a re-review passed; Done; S5 prerequisite cleared)
 
@@ -32,7 +32,7 @@ Steps in the same wave touch different files and may run in parallel chats. Run 
 ## Step log
 (Append an entry per step when work happens. Format below.)
 
-### S? â€” <title>
+### S? — <title>
 - Status:
 - Date:
 - Files changed:
@@ -45,7 +45,7 @@ Steps in the same wave touch different files and may run in parallel chats. Run 
 - Resolved by S3a: migration 002 provides audit_events; customer updates and structured old/new audit values share one transaction. No migration required.
 - Confirmed flag: can an existing column carry it, or is a migration justified? (S5 to check first)
 
-### S3a â€” Manager customer table + detail + audited edit
+### S3a — Manager customer table + detail + audited edit
 - Status: Done; focused re-review passed on 2026-10-21 (P0/P1/P2 0/0/0). User explicitly authorized this S3a commit; S5 may proceed after the commit.
 - Date: 2026-10-21.
 - Audit decision: reuse `audit_events` from migration 002. The new PATCH writes actor_user_id, server-created timestamp, customer UUID, action `manager_customer_details_updated`, success result and JSON `{old, new}` in reason. The customer update and audit share one transaction. No audit table or schema migration was added.
@@ -102,7 +102,7 @@ git diff --check
 if ($LASTEXITCODE -ne 0) { throw 'Whitespace check failed.' }
 ```
 
-### S3a review remediation â€” 2026-10-21
+### S3a review remediation — 2026-10-21
 - Status: Done; all three reported defects fixed and focused re-review passed on 2026-10-21. Re-review reran Chromium 9/9, role-access 4/4, web typecheck/build and whitespace checks successfully. P0/P1/P2 0/0/0. User explicitly authorized committing S3a; no unrelated feature code is included.
 - Findings resolved: P1 typing during an in-flight Save was overwritten and its draft deleted; P2 successful detail replacement dropped list-only visit aggregates; P2 malformed/unavailable authority did not reach the existing fail-closed handler. Remaining scope P0/P1/P2: 0/0/0.
 - Files changed in this follow-up:
@@ -131,7 +131,8 @@ git diff --check
 if ($LASTEXITCODE -ne 0) { throw 'Whitespace check failed' }
 ```
 
-### S3a commit checkpoint â€” 2026-10-21
+### S3a commit checkpoint — 2026-10-21
+- Commit verification: the isolated staged S3a tree passed Chromium 9/9, API and web typechecks, web production build and staged whitespace checks. Concurrent later-step files were excluded from that export.
 - Status: Done. User explicitly authorized staging and committing S3a, overriding the standing manual-Git rule for this commit only.
 - Focused re-review passed: P0/P1/P2 0/0/0; Chromium 9/9, role-access 4/4, web typecheck/build and git diff --check passed. API was unchanged by remediation; its earlier disposable-PostgreSQL suite passed 15/15.
 - Commit scope: S3a API, table/detail/editor, browser tests and S3a documentation only. Shared-file index content excludes concurrent S1/S2/S3b/S4 implementations and logs; their working files are preserved.
