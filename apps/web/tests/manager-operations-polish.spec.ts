@@ -126,6 +126,32 @@ test("Operations table sorts oldest open first and highlights only open visits o
   await expect(age(1)).toHaveAttribute("data-old", "true");
 });
 
+test("Operations columns sort from their headers, like Upcoming Services, with no Sort by control", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.goto(operations, { waitUntil: "domcontentloaded" });
+  await expect(page.getByLabel("Sort by")).toHaveCount(0);
+  const order = async () => (await rows(page).allInnerTexts()).map((text) => /SV-1\d/.exec(text)![0]);
+  const defaultOrder = await order();
+  const created = page.getByRole("columnheader", { name: /Created/ });
+  await expect(created).not.toHaveAttribute("aria-sort");
+  await created.getByRole("button").click();
+  await expect(created).toHaveAttribute("aria-sort", "ascending");
+  await expect(created).toContainText("▲");
+  const oldestFirst = await order();
+  await created.getByRole("button").click();
+  await expect(created).toHaveAttribute("aria-sort", "descending");
+  await expect(created).toContainText("▼");
+  expect(await order()).toEqual([...oldestFirst].reverse());
+  const customer = page.getByRole("columnheader", { name: /Customer/ });
+  await customer.getByRole("button").click();
+  await expect(customer).toHaveAttribute("aria-sort", "ascending");
+  await expect(created).not.toHaveAttribute("aria-sort");
+  await expect(rows(page).nth(0)).toContainText("Alpha Customer");
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(customer).not.toHaveAttribute("aria-sort");
+  expect(await order()).toEqual(defaultOrder);
+});
+
 test("Operations row opens its visit; its own actions do not", async ({ page }) => {
   await page.goto(operations, { waitUntil: "domcontentloaded" });
   const selected = () => page.evaluate(() => (window as Window & { selectedVisits: string[] }).selectedVisits);

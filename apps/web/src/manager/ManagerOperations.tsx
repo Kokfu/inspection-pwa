@@ -34,6 +34,26 @@ export function sortVisits(visits: ManagerServiceVisit[]) {
     : a.status === "open" ? -1 : 1);
 }
 
+export type OpsSort = { key: "customer" | "technician" | "created" | "age"; dir: "asc" | "desc" } | null;
+
+/** No header sort: oldest open first, then completed. A header sort orders by that column alone. */
+export function sortVisitsBy(visits: ManagerServiceVisit[], sort: OpsSort) {
+  if (!sort) return sortVisits(visits);
+  const time = (visit: ManagerServiceVisit) => Date.parse(visit.createdAt) || 0;
+  const text = (visit: ManagerServiceVisit) => sort.key === "customer" ? visit.customer : visit.technician?.displayName ?? "";
+  const compare = (a: ManagerServiceVisit, b: ManagerServiceVisit) => sort.key === "customer" || sort.key === "technician"
+    ? text(a).localeCompare(text(b))
+    : sort.key === "created" ? time(a) - time(b) : time(b) - time(a);
+  return [...visits].sort((a, b) => (sort.dir === "asc" ? 1 : -1) * compare(a, b));
+}
+
+function SortHeader({ label, sortKey, sort, onSort }: { label: string; sortKey: NonNullable<OpsSort>["key"]; sort: OpsSort; onSort: (key: NonNullable<OpsSort>["key"]) => void }) {
+  const active = sort?.key === sortKey;
+  return <th scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
+    <button type="button" className="ops-sort" onClick={() => onSort(sortKey)}>{label}<span aria-hidden="true">{active ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</span></button>
+  </th>;
+}
+
 /** "Awaiting approval" or "Approved <name>, <date>" per completed visit. */
 function ReportApprovalChip({ visit }: { visit: ManagerServiceVisit }) {
   const approval = visit.reportApproval;
@@ -68,6 +88,8 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
   const [technicianId, setTechnicianId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sort, setSort] = useState<OpsSort>(null);
+  const toggleSort = (key: NonNullable<OpsSort>["key"]) => setSort((current) => current?.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" });
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const wide = useMediaQuery(WIDE_QUERY);
   const [now, setNow] = useState(() => nowMs());
@@ -80,8 +102,8 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
     .sort((a, b) => a.displayName.localeCompare(b.displayName)), [visits]);
   const openCount = filtered.filter((visit) => visit.status === "open").length;
   const completedCount = filtered.filter((visit) => visit.status === "closed").length;
-  const listed = useMemo(() => sortVisits(filtered.filter((visit) => statusFilter === "all" || visit.status === statusFilter)), [filtered, statusFilter]);
-  const filtersActive = technicianId !== "" || search !== "" || statusFilter !== "all";
+  const listed = useMemo(() => sortVisitsBy(filtered.filter((visit) => statusFilter === "all" || visit.status === statusFilter), sort), [filtered, statusFilter, sort]);
+  const filtersActive = technicianId !== "" || search !== "" || statusFilter !== "all" || sort !== null;
   const deleteVisit = async (visit: ManagerServiceVisit) => {
     if (!onDelete || deletingId || !window.confirm(`Permanently delete service visit ${visit.reference}? This cannot be undone.`)) return;
     setDeletingId(visit.id);
@@ -131,10 +153,10 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
   return <section className="manager-home" aria-labelledby="manager-home-title"><div className="home-toolbar"><div><p className="eyebrow">{supervisor ? "Admin workspace" : "Manager workspace"}</p><h2 id="manager-home-title">Operations</h2><p>{supervisor ? "Read-only service visit visibility." : "Service visit visibility and management."}</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>{loading ? "Refreshing…" : "Refresh"}</button></div>
     {message ? <p className="form-message" role="alert">{message}</p> : null}
     <div className="ops-chips" role="group" aria-label="Service visit status">{chip("open", "Open", openCount)}{chip("closed", "Completed", completedCount)}{chip("all", "Total", filtered.length)}</div>
-    <div className="manager-filter-form ops-filters"><label>Search<input type="search" value={search} placeholder="Customer, site or SV number" onChange={(event) => setSearch(event.target.value)} /></label><label>Technician<select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}><option value="">All technicians</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.displayName}</option>)}</select></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={!filtersActive} onClick={() => { setTechnicianId(""); setSearch(""); setStatusFilter("all"); }}>Clear filters</button></div></div>
+    <div className="manager-filter-form ops-filters"><label>Search<input type="search" value={search} placeholder="Customer, site or SV number" onChange={(event) => setSearch(event.target.value)} /></label><label>Technician<select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}><option value="">All technicians</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.displayName}</option>)}</select></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={!filtersActive} onClick={() => { setTechnicianId(""); setSearch(""); setStatusFilter("all"); setSort(null); }}>Clear filters</button></div></div>
     <section aria-labelledby="ops-visits-title"><h3 id="ops-visits-title" className="visually-hidden">Service visits</h3>
       {listed.length === 0 ? <p className="empty-state">No service visits match.</p>
-        : wide ? <table className="ops-table"><thead><tr><th scope="col">Customer</th><th scope="col">Technician</th><th scope="col">Progress</th><th scope="col">Created</th><th scope="col">Age</th><th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead><tbody>{listed.map(visitRow)}</tbody></table>
+        : wide ? <table className="ops-table"><thead><tr><SortHeader label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} /><SortHeader label="Technician" sortKey="technician" sort={sort} onSort={toggleSort} /><th scope="col">Progress</th><SortHeader label="Created" sortKey="created" sort={sort} onSort={toggleSort} /><SortHeader label="Age" sortKey="age" sort={sort} onSort={toggleSort} /><th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead><tbody>{listed.map(visitRow)}</tbody></table>
         : <ul className="job-card-list">{listed.map(visitCard)}</ul>}</section>
     <section><h3>Service History</h3><p>Completed visits retain their server-authoritative history and final reports.</p></section>
   </section>;

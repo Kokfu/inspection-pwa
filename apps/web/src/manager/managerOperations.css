@@ -19,3 +19,5 @@
 }
 .manager-filter-form.ops-filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
 .manager-filter-form.ops-filters .inline-actions { grid-column: auto; }
+.ops-sort { min-height: var(--tap); padding: 0; border: 0; color: inherit; background: transparent; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.ops-sort:focus-visible { outline: var(--focus-outline); outline-offset: 2px; }
