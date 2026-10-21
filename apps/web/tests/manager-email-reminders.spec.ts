@@ -102,7 +102,8 @@ test("recipient picker previews saved people and shows copied-date review warnin
   });
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/tests/manager-upcoming-services.html");
-  await page.getByRole("button", { name: "Reminder recipients" }).click();
+  await page.getByRole("button", { name: "More actions for Customer A" }).click();
+  await page.getByRole("menuitem", { name: "Reminder recipients" }).click();
   await expect(page.getByText("Reminder blocked: add recipients.")).toBeVisible();
   await expect(page.getByText("Recipients were copied from the previous date.", { exact: false })).toBeVisible();
   await expect(page.getByText("Previous service dates have sent reminders.", { exact: false })).toBeVisible();

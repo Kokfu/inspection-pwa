@@ -1,0 +1,53 @@
+/* U3: Next Upcoming Service table (>= 700 px) and stacked cards (< 700 px). Design tokens only. */
+.upcoming-toolbar { display: grid; gap: var(--space-3, 12px); margin-block: 1rem; }
+.upcoming-toolbar .manager-search-form { margin: 0; }
+.upcoming-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.upcoming-chip { min-height: var(--tap); padding-inline: 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); color: var(--ink); background: var(--surface); font-weight: 600; }
+.upcoming-chip[aria-pressed="true"] { color: var(--on-brand); background: var(--brand-dark); border-color: var(--brand-dark); }
+.upcoming-chip-count { margin-inline-start: 4px; font-variant-numeric: tabular-nums; }
+
+.upcoming-table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.upcoming-table th, .upcoming-table td { padding: 10px 12px; text-align: start; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.upcoming-table tbody tr:last-child td { border-bottom: 0; }
+.upcoming-table th { color: var(--muted-on-sunken); background: var(--surface-sunken); font-size: var(--text-sm); }
+.upcoming-sort { min-height: var(--tap); padding: 0 4px; border: 0; color: inherit; background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
+.upcoming-sort:focus-visible, .upcoming-chip:focus-visible, .upcoming-menu-list button:focus-visible { outline: var(--focus-outline); outline-offset: 2px; }
+.upcoming-customer { display: grid; gap: 2px; }
+.upcoming-actions { position: relative; white-space: nowrap; }
+.upcoming-actions > button, .upcoming-menu-trigger { min-height: var(--tap); min-width: var(--tap); }
+.upcoming-actions > button { margin-inline-end: 6px; }
+.upcoming-menu { display: inline-block; position: relative; }
+.upcoming-menu-list { position: absolute; inset-inline-end: 0; top: 100%; z-index: 20; display: grid; min-width: 14rem; padding: 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow); }
+.upcoming-menu-list button { min-height: var(--tap); padding: 0 12px; border: 0; color: var(--ink); background: transparent; text-align: start; font-weight: 600; }
+.upcoming-menu-list button:hover { background: var(--brand-soft); }
+
+.upcoming-status { display: inline-block; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: var(--text-sm); font-weight: 700; }
+.upcoming-status--overdue { color: var(--danger-ink); background: var(--danger-soft); border-color: var(--danger-border); }
+.upcoming-status--due_soon { color: var(--warning-ink); background: var(--warning-soft); border-color: var(--warning-border); }
+.upcoming-status--later { color: var(--success-ink); background: var(--success-soft); border-color: var(--success-border); }
+.upcoming-status--not_scheduled { color: var(--muted-on-sunken); background: var(--surface-sunken); }
+
+.upcoming-popover { position: absolute; inset-inline-end: 0; top: 100%; z-index: 20; display: grid; gap: 10px; width: 16rem; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow); white-space: normal; }
+.upcoming-popover label { display: grid; gap: 4px; font-weight: 600; }
+.upcoming-popover-actions { display: flex; gap: 8px; }
+
+.upcoming-drawer-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: flex-end; background: rgb(24 52 56 / 45%); }
+.upcoming-drawer { box-sizing: border-box; display: grid; grid-template-rows: auto 1fr; width: min(32rem, 100%); height: 100%; background: var(--surface); box-shadow: var(--shadow); }
+.upcoming-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.upcoming-drawer-head h3 { margin: 0; overflow-wrap: anywhere; }
+.upcoming-drawer-body { overflow-y: auto; padding: 16px; }
+
+@media (max-width: 699px) {
+  .upcoming-table, .upcoming-table tbody { display: block; border: 0; background: transparent; }
+  .upcoming-table thead { display: block; }
+  .upcoming-table thead tr { display: flex; gap: 8px; }
+  .upcoming-table th.upcoming-th--plain { display: none; }
+  .upcoming-table th { padding: 0; background: transparent; border: 0; }
+  .upcoming-table tbody tr { display: grid; gap: 6px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card); }
+  .upcoming-table td { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 0; border: 0; }
+  .upcoming-table td.upcoming-customer { display: grid; }
+  .upcoming-table td[data-label="Next due"]::before { content: "Next due"; color: var(--muted); font-size: var(--text-sm); }
+  .upcoming-actions { white-space: normal; }
+  .upcoming-popover { position: static; width: auto; flex: 1 1 100%; box-shadow: none; }
+  .upcoming-menu-list { inset-inline-end: 0; max-width: calc(100vw - 32px); }
+}

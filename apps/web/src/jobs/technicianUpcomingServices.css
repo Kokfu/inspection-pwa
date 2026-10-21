@@ -1,0 +1,26 @@
+.tech-upcoming-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.tech-upcoming-chip, .tech-upcoming-toggle {
+  box-sizing: border-box; min-height: var(--tap); padding: 0 var(--space-4); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--text-sm);
+  cursor: pointer; touch-action: manipulation;
+}
+.tech-upcoming-chip[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-dark); font-weight: 700; }
+.tech-upcoming-chip:focus-visible, .tech-upcoming-toggle:focus-visible { outline: var(--focus-outline); box-shadow: var(--focus-ring); }
+.tech-upcoming-count { margin-inline-start: var(--space-1); font-weight: 700; }
+.tech-upcoming-group, .tech-upcoming-unscheduled { margin-block: var(--space-4); }
+.tech-upcoming-heading { margin: 0 0 var(--space-2); font-size: var(--text-sm); text-transform: uppercase; letter-spacing: .04em; }
+.tech-upcoming-heading--overdue { color: var(--danger-ink); }
+.tech-upcoming-heading--this_week { color: var(--warning-ink); }
+.tech-upcoming-heading--later { color: var(--brand-dark); }
+.tech-upcoming-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.tech-upcoming-unscheduled .tech-upcoming-list { margin-top: var(--space-2); }
+.tech-upcoming-card {
+  box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3); align-items: center;
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-card);
+}
+.tech-upcoming-name { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.tech-upcoming-date { color: var(--muted); font-size: var(--text-sm); }
+.tech-upcoming-status { padding: var(--space-1) var(--space-3); border: 1px solid; border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: 700; white-space: nowrap; }
+.tech-upcoming-status--overdue { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-ink); }
+.tech-upcoming-status--this_week { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-ink); }
+.tech-upcoming-status--later { background: var(--brand-tint); border-color: var(--brand-border); color: var(--brand-dark); }
