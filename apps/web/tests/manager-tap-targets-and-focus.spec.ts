@@ -64,25 +64,45 @@ test("Keyboard focus draws an opaque 3 px ring on buttons, links, tabs and summa
 });
 
 test("Customer service history cards (open and closed visits) fit a 360 px screen and keep 44 px buttons", async ({ page }) => {
-  await installFakeManagerApi(page);
-  const visit = (n: number, overrides: Record<string, unknown>) => ({
-    id: `00000000-0000-4000-8000-0000000009${n}`, reference: `SV-2026100${n}`, customer: "28/9/2026 All Services", site: "Primary Service Site",
-    createdAt: "2026-10-08T03:00:00.000Z", serviceDate: "2026-10-08", serviceTime: "11:00", status: "open", systems: ["Hose Reel System"],
-    inspectionProgress: { accepted: 1, required: 3 }, completion: { completedAt: null, completedBy: null }, ...overrides
+  // The history cards live on Current Services Done: the customer is picked there (not on the customer page).
+  const acme = "a0000000-0000-4000-8000-000000000001";
+  const site = "d0000000-0000-4000-8000-000000000001";
+  const technician = { id: 7, displayName: "technician-demo" };
+  const visit = (n: number, status: "open" | "closed") => ({
+    id: `b0000000-0000-4000-8000-00000000000${n}`, reference: `SV-2026100${n}`, customer: "Acme Towers", site: "North Block",
+    createdAt: "2026-10-08T03:00:00.000Z", serviceDate: "2026-10-08", serviceTime: null, status, technician, systems: ["Hose Reel System"],
+    inspectionProgress: status === "open" ? { accepted: 1, required: 3 } : { accepted: 11, required: 11 },
+    completion: { jobStatus: status, completedAt: status === "closed" ? "2026-10-08T05:00:00.000Z" : null, completedBy: status === "closed" ? { id: 7, username: "technician-demo" } : null }
   });
-  const visits = [
-    visit(1, {}),
-    visit(2, { status: "closed", inspectionProgress: { accepted: 11, required: 11 }, completion: { completedAt: "2026-10-08T05:00:00.000Z", completedBy: "technician-demo" } })
-  ];
-  await page.route("**/api/manager/service-visits**", (route) => route.fulfill({ status: 200, json: { serviceVisits: visits, nextCursor: null, totalCount: 2 }, headers: { "cache-control": "no-store" } }));
-  await openFakeCustomer(page);
-  await expect(page.getByRole("heading", { name: "Services", level: 3, exact: true })).toBeVisible();
+  const visits = [visit(1, "open"), visit(2, "closed")];
+  const customers = [{
+    customer: { id: acme, code: "ACM-001", displayName: "Acme Towers" },
+    sites: [{ id: site, code: "NORTH", displayName: "North Block" }],
+    configuration: { id: `${acme}-config`, revision: 1, enabledSystems: [] }, supportedSystems: []
+  }];
+  await page.route("**/api/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/me") return route.fulfill({ json: { user: { id: 900, username: "mobiletest", role: "admin" } } });
+    if (path === "/api/manager/technicians") return route.fulfill({ json: { technicians: [] } });
+    if (path === "/api/repair-visits") return route.fulfill({ json: { visits: [] } });
+    if (path === "/api/manager/customers") return route.fulfill({ json: { customers } });
+    if (path === "/api/manager/service-visits") return route.fulfill({ json: { serviceVisits: visits, nextCursor: null, totalCount: visits.length } });
+    if (path === "/api/inspection-jobs") return route.fulfill({ json: { jobs: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.setViewportSize({ width: 1280, height: 800 }); // the sidebar only exists on desktop; narrow to 360 once the history is open
+  await page.goto("/tests/manager-technician-services-done.html#/manager");
+  await page.getByRole("button", { name: /^Manager Monitor/ }).click();
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Current Services Done", exact: true }).click();
+  await page.getByLabel("Select customer", { exact: true }).selectOption({ label: "Acme Towers" });
   await expect(page.getByText("SV-20261001")).toBeVisible();
+  await page.setViewportSize({ width: 360, height: 800 });
   await expect(page.getByText("SV-20261002")).toBeVisible();
   const result = await audit(page);
   expect(result.overflowX, "no horizontal overflow with service-history cards").toBe(false);
   expect(result.small).toEqual([]);
   expect(result.tiny).toEqual([]);
+  await expect(page.locator(".job-card")).toHaveCount(2);
   const widths = await page.evaluate(() => ({ card: Math.max(...[...document.querySelectorAll(".job-card")].map((e) => e.getBoundingClientRect().right)), viewport: window.innerWidth }));
   expect(widths.card, "cards end inside the viewport").toBeLessThanOrEqual(widths.viewport);
 });
