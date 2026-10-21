@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test:fire-alarm-accepted-detail": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/fireAlarmAcceptedDetailTuple.test.ts",
+    "test:due-status": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/dueStatus.test.ts",
     "test:proposal-filters": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/proposalFilters.test.ts",
     "test:role-access": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/roleAccess.test.ts",
     "test:authority-offline-fallback": "..\\api\\node_modules\\.bin\\tsx.cmd --test tests/authorityOfflineFallback.test.ts tests/serverReachability.test.ts tests/serverSummaryJobIdChunking.test.ts",
