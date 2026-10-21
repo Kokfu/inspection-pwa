@@ -698,3 +698,8 @@ vertical gaps (child margins on top of the stack gap). Both confirmed fixed on t
 The phone session was signed out once during the check (signing the same account out in another browser ends it); signed back in.
 
 Retest on build `20261021T165902Z` (2026-10-22, phone updated with **Update now**): Repair List id `RV-20261021-4` on one line (columns 115/137/32 px), Upcoming Services child margins 0 / stack gap 20 px, no horizontal scroll. Both fixes verified without any injected CSS.
+
+Manager pass on the phone (2026-10-22, build `20261021T165902Z`, mobiletest): all 19 Manager screens measured at 360 px: one page width (342 px),
+20 px gap, 26 px title, "MANAGER WORKSPACE" eyebrow, no horizontal scroll, no target under 44 px, no input under 16 px. Customers shows as cards.
+Admin (Supervisor1) checked in the desktop browser pane at 360/768/1280 (10 screens): clean. Not tested on the phone: Admin, camera, true offline.
+P3 seen on the phone: Customers "Add customer" and "Refresh" stack at different widths (262 vs 458 px) and "Back to Home" touches the Menu bar.
