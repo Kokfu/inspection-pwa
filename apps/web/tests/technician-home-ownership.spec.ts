@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("Home shows only open service and repair work; completed shortcut retains filter through selection and reload", async ({ page }) => {
   await page.goto("/tests/technician-home-ownership.html");
   await page.getByRole("button", {name:/Technician/}).click();
-  await expect(page.getByRole("heading", {name:"Open work",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"Open Work",exact:true})).toBeVisible();
   await expect(page.getByRole("heading", {name:"Service visits (2)"})).toBeVisible();
   await expect(page.getByRole("heading", {name:"Repair visits (6)"})).toBeVisible();
   await expect(page.locator(".job-card")).toHaveCount(8);

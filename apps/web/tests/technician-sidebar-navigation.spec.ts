@@ -23,7 +23,7 @@ test("technician sidebar opens all six destinations at phone and desktop widths"
   await page.getByRole("button", { name: /^Technician/ }).click();
   const sidebar = page.getByLabel("Primary navigation");
   const destinations = [
-    ["Home", "jobs", "Open work"],
+    ["Home", "jobs", "Open Work"],
     ["New Service Visit", "new-service-visit", "New Service Visit"],
     ["Repair List", "repair-visits", "Repair List"],
     ["Add Customer", "technician-add-customer", "Add Customer"],

@@ -112,7 +112,7 @@ export function ManagerHome({
     {customers.map((customer) => <li key={customer.id}><strong>{customer.displayName}</strong> — {customer.nextServiceDueDate}</li>)}
   </ul>;
 
-  return <section aria-labelledby="manager-dashboard-title">
+  return <section className="page-stack" aria-labelledby="manager-dashboard-title">
     <div className="workspace-heading"><div><p className="eyebrow">{supervisor ? "Admin workspace" : "Manager workspace"}</p><h2 id="manager-dashboard-title">Home</h2></div></div>
     <KpiTiles label="Dashboard summary" items={[
       { label: "Total Clients", value: clients ?? "—", icon: kpiIcons.clients, tone: "brand" },

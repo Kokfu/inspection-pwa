@@ -327,7 +327,7 @@ export function TechnicianHome({
     {!selectedJob ? <div className="home-toolbar">
       <div className="workspace-heading"><div>
         <p className="eyebrow">Technician workspace</p>
-        <h2 id="technician-home-title">Open work</h2>
+        <h2 id="technician-home-title">Open Work</h2>
         <p>Unfinished service and repair visits saved on this device</p>
       </div></div>
       <div className="home-utility-actions">
@@ -515,7 +515,7 @@ export function TechnicianHome({
         </OpenWorkSection>
         <OpenWorkSection key={`repair:${actorId}`} userId={actorId} section="repair" title="Repair visits"
           count={openRepairs.length} matchCount={filteredRepairs.length} query={query}>
-        {!repairs.loaded ? <p role="status">Loading repair visits...</p>
+        {!repairs.loaded ? <p role="status">Loading repair visits…</p>
           : repairs.failed ? <p role="alert">The repair visits on this device could not be read. Open Repair List and reload.</p>
           : filteredRepairs.length ? <ul className="job-card-list">{filteredRepairs.map(visit => {
             const state = presentRepairVisit(visit);

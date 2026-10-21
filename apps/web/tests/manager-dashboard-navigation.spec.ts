@@ -7,6 +7,9 @@ test("dashboard routes Services to customer configuration and keeps Operations a
     let json: unknown = {};
     if (url.pathname === "/api/auth/me") json = { user: { id: 804, username: "mobiletest", role: "admin" } };
     else if (url.pathname.endsWith("/technicians")) json = { technicians: [] };
+    else if (url.pathname === "/api/manager/location-proposals") json = { proposals: [], counts: { pending: 0, approved: 0, rejected: 0, withdrawn: 0 } };
+    else if (url.pathname === "/api/manager/site-proposals") json = { proposals: [] };
+    else if (url.pathname === "/api/repair-visits") json = { visits: [] };
     else if (url.pathname.endsWith("/upcoming-service")) json = { customers: [], unscheduledCustomers: [] };
     else if (url.pathname.endsWith("/customers/archived")) json = { customers: [] };
     else if (url.pathname.endsWith("/customers")) json = { customers: [] };
@@ -24,7 +27,7 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   await expect(page.locator("#manager-dashboard-title")).toBeVisible();
   await expect.poll(() => requests.some((r) => r === "/api/manager/customers/compliance-reminders")).toBe(true);
   await expect(page.getByText("12", { exact: true })).toBeVisible();
-  await expect(page.getByText("7", { exact: true })).toBeVisible();
+  await expect(page.locator('dl[aria-label="Dashboard summary"]').getByText("7", { exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /Inspections per day/ })).toBeVisible();
   const status = page.locator('dl[aria-label="Dashboard summary"]');
   await expect(status).toContainText("Passed1");
