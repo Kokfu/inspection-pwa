@@ -1,6 +1,6 @@
 # Customer-centred history — progress
 
-Last updated: 2026-10-21 (S5 implemented, in Review; other step statuses retained below); S6 implemented and verified, ready for review
+Last updated: 2026-10-21 (S7 verification logged; S5 implemented, in Review; other step statuses retained below); S6 implemented and verified, ready for review
 
 RULE: whoever finishes a step MUST update this file in the same task: status, date, files changed, tests run, findings, limitations. Do not mark Done with an open P0/P1. Git is handled by the user.
 
@@ -27,7 +27,7 @@ Steps in the same wave touch different files and may run in parallel chats. Run 
 | B | S5 | Confirmed flag + Unconfirmed chip + Confirm action | S3a | Yes (059, additive) | Done (reviewed) | 2026-10-21 |
 | C | S3b | Timeline tab inside manager customer detail | S2, S3a | No | Done (reviewed) | 2026-10-21 |
 | C | S6 | Technician Home: Open work + Recent completed shortcut | S2 | No | Done (reviewed) | 2026-10-21 |
-| D | S7 | Verification, phone check, docs | all | No | Not started | |
+| D | S7 | Verification, phone check, docs | all | No | Review (automated + phone checks green) | 2026-10-21 |
 
 ## Step log
 (Append an entry per step when work happens. Format below.)
@@ -68,6 +68,27 @@ if ($LASTEXITCODE -ne 0) { throw 'Whitespace check failed' }
 ```
 
 Broader diagnostic command (currently 7 pass / 2 fail as above): from `apps/web` with the same browser path, run `node node_modules/@playwright/test/cli.js test --config tests/customer-timeline.config.ts --workers=1`.
+
+### S7 — Verification, phone check, docs
+- Status: Review. Automated Level 2 gates green; physical-phone and real offline/restart checks NOT performed (listed below). Feature committed first by user request as db85dd9.
+- Date: 2026-10-21.
+- Files changed by S7: `docs/customer-records/PROGRESS.md` only. No code changes were needed.
+- Tests run:
+  - API typecheck + build PASS; web typecheck + production build PASS (existing large-chunk advisory only); `git diff --check` PASS (line-ending warnings only).
+  - API against a fresh disposable PostgreSQL 16 (127.0.0.1:55432, removed afterwards), `--test-concurrency=1`: confirmation, managerCustomers (unit + integration), customerCreation, customerTimelineGuards, inspectionReference, serviceVisits, repairVisitContract 61/61 PASS; managerCustomerDetails 1/1 PASS (own database); customerVisitSummaries 8/8 PASS (its guard requires a database named `visit_summaries_test`; the first run failed only on that name check, not on behaviour).
+  - Web unit (CustomerTimeline, VisitRow, findSimilarCustomers, customerCreationReceipt, queuedWriteRefusal) 36/36 PASS; role-access 4/4 PASS.
+  - Chromium: manager-customer-records 13/13, add-customer-similarity 6/6, customer-timeline + sidebar 9/9, technician-home 8/8 PASS.
+- Browser checks (M1 customer table, M2 detail/Timeline tab, T1 add-customer warning, T2 timeline, Home): performed through the Playwright suites with intercepted APIs at 360x800, 768x1024 and 1280x800 (no horizontal overflow, targets >=44px, focus visible). 360px screenshots of the manager table, manager Timeline tab, technician similarity warning and Home were visually inspected. 375px was not run separately; 360px is narrower.
+- Offline in automated suites is browser-emulated; the real device offline/force-close checks are in the phone bullet below.
+- Physical phone (2026-10-21, device 182449ec CPH2375, Chrome via adb + CDP, dev origin `http://localhost:8081`, NOT production HTTPS/WebAPK). Containers api+proxy rebuilt first (`docker compose build api proxy`, `up -d --no-deps api proxy`); migration 059 applied (30/30 existing customers confirmed); phone moved to `build-20261021T044424Z` with a real Update-now tap. Results:
+  - PASS Home shows "Open work" + "Recent completed" (no completed tabs); Recent completed -> customer picker; customer opened with Completed pre-selected (services + approved repair).
+  - PASS other technicians' rows are inert locked divs (real tap changed nothing); own rows are buttons and a real tap opened job SV-20261019-116; `GET /api/customers/:id/visit-summaries` rows carry exactly the 9 summary fields; foreign service detail 403, own 200.
+  - PASS offline timeline: Wi-Fi off + proxy stopped, Chrome force-stopped and reopened, role re-chosen: cached rows shown with "Offline - showing summaries saved on this device".
+  - PASS offline Add Customer: near-match name "All Servicess" showed the similarity panel (Use All Services / Create anyway) while offline; inputs stayed enabled; Create anyway + Create Customer saved locally ("pending sync", outbox `technicianCustomer/Pending`); survived force-close/reopen; after reconnect exactly one server row (`is_confirmed=false`, created_by 436).
+  - PASS manager (mobiletest) on phone: Unconfirmed (1) chip + badge, "Added by technician-demo on 2026-10-21", Confirm details -> badge cleared, server `is_confirmed=t`, confirmed_by 435, one `manager_customer_confirmed` audit; Timeline tab count and filters; at 360 css px no horizontal overflow, 58 rows all tappable for the manager, a foreign-owner row opened the manager service-visit route.
+  - Not done: installed WebAPK / production HTTPS, 375 px specifically (phone is 360), real typing on the keyboard (fields set via CDP; buttons real taps), the near-match "Use existing" path on phone, camera. Test data left: customer "All Servicess" (confirmed, site "S7 Phone Site", no visits) in the demo DB. Phone left signed in as manager mobiletest.
+- Final P0/P1/P2: P0 0. P1 0. P2 (documented, none blocking): (1) non-owner service-detail read returns 403 instead of 404 and is no longer audited; (2) Completed filter now covers closed services + approved repairs (shown as intended in the Home shortcut; confirm on phone); (3) "Added by" shows username, not display name; (4) migration 059 not yet applied to a production-sized database; (5) web bundle-size advisory; (6) WebAPK/production-HTTPS acceptance not done.
+- Limitations: browser tests use intercepted HTTP; DB suites use disposable data, not production. Test-result screenshots stay in ignored `apps/web/test-results`.
 
 ### S5 — Confirmed flag + Unconfirmed chip + Confirm action
 - Status: Review.

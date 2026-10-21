@@ -597,3 +597,9 @@ Job SV-20261021-124 (customer "All Services"). Each form: pick, replace, Others 
 | CO2 | 20 | PASS (`detectorRows.remarks`) |
 
 CO2 offline: request queued Pending with Wi-Fi off, survived force-close, synced once on reconnect (`chargerAndBatteries.charger`); all 9 request outbox items are Completed with one server row each. Two extra Hose Reel rows in `section_remark_requests` are test noise from a navigation mistake in my script (the Hose Reel form was driven under the Hydrant and Fire Alarm labels). Not done: the 403 discard of an old queued `commonRemark` item on the phone, per-field remarks on a finding, installed WebAPK / production HTTPS.
+
+---
+
+## Customer-history phone check (2026-10-21, build `build-20261021T044424Z`)
+
+Device `182449ec` (CPH2375, Chrome, dev USB `http://localhost:8081`). Containers api + proxy rebuilt by the agent at the owner's request. Full results in `docs/customer-records/PROGRESS.md` (S7). Summary: Home Open work/Recent completed, customer timeline (inert foreign rows, own rows open, server 403 for foreign detail), offline cached timeline after force-close, offline near-match Add Customer queued and synced exactly once, manager Unconfirmed chip + Confirm details + Timeline tab all PASS. Not done: WebAPK/production HTTPS, "Use existing" path, 375 px. Test data: customer "All Servicess" (confirmed). Phone left signed in as `mobiletest`.
