@@ -776,6 +776,17 @@ export function createManagerCustomersRouter(
     try {
       response.setHeader("Cache-Control", "private, no-store");
       const customers = await listManagerCustomers(database);
+      if (request.currentUser?.role === "admin") {
+        const summaries = await database.query<{ customerId: string; lastVisit: string | null; openCount: number }>(`
+          SELECT customer_id AS "customerId", max(visit_date)::text AS "lastVisit", count(*) FILTER (WHERE is_open)::int AS "openCount"
+          FROM (
+            SELECT customer_id, service_date AS visit_date, status='open' AS is_open FROM inspection_jobs WHERE is_sample=false AND archived_at IS NULL
+            UNION ALL SELECT customer_id, visit_date, status<>'approved' AS is_open FROM repair_visits
+          ) visits GROUP BY customer_id`);
+        const byId = new Map(summaries.rows.map((row) => [row.customerId, row]));
+        response.json({ customers: customers.flatMap((row) => row ? [{ ...row, tableSummary: byId.get(row.customer.id) ?? { lastVisit: null, openCount: 0 } }] : []) });
+        return;
+      }
       // A supervisor may search customers for Services Done only: identity, sites and the system
       // catalogue — never configuration, contact details or due dates (T4 design, owner Q1).
       response.json({ customers: request.currentUser?.role === "supervisor" ? customers.flatMap((customer) => customer ? [supervisorCustomerSummary(customer)] : []) : customers });
@@ -834,6 +845,52 @@ export function createManagerCustomersRouter(
       response.json({ customer: await loadManagerCustomer(customerId, database) });
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
     finally { client?.release(); }
+  });
+  // Live-reference edits: lock, compare, update and audit together. Repeating an
+  // already-applied edit succeeds without a second audit; stale edits fail closed.
+  router.patch("/manager/customers/:customerId", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const expectedActor = request.header("x-expected-user-id");
+      if (expectedActor !== undefined && expectedActor !== String(request.currentUser!.id)) throw new ManagerCustomerError("IDENTITY_MISMATCH", "The signed-in account changed. Reopen this customer before saving.", 409);
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      const body = exactBody(request.body, ["changes", "expected"]);
+      const fields = ["displayName", "contactPhone", "contactPerson", "fax", "contractNumber", "serviceFrequency"] as const;
+      const parse = (value: unknown) => {
+        const row = exactBody(value, fields);
+        if (fields.some((key) => !Object.hasOwn(row, key))) throw new ManagerCustomerError("INVALID_REQUEST", "All customer detail fields are required.");
+        return { displayName: requiredText(row.displayName, "displayName"),
+          contactPhone: optionalText(row.contactPhone, "contactPhone", 40), contactPerson: optionalText(row.contactPerson, "contactPerson", 160),
+          fax: optionalText(row.fax, "fax", 40), contractNumber: optionalText(row.contractNumber, "contractNumber", 160), serviceFrequency: optionalServiceFrequency(row.serviceFrequency) };
+      };
+      const changes = parse(body.changes); parse(body.expected);
+      const expected = body.expected as Record<string, unknown>;
+      client = await database.connect(); await client.query("BEGIN");
+      const locked = await client.query(`SELECT display_name AS "displayName", contact_phone AS "contactPhone", contact_person AS "contactPerson", fax,
+        contract_number AS "contractNumber", service_frequency AS "serviceFrequency" FROM customers
+        WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
+      const before = locked.rows[0];
+      if (!before) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      if (!fields.every((key) => before[key] === changes[key])) {
+        if (!fields.every((key) => before[key] === expected[key])) throw new ManagerCustomerError("CUSTOMER_EDIT_CONFLICT", "Customer details changed. Refresh and review before saving again.", 409);
+        await client.query(`UPDATE customers SET display_name=$2, contact_phone=$3, contact_person=$4, fax=$5, contract_number=$6, service_frequency=$7 WHERE id=$1`,
+          [customerId, ...fields.map((key) => changes[key])]);
+        await client.query(`INSERT INTO audit_events(actor_user_id,action,entity_type,entity_id,result,reason)
+          VALUES($1,'manager_customer_details_updated','customer',$2,'success',$3)`,
+          [request.currentUser!.id, customerId, JSON.stringify({ old: before, new: changes })]);
+      }
+      const customer = await loadManagerCustomer(customerId, client);
+      if (!customer) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ customer });
+    } catch (error) {
+      await client?.query("ROLLBACK").catch(() => undefined);
+      if (object(error) && error.code === "23505" && error.constraint === "idx_customers_active_canonical_display_name") {
+        next(new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this name.", 409));
+      } else next(error);
+    } finally { client?.release(); }
   });
   router.put("/manager/customers/:customerId/contact-details", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;

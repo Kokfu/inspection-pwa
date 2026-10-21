@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="view"></div>
+<script type="module">
+import React, { useState } from "react";
+import { createRoot } from "react-dom/client";
+import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
+import { updateManagerCustomerList } from "/src/manager/ManagerCustomerRecords.tsx";
+import { deviceDatabase } from "/src/db/localDatabase.ts";
+import { loadManagerCustomer, loadManagerCustomers } from "/src/manager/managerApi.ts";
+import "/src/styles/app.css";
+window.testDb = deviceDatabase;
+await deviceDatabase.authState.put({ key: "device-auth", userId: 9081, role: "admin", username: "s3a-manager", serverLogoutPending: false });
+const customer = await loadManagerCustomer("71000000-0000-4000-8000-000000000001");
+const customers = await loadManagerCustomers();
+function Harness() {
+  const [row, setRow] = useState(customer);
+  const [rows, setRows] = useState(customers);
+  const [open, setOpen] = useState(false);
+  const [failure, setFailure] = useState("");
+  const fail = error => { window.authorityError = error.message; window.authorityKind = error.kind; setFailure(error.message); setRow(undefined); setRows([]); };
+  const saved = customer => { setRow(customer); setRows(current => updateManagerCustomerList(current, customer)); };
+  if (failure) return React.createElement("section", null, React.createElement("p", {role: "alert"}, failure), React.createElement("button", {onClick: async () => {setRow(await loadManagerCustomer(customer.customer.id)); setRows(await loadManagerCustomers()); setFailure("");}}, "Reopen customer"));
+  return open ? React.createElement(ManagerCustomerConfigurationDetail, { customer: row, onBack: () => setOpen(false), onSaved: saved, onAuthorityFailure: fail, onViewServiceVisit: () => {}, onViewFinalReport: () => {}, onDownloadFinalReport: async () => {} })
+    : React.createElement(ManagerCustomerConfiguration, { customers: rows, loading: false, message: "", onRefresh: async () => {}, onManage: () => setOpen(true), onAuthorityFailure: fail });
+}
+createRoot(document.getElementById("view")).render(React.createElement(Harness));
+</script></body></html>

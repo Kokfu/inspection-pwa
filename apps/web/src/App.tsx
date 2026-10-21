@@ -126,6 +126,7 @@ import { claimManagerSession, clearManagerSession, readManagerExperience, readMa
 import { ManagerServicesDone } from "./manager/ManagerServicesDone";
 import { ManagerUpcomingServices } from "./manager/ManagerUpcomingServices";
 import { ManagerCustomerConfiguration, ManagerCustomerConfigurationDetail } from "./manager/ManagerCustomerConfiguration";
+import { updateManagerCustomerList } from "./manager/ManagerCustomerRecords";
 import { ManagerAddCustomer } from "./manager/ManagerAddCustomer";
 import { ManagerCommonRemarks } from "./manager/ManagerCommonRemarks";
 import { ManagerServiceCatalog } from "./manager/ManagerServiceCatalog";
@@ -2854,7 +2855,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
               customer={managerCustomer}
               systemKey={route.systemKey}
               onBack={() => navigate({ name: "manager-customer", customerId: route.customerId })}
-              onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
+              onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => updateManagerCustomerList(current, customer)); }}
               onAuthorityFailure={handleManagerRequestFailure}
             />
             : <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-customer", customerId: route.customerId })}>Back to Customer</button>{managerMessage ? <p className="form-message" role="alert">{managerMessage}</p> : <p role="status">Loading service settings…</p>}</>
@@ -2862,7 +2863,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           <ManagerCustomerConfigurationDetail
             customer={managerCustomer}
             onBack={() => navigate({ name: "manager-customers" })}
-            onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => current.map((value) => value.customer.id === customer.customer.id ? customer : value)); }}
+            onSaved={(customer) => { setManagerCustomer(customer); setManagerCustomers((current) => updateManagerCustomerList(current, customer)); }}
             onAuthorityFailure={handleManagerRequestFailure}
             onOpenService={(systemKey) => navigate({ name: "manager-customer-service", customerId: managerCustomer.customer.id, systemKey })}
             onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, null)}
