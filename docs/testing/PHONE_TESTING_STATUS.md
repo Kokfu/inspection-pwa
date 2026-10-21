@@ -566,3 +566,34 @@ C) Phone spot-check of the corrected copy on Hydrant, Hose Reel, Automatic Sprin
 D) I-13 / I-17 / I-18 (P3 cleanups), one at a time, with fail-before/pass-after tests.
 E) Investigate observation O-1 (compliance-reminders 400 on the manager home) and decide if it is a bug.
 ```
+
+---
+
+## R4 phone check (2026-10-21, build `build-20261021T020230Z`)
+
+Device `182449ec` (Chrome, dev USB `http://localhost:8081`, NOT production HTTPS), technician `technician-demo`, job SV-20261021-123 (customer 28/9/2026, FM200 form, 21 selects, 20 single-remark pickers).
+
+| Check | Result |
+|---|---|
+| New build reached the phone (relcheck + "Update now") | PASS |
+| FM200 rows use the single-remark picker; no "Add to common remarks" at the Comments box | PASS |
+| Pick a remark; "Others" text; Add to common remarks -> "Sent for approval", row text unchanged, request read-back shown | PASS |
+| Online request: outbox Completed, one server row (`detectorRows.remarks`), technician id 436 | PASS |
+| Offline (Wi-Fi off + proxy stopped): Others typed, request queued Pending | PASS |
+| Force-close, reopen, reconnect: request sent once, Completed, one server row (`chargerAndBatteries.battery`) | PASS |
+| Technician `POST /service-common-remarks` | 403 PASS |
+
+Not done: Hose Reel, Hydrant, Fire Alarm and CO2 forms on the phone (the 28/9 customer has only Sprinkler, CO2, FM200, Roller Shutter; CO2 not opened); a "Replace" step (only one catalogue remark exists); 375 px layout of the form itself (the post-restart check measured the home page, 360 vs 360, no horizontal scroll); the 403 discard of a pre-change queued `commonRemark` item on a real phone; production HTTPS/installed WebAPK. Test data left: 2 section_remark_requests rows, 1 new job.
+
+### R4 phone check, remaining four systems (2026-10-21, same phone and build)
+
+Job SV-20261021-124 (customer "All Services"). Each form: pick, replace, Others text, Add to common remarks -> "Sent for approval" and read-back; no "Add to common remarks" at the Comments box; 360 px viewport with no horizontal scroll; select height 44 px (Hose Reel checked).
+
+| System | Single-remark pickers | Result |
+|---|---|---|
+| Hose Reel | 16 | PASS (server row `checklist.waterTank.saj_main_water_supply`) |
+| Hydrant | 1 (`rows.remarks`; per-field remarks show only for a finding) | PASS (`rows.remarks`) |
+| Fire Alarm | 11 | PASS (`chargerAndBatteries.main_supply`) |
+| CO2 | 20 | PASS (`detectorRows.remarks`) |
+
+CO2 offline: request queued Pending with Wi-Fi off, survived force-close, synced once on reconnect (`chargerAndBatteries.charger`); all 9 request outbox items are Completed with one server row each. Two extra Hose Reel rows in `section_remark_requests` are test noise from a navigation mistake in my script (the Hose Reel form was driven under the Hydrant and Fire Alarm labels). Not done: the 403 discard of an old queued `commonRemark` item on the phone, per-field remarks on a finding, installed WebAPK / production HTTPS.
