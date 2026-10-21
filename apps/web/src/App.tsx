@@ -116,7 +116,7 @@ import { ManagerApprovals } from "./manager/ManagerApprovals";
 import { ManagerPhotoKpi } from "./manager/ManagerPhotoKpi";
 import { ManagerSettings } from "./manager/ManagerSettings";
 import { ManagerReportApprovals } from "./manager/ManagerReportApprovals";
-import { ManagerHome, managerNavLinks, type ManagerDashboardRoute } from "./manager/ManagerHome";
+import { ManagerHome, managerNavLinks, managerNavSections, managerNavPinned, type ManagerDashboardRoute } from "./manager/ManagerHome";
 import { AppShell } from "./layout/AppShell";
 import { RepairVisitsScreen } from "./repairVisits/RepairVisitsScreen";
 import { ManagerOperations } from "./manager/ManagerOperations";
@@ -2514,7 +2514,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       {technicianExperience ? (
         <AppShell<"jobs" | "repair-visits" | "new-service-visit" | "technician-add-customer" | "technician-completed-services" | "technician-upcoming-services">
           mobileNavigation
-          navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Repair List", "repair-visits"], ["Add Customer", "technician-add-customer"], ["Completed Services", "technician-completed-services"], ["Upcoming Services", "technician-upcoming-services"]]}
+          navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Upcoming Services", "technician-upcoming-services"], ["Completed Services", "technician-completed-services"], ["Repair List", "repair-visits"], ["Add Customer", "technician-add-customer"]]}
+          sections={{ "new-service-visit": "Services", "repair-visits": "Repairs", "technician-add-customer": "Customers" }}
           activeRouteName={route.name === "repair-visit-new" || route.name === "repair-visit" ? "repair-visits" : route.name}
           onNavigate={(name) => navigate({ name })}
         >
@@ -2849,6 +2850,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         <AppShell<ManagerDashboardRoute["name"] | "manager-home">
           mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
+          sections={supervisorExperience ? { "manager-operations": "Services", "manager-approvals": "Review" } : managerNavSections}
+          pinned={supervisorExperience ? undefined : managerNavPinned}
           activeRouteName={["manager-location-proposals", "manager-site-proposals", "manager-remark-requests", "manager-repairs", "manager-repair-visit", "manager-report-approvals"].includes(route.name)
             || (route.name === "manager-final-report" && managerReturn?.hash === "#/manager-report-approvals") ? "manager-approvals"
             : ["manager-email-reminders", "manager-company-profile"].includes(route.name) ? "manager-settings" : route.name}

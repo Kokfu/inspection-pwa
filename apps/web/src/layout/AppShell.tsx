@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 
 const ICONS: Record<string, ReactNode> = {
   "manager-approvals": <><path d="M9 3h6v4H9zM9 5H5v16h14V5h-4" /><path d="m8 14 3 3 5-6" /></>,
@@ -35,12 +35,18 @@ export function AppShell<TRouteName extends string>({
   activeRouteName,
   onNavigate,
   mobileNavigation = false,
+  sections = {},
+  pinned = [],
   children
 }: {
   navLinks: Array<[label: string, routeName: TRouteName]>;
   activeRouteName: string;
   onNavigate: (routeName: TRouteName) => void;
   mobileNavigation?: boolean;
+  /** Heading rendered above the keyed route (desktop sidebar only). */
+  sections?: Record<string, string>;
+  /** Routes pushed to the bottom of the sidebar. */
+  pinned?: string[];
   children: ReactNode;
 }) {
   // I-36: the phone menu closes itself once a destination is chosen, so the new page is not pushed down by an open menu.
@@ -53,21 +59,24 @@ export function AppShell<TRouteName extends string>({
           onClick={() => { setMenuOpen(false); onNavigate(routeName); }}>{label}</button>)}
       </nav></details> : null}
       <nav className="app-sidebar" aria-label="Primary navigation">
-        {navLinks.map(([label, routeName]) => {
+        {[...navLinks.filter(([, name]) => !pinned.includes(name)), ...navLinks.filter(([, name]) => pinned.includes(name))].map(([label, routeName]) => {
           const active = routeName === activeRouteName;
+          const pinnedFirst = pinned.includes(routeName) && routeName === pinned[0];
           return (
-            <button
-              key={routeName}
-              type="button"
-              className={active ? "app-sidebar-link active" : "app-sidebar-link"}
-              aria-current={active ? "page" : undefined}
-              onClick={() => onNavigate(routeName)}
-            >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {ICONS[routeName] ?? FALLBACK_ICON}
-              </svg>
-              <span>{label}</span>
-            </button>
+            <Fragment key={routeName}>
+              {sections[routeName] ? <span className="app-sidebar-section" role="presentation">{sections[routeName]}</span> : null}
+              <button
+                type="button"
+                className={[active ? "app-sidebar-link active" : "app-sidebar-link", pinnedFirst ? "pinned" : ""].filter(Boolean).join(" ")}
+                aria-current={active ? "page" : undefined}
+                onClick={() => onNavigate(routeName)}
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  {ICONS[routeName] ?? FALLBACK_ICON}
+                </svg>
+                <span>{label}</span>
+              </button>
+            </Fragment>
           );
         })}
       </nav>

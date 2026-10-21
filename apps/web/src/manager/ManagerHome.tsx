@@ -15,14 +15,23 @@ export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDash
   return supervisor
     ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Approvals", "manager-approvals"], ["Photo KPI", "manager-photo-kpi"]]
     : [
-        ["Technician List", "manager-technicians"], ["Services", "manager-customers"],
-        ["Operations", "manager-operations"],
-        ["Add Customer", "manager-add-customer"], ["Current Services Done", "manager-services-done"],
+        ["Technician List", "manager-technicians"], ["Add Customer", "manager-add-customer"],
+        ["Services", "manager-customers"], ["Service Catalog", "manager-service-catalog"],
+        ["Operations", "manager-operations"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],
-        ["Service Common Remarks", "manager-common-remarks"], ["Service Catalog", "manager-service-catalog"],
+        ["Service Common Remarks", "manager-common-remarks"],
         ["Approvals", "manager-approvals"], ["Photo KPI", "manager-photo-kpi"], ["Settings", "manager-settings"]
       ];
 }
+
+/** Sidebar section headings: each key is the first route of its section. Settings is pinned to the bottom. */
+export const managerNavSections: Record<string, string> = {
+  "manager-technicians": "People",
+  "manager-customers": "Services",
+  "manager-common-remarks": "Remarks",
+  "manager-approvals": "Review"
+};
+export const managerNavPinned = ["manager-settings"];
 
 function malaysiaToday() {
   const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kuala_Lumpur", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
