@@ -5,11 +5,11 @@ import { loadPendingRemarkRequestCount } from "./remarkRequestsApi";
 import "./ManagerApprovals.css";
 
 export const approvalCards = [
-  ["Location proposals", "Location and format changes", "manager-location-proposals"],
-  ["Site requests", "New sites from technicians", "manager-site-proposals"],
-  ["Repair visits", "Approve or return to technician", "manager-repairs"],
-  ["Service reports", "Reports awaiting approval", "manager-report-approvals"],
-  ["Remark requests", "Typed remarks awaiting approval", "manager-remark-requests"]
+  ["Location Proposals", "Location and format changes", "manager-location-proposals"],
+  ["Site Requests", "New sites from technicians", "manager-site-proposals"],
+  ["Repair Visits", "Approve or return to technician", "manager-repairs"],
+  ["Service Reports", "Reports awaiting approval", "manager-report-approvals"],
+  ["Remark Requests", "Typed remarks awaiting approval", "manager-remark-requests"]
 ] as const;
 type ApprovalRoute = typeof approvalCards[number][2];
 /** The four sources whose sum is the Home badge; the remark-request count is read by the hub itself so Home is unchanged. */
@@ -61,8 +61,8 @@ export function ManagerApprovals({ navigate, onAuthorityFailure }: {
       .catch(() => undefined); // The count is only a badge; the page itself enforces access, so a failure here stays silent.
     return () => controller.abort();
   }, []);
-  return <section className="manager-hub" aria-labelledby="manager-approvals-title">
-    <div className="workspace-heading"><h2 id="manager-approvals-title">Approvals</h2></div>
+  return <section className="manager-hub page-stack" aria-labelledby="manager-approvals-title">
+    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-approvals-title">Approvals</h2></div></div>
     <div className="manager-dashboard manager-hub-grid">{approvalCards.map(([title, description, name]) =>
       <button type="button" className="manager-dashboard-card manager-hub-card" key={name} onClick={() => navigate({ name })}>
         <span className="manager-hub-copy"><strong>{title}</strong><span>{description}</span></span><PendingCount count={name === "manager-remark-requests" ? remarkCount : counts[name]} />

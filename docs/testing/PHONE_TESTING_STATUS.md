@@ -683,3 +683,18 @@ CPH2375 over USB (`http://localhost:8081`, NOT production HTTPS), Chrome (DevToo
 
 ### Not tested
 Installed WebAPK, production HTTPS, real camera capture (the camera path was only denied, never used to take a photo), true airplane mode, a second physical device, the I-81 calendar words (no scheduled days in the demo data), PDF byte comparison before/after P2, a gallery photo in the repair visit review screen, Admin (Supervisor1) role.
+
+---
+
+## Page-template phone check (2026-10-22, build `20261021T163840Z`)
+
+Device CPH2375 (360 x 665 css px, dpr 2), Chrome, dev USB `http://localhost:8081`, technician-demo. Updated the PWA from
+`20261021T101701Z` with **Update now** first. All 7 technician screens (Open work, New Service Visit, Repair List, New Repair Visit,
+Upcoming Services, Completed Services, Add Customer) were measured on the phone: one page width (342 px), one 20 px gap, same title size,
+an eyebrow on every screen, no horizontal scroll, no target under 44 px, no input under 16 px. Not a Manager/Admin pass.
+
+Found and fixed in source (not yet rebuilt): P3 the Repair List card broke `RV-20261021-4` mid-id, and Upcoming Services had doubled
+vertical gaps (child margins on top of the stack gap). Both confirmed fixed on the phone with a live-injected stylesheet.
+The phone session was signed out once during the check (signing the same account out in another browser ends it); signed back in.
+
+Retest on build `20261021T165902Z` (2026-10-22, phone updated with **Update now**): Repair List id `RV-20261021-4` on one line (columns 115/137/32 px), Upcoming Services child margins 0 / stack gap 20 px, no horizontal scroll. Both fixes verified without any injected CSS.

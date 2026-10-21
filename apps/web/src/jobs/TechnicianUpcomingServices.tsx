@@ -121,7 +121,7 @@ export function TechnicianUpcomingServices() {
     </>;
   };
 
-  return <section aria-labelledby="technician-upcoming-title"><h2 id="technician-upcoming-title">Upcoming Services</h2>
+  return <section className="page-stack" aria-labelledby="technician-upcoming-title"><div className="workspace-heading"><div><p className="eyebrow">Technician workspace</p><h2 id="technician-upcoming-title">Upcoming Services</h2></div></div>
     <p>Customers you have serviced, grouped by their next service due date.</p>
     {body()}
   </section>;

@@ -36,12 +36,12 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   const sidebar = page.getByLabel("Primary navigation");
   for (const [label, hash, heading] of [
     ["Technician List", "manager-technicians", "Technician List"],
-    ["Services", "manager-customers", "Customer Configuration"],
+    ["Services", "manager-customers", "Customers"],
     ["Operations", "manager-operations", "Operations"],
     ["Add Customer", "manager-add-customer", "Add Customer"],
     ["Current Services Done", "manager-services-done", "Current Services Done"],
     ["Next Upcoming Service", "manager-upcoming-services", "Next Upcoming Service"],
-    ["Service Common Remarks", "manager-common-remarks", "Service common remarks"],
+    ["Service Common Remarks", "manager-common-remarks", "Service Common Remarks"],
     ["Service Catalog", "manager-service-catalog", "Service Catalog"],
     ["Approvals", "manager-approvals", "Approvals"],
     ["Settings", "manager-settings", "Settings"]
@@ -88,11 +88,11 @@ test("wide desktop: Customer Configuration, Add Customer, Service Catalog, Compa
   await page.getByRole("button", { name: /^Manager Monitor/ }).click();
   const sidebar = page.getByLabel("Primary navigation");
   for (const [label, heading, selector] of [
-    ["Services", "Customer Configuration", 'section[aria-labelledby="manager-customers-title"]'],
+    ["Services", "Customers", 'section[aria-labelledby="manager-customers-title"]'],
     ["Add Customer", "Add Customer", 'section[aria-labelledby="manager-add-customer-title"]'],
     ["Service Catalog", "Service Catalog", 'section[aria-labelledby="manager-service-catalog-title"]'],
     ["Company Profile", "Company Profile", 'section[aria-labelledby="manager-company-profile-title"]'],
-    ["Email reminders", "Email reminders", 'section[aria-labelledby="email-reminder-title"]']
+    ["Email reminders", "Email Reminders", 'section[aria-labelledby="email-reminder-title"]']
   ] as const) {
     // Settings children retain the same layout protections after moving off the sidebar.
     if (label === "Company Profile" || label === "Email reminders") {

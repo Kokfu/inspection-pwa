@@ -52,8 +52,8 @@ export function AwaitingRepairVisitsBanner({ role, onAuthorityFailure }: Omit<Pr
 /** Admin/Manager "Repair Visits" page. */
 export function ManagerRepairVisits(props: Props) {
   return (
-    <section className="manager-home" aria-labelledby="manager-repair-visits-title">
-      <h2 id="manager-repair-visits-title">Repair Visits</h2>
+    <section className="manager-home page-stack" aria-labelledby="manager-repair-visits-title">
+      <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-repair-visits-title">Repair Visits</h2></div></div>
       <AwaitingRepairVisitsPanel {...props} />
     </section>
   );

@@ -110,7 +110,7 @@ export function ManagerServicesDone({ actor, supervisor = false, message = "", o
     }
   }, [customers, technicians, historyRevision, repairVisits.reload]);
 
-  return <section className="manager-home" aria-label="Current Services Done">
+  return <section className="manager-home page-stack" aria-label="Current Services Done">
     <CustomerTimelineRoute actor={actor} mode="server" initialStatus="closed" showBack={false}
       heading="Current Services Done" eyebrow="Manager workspace" searchable customerOptions={options}
       customerId={selectedCustomer?.customer.id} loadVisits={loadVisits}

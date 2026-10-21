@@ -122,7 +122,7 @@ export function TechnicianLocationProposal({ job, actorUserId, canUseServer, onB
     [...(selectedSystem.locations ?? []), { displayName: patch.displayName, zoneId: candidateZoneId }]
   ) : [];
 
-  return <section className="manager-home technician-location-proposal" aria-labelledby="technician-location-proposal-title">
+  return <section className="manager-home page-stack technician-location-proposal" aria-labelledby="technician-location-proposal-title">
     <button type="button" className="secondary-command back-command" onClick={onBack}>Back to Service Visit</button>
     <div className="workspace-heading">
       <div>

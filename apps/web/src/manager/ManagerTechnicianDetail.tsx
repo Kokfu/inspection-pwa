@@ -100,7 +100,7 @@ export function ManagerTechnicianDetail({ technicianId, onBack, onViewServiceVis
   </li>;
 
   const active = tabs[tab];
-  return <section className="manager-home" aria-labelledby="manager-technician-title">
+  return <section className="manager-home page-stack" aria-labelledby="manager-technician-title">
     <button type="button" className="secondary-command" onClick={onBack}>Back to Technicians</button>
     <div className="workspace-heading">
       <div><p className="eyebrow">Technician</p><h2 id="manager-technician-title">{technician?.username ?? (technician === null ? "Technician not found" : "Technician")}</h2></div>

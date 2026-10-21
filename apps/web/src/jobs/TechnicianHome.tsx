@@ -323,7 +323,7 @@ export function TechnicianHome({
       onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
   };
 
-  return <section className="technician-home" aria-labelledby="technician-home-title">
+  return <section className="technician-home page-stack" aria-labelledby="technician-home-title">
     {!selectedJob ? <div className="home-toolbar">
       <div className="workspace-heading"><div>
         <p className="eyebrow">Technician workspace</p>

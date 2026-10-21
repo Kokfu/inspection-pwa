@@ -41,8 +41,8 @@ export function ManagerEmailReminders({ onAuthorityFailure }: { onAuthorityFailu
     try { await saveReminderStaffEmail(person.id, email.trim().toLowerCase() || null); await refresh(); setMessage("Staff email saved."); }
     catch (error) { fail(error); } finally { setBusy(false); }
   }
-  return <section className="manager-reminder-settings" aria-labelledby="email-reminder-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Manager Settings</p><h2 id="email-reminder-title">Email reminders</h2>
+  return <section className="manager-reminder-settings page-stack" aria-labelledby="email-reminder-title">
+    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="email-reminder-title">Email Reminders</h2>
       <p>At 09:00 Asia/Kuala_Lumpur on the day before a customer’s next service date, the worker emails each selected recipient individually.</p></div></div>
     {message && <p role="alert" className="form-message">{message}</p>}
     {loading && <p role="status">Loading email reminders…</p>}

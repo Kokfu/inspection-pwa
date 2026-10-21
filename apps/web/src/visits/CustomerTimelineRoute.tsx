@@ -59,7 +59,7 @@ export function CustomerTimelineRoute({ customerId, actor, mode, initialStatus, 
   const needle = query.trim().toLocaleLowerCase();
   const visibleCustomers = customers.filter(c => c.id === customerId || !needle ||
     `${c.displayName} ${c.code ?? ""}`.toLocaleLowerCase().includes(needle));
-  return <section className="workspace customer-timeline-route">
+  return <section className="workspace page-stack customer-timeline-route">
     {showBack && <button type="button" className="secondary-command" onClick={onBack}>Back</button>}
     {heading && <div className="workspace-heading"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h2>{heading}</h2></div></div>}
     <div className="customer-timeline-picker">

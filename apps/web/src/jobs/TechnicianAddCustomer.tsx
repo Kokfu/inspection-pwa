@@ -104,7 +104,7 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
   const locked = draft?.status !== "Draft";
   const created = draft?.status === "Synced" ? draft.createdCustomer : undefined;
   const similar = findSimilarCustomers(draft?.displayName ?? "", customers);
-  return <section aria-labelledby="technician-add-customer-title">
+  return <section className="page-stack" aria-labelledby="technician-add-customer-title">
     <div className="workspace-heading"><div><p className="eyebrow">Technician workspace</p><h2 id="technician-add-customer-title">Add Customer</h2><p>Create a shared customer and assign its initial services.</p></div></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
     {saved && !error ? <p role="status">Customer draft saved on this device.</p> : null}

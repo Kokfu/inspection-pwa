@@ -40,9 +40,9 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
   // Opening the visit asks the server whether it was returned or approved. A failure is shown, not hidden.
   useEffect(() => { if (connected && visit?.createConfirmed) void refresh(); }, [connected, visit?.createConfirmed, refresh]);
 
-  if (!loaded) return <section className="rv-page"><p role="status">Loading repair visit…</p></section>;
-  if (failed) return <section className="rv-page"><p className="rv-error" role="alert">This repair visit could not be read from the device.</p><a className="secondary-command" href="#/repair-visits">Back to Repair List</a></section>;
-  if (!visit) return <section className="rv-page" aria-labelledby="rv-missing"><h2 id="rv-missing">Repair visit not found</h2>
+  if (!loaded) return <section className="rv-page page-stack"><p role="status">Loading repair visit…</p></section>;
+  if (failed) return <section className="rv-page page-stack"><p className="rv-error" role="alert">This repair visit could not be read from the device.</p><a className="secondary-command" href="#/repair-visits">Back to Repair List</a></section>;
+  if (!visit) return <section className="rv-page page-stack" aria-labelledby="rv-missing"><h2 id="rv-missing">Repair visit not found</h2>
     <p>It is not on this device. It may have been deleted, or it belongs to another technician.</p><a className="secondary-command" href="#/repair-visits">Back to Repair List</a></section>;
 
   const editable = isEditable(visit);
@@ -114,7 +114,7 @@ export function RepairVisitForm({ visitUuid, canUseServer, onSync }: { visitUuid
     } catch (caught) { setError(text(caught, "The report could not be downloaded.")); }
   }
 
-  return <section className="rv-page" aria-labelledby="rv-form-title">
+  return <section className="rv-page page-stack" aria-labelledby="rv-form-title">
     <a className="secondary-command rv-back" href="#/repair-visits">← Back to Repair List</a>
     <header className="rv-form-header">
       <div><p className="eyebrow">Repair visit</p><h2 id="rv-form-title">{visit.customerName ?? "Customer"}{visit.siteName ? ` — ${visit.siteName}` : ""}</h2></div>

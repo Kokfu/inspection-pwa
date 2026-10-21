@@ -324,7 +324,7 @@ export function NewServiceVisit({ onCreated, onCancel, initialCustomerId }: {
     } finally { setCreating(false); }
   }
 
-  return <section className="new-service-visit" aria-labelledby="new-service-visit-title">
+  return <section className="new-service-visit page-stack" aria-labelledby="new-service-visit-title">
     <button type="button" className="secondary-command back-command" onClick={onCancel} disabled={creating}>← Back to My Jobs</button>
     {restored ? <button type="button" className="secondary-command" onClick={startOver} disabled={creating}>Start over</button> : null}
     <div className="setup-card">

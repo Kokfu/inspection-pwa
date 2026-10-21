@@ -2,14 +2,6 @@
   --danger-fill: var(--danger-ink);
   --on-danger: var(--white);
 }
-.manager-hub {
-  display: grid;
-  width: min(var(--page-width), 100%);
-  min-width: 0;
-  gap: var(--space-4);
-  align-content: start;
-}
-.manager-hub h2 { margin: 0; font-size: var(--text-heading); }
 .manager-hub-grid { grid-template-columns: minmax(0, 1fr); }
 .manager-hub-card { gap: var(--space-3); min-height: var(--tap); }
 .manager-hub-copy { display: grid; min-width: 0; gap: var(--space-2); overflow-wrap: anywhere; }

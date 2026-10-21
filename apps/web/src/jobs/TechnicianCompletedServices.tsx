@@ -9,7 +9,7 @@ export function TechnicianCompletedServices({ jobs, canViewReport, jobProgress, 
   onViewFinalReport: (job: InspectionJob) => void;
 }) {
   const completed = completedServiceJobs(jobs);
-  return <section className="technician-home" aria-labelledby="technician-completed-title">
+  return <section className="technician-home page-stack" aria-labelledby="technician-completed-title">
     <div className="workspace-heading"><div><p className="eyebrow">Technician workspace</p><h2 id="technician-completed-title">Completed Services</h2><p>Your completed service visits on this device.</p></div></div>
     {completed.length ? <ul className="job-card-list">{completed.map((job) =>
       <ServiceJobCard key={job.id} job={job} progress={jobProgress(job)} canViewReport={canViewReport}

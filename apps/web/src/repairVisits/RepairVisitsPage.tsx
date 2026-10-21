@@ -49,9 +49,9 @@ export function RepairVisitsPage({ actorId, canUseServer, onSync }: { actorId: n
     catch (error) { setNotice(error instanceof Error ? error.message : "The repair visit could not be queued again."); }
   }
 
-  return <section className="rv-page" aria-labelledby="rv-list-title">
+  return <section className="rv-page page-stack" aria-labelledby="rv-list-title">
     <header className="rv-header">
-      <div><p className="eyebrow">Technician</p><h2 id="rv-list-title">Repair List</h2></div>
+      <div><p className="eyebrow">Technician workspace</p><h2 id="rv-list-title">Repair List</h2></div>
       <div className="rv-header-actions">
         <a className="rv-primary-link" href="#/repair-visits/new">+ New Repair Visit</a>
         <button type="button" className="secondary-command" disabled={!canUseServer || !connected || refreshing} onClick={() => void refresh()}>{refreshing ? "Refreshing…" : "Refresh"}</button>

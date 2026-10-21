@@ -83,7 +83,7 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
     } finally { setSaving(false); }
   };
 
-  return <section aria-labelledby="manager-add-customer-title">
+  return <section className="page-stack" aria-labelledby="manager-add-customer-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-add-customer-title">Add Customer</h2><p>Create a new customer and assign its initial services.</p></div></div>
     {error || catalogMessage ? <p className="form-message" role="alert">{error || catalogMessage}</p> : null}
     <form className="report-summary setup-card customer-form-card" onSubmit={submit}>

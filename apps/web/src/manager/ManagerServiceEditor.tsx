@@ -96,14 +96,14 @@ export function ManagerServiceEditor({ customer, systemKey, onBack, onSaved, onA
 
   const backLabel = `Back to ${customer.customer.displayName}`;
   if (!entry) {
-    return <section className="manager-home" aria-labelledby="manager-service-title">
+    return <section className="manager-home page-stack" aria-labelledby="manager-service-title">
       <button type="button" className="secondary-command" onClick={onBack}>{backLabel}</button>
       <h2 id="manager-service-title">Service not found</h2>
       <p className="empty-state">This service is not configured for {customer.customer.displayName}.</p>
     </section>;
   }
 
-  return <section className="manager-home manager-service-editor" aria-labelledby="manager-service-title">
+  return <section className="manager-home page-stack manager-service-editor" aria-labelledby="manager-service-title">
     <button type="button" className="secondary-command" onClick={back}>{backLabel}</button>
     <div className="workspace-heading">
       <div>

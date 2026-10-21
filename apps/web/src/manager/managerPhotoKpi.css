@@ -1,5 +1,5 @@
 /* P4: Photo KPI page. Mobile-first; tokens only. Camera = solid, gallery = hatched, unknown = light grey, always with text beside it. */
-.manager-photo-kpi { display: grid; gap: var(--space-4); min-width: 0; }
+.manager-photo-kpi { min-width: 0; }
 .manager-photo-kpi :is(h2, h3, h4, p) { margin: 0; }
 .manager-photo-kpi .report-summary { display: grid; gap: var(--space-4); min-width: 0; }
 .photo-kpi-note { color: var(--muted-on-sunken); }

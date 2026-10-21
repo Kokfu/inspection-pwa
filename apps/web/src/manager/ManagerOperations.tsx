@@ -109,7 +109,7 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
     setDeletingId(visit.id);
     try { await onDelete(visit); } finally { setDeletingId(null); }
   };
-  if (selectedVisit) return <section className="manager-home" aria-labelledby="manager-detail-title">
+  if (selectedVisit) return <section className="manager-home page-stack" aria-labelledby="manager-detail-title">
     <button type="button" className="secondary-command" onClick={onBack}>{backLabel}</button>
     <div className="workspace-heading"><div><p className="eyebrow">Service visit</p><h2 id="manager-detail-title">{selectedVisit.customer}</h2></div>
       <span className={`status-badge status-badge--${selectedVisit.status === "closed" ? "complete" : "draft"}`}>{selectedVisit.status === "closed" ? "Service Completed" : "In Progress"}</span></div>
@@ -150,7 +150,7 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
     </tr>;
   };
   const chip = (value: StatusFilter, label: string, count: number) => <button type="button" className="ops-chip" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>{label} <span className="ops-chip-count">{count}</span></button>;
-  return <section className="manager-home" aria-labelledby="manager-home-title"><div className="home-toolbar"><div><p className="eyebrow">{supervisor ? "Admin workspace" : "Manager workspace"}</p><h2 id="manager-home-title">Operations</h2><p>{supervisor ? "Read-only service visit visibility." : "Service visit visibility and management."}</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>{loading ? "Refreshing…" : "Refresh"}</button></div>
+  return <section className="manager-home page-stack" aria-labelledby="manager-home-title"><div className="home-toolbar"><div><p className="eyebrow">{supervisor ? "Admin workspace" : "Manager workspace"}</p><h2 id="manager-home-title">Operations</h2><p>{supervisor ? "Read-only service visit visibility." : "Service visit visibility and management."}</p></div><button type="button" className="secondary-command" disabled={loading} onClick={() => void onRefresh()}>{loading ? "Refreshing…" : "Refresh"}</button></div>
     {message ? <p className="form-message" role="alert">{message}</p> : null}
     <div className="ops-chips" role="group" aria-label="Service visit status">{chip("open", "Open", openCount)}{chip("closed", "Completed", completedCount)}{chip("all", "Total", filtered.length)}</div>
     <div className="manager-filter-form ops-filters"><label>Search<input type="search" value={search} placeholder="Customer, site or SV number" onChange={(event) => setSearch(event.target.value)} /></label><label>Technician<select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}><option value="">All technicians</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.displayName}</option>)}</select></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={!filtersActive} onClick={() => { setTechnicianId(""); setSearch(""); setStatusFilter("all"); setSort(null); }}>Clear filters</button></div></div>

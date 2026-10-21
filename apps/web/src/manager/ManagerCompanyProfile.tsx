@@ -104,7 +104,7 @@ export function ManagerCompanyProfile({ onAuthorityFailure }: {
   const field = (label: string, value: string, onChange: (value: string) => void, options: { maxLength: number; required?: boolean; type?: string } = { maxLength: 500 }) =>
     <label>{label}<input type={options.type ?? "text"} autoComplete="off" maxLength={options.maxLength} required={options.required} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
 
-  return <section aria-labelledby="manager-company-profile-title">
+  return <section className="page-stack" aria-labelledby="manager-company-profile-title">
     <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="manager-company-profile-title">Company Profile</h2><p>Edit the company letterhead shown on every generated PDF report — no code change or redeploy needed.</p></div></div>
     {message ? <p role="status" className="form-message">{message}</p> : null}
     {error ? <p role="alert" className="form-message">{error}</p> : null}
@@ -112,7 +112,7 @@ export function ManagerCompanyProfile({ onAuthorityFailure }: {
     {!loading && draft ? <div className="manager-company-logo">
       <p className="job-card-label">Report logo</p>
       <img key={logoVersion} src={managerCompanyLogoUrl(logoVersion)} alt="Current company logo, or a placeholder if none is set"
-        style={{ width: 96, height: 96, objectFit: "contain", border: "1px solid var(--border-subtle, #ccc)", background: "#fff" }}
+        style={{ width: 96, height: 96, objectFit: "contain", border: "1px solid var(--border)", background: "var(--white)" }}
         onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} onLoad={(event) => { event.currentTarget.style.visibility = "visible"; }} />
       <input type="file" accept="image/png,image/jpeg" disabled={logoBusy} onChange={(event) => pickLogo(event.target.files?.[0] ?? null)} />
       <div className="inline-actions">

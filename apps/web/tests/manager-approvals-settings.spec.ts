@@ -74,7 +74,7 @@ const overflow = async (page: Page) => expect(await page.evaluate(() => document
 test("hub cards have ordered red counts and open their pages; phone Back returns to Approvals", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
   const requests = await install(page); await enter(page);
-  await expect(cards(page).locator("strong")).toHaveText(["Location proposals", "Site requests", "Repair visits", "Service reports", "Remark requests"]);
+  await expect(cards(page).locator("strong")).toHaveText(["Location Proposals", "Site Requests", "Repair Visits", "Service Reports", "Remark Requests"]);
   await expect(cards(page).locator(".approval-pending-count")).toHaveText(["2", "1", "1", "2"]);
   for (const badge of await cards(page).locator(".approval-pending-count").all()) {
     expect(await badge.evaluate(el => { const css = getComputedStyle(el), root = getComputedStyle(document.documentElement), box = el.getBoundingClientRect();
@@ -85,7 +85,7 @@ test("hub cards have ordered red counts and open their pages; phone Back returns
     await expect(badge).toHaveAttribute("aria-label", /\d+ pending/);
   }
   expect(requests).toContain("/api/manager/service-visits?reportApproval=awaiting_approval&limit=1");
-  for (const [title, hash, heading] of [["Location proposals", "manager-location-proposals", "Location Proposals"], ["Site requests", "manager-site-proposals", "Site Requests"], ["Repair visits", "manager-repairs", "Repair Visits"], ["Service reports", "manager-report-approvals", "Service reports"]]) {
+  for (const [title, hash, heading] of [["Location proposals", "manager-location-proposals", "Location Proposals"], ["Site requests", "manager-site-proposals", "Site Requests"], ["Repair visits", "manager-repairs", "Repair Visits"], ["Service Reports", "manager-report-approvals", "Service Reports"]]) {
     await cards(page).filter({ hasText: title }).click();
     await expect(page).toHaveURL(new RegExp(`#/${hash}$`));
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
@@ -163,7 +163,7 @@ test("Settings is Manager-only, last, and contains both removed sidebar destinat
   await expect(nav.locator("button").nth(-2)).toHaveText("Photo KPI");
   await expect(nav.locator("button").nth(-4)).toHaveText("Service Catalog");
   await expect(nav.locator("button").filter({ hasText: /Email reminders|Company Profile|Location Proposals|Site Requests|Repair Visits/ })).toHaveCount(0);
-  await expect(cards(page).locator("strong")).toHaveText(["Email reminders", "Company profile"]);
+  await expect(cards(page).locator("strong")).toHaveText(["Email Reminders", "Company Profile"]);
   for (const [title, hash] of [["Email reminders", "manager-email-reminders"], ["Company profile", "manager-company-profile"]]) {
     await cards(page).filter({ hasText: title }).click(); await expect(page).toHaveURL(new RegExp(`#/${hash}$`));
     await page.getByRole("button", { name: "Back to Settings" }).click();

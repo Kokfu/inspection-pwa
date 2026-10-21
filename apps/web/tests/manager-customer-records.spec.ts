@@ -50,7 +50,7 @@ test("desktop customer actions stay single-line, empty contacts and long text ar
   for (const [width, height] of [[375, 800], [360, 800], [768, 1024], [1280, 800]]) {
     await page.setViewportSize({ width, height });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    if (width >= 768) {
+    if (width >= 1200) {
       await row.locator(".customer-name").hover();
       await expect(row.locator(".customer-name")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     }
@@ -215,7 +215,7 @@ test("customers table search, responsive cards, tabs, edit round-trip and discar
   for (const [width, height] of [[360, 800], [768, 1024], [1280, 800]]) {
     await page.setViewportSize({ width, height });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.locator(".customer-records-table thead")).toHaveCSS("display", width < 768 ? "none" : "table-header-group");
+    await expect(page.locator(".customer-records-table thead")).toHaveCSS("display", width < 1200 ? "none" : "table-header-group");
     await page.screenshot({ path: test.info().outputPath(`customers-${width}.png`), fullPage: true });
   }
   await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();

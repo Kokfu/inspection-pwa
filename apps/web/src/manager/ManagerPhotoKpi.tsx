@@ -149,8 +149,8 @@ export function ManagerPhotoKpi({ onAuthorityFailure }: { onAuthorityFailure: (e
   const matchCount = (data?.technicians ?? []).filter(matches).length;
   const periodLabel = period === "all" ? "All time" : monthName(period);
 
-  return <section className="manager-photo-kpi" aria-labelledby="photo-kpi-title">
-    <div className="workspace-heading"><div><p className="eyebrow">Photo source</p><h2 id="photo-kpi-title">Photo KPI</h2></div></div>
+  return <section className="manager-photo-kpi page-stack" aria-labelledby="photo-kpi-title">
+    <div className="workspace-heading"><div><p className="eyebrow">Manager workspace</p><h2 id="photo-kpi-title">Photo KPI</h2></div></div>
     <p className="photo-kpi-note">Photos in accepted service visits and repair visits, by how they were added. Gallery means not taken with the in-app camera; unknown means the source was not recorded. Months use Malaysia time.</p>
 
     <div className="photo-kpi-period" role="group" aria-label="Period">

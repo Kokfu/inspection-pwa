@@ -162,7 +162,7 @@ export function NewRepairVisit({ canUseServer, onSync }: { canUseServer: boolean
     finally { setDownloading(false); }
   }
 
-  return <section className="rv-page" aria-labelledby="rv-new-title">
+  return <section className="rv-page page-stack" aria-labelledby="rv-new-title">
     <a className="secondary-command rv-back" href="#/repair-visits">← Back to Repair List</a>
     <div className="setup-card">
       <div className="workspace-heading"><div><p className="eyebrow">Repair visit setup</p><h2 id="rv-new-title">New Repair Visit</h2>
