@@ -112,7 +112,7 @@ test("technician choice survives a reload for the same verified inspector, in th
   await enterTechnician(page, api);
   await page.reload();
   await expect(chooser(page)).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "My Service Jobs" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open Work" })).toBeVisible();
   await page.reload(); // a second reload still restores it
   await expect(chooser(page)).toHaveCount(0);
   // A NEW tab has its own sessionStorage, so it starts at the chooser.
