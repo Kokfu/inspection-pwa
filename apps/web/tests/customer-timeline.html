@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module">
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { CustomerTimeline } from "/src/visits/CustomerTimeline.tsx";
+import { CustomerTimelineRoute } from "/src/visits/CustomerTimelineRoute.tsx";
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+import "/src/styles/app.css";
+import "/src/visits/CustomerTimeline.css";
+await activateUserWorkspace(1);
+const actor = { id: 1, username: "test", role: new URLSearchParams(location.search).get("role") === "admin" ? "admin" : "inspector" };
+window.timelineTest = { cache: () => localDatabase.referenceData.toArray(), switchUser: () => activateUserWorkspace(2) };
+const routeMode = new URLSearchParams(location.search).has("route");
+if (routeMode) await localDatabase.referenceData.put({key:"customers:active",payload:[{id:"10000000-0000-4000-8000-000000000001",displayName:"Cached customer"}],version:"1",fetchedAt:new Date().toISOString(),expiresAt:new Date().toISOString()});
+createRoot(document.getElementById("root")).render(routeMode ? React.createElement(CustomerTimelineRoute, {
+ actor, mode: "server", onCustomer() {}, onOpen() {}, onBack() {}
+}) : React.createElement(CustomerTimeline, {
+ customerId: "10000000-0000-4000-8000-000000000001", actor, mode: "server",
+ onOpen: visit => { document.body.dataset.opened = visit.kind + ":" + visit.id; }
+}));
+</script></body></html>

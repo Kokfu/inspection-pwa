@@ -35,7 +35,12 @@ export function createRepairVisitWritesRouter(database: Database = pool) {
     try { res.json(await listRepairVisits(database,req.currentUser!)); } catch(e) { next(e); }
   });
   router.get("/repair-visits/:visitId", async (req,res,next) => {
-    try { res.json(await readRepairVisit(database,req.currentUser!,String(req.params.visitId))); } catch(e) { next(e); }
+    try { res.json(await readRepairVisit(database,req.currentUser!,String(req.params.visitId))); } catch(e) {
+      if (e instanceof RepairError && e.status === 403 && req.currentUser!.role === "inspector") {
+        res.status(403).json({ error: e.code, message: "Only the technician who owns this repair visit can open its details." }); return;
+      }
+      next(e);
+    }
   });
   router.get("/repair-visits/:visitId/photos/:photoUuid/content", async (req,res,next) => {
     try {

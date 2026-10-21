@@ -65,7 +65,9 @@ export type ReportApprovalEvent = {
 };
 
 export type ManagerCustomer = {
-  customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null; fax?: string | null; contractNumber?: string | null; serviceFrequency?: string | null };
+  customer: { id: string; code: string; displayName: string; nextServiceDueDate?: string | null; contactPhone?: string | null; contactPerson?: string | null; fax?: string | null; contractNumber?: string | null; serviceFrequency?: string | null;
+    /** Manager verification flag; informational only. Absent is treated as confirmed. */
+    confirmed?: boolean; confirmedAt?: string | null; createdBy?: string | null; createdAt?: string };
   sites: Array<{ id: string; code: string; displayName: string; address?: string | null }>;
   archivedSites?: Array<{ id: string; code: string; displayName: string; address: string | null; archived: true }>;
   configuration: {
@@ -235,6 +237,12 @@ export async function resetManagerTechnicianPassword(id: number, password: strin
 export async function saveCustomerNextServiceDueDate(id: string, nextServiceDueDate: string | null): Promise<ManagerCustomer> {
   const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/next-service-due-date`, "PUT", "customer", { nextServiceDueDate });
   if (!isManagerCustomer(result) || result.customer.id !== id || result.customer.nextServiceDueDate !== nextServiceDueDate) unavailable();
+  return result;
+}
+/** `POST /manager/customers/:id/confirm` — idempotent; only the exact customer, now confirmed, is accepted. */
+export async function confirmManagerCustomer(id: string): Promise<ManagerCustomer> {
+  const result = await managerRequest<unknown>(`/api/manager/customers/${encodeURIComponent(id)}/confirm`, "POST", "customer");
+  if (!isManagerCustomer(result) || result.customer.id !== id || result.customer.confirmed !== true) unavailable();
   return result;
 }
 export async function saveCustomerContactDetails(
@@ -954,6 +962,10 @@ function isManagerCustomer(value: unknown): value is ManagerCustomer {
       || (value.customer.fax !== undefined && value.customer.fax !== null && typeof value.customer.fax !== "string")
       || (value.customer.contractNumber !== undefined && value.customer.contractNumber !== null && typeof value.customer.contractNumber !== "string")
       || (value.customer.serviceFrequency !== undefined && value.customer.serviceFrequency !== null && !["MONTHLY", "QUARTERLY", "HALF_YEARLY", "ANNUALLY"].includes(String(value.customer.serviceFrequency)))
+      || (value.customer.confirmed !== undefined && typeof value.customer.confirmed !== "boolean")
+      || (value.customer.confirmedAt !== undefined && value.customer.confirmedAt !== null && typeof value.customer.confirmedAt !== "string")
+      || (value.customer.createdBy !== undefined && value.customer.createdBy !== null && typeof value.customer.createdBy !== "string")
+      || (value.customer.createdAt !== undefined && (typeof value.customer.createdAt !== "string" || Number.isNaN(Date.parse(value.customer.createdAt))))
     || !isPlainObject(value.configuration)
       || typeof value.configuration.id !== "string"
       || typeof value.configuration.revision !== "number"

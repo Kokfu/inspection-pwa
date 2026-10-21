@@ -25,12 +25,12 @@ import {
 } from "./jobProgress";
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
-import { KpiTiles } from "../manager/KpiTiles";
-import { ServiceJobCard, completedServiceJobs } from "./ServiceJobCard";
+import { ServiceJobCard } from "./ServiceJobCard";
 import { isLocalVisitReference, presentLocalVisit, withConfirmedReference } from "./offlineServiceVisitStore";
 import { deleteUnsyncedLocalVisit, prefetchCustomerSitesForOffline, requeueOfflineServiceVisit } from "./offlineServiceVisitLocal";
 import { useOfflineServiceVisits } from "./useOfflineServiceVisits";
-import { TechnicianCompletedServices } from "./TechnicianCompletedServices";
+import { useLocalRepairVisits } from "../repairVisits/useRepairVisits";
+import { presentRepairVisit, visitNumberText } from "../repairVisits/repairVisitPresentation";
 import { offersAddLocation } from "../manager/managerApi";
 import type {
   ServerMasterSystemInspectionSummary
@@ -75,7 +75,6 @@ export function deriveWetChemicalAuthorityProgress(
 }
 
 type TechnicianHomeProps = {
-  completedOnly?: boolean;
   authState: ClientAuthState;
   jobs: InspectionJob[];
   inspections: InspectionRecord[];
@@ -118,7 +117,6 @@ type TechnicianHomeProps = {
 };
 
 export function TechnicianHome({
-  completedOnly = false,
   authState,
   jobs: serverJobs,
   inspections,
@@ -147,12 +145,7 @@ export function TechnicianHome({
   onOpenAutomaticSprinkler, onOpenDryWetRiser, onOpenFireAlarm, onOpenHydrant, onOpenPortableFireExtinguisher, onOpenSmokeVentilation, onOpenFireIntercom, onOpenFireRatedRollerShutter,
   onOpenLocationProposal
 }: TechnicianHomeProps) {
-  const tabKey = `technician-home-tab:${"user" in authState ? authState.user?.id ?? "locked" : "locked"}`;
-  const [tab, setTab] = useState<"progress" | "completed">(() =>
-    sessionStorage.getItem(tabKey) === "completed" ? "completed" : "progress");
-  const selectTab = (value: "progress" | "completed") => {
-    setTab(value); sessionStorage.setItem(tabKey, value);
-  };
+  const repairs = useLocalRepairVisits();
   const { visits: localVisits, loaded: localVisitsLoaded } = useOfflineServiceVisits();
   const localById = useMemo(() => new Map(localVisits.map((visit) => [visit.clientJobUuid, visit])), [localVisits]);
   // Visits made on this device appear (and show the server's SV number once confirmed) without waiting for a server list.
@@ -307,7 +300,10 @@ export function TechnicianHome({
     : undefined;
   const newestFirst = (a: InspectionJob, b: InspectionJob) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id);
   const currentJobs = jobs.filter((job) => job.status !== "closed").sort(newestFirst);
-  const serviceHistory = completedServiceJobs(jobs);
+  const actorId = "user" in authState ? authState.user?.id : undefined;
+  const openRepairs = repairs.visits.filter(visit => visit.createdByUserId === actorId
+    && presentRepairVisit(visit).tab === "in-progress")
+    .sort((a, b) => b.visitDate.localeCompare(a.visitDate) || b.localCreatedAt.localeCompare(a.localCreatedAt));
   const jobCard = (job: InspectionJob) => {
     const progress = jobProgress(job);
     const local = localPresentation(job.id);
@@ -317,17 +313,15 @@ export function TechnicianHome({
       onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
   };
 
-  if (completedOnly) return <TechnicianCompletedServices jobs={jobs} canViewReport={canUseServer}
-    jobProgress={jobProgress} onSelectJob={onSelectJob} onViewFinalReport={onViewFinalReport} />;
-
   return <section className="technician-home" aria-labelledby="technician-home-title">
     {!selectedJob ? <div className="home-toolbar">
       <div className="workspace-heading"><div>
         <p className="eyebrow">Technician workspace</p>
-        <h2 id="technician-home-title">My Service Jobs</h2>
-        <p>{jobs.length} {jobs.length === 1 ? "job" : "jobs"} available on this device</p>
+        <h2 id="technician-home-title">Open work</h2>
+        <p>Unfinished service and repair visits saved on this device</p>
       </div></div>
       <div className="home-utility-actions">
+        <a className="secondary-command" href="#/technician-completed-services">Recent completed</a>
         <button type="button" className="new-service-primary" onClick={onNewServiceVisit} disabled={(!canUseServer && authState.status !== "offline-unverified") || loading}>+ New Service Visit</button>
         <button type="button" className="secondary-command" disabled={!canUseServer || loading} onClick={() => void onRefresh()}>
           {loading ? "Refreshing\u2026" : "Refresh"}
@@ -493,27 +487,23 @@ export function TechnicianHome({
       </section>
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-labelledby="available-jobs-title">
-        <h3 className="visually-hidden" id="available-jobs-title">Available service jobs</h3>
-        <KpiTiles label="My service visits summary" items={[{ label: "In Progress", value: currentJobs.length }, { label: "Completed", value: serviceHistory.length }]} />
-        <div className="job-tabs" role="tablist" aria-label="Service visits">
-          {(["progress", "completed"] as const).map((value) => <button
-            key={value} type="button" role="tab" id={`jobs-tab-${value}`}
-            aria-selected={tab === value} aria-controls="jobs-tab-panel" tabIndex={tab === value ? 0 : -1}
-            onClick={() => selectTab(value)}
-            onKeyDown={(event) => {
-              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-              event.preventDefault();
-              const next = event.key === "Home" ? "progress" : event.key === "End" ? "completed" : tab === "progress" ? "completed" : "progress";
-              selectTab(next); document.getElementById(`jobs-tab-${next}`)?.focus();
-            }}>
-            {value === "progress" ? `In Progress (${currentJobs.length})` : `Completed (${serviceHistory.length})`}
-          </button>)}
-        </div>
-        <div id="jobs-tab-panel" role="tabpanel" aria-labelledby={`jobs-tab-${tab}`} tabIndex={0}>
-          {(tab === "progress" ? currentJobs : serviceHistory).length
-            ? <ul className="job-card-list">{(tab === "progress" ? currentJobs : serviceHistory).map(jobCard)}</ul>
-            : <p className="empty-state">{tab === "progress" ? "No visits in progress. Start a new service visit to begin." : "No completed service visits yet."}</p>}
-        </div>
+        <h3 id="available-jobs-title">Service visits ({currentJobs.length})</h3>
+        {currentJobs.length ? <ul className="job-card-list">{currentJobs.map(jobCard)}</ul>
+          : <p className="empty-state">No open service visits. Start a new service visit to begin.</p>}
+        <h3>Repair visits ({openRepairs.length})</h3>
+        {!repairs.loaded ? <p role="status">Loading repair visits...</p>
+          : repairs.failed ? <p role="alert">The repair visits on this device could not be read. Open Repair List and reload.</p>
+          : openRepairs.length ? <ul className="job-card-list">{openRepairs.map(visit => {
+            const state = presentRepairVisit(visit);
+            return <li key={visit.clientUuid}><a className="job-card" href={`#/repair-visits/${encodeURIComponent(visit.clientUuid)}`}>
+              <span className="job-card-heading"><strong>Repair visit - {visitNumberText(visit)}</strong>
+                <span className={`status-badge status-badge--${state.tone === "attention" ? "attention" : state.tone === "syncing" ? "syncing" : "draft"}`}>{state.label}</span></span>
+              <span>{visit.visitDate}</span>
+              {state.reason ? <span>{state.reason}</span> : null}
+            </a></li>;
+          })}</ul> : <p className="empty-state">No open repair visits saved on this device.</p>}
+        <p className="support-metadata">Repair visits show the last known state on this device. Open Repair List to refresh, retry sync or start a visit.</p>
+        <a className="secondary-command" href="#/repair-visits">Repair List</a>
       </section>
     ) : null}
   </section>;

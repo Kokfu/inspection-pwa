@@ -1,0 +1,9 @@
+.customer-similarity {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  overflow-wrap: anywhere;
+}
+.customer-similarity .inline-actions { gap: var(--space-2); flex-wrap: wrap; }
+.customer-similarity button { min-height: var(--tap); white-space: normal; overflow-wrap: anywhere; max-width: 100%; }

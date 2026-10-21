@@ -536,12 +536,42 @@ inspectionJobsRouter.put("/inspection-jobs/:jobId/archive", requireRole("admin",
   }
 );
 
-inspectionJobsRouter.get("/inspection-jobs/:jobId", requireRole("admin", "inspector"),
-  requireTechnicianOwnership("job", (request) => request.params.jobId),
-  async (request, response, next) => {
+/** Timeline summaries are visible across technicians; detail stays owner-only. */
+export function createInspectionJobDetailHandler(
+  database: Pick<typeof pool, "query"> = pool,
+  loadJob = loadCanonicalInspectionJob
+) {
+  return async (request: Request, response: Response, next: NextFunction) => {
     try {
-      const job = await loadCanonicalInspectionJob(String(request.params.jobId));
+      response.setHeader("Cache-Control", "private, no-store");
+      const jobId = request.params.jobId;
+      if (typeof jobId !== "string" || !uuidPattern.test(jobId)) { response.status(400).json({ error: "INVALID_JOB_ID" }); return; }
+      const actor = request.currentUser;
+      if (!actor) { response.status(401).json({ error: "AUTH_REQUIRED" }); return; }
+      if (actor.role !== "admin" && actor.role !== "inspector") { response.status(403).json({ error: "FORBIDDEN" }); return; }
+      const expected = request.header("x-expected-user-id");
+      if (expected !== undefined && expected !== String(actor.id)) { response.status(409).json({ error: "IDENTITY_MISMATCH" }); return; }
+      if (actor.role === "inspector") {
+        const row = (await database.query<{ owned: boolean }>(`SELECT COALESCE(created_by_user_id=$2,false) AS owned FROM inspection_jobs WHERE id=$1`, [jobId, actor.id])).rows[0];
+        if (!row) { response.status(404).json({ error: "JOB_NOT_FOUND" }); return; }
+        if (row.owned !== true) { response.status(403).json({ error: "FORBIDDEN", message: "Only the technician who owns this service visit can open its details." }); return; }
+      }
+      const job = await loadJob(jobId, database);
       if (!job) { response.status(404).json({ error: "JOB_NOT_FOUND" }); return; }
-      response.json({ job });
+      // D1: customer identity is live; the stored system configuration stays frozen.
+      const customer = (await database.query<{ id: string; code: string; displayName: string }>(`
+        SELECT customer.id, customer.customer_code AS code, customer.display_name AS "displayName"
+        FROM inspection_jobs job JOIN customers customer ON customer.id = job.customer_id
+        WHERE job.id = $1`, [jobId])).rows[0];
+      const snapshot = job.configurationSnapshot;
+      if (!customer || !uuidPattern.test(customer.id) || typeof customer.code !== "string" || typeof customer.displayName !== "string"
+        || !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)
+        || !("customer" in snapshot) || !snapshot.customer || typeof snapshot.customer !== "object"
+        || !("id" in snapshot.customer) || snapshot.customer.id !== customer.id) {
+        throw new Error("Service visit live customer is invalid");
+      }
+      response.json({ job: { ...job, configurationSnapshot: { ...snapshot, customer } } });
     } catch (error) { next(error); }
-  });
+  };
+}
+inspectionJobsRouter.get("/inspection-jobs/:jobId", requireRole("admin", "inspector"), createInspectionJobDetailHandler());

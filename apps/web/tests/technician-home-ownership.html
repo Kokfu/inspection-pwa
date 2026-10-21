@@ -13,6 +13,7 @@ const first={...job, reference:"A-NEW", serviceDate:"2026-09-17",serviceTime:nul
 const older={...first,id:id(51),reference:"A-OLD",createdAt:"2026-09-16T03:00:00.000Z"};
 const done={...first,id:id(52),reference:"A-DONE",status:"closed"};
 const other={...first,id:id(53),reference:"B-ONLY",configurationSnapshot:{...first.configurationSnapshot,customer:{...first.configurationSnapshot.customer,displayName:"Customer B"}}};
+if (!sessionStorage.getItem("home-fixture-seeded")) {
 await initializeLocalDatabase();
 for (const user of users) {
  await activateUserWorkspace(user.id);
@@ -20,12 +21,25 @@ for (const user of users) {
  await localDatabase.referenceData.put({key:`inspection-jobs:user:${user.id}`,payload:user.id===901?[older,done,first]:[other],version:"1",fetchedAt:at,expiresAt:at});
  await localDatabase.referenceData.put({key:"inspection-catalog:MFE-FSSR:1",payload:{template:catalog},version:"1",fetchedAt:at,expiresAt:at});
 }
+const repairBase={customerId:ids.customer,siteId:id(50),createdByUserId:901,configurationRevisionId:ids.revision,
+ serviceCallNumber:null,arrivalTime:"08:00",visitDate:"2026-10-21",deviceCreatedAt:"2026-10-21T00:00:00.000Z",previousVisit:null,
+ revision:1,reportNumber:null,approvedByUserId:null,approvedAt:null,createdAt:"2026-10-21T00:00:00.000Z",updatedAt:"2026-10-21T00:00:00.000Z",
+ localCreatedAt:"2026-10-21T00:00:00.000Z",localUpdatedAt:"2026-10-21T00:00:00.000Z"};
+await activateUserWorkspace(901);
+for (const [i,status,syncStatus] of [[60,"draft","Draft"],[61,"draft","Pending"],[62,"draft","Syncing"],[63,"draft","Failed"],[64,"returned","Synced"],[65,"awaiting_approval","Synced"],[66,"approved","Synced"]]) {
+ await localDatabase.rvVisits.put({...repairBase,clientUuid:id(i),visitNumber:`RV-${i}`,status,syncStatus});
+}
+await localDatabase.rvVisits.put({...repairBase,clientUuid:id(67),visitNumber:"FOREIGN-RV",createdByUserId:902,status:"draft",syncStatus:"Draft"});
+window.resetRepairStates=async()=>{
+ for (const [i,syncStatus] of [[60,"Draft"],[61,"Pending"],[62,"Syncing"],[63,"Failed"]]) await localDatabase.rvVisits.update(id(i),{syncStatus});
+};
+window.approveRepair=async()=>localDatabase.rvVisits.update(id(60),{status:"approved",syncStatus:"Synced"});
 await activateUserWorkspace(901); await storeVerifiedIdentity(actor);
 let draft=await getOrCreateHoseReelInspection(first,system,catalog,actor);
 draft=await saveHoseReelDraft(draft,{...draft.responses,comments:"A unsynced draft survives"});
 const complete=r=>{const x=structuredClone(r.responses);for(const v of Object.values(x.checklist))v.result="good";Object.assign(x.measurements.jockey_pump_pressure,{values:{cut_in:10,cut_out:11},result:"good"});Object.assign(x.measurements.standby_pump_cut_in,{values:{value:12},result:"good"});for(const row of x.rows)Object.assign(row,{drumResult:"good",hoseResult:"good",nozzleResult:"good",valveResult:"good",nozzleBoxResult:"good"});return x};
 const pending=await getOrCreateHoseReelInspection(older,system,catalog,actor);
-await submitLocalHoseReel(pending,complete(pending));
+if (pending.syncStatus === "Draft") await submitLocalHoseReel(pending,complete(pending));
 // Simulate a pre-upgrade shared database containing both technicians' work.
 const ownerWorkspace=localDatabase;
 await deviceDatabase.masterSystemInspections.bulkPut(await localDatabase.masterSystemInspections.toArray());
@@ -50,9 +64,16 @@ window.holdNextLocalTransaction=()=>{
  window.releaseLocalTransaction=release;
  ownerDb.transaction=function(...args){ownerDb.transaction=original;return gate.then(()=>original.apply(ownerDb,args));};
 };
+sessionStorage.setItem("home-fixture-seeded","1");
+}
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json"}});
 window.fetch=async(input,options={})=>{
  const url=new URL(typeof input==="string"?input:input.url,location.origin); requests.push({path:url.pathname,actor:actor?.id,body:options.body});
+ if(url.pathname==="/api/customers") return json({customers:[{id:ids.customer,displayName:"Live Customer A"}]});
+ if(url.pathname.endsWith("/visit-summaries")) return json({visits:[
+ {id:done.id,kind:"service",date:"2026-10-21",status:"closed",siteId:id(50),siteName:"Site A",technicianId:901,technicianName:"tech-a",ownedByCaller:true},
+ {id:id(66),kind:"repair",date:"2026-10-20",status:"approved",siteId:id(50),siteName:"Site A",technicianId:902,technicianName:"tech-b",ownedByCaller:false},
+ {id:first.id,kind:"service",date:"2026-10-19",status:"open",siteId:id(50),siteName:"Site A",technicianId:901,technicianName:"tech-a",ownedByCaller:true}],nextCursor:null});
  if(url.pathname==="/api/auth/me") return actor?json({user:actor}):json({},401);
  if(url.pathname==="/api/auth/logout"){actor=undefined;return json({});}
  if(url.pathname==="/api/auth/login"){actor=users.find(u=>u.username===JSON.parse(options.body).username);return actor?json({user:actor}):json({},401);}

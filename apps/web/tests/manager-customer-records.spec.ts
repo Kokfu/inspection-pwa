@@ -4,6 +4,71 @@ const fixture = () => ({ customer: { id: "71000000-0000-4000-8000-000000000001",
   sites: [{ id: "71000000-0000-4000-8000-000000000002", code: "MAIN", displayName: "North Warehouse", address: "Main Street" }], archivedSites: [],
   configuration: { id: "71000000-0000-4000-8000-000000000003", revision: 1, enabledSystems: [] }, supportedSystems: [] });
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/customers/*/visit-summaries?*", route => route.fulfill({ json: { visits: [], nextCursor: null } }));
+});
+
+const service = { id: "72000000-0000-4000-8000-000000000001", kind: "service", date: "2026-10-21", status: "closed",
+  siteId: null, siteName: null, technicianId: 12, technicianName: "Other technician", ownedByCaller: false };
+const repair = { ...service, id: "72000000-0000-4000-8000-000000000002", kind: "repair", date: "2026-10-20", status: "approved" };
+
+test("manager Timeline counts all pages, opens both foreign visit kinds and clears count on invalid refresh", async ({ page }) => {
+  const stored = fixture(); let invalid = false;
+  await page.route("**/api/manager/customers{,/**}", route => route.fulfill({ json: route.request().url().endsWith("/customers") ? { customers: [stored] } : { customer: stored } }));
+  await page.route("**/api/customers/*/visit-summaries?*", route => route.fulfill({ json: invalid ? { visits: null, nextCursor: null }
+    : new URL(route.request().url()).searchParams.has("cursor") ? { visits: [repair], nextCursor: null } : { visits: [service], nextCursor: "next" } }));
+  await page.goto("/tests/manager-customer-records.html");
+  await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();
+  const tab = page.getByRole("tab", { name: "Timeline 2", exact: true });
+  await tab.click();
+  await expect(page.locator("button.visit-row")).toHaveCount(2);
+  await expect(page.getByRole("img", { name: "Summary only" })).toHaveCount(0);
+  for (const [width, height] of [[360, 800], [768, 1024], [1280, 800]]) {
+    await page.setViewportSize({ width, height });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await page.locator("button.visit-row").first().boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: test.info().outputPath(`manager-timeline-${width}.png`), fullPage: true });
+  }
+  await page.locator("button.visit-row").first().focus();
+  await expect(page.locator("button.visit-row").first()).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`#/manager-service-visit/${service.id}$`));
+  await page.locator("button.visit-row").last().click();
+  await expect(page).toHaveURL(new RegExp(`#/manager-repairs/${repair.id}$`));
+  await page.getByRole("button", { name: "Repairs", exact: true }).click();
+  await expect(page.locator("button.visit-row")).toHaveCount(1); await expect(tab).toBeVisible();
+  invalid = true; await page.getByRole("button", { name: "Refresh history" }).click();
+  await expect(page.getByRole("alert")).toContainText("invalid summary data");
+  await expect(page.getByRole("tab", { name: "Timeline", exact: true })).toBeVisible();
+  await expect(page.locator("button.visit-row")).toHaveCount(0);
+});
+
+for (const visit of [service, repair]) {
+  test(`App manager customer Timeline opens the existing ${visit.kind} route`, async ({ page }) => {
+    const stored = fixture();
+    await page.route("**/api/**", async route => {
+      const path = new URL(route.request().url()).pathname;
+      let json: unknown = {};
+      if (path === "/api/auth/me") json = { user: { id: 9081, username: "s3b-manager", role: "admin" } };
+      else if (path.endsWith("/visit-summaries")) json = { visits: [service, repair], nextCursor: null };
+      else if (path === `/api/manager/customers/${stored.customer.id}`) json = { customer: stored };
+      else if (path.endsWith("/customers") || path.endsWith("/customers/archived")) json = { customers: [stored] };
+      else if (path.endsWith("/technicians")) json = { technicians: [] };
+      else if (path.endsWith("/service-visits")) json = { serviceVisits: [], nextCursor: null, totalCount: 0 };
+      else if (path.endsWith("/inspection-jobs")) json = { jobs: [] };
+      await route.fulfill({ json });
+    });
+    await page.goto(`/#/manager-customer/${fixture().customer.id}`);
+    const monitor = page.getByRole("button", { name: /^Manager Monitor/ });
+    if (await monitor.isVisible()) await monitor.click();
+    await page.getByRole("tab", { name: /^Timeline/ }).click();
+    await expect(page.locator("button.visit-row")).toHaveCount(2);
+    await page.locator("button.visit-row").filter({ hasText: visit.kind === "service" ? "Service" : "Repair" }).click();
+    await expect(page).toHaveURL(new RegExp(`#/${visit.kind === "service" ? "manager-service-visit" : "manager-repairs"}/${visit.id}$`));
+  });
+}
+
 test("customers table search, responsive cards, tabs, edit round-trip and discard", async ({ page }) => {
   let stored = fixture(); let patches = 0;
   await page.route("**/api/manager/customers{,/**}", async (route) => {
@@ -31,7 +96,7 @@ test("customers table search, responsive cards, tabs, edit round-trip and discar
   await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();
   await expect(page.getByText("Edits apply to all visits, past and future.")).toBeVisible();
   await page.getByRole("tab", { name: "Sites", exact: true }).click(); await expect(page.getByLabel("Site Address", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Timeline", exact: true }).click(); await expect(page.getByText("Timeline coming soon.")).toBeVisible();
+  await page.getByRole("tab", { name: /^Timeline/ }).click(); await expect(page.getByText("No visits match these filters.")).toBeVisible();
   await page.getByRole("tab", { name: "Details", exact: true }).click();
   await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeEnabled();
   await page.getByLabel("Customer name", { exact: true }).fill("Renamed Customer");
@@ -169,4 +234,58 @@ test("failed PATCH stays in IndexedDB across reload, permits entry, retries, and
   poison = false; await page.getByRole("button", { name: "Reopen customer" }).click(); await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Changes saved.");
   expect(await page.evaluate(async () => (window as any).testDb.drafts.where("entityType").equals("managerCustomerDetails").count())).toBe(0);
+});
+
+test("Unconfirmed status, chip filter and Confirm details header", async ({ page }) => {
+  const alpha = { ...fixture(), customer: { ...fixture().customer, confirmed: false, createdBy: "tech-one", createdAt: "2026-10-20T08:30:00.000Z", confirmedAt: null } };
+  const beta = { ...fixture(), customer: { ...fixture().customer, id: "71000000-0000-4000-8000-000000000009", code: "B", displayName: "Beta Customer", confirmed: true, createdBy: null, confirmedAt: null } };
+  let stored = alpha; let confirms = 0; let mode: "ok" | "unchanged" | "malformed" = "ok";
+  const rows = () => [stored, beta].map(row => ({ ...row, tableSummary: { lastVisit: null, openCount: 0 } }));
+  await page.route("**/api/manager/customers{,/**}", async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === "POST" && url.endsWith("/confirm")) {
+      confirms += 1;
+      if (mode === "malformed") { await route.fulfill({ json: { customer: { ...stored.customer, confirmed: "yes" } } }); return; }
+      if (mode === "ok") stored = { ...stored, customer: { ...stored.customer, confirmed: true, confirmedAt: "2026-10-21T01:00:00.000Z" } };
+      await route.fulfill({ json: { customer: stored } }); return;
+    }
+    await route.fulfill({ json: url.endsWith("/customers") ? { customers: rows() } : { customer: stored } });
+  });
+  await page.goto("/tests/manager-customer-records.html");
+  const chip = page.getByRole("button", { name: "Unconfirmed (1)", exact: true });
+  await expect(chip).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.locator("tbody tr").filter({ hasText: "Alpha Customer" }).locator(".customer-unconfirmed-badge")).toHaveText("Unconfirmed");
+  await expect(page.locator("tbody tr").filter({ hasText: "Beta Customer" }).locator(".customer-unconfirmed-badge")).toHaveCount(0);
+  for (const [width, height] of [[360, 800], [1280, 800]]) {
+    await page.setViewportSize({ width, height });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await chip.click();
+  await expect(chip).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await expect(page.locator("tbody tr")).toContainText("Alpha Customer");
+  await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();
+  await expect(page.locator(".customer-added-by")).toHaveText("Added by tech-one on 2026-10-20");
+  const confirm = page.getByRole("button", { name: "Confirm details", exact: true });
+  expect((await confirm.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // Unconfirmed customers stay fully editable.
+  await expect(page.getByRole("button", { name: "Save changes", exact: true })).toBeEnabled();
+  mode = "unchanged"; await confirm.click();
+  await expect(page.getByRole("alert")).toContainText(/unavailable|invalid|cannot be verified/i);
+  expect(confirms).toBe(1);
+  await page.reload(); await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();
+  mode = "malformed"; await confirm.click();
+  await expect(confirm).toHaveCount(0);
+  expect(confirms).toBe(2);
+  await page.reload(); await page.getByRole("button", { name: "Alpha Customer", exact: true }).click();
+  mode = "ok"; await confirm.click();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.locator(".status-badge--complete")).toHaveText("Current settings");
+  await expect(page.locator(".customer-added-by")).toHaveText("Added by tech-one on 2026-10-20");
+  expect(confirms).toBe(3);
+  await page.getByRole("button", { name: "Back to Customers" }).click();
+  await expect(page.getByRole("button", { name: "Unconfirmed (0)", exact: true })).toBeVisible();
+  await expect(page.locator(".customer-unconfirmed-badge")).toHaveCount(0);
 });

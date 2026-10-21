@@ -1,44 +1,45 @@
 import { expect, test } from "@playwright/test";
 
-test("technician tabs, report, keyboard, session memory and 375px layout", async ({ page }) => {
-  await page.setViewportSize({width:375,height:812});
+test("Home shows only open service and repair work; completed shortcut retains filter through selection and reload", async ({ page }) => {
   await page.goto("/tests/technician-home-ownership.html");
-  await page.getByRole("button",{name:/Technician/}).click();
-  await expect(page.getByRole("tab",{name:"In Progress (2)"})).toBeVisible();
-  await expect(page.getByRole("tab",{name:"Completed (1)"})).toBeVisible();
-  const summary = page.locator('.operations-summary[aria-label="My service visits summary"]');
-  await expect(summary.locator("div")).toHaveCount(2);
-  await expect(summary.locator("div").nth(0)).toContainText("In Progress2");
-  await expect(summary.locator("div").nth(1)).toContainText("Completed1");
-  await expect(page.getByText("Technician workspace")).toBeVisible();
+  await page.getByRole("button", {name:/Technician/}).click();
+  await expect(page.getByRole("heading", {name:"Open work",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"Service visits (2)"})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"Repair visits (6)"})).toBeVisible();
+  await expect(page.locator(".job-card")).toHaveCount(8);
   await expect(page.locator(".job-card").first()).toContainText("A-NEW");
-  await expect(page.locator(".job-card").first()).toContainText("0 of 1 systems");
-  await expect(page.getByRole("button",{name:"+ New Service Visit",exact:true})).toBeVisible();
-  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
-  for (const width of [375, 520]) {
-    await page.setViewportSize({ width, height: 812 });
-    expect(await page.evaluate(() => {
-      const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-      const toolbar = rect(".home-toolbar"), tiles = rect(".operations-summary"), tabs = rect(".job-tabs");
-      const tileRows = [...document.querySelectorAll(".operations-summary > div")].map((element) => element.getBoundingClientRect());
-      const actions = [...document.querySelectorAll(".home-utility-actions button")].map((element) => element.getBoundingClientRect());
-      return toolbar.bottom <= tiles.top && tiles.bottom <= tabs.top
-        && tileRows[0]!.bottom <= tileRows[1]!.top
-        && actions.every((action) => action.height >= 44)
-        && document.documentElement.scrollWidth <= window.innerWidth;
-    })).toBe(true);
+  await page.evaluate(()=>(window as any).resetRepairStates());
+  for (const label of ["Draft", "Pending sync", "Syncing", "Needs attention", "Returned", "Awaiting approval"]) {
+    await expect(page.locator(".technician-home a.job-card .status-badge").filter({hasText:new RegExp(`^${label}$`)})).toHaveCount(1);
   }
-  await page.getByRole("tab",{name:"In Progress (2)"}).focus(); await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("tab",{name:"Completed (1)"})).toBeFocused();
-  await expect(page.getByRole("tab",{name:"Completed (1)"})).toHaveAttribute("aria-selected","true");
-  await page.locator(".job-card").filter({hasText:"A-DONE"}).click();
-  await expect(page.getByRole("button",{name:"View Final Report",exact:true})).toBeVisible();
-  await page.getByRole("button",{name:"Back to My Jobs",exact:true}).click();
-  await expect(page.getByRole("tab",{name:"Completed (1)"})).toHaveAttribute("aria-selected","true");
-  await page.getByRole("button",{name:"View Report for A-DONE",exact:true}).click();
-  await expect(page.getByRole("heading",{name:"Final Report",exact:true})).toBeVisible();
-  await page.goBack();
-  await expect(page.getByRole("tab",{name:"Completed (1)"})).toHaveAttribute("aria-selected","true");
+  for (const hidden of ["A-DONE", "RV-66", "FOREIGN-RV"]) await expect(page.locator(".technician-home")).not.toContainText(hidden);
+  await expect(page.getByRole("tab")).toHaveCount(0);
+  for (const width of [360,768,1280]) {
+    await page.setViewportSize({width,height:width===768?1024:800});
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    for (const selector of [".home-utility-actions a", ".home-utility-actions button", ".technician-home a.job-card"]) {
+      expect(await page.locator(selector).evaluateAll(elements=>elements.every(el=>el.getBoundingClientRect().height>=44))).toBe(true);
+    }
+    await page.getByRole("link",{name:"Recent completed",exact:true}).focus();
+    await page.keyboard.press("Tab"); await page.keyboard.press("Shift+Tab");
+    expect(await page.getByRole("link",{name:"Recent completed",exact:true}).evaluate(el=>getComputedStyle(el).outlineStyle!=="none")).toBe(true);
+    if (width!==768) await page.screenshot({path:`test-results/s6-home-${width}.png`,fullPage:true});
+  }
+  await page.evaluate(()=>(window as any).approveRepair());
+  await expect(page.getByRole("heading",{name:"Repair visits (5)"})).toBeVisible();
+  await page.getByRole("link",{name:"Recent completed",exact:true}).click();
+  await page.getByLabel("Customer",{exact:true}).selectOption("41000000-0000-4000-8000-000000000002");
+  await expect(page.getByLabel("Status",{exact:true})).toHaveValue("closed");
+  await expect(page.locator(".visit-row")).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByLabel("Status",{exact:true})).toHaveValue("closed");
+  await expect(page.locator(".visit-row")).toHaveCount(2);
+  await page.getByRole("button",{name:"Repairs",exact:true}).click();
+  await expect(page.locator(".visit-row")).toHaveCount(1);
+  await expect(page.locator(".visit-row")).toContainText("Approved");
+  await page.getByRole("button",{name:"Back",exact:true}).click();
+  await page.getByRole("link",{name:"Repair List",exact:true}).click();
+  await expect(page.getByRole("link",{name:"+ New Repair Visit",exact:true})).toHaveAttribute("href","#/repair-visits/new");
 });
 
 test("same browser logout/login hides A's jobs and preserves unsynced draft for A", async ({ page }) => {
@@ -66,10 +67,9 @@ test("same browser logout/login hides A's jobs and preserves unsynced draft for 
   await expect.poll(async()=>await page.evaluate(async()=>(await (window as any).readForeignDraft())?.jobId)).toBe("41000000-0000-4000-8000-000000000053");
   await page.getByRole("button",{name:"Sync Now",exact:true}).click();
   expect(await page.evaluate(()=>(window as any).requests.filter((r:any)=>r.path==="/api/sync"&&r.actor===902))).toHaveLength(0);
-  await page.getByRole("tab",{name:"Completed (0)"}).click();
-  await expect(page.getByText("No completed service visits yet.")).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Repair visits (0)"})).toBeVisible();
   await signIn("tech-a");
-  await expect(page.getByRole("tab",{name:"In Progress (2)"})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Service visits (2)"})).toBeVisible();
   expect(await page.evaluate(async()=>await (window as any).readDraft())).toEqual(before);
   expect(await page.evaluate(async()=>await (window as any).pendingCount())).toBe(1);
   await page.getByRole("button",{name:"Sync Now",exact:true}).click();
@@ -112,19 +112,19 @@ test("logout waits for a suspended local save before another identity can replac
 test("T14: a technician can delete their own in-progress job; it disappears from the list", async ({ page }) => {
   await page.goto("/tests/technician-home-ownership.html");
   await page.getByRole("button", { name: /Technician/ }).click();
-  await expect(page.getByRole("tab", { name: "In Progress (2)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Service visits (2)" })).toBeVisible();
   const card = page.locator(".job-card-list li").filter({ hasText: "A-NEW" });
   // The Delete action lives on the job's own page (not on the list card): open the job, then "Delete this job".
   await card.getByRole("button").first().click();
   await expect(page.getByRole("button", { name: "Delete this job" })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete this job" }).click();
-  await expect(page.getByRole("tab", { name: "In Progress (1)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Service visits (1)" })).toBeVisible();
   await expect(page.locator(".job-card-list li").filter({ hasText: "A-NEW" })).toHaveCount(0);
   await expect
     .poll(async () => page.evaluate(() => (window as unknown as { archivedJobIds?: string[] }).archivedJobIds))
     .toContain("41000000-0000-4000-8000-000000000001");
   // A closed job never offers Delete -- that stays the manager's domain.
-  await page.getByRole("tab", { name: "Completed (1)" }).click();
+
   await expect(page.locator(".job-card-list li").filter({ hasText: "A-DONE" }).getByRole("button", { name: /^Delete/ })).toHaveCount(0);
 });

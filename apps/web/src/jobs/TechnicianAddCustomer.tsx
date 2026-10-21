@@ -1,4 +1,8 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { getCachedReferenceCustomers } from "../referenceData/referenceDataCache";
+import type { ReferenceCustomer } from "../referenceData/referenceDataTypes";
+import { findSimilarCustomers } from "../referenceData/findSimilarCustomers";
+import "../referenceData/customerSimilarity.css";
 import { SYNC_FINISHED_EVENT } from "../sync/syncEvents";
 import { cachedServiceFormatOptions, loadServiceFormatOptions, type ServiceFormatOption } from "../referenceData/referenceDataApi";
 import {
@@ -15,6 +19,8 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
   const [draft, setDraft] = useState<TechnicianCustomerDraft>();
   const [catalog, setCatalog] = useState<ServiceFormatOption[]>([]);
   const [catalogMessage, setCatalogMessage] = useState("");
+  const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
+  const [similarityMessage, setSimilarityMessage] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -22,6 +28,11 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
 
   useEffect(() => {
     let active = true;
+    void getCachedReferenceCustomers().then((items) => {
+      if (!Array.isArray(items) || !items.every((item) => item && typeof item.id === "string" && item.id.trim()
+        && typeof item.displayName === "string" && item.displayName.trim())) throw new Error("Invalid cached customers");
+      if (active) { setCustomers(items); setSimilarityMessage(items.length ? "" : "No cached customers are available to check similar names."); }
+    }).catch(() => { if (active) setSimilarityMessage("Cached customers could not be checked for similar names."); });
     void loadTechnicianCustomerDraft().then(async (saved) => {
       if (active) setDraft(saved);
       if (canUseServer && navigator.onLine && (saved.status === "Pending" || saved.status === "Failed")) {
@@ -92,6 +103,7 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
   const setField = (key: keyof TechnicianCustomerDraft, value: string) => update({ [key]: value });
   const locked = draft?.status !== "Draft";
   const created = draft?.status === "Synced" ? draft.createdCustomer : undefined;
+  const similar = findSimilarCustomers(draft?.displayName ?? "", customers);
   return <section aria-labelledby="technician-add-customer-title">
     <div className="workspace-heading"><div><p className="eyebrow">Technician workspace</p><h2 id="technician-add-customer-title">Add Customer</h2><p>Create a shared customer and assign its initial services.</p></div></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
@@ -102,6 +114,12 @@ export function TechnicianAddCustomer({ actorUserId, canUseServer, onStartVisit,
       <form className="report-summary setup-card customer-form-card" onSubmit={(event) => void submit(event)}>
         <fieldset disabled={locked || saving}>
           <label>Customer display name<input required autoComplete="off" maxLength={160} value={draft.displayName} onChange={(event) => setField("displayName", event.target.value)} /></label>
+          {!locked && similar.length ? <div className="customer-similarity" role="region" aria-label="Similar customers">
+            <p>A similar customer already exists. Use an existing customer or create this one anyway.</p>
+            <div className="inline-actions">{similar.map((customer) => <button key={customer.id} type="button" className="secondary-command" onClick={() => onStartVisit(customer.id)}>Use {customer.displayName}</button>)}
+              <button type="submit" disabled={!draft.systemKeys.length}>Create anyway</button></div>
+          </div> : null}
+          {similarityMessage ? <p role="status">{similarityMessage}</p> : null}
           <label>Initial Site<input required autoComplete="off" maxLength={160} value={draft.siteDisplayName} onChange={(event) => setField("siteDisplayName", event.target.value)} /></label>
           <label>Telephone No<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={draft.contactPhone} onChange={(event) => setField("contactPhone", event.target.value)} /></label>
           <label>Contact<input autoComplete="off" maxLength={160} value={draft.contactPerson} onChange={(event) => setField("contactPerson", event.target.value)} /></label>

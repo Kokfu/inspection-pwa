@@ -1,3 +1,39 @@
+/* Shared customer visit summary row (S1). */
+.visit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: var(--space-3);
+  border: thin solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.visit-row__badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.visit-row__kind, .visit-row__status {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+}
+.visit-row__kind--service { color: var(--brand-dark); background: var(--brand-soft); }
+.visit-row__kind--repair { color: var(--warning-ink); background: var(--warning-soft); }
+.visit-row__status { color: var(--muted-on-sunken); background: var(--surface-sunken); }
+.visit-row__technician { flex: 1 1 100%; min-width: 0; }
+.visit-row__lock { color: var(--muted); }
+.visit-row--tappable { min-width: var(--tap); cursor: pointer; }
+.visit-row--tappable:focus-visible { outline: var(--focus-outline); box-shadow: var(--focus-ring); }
+@media (min-width: 768px) {
+  .visit-row__technician { flex: 1; }
+}
+
 /* Design tokens: the single source for colour, spacing, radius, shadow and type.
  * Raw palette values live only here; rules below reference tokens. A few values
  * (surface-muted, success-ink-deep, muted-soft, brand-tint, brand-border and the
@@ -1310,6 +1346,7 @@ fieldset:disabled .result-option--selected:disabled > span { border-color: var(-
 
 /* Technician visit overview */
 .technician-home { min-width: 0; }
+.technician-home a.job-card { text-decoration: none; min-height: var(--tap); }
 .new-service-primary { min-height: 48px; font-weight: 700; }
 .job-tabs { display: flex; gap: .5rem; margin: 1rem 0; }
 .job-tabs [role="tab"] { flex: 1; min-width: 0; padding: .8rem .5rem; }

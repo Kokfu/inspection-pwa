@@ -15,6 +15,9 @@ export function updateManagerCustomerList(customers: ManagerCustomer[], customer
   return customers.map((value) => value.customer.id === customer.customer.id ? { ...value, ...customer } : value);
 }
 
+/** Customers a manager has not yet verified. A missing flag is treated as confirmed. */
+export const isUnconfirmed = (customer: ManagerCustomer) => customer.customer.confirmed === false;
+
 export function customerMatches(customer: ManagerCustomer, query: string) {
   const needle = query.trim().toLocaleLowerCase();
   return [customer.customer.displayName, customer.customer.code, customer.customer.contactPerson, customer.customer.contactPhone,
@@ -34,7 +37,7 @@ export function ManagerCustomerTable({ customers, onManage, onArchive, archiving
         <td data-label="Sites">{row.sites.map((site) => site.displayName).join(", ") || "No active sites"}</td>
         <td data-label="Last visit">{validSummary ? summary.lastVisit ?? "No visits" : "Unavailable"}</td>
         <td data-label="Open">{validSummary ? summary.openCount : "Unavailable"}</td>
-        <td data-label="Status"><span>Active{onArchive ? <button type="button" className="secondary-command" disabled={archivingId === row.customer.id} onClick={(event) => { event.stopPropagation(); onArchive(row); }}>Archive</button> : null}</span></td>
+        <td data-label="Status"><span>Active{isUnconfirmed(row) ? <span className="status-badge status-badge--waiting customer-unconfirmed-badge">Unconfirmed</span> : null}{onArchive ? <button type="button" className="secondary-command" disabled={archivingId === row.customer.id} onClick={(event) => { event.stopPropagation(); onArchive(row); }}>Archive</button> : null}</span></td>
       </tr>;
     })}</tbody>
   </table>;

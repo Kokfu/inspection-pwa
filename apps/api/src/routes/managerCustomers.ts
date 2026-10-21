@@ -472,10 +472,13 @@ export async function loadConfiguration(client: Pick<PoolClient, "query">, custo
  * `loadManagerCustomer(id, database)`) is unaffected.
  */
 export async function loadManagerCustomer(customerId: string, database: Pick<Pool, "query"> = pool, isActive = true) {
-  const customerResult = await database.query<{ id: string; code: string; displayName: string; nextServiceDueDate: string | null; contactPhone: string | null; contactPerson: string | null; fax: string | null; contractNumber: string | null; serviceFrequency: string | null }>(`
+  const customerResult = await database.query<{ id: string; code: string; displayName: string; nextServiceDueDate: string | null; contactPhone: string | null; contactPerson: string | null; fax: string | null; contractNumber: string | null; serviceFrequency: string | null; confirmed: boolean; confirmedAt: string | null; createdBy: string | null; createdAt: string }>(`
     SELECT id, customer_code AS code, display_name AS "displayName", next_service_due_date::text AS "nextServiceDueDate",
       contact_phone AS "contactPhone", contact_person AS "contactPerson", fax,
-      contract_number AS "contractNumber", service_frequency AS "serviceFrequency" FROM customers
+      contract_number AS "contractNumber", service_frequency AS "serviceFrequency",
+      is_confirmed AS confirmed, to_char(confirmed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "confirmedAt",
+      (SELECT username FROM users WHERE users.id = customers.created_by_user_id) AS "createdBy",
+      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt" FROM customers
     WHERE id = $1 AND is_active = ${isActive ? "true" : "false"} AND is_demo = false`, [customerId]);
   const customer = customerResult.rows[0];
   if (!customer) return undefined;
@@ -707,10 +710,12 @@ async function createCustomer(
   const customerId = randomUUID();
   const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
   const inserted = await client.query<{ id: string }>(`
-    INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person, fax, contract_number, service_frequency)
-    VALUES ($1,$2,$3,false,true,$4,$5,$6,$7,$8)
+    INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person, fax, contract_number, service_frequency, is_confirmed, created_by_user_id)
+    VALUES ($1,$2,$3,false,true,$4,$5,$6,$7,$8,$9,$10)
     ON CONFLICT ((lower(btrim(display_name)))) WHERE is_active DO NOTHING
-    RETURNING id`, [customerId, code, input.displayName, input.contactPhone, input.contactPerson, input.fax, input.contractNumber, input.serviceFrequency]);
+    RETURNING id`, [customerId, code, input.displayName, input.contactPhone, input.contactPerson, input.fax, input.contractNumber, input.serviceFrequency,
+    // Technician-created customers start unconfirmed; a manager's own creation is already verified.
+    auditAction === "manager_customer_created", actorUserId]);
   if (!inserted.rows[0]) {
     throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
   }
@@ -892,6 +897,29 @@ export function createManagerCustomersRouter(
       } else next(error);
     } finally { client?.release(); }
   });
+  // Marks the details as verified. Informational only; repeating it is a no-op (no second audit).
+  router.post("/manager/customers/:customerId/confirm", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const expectedActor = request.header("x-expected-user-id");
+      if (expectedActor !== undefined && expectedActor !== String(request.currentUser!.id)) throw new ManagerCustomerError("IDENTITY_MISMATCH", "The signed-in account changed. Reopen this customer before confirming.", 409);
+      const customerId = request.params.customerId;
+      if (typeof customerId !== "string" || !uuidPattern.test(customerId)) throw new ManagerCustomerError("INVALID_CUSTOMER_ID", "Customer ID must be a UUID.");
+      if (request.body !== undefined && !(object(request.body) && Object.keys(request.body).length === 0)) throw new ManagerCustomerError("INVALID_REQUEST", "This request takes no body.");
+      client = await database.connect(); await client.query("BEGIN");
+      const locked = await client.query<{ confirmed: boolean }>(`SELECT is_confirmed AS confirmed FROM customers WHERE id=$1 AND is_active=true AND is_demo=false FOR UPDATE`, [customerId]);
+      if (!locked.rows[0]) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      if (!locked.rows[0].confirmed) {
+        await client.query(`UPDATE customers SET is_confirmed=true, confirmed_at=now(), confirmed_by_user_id=$2 WHERE id=$1`, [customerId, request.currentUser!.id]);
+        await audit(client, request.currentUser!.id, "manager_customer_confirmed", "customer", customerId);
+      }
+      const customer = await loadManagerCustomer(customerId, client);
+      if (!customer) throw new ManagerCustomerError("CUSTOMER_NOT_FOUND", "Customer was not found.", 404);
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ customer });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); } finally { client?.release(); }
+  });
   router.put("/manager/customers/:customerId/contact-details", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;
     try {
@@ -957,7 +985,7 @@ export function createManagerCustomersRouter(
       const duplicate = await client.query(`SELECT id FROM customers WHERE is_active = true AND lower(btrim(display_name)) = lower(btrim($1)) LIMIT 1 FOR UPDATE`, [displayName]);
       if (duplicate.rows[0]) throw new ManagerCustomerError("CUSTOMER_NAME_CONFLICT", "An active customer already uses this display name.", 409);
       const customerId = randomUUID(); const code = `CUST-${customerId.replace(/-/g, "").slice(0, 12).toUpperCase()}`;
-      await client.query(`INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person, fax, contract_number, service_frequency) VALUES ($1,$2,$3,false,true,$4,$5,$6,$7,$8)`, [customerId, code, displayName, contactPhone, contactPerson, fax, contractNumber, serviceFrequency]);
+      await client.query(`INSERT INTO customers (id, customer_code, display_name, is_demo, is_active, contact_phone, contact_person, fax, contract_number, service_frequency, created_by_user_id) VALUES ($1,$2,$3,false,true,$4,$5,$6,$7,$8,$9)`, [customerId, code, displayName, contactPhone, contactPerson, fax, contractNumber, serviceFrequency, request.currentUser!.id]);
       await client.query(`INSERT INTO customer_sites (id, customer_id, site_code, display_name, address, is_active) VALUES ($1,$2,'PRIMARY',$3,$4,true)`, [randomUUID(), customerId, siteDisplayName, siteAddress]);
       const revisionId = randomUUID();
       await client.query(`INSERT INTO customer_configuration_revisions (id, customer_id, template_version_id, revision, status) VALUES ($1,$2,(SELECT id FROM master_service_report_templates WHERE code='MFE-FSSR' AND version=$3 AND publication_status='published'),1,'active')`, [revisionId, customerId, customerCatalogVersion]);

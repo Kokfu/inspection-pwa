@@ -1,10 +1,14 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AuthUser } from "../auth/authApi";
+import { CustomerTimeline } from "../visits/CustomerTimeline";
+import "../visits/CustomerTimeline.css";
 import {
   activateManagerCustomerConfiguration,
   archiveManagerCustomer,
   archiveManagerCustomerSite,
   createManagerCustomerSite,
   evidencePolicyAssignableSystemKeys,
+  confirmManagerCustomer,
   loadArchivedManagerCustomers,
   loadManagerEvidencePolicy,
   loadManagerLocations,
@@ -25,7 +29,7 @@ import {
   type ManagerSystemConfigurationSchema,
   isGeneralLayout
 } from "./managerApi";
-import { customerMatches, ManagerCustomerTable, ManagerCustomerDetailsEditor } from "./ManagerCustomerRecords";
+import { customerMatches, isUnconfirmed, ManagerCustomerTable, ManagerCustomerDetailsEditor } from "./ManagerCustomerRecords";
 import { ManagerCustomerServices } from "./ManagerCustomerServices";
 import { locationNameWarnings } from "../referenceData/locationNameWarnings";
 
@@ -41,6 +45,8 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
   const [searchMessage, setSearchMessage] = useState("");
+  const [unconfirmedOnly, setUnconfirmedOnly] = useState(false);
+  const unconfirmedCount = customers.filter(isUnconfirmed).length;
 
   const search = () => {
     const trimmed = query.trim();
@@ -50,8 +56,7 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   };
   const clearSearch = () => { setQuery(""); setSubmittedQuery(null); setSearchMessage(""); };
   const needle = submittedQuery?.toLocaleLowerCase() ?? "";
-  const filteredCustomers = submittedQuery === null ? customers : customers.filter((row) =>
-    customerMatches(row, needle));
+  const filteredCustomers = customers.filter((row) => (submittedQuery === null || customerMatches(row, needle)) && (!unconfirmedOnly || isUnconfirmed(row)));
 
   const fail = (reason: unknown, fallback: string) => {
     if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
@@ -98,8 +103,9 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
       </div>
     </form>
     {searchMessage ? <p className="form-message" role="status">{searchMessage}</p> : null}
+    <div className="customer-filter-chips"><button type="button" className="secondary-command customer-filter-chip" aria-pressed={unconfirmedOnly} onClick={() => setUnconfirmedOnly((value) => !value)}>Unconfirmed ({unconfirmedCount})</button></div>
     {loading ? <p role="status">Loading customers…</p> : null}
-    {!loading && filteredCustomers.length ? <ManagerCustomerTable customers={filteredCustomers} onManage={onManage} onArchive={(row) => void archive(row)} archivingId={archivingId} /> : !loading ? <p className="empty-state" role="status">{customers.length ? `No customers match the search.` : "No operational customers are configured."}</p> : null}
+    {!loading && filteredCustomers.length ? <ManagerCustomerTable customers={filteredCustomers} onManage={onManage} onArchive={(row) => void archive(row)} archivingId={archivingId} /> : !loading ? <p className="empty-state" role="status">{customers.length ? unconfirmedOnly && !submittedQuery ? "No unconfirmed customers." : `No customers match the search.` : "No operational customers are configured."}</p> : null}
     <section aria-labelledby="manager-archived-customers-title">
       <button type="button" className="secondary-command" aria-expanded={archivedOpen} onClick={toggleArchived}>{archivedOpen ? "Hide archived customers" : "Show archived customers"}</button>
       {archivedOpen ? <div>
@@ -115,15 +121,21 @@ export function ManagerCustomerConfiguration({ customers, loading, message, onRe
   </section>;
 }
 
-export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onOpenService }: {
+export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, onAuthorityFailure, onViewServiceVisit, onViewFinalReport, onDownloadFinalReport, onOpenService, timelineActor, timelineMode = "unavailable", onViewRepairVisit }: {
   customer: ManagerCustomer; onBack: () => void; onSaved: (customer: ManagerCustomer) => void; onAuthorityFailure: (error: ManagerApiError) => void;
   onViewServiceVisit: (jobId: string) => void; onViewFinalReport: (jobId: string) => void; onDownloadFinalReport: (jobId: string) => Promise<void>;
   /** Opens the per-service editor (Form wording / Preset rows / Settings) for one service. */
   onOpenService?: (systemKey: string) => void;
+  timelineActor?: AuthUser; timelineMode?: "server" | "offline" | "unavailable";
+  onViewRepairVisit?: (visitId: string) => void;
 }) {
   const [tab, setTab] = useState<"Details" | "Sites" | "Timeline">("Details");
+  const timelineKey = `${timelineActor?.id}:${timelineActor?.role}:${customer.customer.id}:${timelineMode}`;
+  const [timelineCount, setTimelineCount] = useState<{ key: string; count: number | undefined }>();
+  const updateTimelineCount = useCallback((count: number | undefined) => setTimelineCount({ key: timelineKey, count }), [timelineKey]);
   const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [addingSite, setAddingSite] = useState(false); const [siteName, setSiteName] = useState(""); const [newSiteAddress, setNewSiteAddress] = useState(""); const [siteSaving, setSiteSaving] = useState(false); const [error, setError] = useState("");
   const [archivedSitesOpen, setArchivedSitesOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [siteChanging, setSiteChanging] = useState<string | null>(null);
   // A completed write still belongs to the customer screen that started it.
   // Invalidate callbacks on navigation/authority unmount, including late errors.
@@ -191,9 +203,20 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
       else setError(reason instanceof Error ? reason.message : "Configuration could not be activated.");
     } finally { setSaving(false); }
   };
-  return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customers</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p></div><span className="status-badge status-badge--complete">Current settings</span></div>
+  const confirmDetails = async () => {
+    setConfirming(true); setError("");
+    try { onSaved(await confirmManagerCustomer(customer.customer.id)); }
+    catch (reason) {
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+      else setError(reason instanceof Error ? reason.message : "Customer details could not be confirmed.");
+    } finally { setConfirming(false); }
+  };
+  const addedOn = customer.customer.createdAt ? new Date(customer.customer.createdAt) : null;
+  const addedLine = customer.customer.createdBy && addedOn && !Number.isNaN(addedOn.getTime())
+    ? `Added by ${customer.customer.createdBy} on ${addedOn.toLocaleDateString("sv-SE")}` : null;
+  return <section className="manager-home" aria-labelledby="customer-configuration-title"><button type="button" className="secondary-command" onClick={onBack}>Back to Customers</button><div className="workspace-heading"><div><p className="eyebrow">Customer Configuration</p><h2 id="customer-configuration-title">{customer.customer.displayName}</h2><p>{customer.sites.map((site) => site.displayName).join(", ")}</p>{addedLine ? <p className="customer-added-by">{addedLine}</p> : null}</div><div className="inline-actions">{isUnconfirmed(customer) ? <><span className="status-badge status-badge--waiting">Unconfirmed</span><button type="button" disabled={confirming} onClick={() => void confirmDetails()}>Confirm details</button></> : <span className="status-badge status-badge--complete">Current settings</span>}</div></div>
     {error ? <p className="form-message" role="alert">{error}</p> : null}
-    <div className="customer-record-tabs" role="tablist" aria-label="Customer record">{(["Details", "Sites", "Timeline"] as const).map((value) => <button type="button" role="tab" key={value} id={`customer-tab-${value}`} aria-controls={`customer-panel-${value}`} aria-selected={tab === value} onClick={() => setTab(value)}>{value}</button>)}</div>
+    <div className="customer-record-tabs" role="tablist" aria-label="Customer record">{(["Details", "Sites", "Timeline"] as const).map((value) => <button type="button" role="tab" key={value} id={`customer-tab-${value}`} aria-controls={`customer-panel-${value}`} aria-selected={tab === value} onClick={() => setTab(value)}>{value}{value === "Timeline" && timelineCount?.key === timelineKey && timelineCount.count !== undefined ? <> <span className="status-badge">{timelineCount.count}</span></> : null}</button>)}</div>
     <div role="tabpanel" id="customer-panel-Details" aria-labelledby="customer-tab-Details" hidden={tab !== "Details"}><ManagerCustomerDetailsEditor key={customer.customer.id} customer={customer} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} /></div>
     <div role="tabpanel" id="customer-panel-Sites" aria-labelledby="customer-tab-Sites" hidden={tab !== "Sites"}>
     <section className="report-summary setup-card customer-form-card"><div className="workspace-heading"><h3>Sites</h3><button type="button" disabled={siteSaving} onClick={() => { setAddingSite(true); setError(""); }}>+ Add Site</button></div><ul>{customer.sites.map((site) => <ManagerSiteAddress key={site.id} customerId={customer.customer.id} site={site} archiveDisabled={siteChanging !== null} onArchive={() => void changeSite(site, "archive")} onSaved={onSaved} onAuthorityFailure={onAuthorityFailure} />)}</ul>{customer.sites.length === 0 ? <p className="empty-state">No active sites.</p> : null}
@@ -208,7 +231,11 @@ export function ManagerCustomerConfigurationDetail({ customer, onBack, onSaved, 
       </section>{addingSite ? <form onSubmit={async (event) => { event.preventDefault(); setSiteSaving(true); setError(""); try { onSaved(await createManagerCustomerSite(customer.customer.id, siteName, newSiteAddress)); setAddingSite(false); setSiteName(""); setNewSiteAddress(""); } catch (reason) { if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason); else setError(reason instanceof Error ? reason.message : "Site could not be created."); } finally { setSiteSaving(false); } }}><label>Site Name<input required maxLength={160} value={siteName} onChange={(event) => setSiteName(event.target.value)} /></label><label>Site Address<input maxLength={500} value={newSiteAddress} onChange={(event) => setNewSiteAddress(event.target.value)} /></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={siteSaving} onClick={() => { setAddingSite(false); setError(""); }}>Cancel</button><button disabled={siteSaving}>{siteSaving ? "Adding…" : "Add Site"}</button></div></form> : null}</section></div><div hidden={tab !== "Details"}><form className="report-summary setup-card customer-form-card" onSubmit={submitConfiguration}><h3>Assigned Services</h3><fieldset className="manager-service-picker">{customer.supportedSystems.map((system) => <label className="manager-service-option" key={system.key}><input type="checkbox" disabled={!system.assignable && !keys.includes(system.key)} checked={keys.includes(system.key)} onChange={() => toggle(system.key)} /><span className="manager-service-option-copy"><strong>{system.displayName}</strong>{!system.assignable ? <><small className="manager-service-option-reason">{system.unavailableReason}</small>{locationConfigurableSystemKeys.has(system.key) && !savesGeneralLayout(system.key) ? <small className="manager-service-option-reason">Define at least one zone and one location for this service in its “Zones &amp; locations” editor below (open it under Services → Preset rows), then this service can be assigned.</small> : null}</> : null}</span></label>)}</fieldset>{riserNeedsMode ? <label className="manager-riser-mode">Riser mode<select required value={newRiserMode} onChange={(event) => setNewRiserMode(event.target.value)}><option value="">Select…</option><option value="dry">Dry</option><option value="wet">Wet</option></select></label> : null}{removedSystemsWithSettings.length > 0 ? <p className="support-metadata" role="status">Removing {removedSystemsWithSettings.join(", ")} also drops the per-service settings saved for it (zones and locations, field labels, system and evidence settings). Re-adding a service in a later version starts from defaults — its previous settings are not restored.</p> : null}<p>Saving creates a new version of these settings. Existing service visits keep the services originally assigned to them.</p><p className="support-metadata">Version {customer.configuration.revision}</p><div className="inline-actions"><button type="button" className="secondary-command" disabled={saving} onClick={onBack}>Cancel</button><button disabled={saving || keys.length === 0}>{saving ? "Saving…" : "Save & Activate"}</button></div></form>
     <ManagerCustomerServices customer={customer} onOpenService={onOpenService} />
     </div>
-    <div role="tabpanel" id="customer-panel-Timeline" aria-labelledby="customer-tab-Timeline" hidden={tab !== "Timeline"}><p className="empty-state">Timeline coming soon.</p></div>
+    <div role="tabpanel" id="customer-panel-Timeline" aria-labelledby="customer-tab-Timeline" hidden={tab !== "Timeline"}>
+      {timelineActor?.role === "admin" && onViewRepairVisit ? <CustomerTimeline key={timelineKey} customerId={customer.customer.id} actor={timelineActor} mode={timelineMode}
+        onCountChange={updateTimelineCount} onOpen={visit => visit.kind === "service" ? onViewServiceVisit(visit.id) : onViewRepairVisit(visit.id)} />
+        : <p role="status">Verify your manager session to view customer history.</p>}
+    </div>
   </section>;
 }
 

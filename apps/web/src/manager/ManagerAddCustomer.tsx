@@ -1,7 +1,10 @@
 import { type FormEvent, useEffect, useState } from "react";
+import { findSimilarCustomers } from "../referenceData/findSimilarCustomers";
+import "../referenceData/customerSimilarity.css";
 import {
   createManagerCustomer,
   loadManagerServiceCatalog,
+  loadManagerCustomers,
   ManagerApiError,
   type ManagerServiceCatalogEntry
 } from "./managerApi";
@@ -25,6 +28,8 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
   const [catalog, setCatalog] = useState<ManagerServiceCatalogEntry[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogMessage, setCatalogMessage] = useState("");
+  const [customers, setCustomers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [similarityMessage, setSimilarityMessage] = useState("");
   const [name, setName] = useState(""); const [site, setSite] = useState("Primary Service Site"); const [keys, setKeys] = useState<string[]>([]); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
   const [telephone, setTelephone] = useState(""); const [contact, setContact] = useState("");
   const [fax, setFax] = useState(""); const [contractNumber, setContractNumber] = useState("");
@@ -32,6 +37,17 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
 
   useEffect(() => {
     let current = true;
+    void loadManagerCustomers().then((rows) => {
+      if (!rows.every((row) => row?.customer && typeof row.customer.id === "string" && row.customer.id.trim()
+        && typeof row.customer.displayName === "string" && row.customer.displayName.trim())) {
+        throw new ManagerApiError("Customer names could not be verified.", "unavailable");
+      }
+      if (current) setCustomers(rows.map((row) => row.customer));
+    }).catch((reason) => {
+      if (!current) return;
+      setSimilarityMessage("Customers could not be checked for similar names.");
+      if (reason instanceof ManagerApiError && reason.kind !== "domain") onAuthorityFailure(reason);
+    });
     setCatalogLoading(true); setCatalogMessage("");
     void loadManagerServiceCatalog()
       .then((result) => { if (current) { setCatalog(result); setCatalogLoading(false); } })
@@ -46,6 +62,7 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
   }, []);
 
   const toggle = (key: string) => setKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  const similar = findSimilarCustomers(name, customers);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setSaving(true); setError("");
@@ -71,6 +88,12 @@ export function ManagerAddCustomer({ onCreated, onAuthorityFailure }: {
     {error || catalogMessage ? <p className="form-message" role="alert">{error || catalogMessage}</p> : null}
     <form className="report-summary setup-card customer-form-card" onSubmit={submit}>
       <label>Customer display name<input required autoComplete="off" maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      {similar.length ? <div className="customer-similarity" role="region" aria-label="Similar customers">
+        <p>A similar customer already exists. Use an existing customer or create this one anyway.</p>
+        <div className="inline-actions">{similar.map((customer) => <button key={customer.id} type="button" className="secondary-command" disabled={saving} onClick={() => { window.location.hash = `#/manager-customer/${encodeURIComponent(customer.id)}`; }}>Use {customer.displayName}</button>)}
+          <button type="submit" disabled={saving || catalogLoading}>Create anyway</button></div>
+      </div> : null}
+      {similarityMessage ? <p role="status">{similarityMessage}</p> : null}
       <label>Initial Site<input required autoComplete="off" maxLength={160} value={site} onChange={(event) => setSite(event.target.value)} /></label>
       <label>Telephone No<input type="tel" inputMode="tel" autoComplete="off" maxLength={40} value={telephone} onChange={(event) => setTelephone(event.target.value)} /></label>
       <label>Contact<input autoComplete="off" maxLength={160} value={contact} onChange={(event) => setContact(event.target.value)} /></label>

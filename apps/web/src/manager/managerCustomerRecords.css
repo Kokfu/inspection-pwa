@@ -11,6 +11,10 @@
 .customer-record-tabs [aria-selected="true"] { box-shadow: var(--focus-ring); }
 .customer-add-link { display: inline-flex; align-items: center; min-height: var(--tap); padding-inline: var(--space-4); border-radius: var(--radius-xs); }
 .customer-records-table td > span > button { display: block; margin-top: var(--space-2); }
+.customer-filter-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-3); }
+.customer-filter-chip { min-height: var(--tap); }
+.customer-filter-chip[aria-pressed="true"] { box-shadow: var(--focus-ring); font-weight: bold; }
+.customer-added-by { color: var(--text-muted, inherit); }
 @media (min-width: 768px) {
   .customer-records-table thead { display: table-header-group; }
   .customer-records-table tbody { display: table-row-group; }

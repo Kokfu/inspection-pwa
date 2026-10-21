@@ -708,6 +708,8 @@ export async function runMigrations(
   }
   // 058 is additive and idempotent (ADD COLUMN IF NOT EXISTS), so it is safe to run on every start.
   await database.query(await readFile(new URL("../../migrations/058_staged_evidence_captured_at.sql", import.meta.url), "utf8"));
+  // 059 is additive and idempotent (ADD COLUMN IF NOT EXISTS; existing customers default to confirmed).
+  await database.query(await readFile(new URL("../../migrations/059_customer_confirmation.sql", import.meta.url), "utf8"));
   if (options.seed !== false) {
     await seedMasterServiceReport(database);
   }

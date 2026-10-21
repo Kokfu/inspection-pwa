@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="view"></div><script type="module">
+import * as React from "react";
+import { createRoot } from "react-dom/client";
+import "/src/styles/app.css";
+import { ManagerAddCustomer } from "/src/manager/ManagerAddCustomer.tsx";
+import { TechnicianAddCustomer } from "/src/jobs/TechnicianAddCustomer.tsx";
+import { activateUserWorkspace, localDatabase } from "/src/db/localDatabase.ts";
+await activateUserWorkspace(809);
+const at = new Date().toISOString();
+await localDatabase.referenceData.bulkPut([
+  { key: "customers:active", payload: [{ id: "existing", code: "ABC", displayName: "ABC Sdn Bhd" }], version: "1", fetchedAt: at, expiresAt: at },
+  { key: "technician:service-format-options", payload: [{ key: "hose_reel", displayName: "Hose Reel", sortOrder: 1 }], version: "1", fetchedAt: at, expiresAt: at }
+]);
+const manager = new URLSearchParams(location.search).has("manager");
+createRoot(document.getElementById("view")).render(React.createElement(manager ? ManagerAddCustomer : TechnicianAddCustomer, manager ? {
+  onCreated: () => { document.body.dataset.created = "true"; },
+  onAuthorityFailure: () => { document.body.dataset.authorityFailure = "true"; }
+} : { actorUserId: 809, canUseServer: false, onStartVisit: (id) => { document.body.dataset.selected = id; }, onBackHome: () => {} }));
+</script></body></html>
