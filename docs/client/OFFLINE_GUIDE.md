@@ -1,5 +1,8 @@
 # Working Offline — What Works and What Does Not
 
+> **Superseded 2026-10-22 — developer reference only, not shipped to the client.** The current client documents are the plain-language [Client Handover Pack](../handover/README.md) and the [Office PC Technical Guide](../it-guide/README.md). Kept for history; may describe older screens.
+
+
 Prepared 22 October 2026 for the client. Written from the current source code and from automated tests run that day (section 6). It has not yet been confirmed on the client's own phones in a real dead-zone; that is listed in section 7.
 
 ## 1. The idea in one paragraph
@@ -79,13 +82,45 @@ All run on the current build. "Automated" means a script drove a real Chromium b
 | Existing Hydrant and Hose Reel local draft and exact-ID sync regression | Pass (2 tests) |
 | **Production build, real service worker:** page loaded online, network switched off, page reloaded | **Pass** — the app opened from the phone-side copy with no network (sign-in screen shown; the app shell is cached) |
 
+### Real phone test (Android phone over USB, 22 October 2026)
+
+Technician account, production build on the demo PC, phone Wi-Fi off and server unreachable.
+
+| Step | Result |
+|---|---|
+| Sign in online, **Refresh**: header showed **Offline ready**, visits showed **Ready for offline use** | Pass |
+| Wi-Fi off: header changed to **Offline** | Pass |
+| **New Service Visit** for a downloaded customer/site (Hose Reel): saved on the phone, reference "SV number given when synced" | Pass |
+| Filled the Hose Reel form, **Save Draft** ("Draft saved on this device") | Pass |
+| Force-closed Chrome, reopened with no connection: app opened, visit and draft still there, all answers kept | Pass |
+| Submit with a required field missing: refused with a clear list of what is missing (offline checking still works) | Pass |
+| Submit after completing it: "1 inspection waiting to sync" | Pass |
+| Force-closed and reopened again: still waiting, nothing lost | Pass |
+| Wi-Fi back on: header **Online / All submitted changes synced** within about 15 seconds | Pass |
+| Server check: exactly **one** job (given the real number SV-20261022-143) and exactly **one** inspection carrying the phone's original record IDs | Pass |
+
+### Installed home-screen app and real camera (same phone, 22 October 2026)
+
+| Step | Result |
+|---|---|
+| Chrome offered **Install and create shortcut**; the app was already installed. Opened from the installed icon: full-screen app, no browser bar, still signed in | Pass |
+| Wi-Fi off, new visit created in the installed app | Pass |
+| **Take Photo**: the phone asked once for camera permission; live camera preview appeared; **Capture** saved the photo ("Photo saved on this device", 12 KB) with no connection | Pass |
+| Submit (Fire Intercom finding with remark and photo): "1 inspection waiting to sync" | Pass |
+| Force-closed and cold-started the installed app with no connection: inspection and photo still on the phone (photo marked Pending) | Pass |
+| Wi-Fi on: photo became **Synced** and the server holds the inspection as submitted | Pass |
+
+Note: the camera asks for permission the first time. Technicians should choose **Allow** while online, before going out of coverage.
+
+Not covered: the client's own phones, an iPhone, and the client's HTTPS domain.
+
 Total: 17 offline browser tests + 7 system round-trip tests + 72 unit tests passed, 0 failed, plus the production-build check above.
 
 ## 7. Not yet verified — to be done with the client
 
 These are honest limits of the testing so far and should not be presented as proven:
 
-- **Not tried on the client's physical phones** (flight-mode test, force-close, reopen from home screen, real camera).
+- **Phone testing covered one Android phone** (section 6), including the installed home-screen app and a real camera photo. Still to do: the client's own phones and an iPhone.
 - **Not tried on the client's real HTTPS domain** (the production-build check ran on the demo PC address).
 - Browsers delete stored website data in rare cases (very low phone storage, or an iPhone not opened for about 7 days). **Sync submitted work the same day**, and do not rely on a phone as the only copy for weeks.
 - The 3-day offline-start window and the cached customer lists are only as fresh as the technician's last **Refresh**.

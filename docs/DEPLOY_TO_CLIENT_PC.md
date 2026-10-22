@@ -1,6 +1,7 @@
 # Deploy to the client PC — easy steps
 
-> Status check done 2026-10-21 against branch `phase-8e-client-demo-polish`.
+> Status check done 2026-10-21 against branch `phase-8e-client-demo-polish`; updated 2026-10-22 (final review).
+> Deploy-day sequence, cut-over from the dev PC and the emergency runbook: [`deployment-day/`](deployment-day/01-FINAL-REVIEW-AND-PRE-DEPLOY.md).
 > Requirements checklist: [`requirements.txt`](../requirements.txt). Deep detail:
 > [`client-install-and-public-access.md`](client-install-and-public-access.md),
 > [`release/LEVEL3_CHECKLIST.md`](release/LEVEL3_CHECKLIST.md),
@@ -11,11 +12,12 @@
 | Area | State |
 |---|---|
 | Features | Built and phone-tested on the **development** setup (USB phone, `http://localhost`). Open items are small and parked until the client reports them (`docs/remaining-work/`). |
-| Automated tests | Last full pass 2026-10-09: API 519/519, web 377/377, Playwright 190/190. Newer work since then passed focused tests only. |
+| Automated tests | Final retest 2026-10-22 after fixes: API 794/794 (cold Postgres), web Node 743/744 (1 known flaky, FR-17, since fixed), Playwright 787 pass + 2 load flakes that pass alone, V7 live gate 2/2. |
 | Production Docker stack | Compose file, Caddy, Cloudflare Tunnel service, backup/restore scripts all exist. |
-| **Never done yet** | A real client-PC install, real domain + tunnel, production HTTPS on a phone (install, camera, offline, force-close), PC-reboot recovery, restore drill. Every production row in `LEVEL3_CHECKLIST.md` is still unticked. |
+| **Never done yet** | A real client-PC install, the client's tunnel pointing at that PC, a reboot of that PC, a restore drill there, the client's own phones. (Production HTTPS on a phone, install, camera, airplane mode and force-close were proven on `app.mfets.com` served from the dev PC, 2026-10-22.) |
 | Migrations 057-059 | Additive and idempotent; run automatically on first start; untested on a large production database (a fresh client DB is small, so low risk). |
-| Working tree | **Not clean**: `ManagerOperations.tsx` and its spec have uncommitted edits. Commit (you do Git) and tag a release before deploying. The old tag `release-20261009` is stale. |
+| Git | As of 2026-10-22 the branch is 185 commits ahead of `origin` and 338 ahead of `main` (fast-forward possible); only docs/scripts from the final review are uncommitted. Commit, push, fast-forward `main`, tag `release-YYYYMMDD` and push the tag before deploying. The old tag `release-20261009` is stale. |
+| **Live on the dev PC** | `app.mfets.com` currently tunnels to the **dev PC**. Cut it over before the client PC connects, or traffic is split between two databases: [`deployment-day/02` §B](deployment-day/02-DEPLOY-DAY-CHECKLIST.md#b-cut-over-the-hostname-from-the-dev-pc-before-the-session). |
 
 **Verdict:** safe to start a *pilot install* on the client PC. Do not call it "accepted" until section 8 is ticked on the real hostname.
 
@@ -51,7 +53,9 @@ The rest of this guide shows route A; route B differences are marked **[B]**.
 1. Commit everything, then tag: `git tag release-YYYYMMDD` (you run Git).
 2. Confirm gates on that commit: `npm run typecheck` and `npm run build` in `apps/web` and `apps/api`.
 3. Ask the client to create (in **their** names): the domain, the Cloudflare account, and a Gmail app password if they want reminder emails.
-4. Put the repo on a USB stick or a private Git remote. Do **not** include `.env`, `node_modules`, logs, `client-material`, `client-input-private`.
+4. Publish the client release (client files only; developer files stay with you):
+   `.\scripts\dev\Publish-ClientRelease.ps1 -Ref release-YYYYMMDD -Push` to the separate release repository,
+   and prepare a read-only token for it. Details: [`deployment-day/01` §1.4–1.5](deployment-day/01-FINAL-REVIEW-AND-PRE-DEPLOY.md#14-what-reaches-the-client-and-what-stays-with-you).
 5. Make sure every technician has synced all work on the *old* release if this replaces an existing install (see runbook "Slice A ownership upgrade precondition").
 
 ## 5. On the client PC — setup (about 60–90 minutes)
@@ -68,12 +72,12 @@ The rest of this guide shows route A; route B differences are marked **[B]**.
 
 **Step 3 — Get the release**
 ```powershell
-git clone <your-repo-url> C:\InspectionSystem\app
+git clone --branch client-release --single-branch <release-repo-url> C:\InspectionSystem\app
 cd C:\InspectionSystem\app
-git checkout release-YYYYMMDD
-git status          # must say: nothing to commit, working tree clean
+Get-Content RELEASE.txt   # names the release and its source commit
+git status                # must say: nothing to commit, working tree clean
 ```
-(Or unzip the release folder there.) Keep the app in `C:\InspectionSystem\app` and the data in `C:\InspectionSystem\runtime` so they never mix.
+Keep the app in `C:\InspectionSystem\app` and the data in `C:\InspectionSystem\runtime` so they never mix.
 
 **Step 4 — Create the Cloudflare Tunnel** (client's Cloudflare login)
 1. Zero Trust → Networks → Tunnels → **Create tunnel** → name it after the client → copy the **token**.
@@ -124,13 +128,14 @@ Type the password twice (12+ characters; nothing shows while typing). Do not add
 ## 7. Backups (do before real work is entered)
 
 ```powershell
-.\scripts\Backup-Database.ps1
-.\scripts\Backup-Uploads.ps1
-.\scripts\Verify-Backup.ps1 -BackupPath '<path to the .dump>'
+.\scripts\Backup-All.ps1 -CopyTo '<off-PC folder>'
 ```
-1. Schedule both daily in **Task Scheduler** (steps in `docs/operations/backup-and-restore.md`).
-2. Copy the backups **and** `C:\InspectionSystem\runtime\operational\service-due-email.key` **and** `.env` to an off-PC place, encrypted.
-3. Do one restore test into the staging folder before go-live (`Restore-Database.ps1`, `Restore-Uploads.ps1`).
+`Backup-All.ps1` backs up the database, the photos **and** `C:\InspectionSystem\runtime\operational\`
+(letterhead, logo, email key; the two older scripts skip this folder), verifies each file, copies the set off the
+PC and prunes local sets older than 14 days.
+1. Schedule it daily in **Task Scheduler** (exact settings in [IT guide 3.2](it-guide/03-backup-and-recovery.md#32-the-daily-scheduled-task-set-up-once)).
+2. Keep `.env` in the client's password manager (once, and after every change).
+3. Do one restore test before go-live (`Restore-Database.ps1`, `Restore-Uploads.ps1`; [IT guide 3.4](it-guide/03-backup-and-recovery.md#34-restore-drill-every-3-months-never-touches-live-data)).
 
 ## 8. Acceptance test (from a phone **off** the client Wi-Fi)
 
@@ -149,12 +154,12 @@ Tick these on the real hostname; they are the still-open production gates:
 ## 9. Updating later
 
 ```powershell
-.\scripts\Backup-Database.ps1 ; .\scripts\Backup-Uploads.ps1     # always first
-git fetch ; git checkout release-<new>
+.\scripts\Backup-All.ps1 -CopyTo '<off-PC folder>'                  # always first
+git pull                                                            # after you published release-<new>
 docker compose --profile tunnel up -d --build
 .\scripts\Health-Check.ps1 -BaseUrl https://app.<domain> -StrictCertificateCheck
 ```
-Previous web versions are retained so installed phones update safely. Rollback steps: runbook "Immediate rollback".
+Previous web versions are retained so installed phones update safely. Rollback: [IT guide 1.7](it-guide/01-running-the-system.md#17-rolling-back).
 
 ## 10. Never do
 
@@ -169,6 +174,6 @@ Previous web versions are retained so installed phones update safely. Rollback s
 | Question | Answer |
 |---|---|
 | Does it need internet? | PC: yes (users sync through it; first build/updates). Phones: no for data entry; yes to sync. |
-| Where is data stored? | Database: Docker volume `postgres_data`. Photos: `C:\InspectionSystem\runtime\uploads`. |
+| Where is data stored? | Database: Docker volume `inspection_pwa_postgres_data`. Photos: `C:\InspectionSystem\runtime\uploads`. Letterhead, logo, e-mail key: `C:\InspectionSystem\runtime\operational`. |
 | Who can sign in at first? | Nobody until step 7. |
 | Forgot Manager password? | `docker compose exec api node dist/cli/resetAdminPassword.js <name>` on the PC. |

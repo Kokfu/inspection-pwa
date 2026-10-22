@@ -1,5 +1,8 @@
 # Account Recovery Guide
 
+> **Superseded 2026-10-22 — developer reference only, not shipped to the client.** The current client documents are the plain-language [Client Handover Pack](../handover/README.md) and the [Office PC Technical Guide](../it-guide/README.md). Kept for history; may describe older screens.
+
+
 For the person who looks after the Inspection system (the administrator or the IT contact).
 It explains how to get someone back in when a password is forgotten, and how to add another administrator.
 

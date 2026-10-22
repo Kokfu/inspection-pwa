@@ -112,6 +112,8 @@ Before inviting external users, test `https://app.example.com/` and `https://app
 
 ## Current release blockers
 
+> **Updated 2026-10-22:** superseded by `docs/DEPLOY_TO_CLIENT_PC.md` and `docs/deployment-day/`. `Prepare-ClientPC.ps1` now creates the folders and `.env` (with a generated password and the tunnel token), `Backup-All.ps1` covers backups, and the client PC installs from the `client-release` branch. The tunnel route was proven end to end on `app.mfets.com` from the dev PC; only the client-PC install itself is still open. The paragraph below is the earlier status, kept for history.
+
 The existing startup script only runs Compose and does not perform prerequisite setup or validate secrets. The named production tunnel path is now implemented (`cloudflared` service, Compose `tunnel` profile) but not yet acceptance-tested against a real client Cloudflare account and PC. Domain purchase, Cloudflare Tunnel creation, client PC checks, production HTTPS, and phone acceptance have not been performed by this documentation change.
 
 See `docs/architecture/06-deployment-runbook.md` for operations and `docs/architecture/05-backup-and-recovery.md` for backup/restore details.

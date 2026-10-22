@@ -1,5 +1,8 @@
 # Inspection evidence policy
 
+> **Superseded 2026-10-22 — developer reference only, not shipped to the client.** The current client documents are the plain-language [Client Handover Pack](../handover/README.md) and the [Office PC Technical Guide](../it-guide/README.md). Kept for history; may describe older screens.
+
+
 Checked against the application on 8 and 9 October 2026 (the 9 October check used the live CO2 form: a Not Good finding with its own remark and photo was submitted and synced). This describes the current behavior; older visits keep their original form and requirements.
 
 ## Results and required evidence

@@ -14,6 +14,8 @@ What changed: the New Service Visit form no longer has Arrival or Departure. The
 The API, DB columns and report code were **not** changed.
 
 ### A1. Report cover and PDF (needs a decision)
+> **Resolved 2026-10-22 (FR-14):** option (a). The cover shows "Arrival time" only for new visits (commit `8f081b5`); the final retest checked the service and repair PDFs.
+
 - [ ] **Label.** The report cover (`apps/api/src/reports/template/cover.html:34`) still says **"Arrival / Departure"**.
   `renderReportHtml.ts` joins the two values with " / " only when both exist, so a new visit prints just `09:05`
   under the label "Arrival / Departure". Decide: (a) rename the label to "Arrival" / "Start time" (also update

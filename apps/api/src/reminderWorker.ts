@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { pool } from "./db/pool.js";
 import { decryptPassword, datePlusDays, localClock, mailText, nextRunAt, validEmail } from "./reminderCore.js";
+import { writeReminderHeartbeat } from "./reminderHealth.js";
 import { sendGmail, SmtpFailure } from "./reminderSmtp.js";
 
 type Candidate = { customerId: string; dueDate: string; customerName: string; email: string; name: string; staffUserId: string | null };
@@ -96,7 +97,7 @@ export async function runReminderCycle(database: Pool = pool, now = new Date(), 
 
 if (process.argv[1]?.endsWith("reminderWorker.js")) {
   async function cycle() {
-    try { const result = await runReminderCycle(); console.log(`service reminder worker: ${result.state}`); }
+    try { const result = await runReminderCycle(); console.log(`service reminder worker: ${result.state}`); writeReminderHeartbeat(); }
     catch { console.error("service reminder worker cycle failed"); }
   }
   void cycle();

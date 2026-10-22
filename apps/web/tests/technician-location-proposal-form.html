@@ -3,6 +3,7 @@
 <pre id="result">Ready</pre>
 <div id="view"></div>
 <script type="module">
+import "/src/styles/app.css";
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import { activateUserWorkspace, deviceDatabase, localDatabase } from "/src/db/localDatabase.ts";
@@ -75,7 +76,11 @@ document.querySelector("#run").onclick = async () => {
     mount(job(id(4), zoned.configurationSnapshot.enabledSystems[0].zones));
     await until(() => nameInput());
     type(nameInput(), "Unique Room");
-    document.querySelectorAll('input[type="radio"]')[1].click();
+    const radios = [...document.querySelectorAll('input[type="radio"]')];
+    // L-7: the tap-sized radio sits beside its label on one row instead of stretching across it.
+    check("L-7: zone radios keep their tap size beside the label",
+      radios.length === 2 && radios.every((radio) => radio.getBoundingClientRect().width <= 48 && radio.closest("label").getBoundingClientRect().height < 80));
+    radios[1].click();
     await wait(100);
     type(document.querySelector('input[placeholder="Zone name"]'), " ground FLOOR ");
     check("L-4: a duplicate new zone warns without disabling Submit", await until(() => document.body.textContent.includes("Duplicate zone names") && !button("Submit for Review").disabled));

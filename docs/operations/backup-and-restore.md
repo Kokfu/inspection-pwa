@@ -150,18 +150,24 @@ of routine verification:
 
 ## Scheduling backups
 
-No scheduled task exists in this repo for either backup script today — creating one (Windows Task
-Scheduler, daily) is a client/operator setup step, the same pattern as
-`docs/operations/service-reminder-task-scheduler.md`'s email-reminder trigger:
+Schedule `scripts/Backup-All.ps1` (added 2026-10-22), not the two single-purpose scripts: it runs
+`Backup-Database.ps1` and `Backup-Uploads.ps1`, also zips `C:\InspectionSystem\runtime\operational\`
+(company profile, uploaded logo, `service-due-email.key`), verifies every file against its manifest,
+optionally copies the set to an off-PC folder (`-CopyTo`) and verifies the copies, prunes local sets older
+than `-KeepDays` (default 14, always keeping the newest `-KeepAtLeast` 3), logs to
+`backups\backup-log.txt` and exits 1 on any failure. It resolves `docker-compose.yml` from its own
+location, so it works under Task Scheduler's `powershell -File` from any working directory.
 
-- Trigger: Daily, off-hours.
-- Action: `powershell.exe -NoProfile -File C:\PWA_OfflineRecordWebApp\scripts\Backup-Database.ps1`,
-  and a second task for `Backup-Uploads.ps1`.
-- Run whether or not a user is logged on.
+- Trigger: Daily, at a time the PC is on and the Docker Desktop user is signed in.
+- Action: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\InspectionSystem\app\scripts\Backup-All.ps1" -CopyTo "<off-PC folder>"`,
+  Start in `C:\InspectionSystem\app`.
+- Run only when the user is logged on (Docker Desktop runs in that user's session).
 
-**Retention and off-device copy are an explicit, undecided client policy**, not something either
-script implements: every run writes a new timestamped backup and manifest and never deletes, moves,
-or prunes an older one — see `docs/architecture/05-backup-and-recovery.md`'s "Retention and
+Full click-by-click steps: `docs/it-guide/03-backup-and-recovery.md` §3.2.
+
+**Off-device retention is a client policy**: `Backup-All.ps1` prunes only the local sets and never
+deletes anything in the `-CopyTo` folder. `Backup-Database.ps1` and `Backup-Uploads.ps1` on their own
+never delete, move, or prune an older backup — see `docs/architecture/05-backup-and-recovery.md`'s "Retention and
 Off-Device Copy" section for the suggested-but-not-yet-approved starting policy (daily 14d / weekly
 8w / monthly 12mo) and the fact that nothing automates it yet.
 

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     # Folder that contains docker-compose.yml. Defaults to the parent of this scripts folder.
-    [string]$ProjectPath = (Split-Path -Parent $PSScriptRoot),
+    [string]$ProjectPath = "",
 
     # Persistent data folder on the client PC. Must match the INSPECTION_*_PATH values in .env.
     [string]$RuntimeRoot = "C:\InspectionSystem\runtime",
@@ -22,6 +22,11 @@ param(
 # `docker compose up`. See docs/DEPLOY_TO_CLIENT_PC.md.
 
 $ErrorActionPreference = "Stop"
+
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in param defaults under `powershell -File`
+# (how Task Scheduler runs scripts), so resolve the default here.
+$scriptFolder = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ProjectPath) { $ProjectPath = Split-Path -Parent $scriptFolder }
 
 if ($Hostname -notmatch '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$') {
     throw "Hostname '$Hostname' is not a plain hostname such as app.example.com (no http://, no slashes, no spaces)."

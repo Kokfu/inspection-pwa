@@ -53,7 +53,7 @@ No P0/P1 introduced by the verified location changes was identified.
 ## Final retest — 2026-10-22 (dev PC, build `build-20261021T182047Z`, source HEAD `22bd6bc` plus uncommitted changes)
 
 Full evidence, issue register (FR-01 …) and per-step results: [`docs/testing/final-retest/PROGRESS.md`](../testing/final-retest/PROGRESS.md).
-**Verdict: NO-GO until FR-12 (P1) is re-verified on the phone** (code fix done 2026-10-22, uncommitted; tests green). Production-host rows stay open.
+~~NO-GO until FR-12 (P1) is re-verified on the phone~~ — **FR-12 re-verified on the phone over `https://app.mfets.com` on 2026-10-22 and committed (`5b41596`); no open P0/P1.** Production-host rows (client PC) stay open; see `docs/deployment-day/`.
 
 | Local check | Status | Evidence / limit |
 |-------------|--------|------------------|

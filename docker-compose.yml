@@ -69,6 +69,14 @@ services:
     networks:
       - internal
       - reminder-outbound
+    # Each completed 15-minute cycle touches a heartbeat file; "unhealthy" in `docker compose ps`
+    # means no cycle has reached the database for 40 minutes (hung worker or a failing database).
+    healthcheck:
+      test: ["CMD", "node", "dist/reminderHealth.js"]
+      interval: 5m
+      timeout: 10s
+      retries: 2
+      start_period: 2m
     restart: unless-stopped
 
   postgres:

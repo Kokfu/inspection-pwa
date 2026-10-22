@@ -1,5 +1,18 @@
 # Client change requests — October 2026
 
+> **Current status (2026-10-22).** The status board in section 0 is from 2026-10-12 and is out of date:
+> - **CR-01** optional Good/N.A. photo, **CR-03/04** departure removed and arrival automatic (cover now says "Arrival
+>   time" only, FR-14), **CR-05**, **CR-06**, **CR-08** photo stamp, **CR-11** Admin wording: done and committed.
+> - **CR-02** manual site + approval: done (site requests in the Approvals hub, `29113fb`).
+> - **CR-07** section remarks: extended by the photo-and-remarks work (R1–R4, remark requests, migration 057) to Hose Reel,
+>   Hydrant, Fire Alarm, FM200 and CO2 rows/checklists; Comments boxes and the five plain-text services are unchanged.
+> - **CR-09 / CR-10** old Repair List and repair-only PDF: **superseded** by the repair-visit redesign (`3e41502`,
+>   `3e79d5a`, `b5e1f80`): RV numbers, approval, final repair PDF `MFE/RR/YYYY/NNNN`.
+> - **CR-12** comments/free text: covered by the one-remark picker and remark requests (`340556c`).
+> - Still open: owner decision on the five screens where both review roles read "Admin" (CR-11), and phone retests of
+>   items fixed on 2026-10-21. See `docs/deployment-day/01-FINAL-REVIEW-AND-PRE-DEPLOY.md` §1.3.
+
+
 > **Living document.** Recorded 2026-10-10 from the client's list. Fix **one item at a time**, referring to the ID
 > (`CR-nn`). Tick the box and fill in the *Result* line when an item is done. **Section 0 is the current status.**
 >

@@ -1,0 +1,54 @@
+# Developer-only files.
+#
+# Everything marked export-ignore stays in this (developer) repository but is left out of the client
+# release: scripts/dev/Publish-ClientRelease.ps1 builds the `client-release` branch from `git archive`,
+# which honours these rules, so the client PC never receives these files. Add new developer-only paths
+# here. Paths not listed are shipped (application code, Docker/Caddy files, operations scripts).
+
+# Assistant, agent and developer notes
+.agents/** export-ignore
+.claude/** export-ignore
+AGENTS.md export-ignore
+HANDOVER.md export-ignore
+skills-lock.json export-ignore
+requirements.txt export-ignore
+runtime.example/** export-ignore
+
+# Documentation: the client receives only the handover pack, the IT guide and the printable editions
+docs/** export-ignore
+# (the folders themselves must be un-ignored too, or git archive skips everything inside them)
+docs/handover -export-ignore
+docs/handover/** -export-ignore
+docs/it-guide -export-ignore
+docs/it-guide/** -export-ignore
+docs/client-pack -export-ignore
+docs/client-pack/*.pdf -export-ignore
+docs/client-pack/*.docx -export-ignore
+
+# Tests, test fixtures and validation tools
+apps/web/tests/** export-ignore
+# Developer verification scripts and notes inside src (they hold developer machine paths)
+apps/api/src/**/*.ps1 export-ignore
+apps/api/src/**/*.md export-ignore
+apps/web/src/**/*.ps1 export-ignore
+apps/web/playwright.config.ts export-ignore
+apps/web/src/**/*.test.ts export-ignore
+apps/web/src/**/*.test.tsx export-ignore
+apps/api/tests/** export-ignore
+apps/api/src/**/*.test.ts export-ignore
+apps/api/src/**/*.test-support.ts export-ignore
+apps/api/src/**/*.testSupport.ts export-ignore
+apps/api/src/cli/validate*.ts export-ignore
+apps/api/src/cli/renderReportSample.ts export-ignore
+infra/reverse-proxy/publish-web-release.test.sh export-ignore
+infra/docker/** export-ignore
+
+# Developer and test scripts
+scripts/dev/** export-ignore
+scripts/phone-testing/** export-ignore
+scripts/security/** export-ignore
+scripts/testing/** export-ignore
+scripts/Test-*.ps1 export-ignore
+scripts/Start-DevTunnel.ps1 export-ignore
+scripts/check-security-headers.mjs export-ignore
+scripts/reject-legacy-location-proposal*.mjs export-ignore

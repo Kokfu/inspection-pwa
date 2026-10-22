@@ -8,7 +8,7 @@
 > Evidence: command + key output line, screenshot file name, record id (SV-/RV-), or DB count. Never a password.
 > Test data created in this pass uses the prefix **`RT`** (for example customer `RT Retest Trading`, technician `rt-tech1`).
 
-**FR-12 (P1): code fix done, awaiting phone re-test.** Portable sync accepted the current customer snapshot in unit, cold-Postgres integration and API-level e2e tests (2026-10-22). Not yet confirmed on the phone, so P6-13 stays open. Fix is uncommitted.
+**FR-12 (P1): fixed and re-verified on the phone (2026-10-22)**, committed in `5b41596`; see "Re-test after fixes" below (SV-20261022-140 and -141 synced over `https://app.mfets.com`).
 
 **Resume point:** ALL STEPS DONE
 **Started:** 2026-10-22 · **Last updated:** 2026-10-22 · **Session count:** 1

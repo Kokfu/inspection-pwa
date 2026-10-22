@@ -1,5 +1,8 @@
 # Client user guide
 
+> **Superseded 2026-10-22 — developer reference only, not shipped to the client.** The current client documents are the plain-language [Client Handover Pack](../handover/README.md) and the [Office PC Technical Guide](../it-guide/README.md). Kept for history; may describe older screens.
+
+
 Role wording updated on 10 October 2026 (CR-11): the **Admin** card opens the existing review workspace; existing administrator accounts continue using **Manager**. Permissions are unchanged.
 
 Location-proposal instructions updated on 19 October 2026 from the source and automated browser harness. These additions have not been tested on a physical phone or deployed as production acceptance.
