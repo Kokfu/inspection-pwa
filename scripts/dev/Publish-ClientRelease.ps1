@@ -15,8 +15,8 @@ param(
 )
 
 # Developer-only. Builds one commit on $Branch whose files are exactly `git archive $Ref`, which leaves
-# out every path marked export-ignore in .gitattributes (developer docs, tests, agent notes, test
-# scripts). The working tree, the index and the current branch are never touched. The new commit is
+# out every path marked export-ignore in .gitattributes (all of docs/, tests, agent notes, test
+# scripts), so the release is application code, Docker/Caddy files and operations scripts only. The working tree, the index and the current branch are never touched. The new commit is
 # tagged client/<Ref>. Push with -Push, or push $Branch and the tag yourself.
 #
 # Client PC (first time):  git clone --branch client-release --single-branch <release repo URL> C:\InspectionSystem\app
@@ -72,7 +72,7 @@ try {
     $leaks = $files | Where-Object {
         ($_ -match '^(\.agents|\.claude|runtime\.example)/') -or
         ($_ -in @('AGENTS.md', 'HANDOVER.md', 'skills-lock.json', 'requirements.txt')) -or
-        ($_ -match '^docs/' -and $_ -notmatch '^docs/(handover|it-guide)/' -and $_ -notmatch '^docs/client-pack/[^/]+\.(pdf|docx)$') -or
+        ($_ -match '^docs/') -or
         ($_ -match '^apps/(web|api)/tests/') -or
         ($_ -match '\.test\.tsx?$') -or
         ($_ -match '^scripts/(dev|phone-testing|security|testing)/')
@@ -84,7 +84,7 @@ try {
         Select-String -Pattern 'PWA_OfflineRecordWebApp', 'C:\\Users\\[^\\]+\\AppData' -List |
         ForEach-Object { $_.Path.Substring($tree.Length + 1).Replace('\', '/') }
     if ($pathHits) { throw "Developer machine paths found in files that would be published:`n$($pathHits -join "`n")" }
-    foreach ($required in @('docker-compose.yml', 'apps/api/Dockerfile', 'infra/reverse-proxy/Dockerfile', 'scripts/Backup-All.ps1', 'docs/handover/README.md')) {
+    foreach ($required in @('docker-compose.yml', 'apps/api/Dockerfile', 'infra/reverse-proxy/Dockerfile', 'scripts/Backup-All.ps1', 'scripts/Prepare-ClientPC.ps1')) {
         if ($files -notcontains $required) { throw "Release is missing $required." }
     }
 

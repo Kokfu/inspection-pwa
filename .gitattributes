@@ -14,16 +14,9 @@ skills-lock.json export-ignore
 requirements.txt export-ignore
 runtime.example/** export-ignore
 
-# Documentation: the client receives only the handover pack, the IT guide and the printable editions
+# Documentation: none of it ships in the git release. The handover pack, IT guide and printable
+# editions are sent to the client separately (docs/client-pack/), not through the release repository.
 docs/** export-ignore
-# (the folders themselves must be un-ignored too, or git archive skips everything inside them)
-docs/handover -export-ignore
-docs/handover/** -export-ignore
-docs/it-guide -export-ignore
-docs/it-guide/** -export-ignore
-docs/client-pack -export-ignore
-docs/client-pack/*.pdf -export-ignore
-docs/client-pack/*.docx -export-ignore
 
 # Tests, test fixtures and validation tools
 apps/web/tests/** export-ignore

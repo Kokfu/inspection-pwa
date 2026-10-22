@@ -55,7 +55,8 @@ The rest of this guide shows route A; route B differences are marked **[B]**.
 3. Ask the client to create (in **their** names): the domain, the Cloudflare account, and a Gmail app password if they want reminder emails.
 4. Publish the client release (client files only; developer files stay with you):
    `.\scripts\dev\Publish-ClientRelease.ps1 -Ref release-YYYYMMDD -Push` to the separate release repository,
-   and prepare a read-only token for it. Details: [`deployment-day/01` §1.4–1.5](deployment-day/01-FINAL-REVIEW-AND-PRE-DEPLOY.md#14-what-reaches-the-client-and-what-stays-with-you).
+   and prepare a read-only token for it. The release holds code only: no `docs/` at all, so send the handover pack and
+   IT guide (`docs/client-pack/`) to the client separately. Details: [`deployment-day/01` §1.4–1.5](deployment-day/01-FINAL-REVIEW-AND-PRE-DEPLOY.md#14-what-reaches-the-client-and-what-stays-with-you).
 5. Make sure every technician has synced all work on the *old* release if this replaces an existing install (see runbook "Slice A ownership upgrade precondition").
 
 ## 5. On the client PC — setup (about 60–90 minutes)
