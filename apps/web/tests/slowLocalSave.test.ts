@@ -24,3 +24,32 @@ test("I-79: workspace activity reports its oldest in-flight start and forgets fi
   finishSecond();
   assert.equal(oldestWorkspaceActivityStartedAt(), undefined);
 });
+
+test("FR-17: 1000 same-millisecond activities finishing in random order keep the first still running as oldest", () => {
+  const realNow = Date.now;
+  let tick = 5_000_000;
+  Date.now = () => tick; // identical millisecond for the first batch exposes ordering by key
+  try {
+    const starts: number[] = [];
+    const finishers = Array.from({ length: 1000 }, (_, i) => {
+      if (i === 500) tick += 7;
+      starts.push(tick);
+      return beginWorkspaceActivity();
+    });
+    const order = finishers.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    const running = new Set(order);
+    for (const index of order) {
+      finishers[index]();
+      finishers[index](); // idempotent: a second call must not release another activity
+      running.delete(index);
+      const firstRunning = running.size ? Math.min(...running) : undefined;
+      assert.equal(oldestWorkspaceActivityStartedAt(), firstRunning === undefined ? undefined : starts[firstRunning]);
+    }
+  } finally {
+    Date.now = realNow;
+  }
+});

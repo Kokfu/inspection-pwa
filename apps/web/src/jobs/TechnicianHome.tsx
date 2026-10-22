@@ -26,6 +26,8 @@ import {
 import type { InspectionJob, JobSystemSnapshot } from "./jobTypes";
 import { SystemNavigator } from "./SystemNavigator";
 import { ServiceJobCard } from "./ServiceJobCard";
+import { MissingServiceVisit } from "../visits/MissingServiceVisit";
+import { useBrowserOnline } from "../pwa/browserOnline";
 import { OpenWorkSection, matchesOpenWork } from "./OpenWorkSection";
 import { isLocalVisitReference, presentLocalVisit, withConfirmedReference } from "./offlineServiceVisitStore";
 import { deleteUnsyncedLocalVisit, prefetchCustomerSitesForOffline, requeueOfflineServiceVisit } from "./offlineServiceVisitLocal";
@@ -147,6 +149,7 @@ export function TechnicianHome({
   onOpenLocationProposal
 }: TechnicianHomeProps) {
   const repairs = useLocalRepairVisits();
+  const browserOnline = useBrowserOnline();
   const { visits: localVisits, loaded: localVisitsLoaded } = useOfflineServiceVisits();
   const localById = useMemo(() => new Map(localVisits.map((visit) => [visit.clientJobUuid, visit])), [localVisits]);
   // Visits made on this device appear (and show the server's SV number once confirmed) without waiting for a server list.
@@ -178,7 +181,10 @@ export function TechnicianHome({
     try { setLocalMessage(""); await deleteUnsyncedLocalVisit(job.id); onBackToJobs(); }
     catch (error) { setLocalMessage(error instanceof Error ? error.message : "The visit could not be deleted."); }
   }
-  const selectedJob = jobs.find((job) => job.id === selectedJobId);
+  // A visit made on this device stays openable after it syncs, until the server list carries it.
+  const selectedLocalVisit = selectedJobId ? localById.get(selectedJobId) : undefined;
+  const selectedJob = jobs.find((job) => job.id === selectedJobId)
+    ?? (selectedLocalVisit ? withConfirmedReference(selectedLocalVisit.job, selectedLocalVisit) : undefined);
   const systems = selectedJob?.configurationSnapshot.enabledSystems
     .filter((system) => system.definitionStatus === "confirmed")
     .sort((left, right) => left.sortOrder - right.sortOrder) ?? [];
@@ -324,7 +330,7 @@ export function TechnicianHome({
   };
 
   return <section className="technician-home page-stack" aria-labelledby="technician-home-title">
-    {!selectedJob ? <div className="home-toolbar">
+    {!selectedJob && !selectedJobId ? <div className="home-toolbar">
       <div className="workspace-heading"><div>
         <p className="eyebrow">Technician workspace</p>
         <h2 id="technician-home-title">Open Work</h2>
@@ -495,6 +501,9 @@ export function TechnicianHome({
           })}
         </ul>
       </section>
+    ) : selectedJobId && (authState.status === "verified" || authState.status === "offline-unverified") ? (
+      <MissingServiceVisit jobId={selectedJobId} userId={authState.user.id} online={browserOnline} ready={localVisitsLoaded}
+        onBack={onBackToJobs} onRefresh={onRefresh} />
     ) : authState.status === "verified" || authState.status === "offline-unverified" ? (
       <section aria-label="Open visits">
         <div className="open-work-search">
