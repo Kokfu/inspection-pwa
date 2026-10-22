@@ -61,9 +61,15 @@ export type EvidencePolicySnapshot = {
   definitionSha256: string;
 };
 
+/** Frozen customer snapshot keys. New jobs carry all eight; jobs frozen before the detail fields existed carry only the first three.
+ *  Mirrored by apps/api/src/inspections/customerSnapshot.ts; tests/customerSnapshotParity.test.ts keeps the two in step. */
+export const JOB_CUSTOMER_SNAPSHOT_KEYS = ["id", "code", "displayName", "contactPhone", "contactPerson", "fax", "contractNumber", "serviceFrequency"] as const;
+export type JobCustomerSnapshot = { id: string; code: string; displayName: string }
+  & Partial<Record<"contactPhone" | "contactPerson" | "fax" | "contractNumber" | "serviceFrequency", string | null>>;
+
 export type JobConfigurationSnapshot = {
   schemaVersion: 1;
-  customer: { id: string; code: string; displayName: string };
+  customer: JobCustomerSnapshot;
   site?: { id: string; displayName: string };
   configuration: { revisionId: string; revisionNumber: number };
   template: { id: string; code: string; name: string; version: number };

@@ -4,6 +4,7 @@ import type { SyncFailure, SyncResult } from "./testRecordSync.js";
 import { isCompatibleSystemContract } from "../inspections/templates/systemContractCompatibility.js";
 import { acceptHydrantV7Inspection, isHydrantV7Payload } from "./hydrantV7Acceptance.js";
 import { savedLayoutRows, type SavedLayoutRow } from "../inspections/savedLayoutRows.js";
+import { hasValidCustomerSnapshotKeys } from "../inspections/customerSnapshot.js";
 type R=Record<string,unknown>;const rec=(x:unknown):x is R=>typeof x==="object"&&x!==null&&!Array.isArray(x);const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;const fail=(id:string,code:string,message:string):SyncFailure=>({id,code,message});
 type SyncItem={operationId:unknown;entityType:unknown;entityId:unknown;action:unknown;payload:unknown};
 type HydrantPayload=R&{clientUuid:string;jobId:string;systemKey:"hydrant";masterTemplate:R&{id:string;code:"MFE-FSSR";version:number};configuration:R&{revisionId:string;revisionNumber:number};inspectionSnapshot:R;responses:R;performedAt:string;originalCreatorSnapshot:R|null};
@@ -147,7 +148,7 @@ function validClientSnapshot(value: unknown) {
 }
 
 function validCustomer(value: unknown) {
-  return rec(value) && exactKeys(value, ["id", "code", "displayName"])
+  return rec(value) && hasValidCustomerSnapshotKeys(value)
     && typeof value.id === "string" && uuid.test(value.id)
     && typeof value.code === "string" && value.code.length > 0 && value.code.length <= 200
     && typeof value.displayName === "string" && value.displayName.length > 0 && value.displayName.length <= 300;
