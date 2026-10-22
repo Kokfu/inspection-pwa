@@ -12,6 +12,8 @@ export default defineConfig({
   // The node:test *.test.ts(x) files in tests/ run under tsx, not Playwright.
   testMatch: "**/*.spec.ts",
   testIgnore: live ? [] : liveSpecs,
+  // Live mode drives a freshly started Vite dev server, whose first page load transforms every module cold.
+  timeout: live ? 90_000 : 30_000,
   fullyParallel: false,
   use: {
     baseURL: "http://127.0.0.1:4175",
