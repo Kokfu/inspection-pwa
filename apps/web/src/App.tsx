@@ -2513,11 +2513,11 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
       ) : null}
 
       {technicianExperience ? (
-        <AppShell<"jobs" | "repair-visits" | "new-service-visit" | "technician-add-customer" | "technician-completed-services" | "technician-upcoming-services">
+        <AppShell<"jobs" | "repair-visits" | "repair-visit-new" | "new-service-visit" | "technician-add-customer" | "technician-completed-services" | "technician-upcoming-services">
           mobileNavigation
-          navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Upcoming Services", "technician-upcoming-services"], ["Completed Services", "technician-completed-services"], ["Repair List", "repair-visits"], ["Add Customer", "technician-add-customer"]]}
-          sections={{ "new-service-visit": "Services", "repair-visits": "Repairs", "technician-add-customer": "Customers" }}
-          activeRouteName={route.name === "repair-visit-new" || route.name === "repair-visit" ? "repair-visits" : route.name}
+          navLinks={[["Home", "jobs"], ["New Service Visit", "new-service-visit"], ["Upcoming Services", "technician-upcoming-services"], ["Completed Services", "technician-completed-services"], ["+ New Repair Visit", "repair-visit-new"], ["Repair List", "repair-visits"], ["Add Customer", "technician-add-customer"]]}
+          sections={{ "new-service-visit": "Services", "repair-visit-new": "Repairs", "technician-add-customer": "Customers" }}
+          activeRouteName={route.name === "repair-visit" ? "repair-visits" : route.name}
           onNavigate={(name) => navigate({ name })}
         >
           {(route.name === "jobs" || route.name === "new-service-visit") && <button type="button" className="secondary-command" onClick={() => navigate({ name: "customer-timeline", customerId: route.name === "new-service-visit" ? route.customerId : undefined })}>Customer history</button>}
@@ -2525,6 +2525,7 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
             <>
             <CustomerTimelineRoute key={`${currentUser.id}:${authAuthorityGeneration}:${route.name}`} customerId={route.customerId} actor={currentUser}
               showBack={route.name !== "technician-completed-services"}
+              searchable={route.name === "technician-completed-services"}
               heading={route.name === "technician-completed-services" ? "Completed Services" : undefined}
               eyebrow={route.name === "technician-completed-services" ? "Technician workspace" : undefined}
               initialStatus={route.name === "technician-completed-services" ? "closed" : undefined}
@@ -2848,8 +2849,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           )}
         </AppShell>
       ) : managerExperience ? (
-        <AppShell<ManagerDashboardRoute["name"] | "manager-home">
         <WorkspaceLabelContext.Provider value={supervisorExperience ? "Admin workspace" : "Manager workspace"}>
+        <AppShell<ManagerDashboardRoute["name"] | "manager-home">
           mobileNavigation
           navLinks={[["Home", "manager-home"], ...managerNavLinks(supervisorExperience)]}
           sections={supervisorExperience ? { "manager-operations": "Services", "manager-approvals": "Review" } : managerNavSections}
@@ -2867,8 +2868,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-home" ? <ManagerHome navigate={navigate} supervisor={supervisorExperience} onAuthorityFailure={handleManagerRequestFailure} />
         : route.name === "manager-approvals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerApprovals key={authAuthorityGuard.current.currentGeneration} navigate={navigate} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-settings" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerSettings navigate={navigate} /></>
-        : route.name === "manager-report-approvals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerReportApprovals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Service reports" })} /></>
-        : route.name === "manager-repairs" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerRepairVisits key={authAuthorityGuard.current.currentGeneration} role={currentUser!.role} onAuthorityFailure={handleManagerRequestFailure} onOpen={(visitId) => navigate({ name: "manager-repair-visit", visitId })} /></>
+        : route.name === "manager-report-approvals" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerReportApprovals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} onOpen={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Service reports" })} /></>
+        : route.name === "manager-repairs" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerRepairVisits key={authAuthorityGuard.current.currentGeneration} role={currentUser!.role} onAuthorityFailure={handleManagerRequestFailure} onOpen={(visitId) => navigate({ name: "manager-repair-visit", visitId })} /></>
         : route.name === "manager-repair-visit" ? <Suspense fallback={<p role="status">Loading repair visit…</p>}><RepairVisitReview
             key={`${authAuthorityGuard.current.currentGeneration}:${currentUser!.id}:${route.visitId}`}
             visitId={route.visitId} role={currentUser!.role}
@@ -2894,10 +2895,10 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
         : route.name === "manager-company-profile" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-settings" })}>Back to Settings</button><ManagerCompanyProfile onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-email-reminders" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-settings" })}>Back to Settings</button><ManagerEmailReminders onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-services-done" && currentUser ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerServicesDone actor={currentUser} key={authAuthorityGuard.current.currentGeneration} supervisor={supervisorExperience} message={managerMessage} onAuthorityFailure={handleManagerRequestFailure} onViewServiceVisit={(jobId) => openManagerVisit("manager-service-visit", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onViewRepairVisit={(visitId) => navigate({ name: "manager-repair-visit", visitId })} onViewReport={(jobId) => openManagerVisit("manager-final-report", jobId, { hash: hashForRoute(route), label: "Back to Services Done" })} onDownloadReport={downloadManagerReport} /></>
-        : route.name === "manager-location-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerLocationProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-location-proposals" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerLocationProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-photo-kpi" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-home" })}>Back to Home</button><ManagerPhotoKpi key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-remark-requests" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerRemarkRequests key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
-        : route.name === "manager-site-proposals" ? <><button type="button" className="secondary-command mobile-only-back" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerSiteProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-remark-requests" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerRemarkRequests key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
+        : route.name === "manager-site-proposals" ? <><button type="button" className="secondary-command" onClick={() => navigate({ name: "manager-approvals" })}>Back to Approvals</button><ManagerSiteProposals key={authAuthorityGuard.current.currentGeneration} onAuthorityFailure={handleManagerRequestFailure} /></>
         : route.name === "manager-final-report" ? (
           <ManagerFinalReportView jobId={route.jobId} backLabel={managerReturn?.label} currentUserRole={currentUser?.role === "admin" || currentUser?.role === "supervisor" ? currentUser.role : undefined} onBack={backFromManagerVisit} onAuthorizationFailure={handleManagerReportAuthorizationFailure} onServerUnavailable={(message) => failClosedManagerOperations(message, false)} />
         ) : route.name === "manager-correction" ? (
@@ -2965,8 +2966,8 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           /></>
         )}
         </AppShell>
-      ) : null}
         </WorkspaceLabelContext.Provider>
+      ) : null}
     </main>
   );
 }

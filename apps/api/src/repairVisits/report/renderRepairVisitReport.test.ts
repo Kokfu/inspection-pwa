@@ -118,3 +118,17 @@ test("Chromium fixtures: service, repair, no previous and preview overflow; page
     writeFileSync(`${output}/${kind}.pdf`,pdf);writeFileSync(`${output}/${kind}.html`,renderRepairVisitReport(vm,map));
   }
 });
+
+test("repair report Issued and Approved-by use Malaysia time; visit dates do not shift", async () => {
+  const vm = await fixture();
+  vm.approvedAt = "2026-10-21T19:13:00.000Z";
+  const html = renderRepairVisitReport(vm);
+  assert.match(html, /Approved by [^<]* . 22 Oct 2026/);
+  assert.match(html, /Issued<\/span><b[^>]*>22 Oct 2026</);
+  assert.doesNotMatch(html, /Approved by [^<]* . 21 Oct 2026/);
+  assert.match(html, /19 Oct 2026/);
+  const before = renderRepairVisitReport({ ...vm, approvedAt: "2026-10-22T15:59:00.000Z" } as typeof vm);
+  assert.match(before, /Approved by [^<]* . 22 Oct 2026/);
+  const after = renderRepairVisitReport({ ...vm, approvedAt: "2026-10-22T16:00:00.000Z" } as typeof vm);
+  assert.match(after, /Approved by [^<]* . 23 Oct 2026/);
+});

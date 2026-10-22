@@ -1,5 +1,8 @@
 @import "./ManagerApprovals.css";
-.report-approval-list { display: grid; gap: var(--space-3); padding: 0; margin: 0; list-style: none; min-width: 0; }
-.report-approval-row { min-height: var(--tap); overflow-wrap: anywhere; }
-.report-approval-row .status-badge { justify-self: start; }
-.report-approval-row:focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }
+.report-approval-row { overflow-wrap: anywhere; }
+.report-approval-filters { display: grid; gap: var(--space-2); min-width: 0; }
+.report-approval-filters input { min-height: var(--tap); width: 100%; }
+.report-approval-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.report-approval-chip { min-height: var(--tap); padding: 0 var(--space-3); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: inherit; font: inherit; }
+.report-approval-chip[aria-pressed="true"] { background: var(--brand-blue); border-color: var(--brand-blue); color: var(--on-brand); font-weight: 700; }
+.report-approval-chip:focus-visible { outline: var(--focus-outline); outline-offset: var(--space-1); }

@@ -1,4 +1,5 @@
 import { test } from "@playwright/test";
+import { registerRepairDisabledScenarios } from "./support/repairDisabledScenarios";
 // Current-entry smoke uses the harness's documented healthy ?online mode.
 // Default mode authenticates /auth/me but fails every other API request.
 // The runner separately exercises all default-mode retired-draft scenarios;
@@ -12,4 +13,4 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({ status: 302, headers: { Location: url.href } });
   });
 });
-import "./repair-disabled.spec";
+registerRepairDisabledScenarios();

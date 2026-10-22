@@ -5,7 +5,7 @@ import { loadTimelineCustomers } from "./customerTimelineData";
 import { CustomerTimeline, type TimelineLoader } from "./CustomerTimeline";
 import type { TimelineVisit } from "./customerTimelineData";
 import "./CustomerTimeline.css";
-import { loadTimelineServiceJob } from "./customerTimelineServiceJob";
+import { ServiceVisitNotAuthorisedError, loadTimelineServiceJob } from "./customerTimelineServiceJob";
 import type { InspectionJob } from "../jobs/jobTypes";
 
 /** Route-level picker uses the existing live customer catalog, never a visit snapshot. */
@@ -24,6 +24,7 @@ export function CustomerTimelineRoute({ customerId, actor, mode, initialStatus, 
   const opening = useRef<AbortController | null>(null);
   const [customers, setCustomers] = useState<Array<{ id: string; displayName: string; code?: string }>>([]);
   const [message, setMessage] = useState("");
+  const [notAuthorised, setNotAuthorised] = useState(false);
   useEffect(() => {
     let active = true;
     setCustomers([]); setMessage("");
@@ -42,7 +43,7 @@ export function CustomerTimelineRoute({ customerId, actor, mode, initialStatus, 
   async function open(visit: TimelineVisit) {
     opening.current?.abort();
     const controller = new AbortController(); opening.current = controller;
-    setMessage("");
+    setMessage(""); setNotAuthorised(false);
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10_000);
     try {
@@ -51,7 +52,8 @@ export function CustomerTimelineRoute({ customerId, actor, mode, initialStatus, 
         if (!controller.signal.aborted) onServiceJob(job);
       } else onOpen(visit);
     } catch (e) {
-      if (timedOut) setMessage("The server did not answer in time. Reconnect and retry opening this visit.");
+      if (e instanceof ServiceVisitNotAuthorisedError) { setMessage(e.message); setNotAuthorised(true); }
+      else if (timedOut) setMessage("The server did not answer in time. Reconnect and retry opening this visit.");
       else if (!controller.signal.aborted) setMessage(e instanceof Error ? e.message : "Visit details are unavailable.");
     }
     finally { clearTimeout(timer); }
@@ -73,6 +75,7 @@ export function CustomerTimelineRoute({ customerId, actor, mode, initialStatus, 
       <p id={`${customerControl}-help`}>Pick a customer to see their finished visits.</p>
     </div>
     {message && <p role="alert">{message}</p>}
+    {notAuthorised && <button type="button" className="secondary-command" onClick={onBack}>Back to My Jobs</button>}
     {!customerOptions && !customers.length && !message && <p>Connect once to download the customer list if it is not saved on this device.</p>}
     {customerId && <CustomerTimeline key={`${actor.id}:${customerId}`} customerId={customerId} actor={actor} mode={mode} initialStatus={initialStatus} embedded={Boolean(heading)} loadVisits={loadVisits} onOpen={visit => { void open(visit); }} />}
   </section>;

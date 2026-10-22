@@ -139,7 +139,7 @@ async function expectNoHorizontalScroll(page: Page) {
 test("Technicians row opens technician detail with In Progress / Completed counts, paging, and a report round trip", async ({ page }) => {
   const listQueries = await mockManagerApi(page);
   await openManager(page);
-  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Staff", exact: true }).click();
   // Add Technician and Deactivate are still present, unchanged.
   await expect(page.getByRole("button", { name: "Add Technician", exact: true })).toBeVisible();
   await expect(page.locator("li").filter({ hasText: "tech-alpha" }).getByRole("button", { name: "Deactivate", exact: true })).toBeVisible();
@@ -188,7 +188,7 @@ test("Technicians row opens technician detail with In Progress / Completed count
   await page.getByRole("button", { name: "Back to Technicians", exact: true }).click();
   await expect(page).toHaveURL(/#\/manager-technicians$/);
   await expect(page.getByRole("button", { name: "View tech-bravo service visits" })).toHaveCount(0);
-  await page.getByLabel("Show deactivated technicians (1)").check();
+  await page.getByLabel("Show deactivated staff (1)").check();
   await page.getByRole("button", { name: "View tech-bravo service visits" }).click();
   await expect(page.locator(".workspace-heading .status-badge")).toHaveText("Inactive");
   await expect(page.getByRole("tab", { name: "In Progress (0)" })).toBeVisible();
@@ -339,7 +339,7 @@ const managerOwner = () => sessionStorage.getItem("manager-session-owner:v1");
 test("a stored Back target applies only to its own report: a deep link to another report goes Back to Operations", async ({ page }) => {
   await mockManagerApi(page);
   await openManager(page);
-  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Staff", exact: true }).click();
   await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
   await page.getByRole("tab", { name: "Completed (22)" }).click();
   await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();
@@ -394,7 +394,7 @@ test("logout clears every Manager session key; logging back in shows Services Do
   await mockManagerApi(page);
   await openManager(page);
   // Technician tab + report return route.
-  await sidebar(page).getByRole("button", { name: "Technician List", exact: true }).click();
+  await sidebar(page).getByRole("button", { name: "Staff", exact: true }).click();
   await page.getByRole("button", { name: "View tech-alpha service visits" }).click();
   await page.getByRole("tab", { name: "Completed (22)" }).click();
   await page.getByRole("tabpanel").locator("li").filter({ hasText: "SV-0001" }).getByRole("button", { name: "View Report" }).click();

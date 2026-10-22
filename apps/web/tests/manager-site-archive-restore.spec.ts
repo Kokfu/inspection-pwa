@@ -19,6 +19,11 @@ async function setup(page: Page) {
   await page.route(`**/api/manager/customers/${customerId}`, route => route.fulfill({ json: { customer } }));
   return customer;
 }
+// Sites and Archived sites live on the customer record's Sites tab (Details is the default tab).
+async function openFakeCustomerSites(page: Page) {
+  await openFakeCustomer(page);
+  await page.getByRole("tab", { name: "Sites", exact: true }).click();
+}
 const sites = (page: Page) => page.locator("section.customer-form-card").filter({ has: page.getByRole("heading", { name: "Sites", exact: true }) });
 const archived = (page: Page) => page.getByRole("region", { name: "Archived sites", exact: true });
 
@@ -34,7 +39,7 @@ test("archive: confirm/cancel, exact POST, wait for server, refresh both lists a
     await held;
     await route.fulfill({ json: { customer: { ...customer, sites: [], archivedSites: [...customer.archivedSites, { ...activeSite, displayName: "Tower A from server", archived: true }] } } });
   });
-  await openFakeCustomer(page);
+  await openFakeCustomerSites(page);
   await expect(archived(page).getByRole("button", { name: "Archived sites" })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
   page.once("dialog", dialog => {
@@ -59,7 +64,7 @@ test("archive with another active site has no zero-site warning", async ({ page 
   const customer = await setup(page);
   customer.sites.push({ ...activeSite, id: otherId, displayName: "Second active site" });
   customer.archivedSites = [];
-  await openFakeCustomer(page);
+  await openFakeCustomerSites(page);
   page.once("dialog", dialog => {
     expect(dialog.message()).toBe("Archive Tower A? It will no longer be offered when creating a new service visit. Existing visits and reports keep this site.");
     void dialog.dismiss();
@@ -74,7 +79,7 @@ test("restore refreshes active and archived lists from the POST response", async
     expect(route.request().postDataJSON()).toEqual({});
     return route.fulfill({ json: { customer: { ...customer, sites: [...customer.sites, { ...archivedSite, displayName: "Restored from server" }], archivedSites: [] } } });
   });
-  await openFakeCustomer(page);
+  await openFakeCustomerSites(page);
   await archived(page).getByRole("button", { name: "Archived sites" }).click();
   await archived(page).getByRole("button", { name: "Restore", exact: true }).click();
   await expect(archived(page)).toContainText("No archived sites.");
@@ -85,7 +90,7 @@ test("restore refreshes active and archived lists from the POST response", async
 test("restore name clash shows the server 409 message and retains the archived site", async ({ page }) => {
   await setup(page);
   await page.route(`**/sites/${otherId}/restore`, route => route.fulfill({ status: 409, json: { error: "SITE_NAME_CONFLICT", message: "An active site already uses this display name." } }));
-  await openFakeCustomer(page);
+  await openFakeCustomerSites(page);
   await archived(page).getByRole("button", { name: "Archived sites" }).click();
   await archived(page).getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText("An active site already uses this display name.");
@@ -112,7 +117,7 @@ for (const action of ["archive", "restore"] as const) {
         if (failure === "duplicate site") result.sites.push(result.sites[0] ?? activeSite);
         return route.fulfill({ json: { customer: result } });
       });
-      await openFakeCustomer(page);
+      await openFakeCustomerSites(page);
       if (action === "archive") page.once("dialog", dialog => { void dialog.accept(); });
       else await archived(page).getByRole("button", { name: "Archived sites" }).click();
       await sites(page).getByRole("button", { name: action === "archive" ? "Archive" : "Restore", exact: true }).click();
@@ -138,7 +143,7 @@ for (const [width, height] of [[360, 800], [768, 1024], [1280, 800]]) {
   test(`site actions fit at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await setup(page);
-    await openFakeCustomer(page);
+    await openFakeCustomerSites(page);
     await archived(page).getByRole("button", { name: "Archived sites" }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     for (const name of ["Archive", "Restore", "Archived sites"]) {
@@ -166,7 +171,7 @@ test("existing add-site and address editing refresh the customer", async ({ page
     expect(route.request().postDataJSON()).toEqual({ address: "Updated address" });
     return route.fulfill({ json: { customer: { ...customer, sites: [{ ...activeSite, address: "Updated address" }] } } });
   });
-  await openFakeCustomer(page);
+  await openFakeCustomerSites(page);
   await sites(page).getByLabel("Site Address", { exact: true }).fill("Updated address");
   await sites(page).getByRole("button", { name: "Save Address", exact: true }).click();
   await expect(sites(page).getByLabel("Site Address", { exact: true })).toHaveValue("Updated address");
@@ -225,7 +230,7 @@ for (const action of ["archive", "restore"] as const) {
         }
       });
       try {
-        await openFakeCustomer(page);
+        await openFakeCustomerSites(page);
         if (action === "archive") page.once("dialog", dialog => { void dialog.accept(); });
         else await archived(page).getByRole("button", { name: "Archived sites" }).click();
         await sites(page).getByRole("button", { name: action === "archive" ? "Archive" : "Restore", exact: true }).click();
@@ -241,6 +246,7 @@ for (const action of ["archive", "restore"] as const) {
         await expect(page.getByRole("heading", { name: "Next customer", exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { name: "Harbour View Tower", exact: true })).toHaveCount(0);
         await expect(page.getByText("Choose how you are signing in")).toHaveCount(0);
+        await page.getByRole("tab", { name: "Sites", exact: true }).click(); // the new customer page opens on Details
         await expect(sites(page).getByRole("button", { name: "Archive", exact: true })).toBeEnabled();
       } finally { respond(); }
     });

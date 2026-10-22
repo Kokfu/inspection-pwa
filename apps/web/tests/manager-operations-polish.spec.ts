@@ -104,7 +104,7 @@ test("Operations search is live and matches customer, site or SV number case-ins
 test("Operations table sorts oldest open first and highlights only open visits older than 2 days", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 900 });
   await page.goto(operations, { waitUntil: "domcontentloaded" });
-  await expect(page.locator(".ops-table thead th")).toHaveText(["Customer", "Technician", "Progress", "Created", "Age", "Actions"]);
+  await expect(page.locator(".ops-table thead th")).toHaveText(["Customer", "Technician", "Progress", "Created", "Age", "Status", "Actions"]);
   await expect(rows(page).nth(0)).toContainText("SV-10");
   await expect(rows(page).nth(1)).toContainText("SV-11");
   await expect(rows(page).nth(2)).toContainText("SV-12");

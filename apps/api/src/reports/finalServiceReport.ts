@@ -29,6 +29,7 @@ import { validatePortableHistoricalPayload } from "../sync/portableFireExtinguis
 import { parseV7EvidenceManifest, resolveV7EvidenceContract } from "../inspections/evidence/v7EvidenceContracts.js";
 import { applyCorrections, type Json, type StoredCorrection } from "../corrections/correctionApplication.js";
 import { isZonedRollerShutterResponse, rollerShutterRowLocation, rollerShutterRowsInDisplayOrder, rollerShutterZones } from "./rollerShutterDisplay.js";
+import { formatMalaysiaDateTime } from "./malaysiaTime.js";
 
 type RecordValue = Record<string, unknown>;
 type Queryable = { query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }> };
@@ -68,7 +69,7 @@ export type FinalServiceReport = {
   customer: string; site: string; serviceDate: string; jobReference: string; completedAt: string; completedBy: string;
   reportNumber?: string; telephone?: string; fax?: string; contact?: string; siteAddress?: string;
   contractNumber?: string; serviceFrequency?: string; technicians?: string[];
-  serviceCallNumber?: string; arrival?: string; departure?: string;
+  serviceCallNumber?: string; arrival?: string;
   systems: Array<{ systemKey: string; label: string; status: "Accepted"; condition: FinalReportSystemCondition; conditionDetail: string; locations: string[] }>;
   sections: FinalReportSection[];
 };
@@ -76,7 +77,7 @@ export type FinalServiceReport = {
 type ReportJobRow = CompletionJobRow & {
   reference: string; title: string; service_date: string | null;
   report_number: string | null;
-  service_call_number: string | null; arrival_time: string | null; departure_time: string | null;
+  service_call_number: string | null; arrival_time: string | null;
 };
 type ReportInstanceRow = AcceptedAuthorityRow & { form_instance_id: string; master_template_version_id: string; customer_configuration_revision_id: string; inspection_snapshot: unknown; response_payload: unknown; stored_sha256: string | null; storage_relative_path: string | null; width: number | null; height: number | null;
   corrections?: StoredCorrection[]; submitted_by?: string | null; reviewed_by?: string | null; reviewed_at?: string | Date | null; reviewed_correction_count?: number | null };
@@ -896,7 +897,7 @@ export async function loadFinalServiceReport(
   const jobResult = await database.query<ReportJobRow>(`SELECT job.id, job.status, job.configuration_snapshot, job.completed_at, job.completed_by_user_id,
       job.completed_by_display_name, NULL::text AS completed_by_username,
       job.job_reference AS reference, job.title, job.service_date::text AS service_date,
-      job.report_number, job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time, to_char(job.departure_time, 'HH24:MI') AS departure_time
+      job.report_number, job.service_call_number, to_char(job.arrival_time, 'HH24:MI') AS arrival_time
     FROM inspection_jobs job
     WHERE job.id = $1 AND job.master_template_version_id IS NOT NULL
       AND ${accessClause}
@@ -932,7 +933,6 @@ export async function loadFinalServiceReport(
   const technicians = frozenTechnicians(job.technician_team_snapshot, job.completed_by_display_name);
   const serviceCallNumber = optionalReportText(job.service_call_number, 80, "Completed service visit details are incomplete and cannot be reported.");
   const arrival = job.arrival_time ?? undefined;
-  const departure = job.departure_time ?? undefined;
   const rows = (await database.query<ReportInstanceRow>(`SELECT instance.id AS form_instance_id, inspection.system_key, instance.instance_key, instance.zone_id, instance.location_id, instance.display_sequence, instance.client_uuid,
       instance.master_template_version_id, instance.customer_configuration_revision_id,
       instance.evidence_policy_id, instance.evidence_policy_version, instance.evidence_policy_snapshot, instance.evidence_policy_sha256,
@@ -1011,7 +1011,7 @@ export async function loadFinalServiceReport(
   return { customer, site, serviceDate, jobReference: reference,
     completedAt: job.completed_at instanceof Date ? job.completed_at.toISOString() : job.completed_at!, completedBy: job.completed_by_display_name!,
     reportNumber, telephone, fax, contact, siteAddress, contractNumber, serviceFrequency, technicians,
-    serviceCallNumber, arrival, departure,
+    serviceCallNumber, arrival,
     systems: completion.systems.map((item) => {
       const { condition, conditionDetail } = deriveSystemCondition(sections.filter((section) => section.systemKey === item.systemKey));
       return { systemKey: item.systemKey, label: item.systemLabel, status: "Accepted" as const, condition, conditionDetail, locations: item.units.map((unit) => unit.label) };
@@ -1058,11 +1058,10 @@ export async function renderFinalServiceReportPdfLegacy(report: FinalServiceRepo
     ["Site", report.site],
     ["Service Date", report.serviceDate],
     ...(report.serviceCallNumber ? [["Service Call No", report.serviceCallNumber]] as [string, string][] : []),
-    ...(report.arrival ? [["Arrival", report.arrival]] as [string, string][] : []),
-    ...(report.departure ? [["Departure", report.departure]] as [string, string][] : []),
+    ...(report.arrival ? [["Arrival Time", report.arrival]] as [string, string][] : []),
     ["Job Reference", report.jobReference],
     ["Service Status", "Completed"],
-    ["Completed Date", report.completedAt],
+    ["Completed Date", formatMalaysiaDateTime(report.completedAt)],
     ["Completed By", report.completedBy],
     ["Systems", report.systems.map((system) => system.label).join(", ")]
   ];

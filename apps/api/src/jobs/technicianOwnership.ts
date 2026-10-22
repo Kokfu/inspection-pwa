@@ -4,6 +4,9 @@ import { auditLog } from "../audit/auditLog.js";
 
 export const jobNotFound = { error: "JOB_NOT_FOUND" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** FR-09: another technician's visit (or one with no creator) is refused, not disguised as missing. */
+export const foreignVisitMessage = "You are not authorised to open this service visit. You can only open your own service visits.";
+export const foreignVisitRefusal = { error: "FORBIDDEN", message: foreignVisitMessage };
 export type OwnershipIdentity = "job" | "form" | "attachment" | "evidence";
 
 /** Creator is immutable. Check before replay/acceptance as well as before reads. */
@@ -69,6 +72,20 @@ export function requireReviewerOrOwnership(
   return (request, response, next) => {
     if (request.currentUser?.role === "supervisor") { next(); return; }
     owned(request, response, next);
+  };
+}
+
+/** Job-read routes: an existing visit the technician does not own is 403 with a message; an unknown id stays 404. */
+export function requireOwnJobOrForbidden(identity: (request: Request) => unknown): RequestHandler {
+  return async (request, response, next) => {
+    try {
+      const id = identity(request);
+      if (await technicianOwns(request, "job", id)) return next();
+      const exists = typeof id === "string" && uuid.test(id)
+        && (await pool.query("SELECT 1 FROM inspection_jobs WHERE id = $1", [id])).rows.length > 0;
+      if (exists) response.status(403).json(foreignVisitRefusal);
+      else response.status(404).json(jobNotFound);
+    } catch (error) { next(error); }
   };
 }
 

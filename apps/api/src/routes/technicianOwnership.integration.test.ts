@@ -66,8 +66,20 @@ test("technician ownership HTTP inventory (disposable PostgreSQL)", async (t) =>
       assert.equal(denied.status, 404, `${path(known)}: ${await denied.clone().text()}`);
       assert.equal(absent.status, 404); assert.deepEqual(await denied.json(), await absent.json());
     };
-    for (const suffix of ["", "/completion", "/close", "/final-report", "/final-report.pdf"]) {
-      await t.test(`job ${suffix || "read"}: foreign and NULL creator are indistinguishable from missing`, async () => {
+    const notAuthorised = "You are not authorised to open this service visit. You can only open your own service visits.";
+    for (const suffix of ["", "/final-report", "/final-report.pdf"]) {
+      await t.test(`job ${suffix || "read"}: foreign and NULL creator are 403 with the not-authorised message; unknown stays 404`, async () => {
+        for (const key of [a, legacy]) {
+          const denied = await request(`/inspection-jobs/${key}${suffix}`, 1);
+          assert.equal(denied.status, 403, await denied.clone().text());
+          assert.deepEqual(await denied.json(), { error: "FORBIDDEN", message: notAuthorised });
+        }
+        const absent = await request(`/inspection-jobs/${missing}${suffix}`, 1);
+        assert.equal(absent.status, 404); assert.deepEqual(await absent.json(), { error: "JOB_NOT_FOUND" });
+      });
+    }
+    for (const suffix of ["/completion", "/close"]) {
+      await t.test(`job ${suffix}: foreign and NULL creator are indistinguishable from missing`, async () => {
         for (const key of [a, legacy]) await deny((job) => `/inspection-jobs/${job}${suffix}`, key, suffix === "/close" ? () => ({}) : undefined);
       });
     }

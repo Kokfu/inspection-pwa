@@ -106,7 +106,7 @@ app.use(
   }
 );
 
-await runMigrations();
+await runMigrations(pool, { operationalCustomers: false });
 const storedReminderPassword = (await pool.query("SELECT 1 FROM service_due_email_settings WHERE id=1")).rows.length > 0;
 if (!provisionServiceDueEmailEncryptionKey(storedReminderPassword)) {
   console.warn("Service due email is unavailable: encryption key missing or invalid");

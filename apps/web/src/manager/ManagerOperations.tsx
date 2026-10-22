@@ -55,10 +55,11 @@ function SortHeader({ label, sortKey, sort, onSort }: { label: string; sortKey: 
 }
 
 /** "Awaiting approval" or "Approved <name>, <date>" per completed visit. */
-function ReportApprovalChip({ visit }: { visit: ManagerServiceVisit }) {
+function ReportApprovalChip({ visit, stacked = false }: { visit: ManagerServiceVisit; stacked?: boolean }) {
   const approval = visit.reportApproval;
   if (!approval || approval.status === "not_applicable") return null;
   if (approval.status === "approved" && approval.decidedBy) {
+    if (stacked) return <span className="ops-status"><span className="status-badge status-badge--complete">Approved</span><small className="ops-muted">{approval.decidedBy}{approval.decidedAt ? `, ${formatMalaysiaDateTime(approval.decidedAt)}` : ""}</small></span>;
     return <span className="status-badge status-badge--complete">Approved {approval.decidedBy}{approval.decidedAt ? `, ${formatMalaysiaDateTime(approval.decidedAt)}` : ""}</span>;
   }
   return <span className="status-badge status-badge--waiting">{approval.correctedAfterApproval ? "Re-approval needed" : "Awaiting approval"}</span>;
@@ -133,9 +134,13 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
 
   const canDelete = (visit: ManagerServiceVisit) => visit.hasAcceptedRecords === false && visit.inspectionProgress.accepted === 0;
   const technicianName = (visit: ManagerServiceVisit) => visit.technician?.displayName ?? "Not recorded";
-  const rowActions = (visit: ManagerServiceVisit) => visit.status === "closed"
-    ? <><ReportApprovalChip visit={visit} /><button type="button" className="secondary-command" onClick={() => onViewReport(visit)}>View Final Report</button><button type="button" onClick={() => void onDownloadReport(visit)}>Download PDF</button></>
-    : !supervisor && onDelete ? <><button type="button" disabled={deletingId !== null || !canDelete(visit)} title={canDelete(visit) ? undefined : "Accepted records prevent deletion."} onClick={() => void deleteVisit(visit)}>Delete</button>{canDelete(visit) ? null : <span className="support-metadata">Cannot delete: accepted records exist.</span>}</> : null;
+  /** The table keeps approval in its Status column and uses short labels; the phone cards keep the full wording. */
+  const rowActions = (visit: ManagerServiceVisit, table = false) => visit.status === "closed"
+    ? <>{table ? null : <ReportApprovalChip visit={visit} />}<button type="button" className="secondary-command" aria-label={table ? "View Final Report" : undefined} onClick={() => onViewReport(visit)}>{table ? "View report" : "View Final Report"}</button><button type="button" aria-label={table ? "Download PDF" : undefined} title={table ? "Download PDF" : undefined} onClick={() => void onDownloadReport(visit)}>{table ? "PDF" : "Download PDF"}</button></>
+    : !supervisor && onDelete ? <><button type="button" className="ops-delete" disabled={deletingId !== null || !canDelete(visit)} title={canDelete(visit) ? undefined : "Accepted records prevent deletion."} onClick={() => void deleteVisit(visit)}>Delete</button>{canDelete(visit) ? null : <span className="support-metadata">{table ? "Has accepted records" : "Cannot delete: accepted records exist."}</span>}</> : null;
+  const statusCell = (visit: ManagerServiceVisit) => visit.status === "open"
+    ? <span className="status-badge status-badge--draft">In Progress</span>
+    : visit.reportApproval && visit.reportApproval.status !== "not_applicable" ? <ReportApprovalChip visit={visit} stacked /> : <span className="status-badge status-badge--complete">Completed</span>;
   const visitCard = (visit: ManagerServiceVisit) => <li key={visit.id}><button type="button" className="job-card" onClick={() => onSelect(visit)}><div className="job-card-heading"><div><span className="job-card-label">Customer</span><strong>{visit.customer}</strong></div><span className={`status-badge status-badge--${visit.status === "closed" ? "complete" : "draft"}`}>{visit.status === "closed" ? "Service Completed" : "In Progress"}</span></div><div className="job-service-line"><span className="job-card-label">Site / Service</span><strong>{visit.site}</strong></div><div className="job-card-meta"><span><small>Technician</small><strong>{technicianName(visit)}</strong></span><span><small>Created Date & Time</small><strong>{formatMalaysiaDateTime(visit.createdAt)}</strong></span><span><small>Inspection progress</small><strong>{visit.inspectionProgress.accepted}/{visit.inspectionProgress.required} complete</strong></span></div><span className="job-reference">{visit.reference}</span></button>{rowActions(visit) ? <div className="inline-actions manager-report-actions">{rowActions(visit)}</div> : null}</li>;
   const visitRow = (visit: ManagerServiceVisit) => {
     const age = now - (Date.parse(visit.createdAt) || now);
@@ -146,7 +151,8 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
       <td className="ops-num">{visit.inspectionProgress.accepted}/{visit.inspectionProgress.required}</td>
       <td>{formatMalaysiaDateTime(visit.createdAt)}</td>
       <td className={`ops-num${old ? " ops-age--old" : ""}`} data-old={old ? "true" : undefined}>{visit.status === "open" ? formatVisitAge(age) : "—"}{old ? <span className="visually-hidden"> (open for more than 2 days)</span> : null}</td>
-      <td onClick={(event) => event.stopPropagation()}><div className="inline-actions ops-row-actions">{rowActions(visit)}</div></td>
+      <td>{statusCell(visit)}</td>
+      <td onClick={(event) => event.stopPropagation()}><div className="inline-actions ops-row-actions">{rowActions(visit, true)}</div></td>
     </tr>;
   };
   const chip = (value: StatusFilter, label: string, count: number) => <button type="button" className="ops-chip" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>{label} <span className="ops-chip-count">{count}</span></button>;
@@ -156,7 +162,7 @@ export function ManagerOperations({ visits, loading, message, selectedVisit, acc
     <div className="manager-filter-form ops-filters"><label>Search<input type="search" value={search} placeholder="Customer, site or SV number" onChange={(event) => setSearch(event.target.value)} /></label><label>Technician<select value={technicianId} onChange={(event) => setTechnicianId(event.target.value)}><option value="">All technicians</option>{technicians.map((technician) => <option key={technician.id} value={technician.id}>{technician.displayName}</option>)}</select></label><div className="inline-actions"><button type="button" className="secondary-command" disabled={!filtersActive} onClick={() => { setTechnicianId(""); setSearch(""); setStatusFilter("all"); setSort(null); }}>Clear filters</button></div></div>
     <section aria-labelledby="ops-visits-title"><h3 id="ops-visits-title" className="visually-hidden">Service visits</h3>
       {listed.length === 0 ? <p className="empty-state">No service visits match.</p>
-        : wide ? <table className="ops-table"><thead><tr><SortHeader label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} /><SortHeader label="Technician" sortKey="technician" sort={sort} onSort={toggleSort} /><th scope="col">Progress</th><SortHeader label="Created" sortKey="created" sort={sort} onSort={toggleSort} /><SortHeader label="Age" sortKey="age" sort={sort} onSort={toggleSort} /><th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead><tbody>{listed.map(visitRow)}</tbody></table>
+        : wide ? <div className="ops-table-wrap"><table className="ops-table"><colgroup><col className="ops-col-customer" /><col className="ops-col-technician" /><col className="ops-col-progress" /><col className="ops-col-created" /><col className="ops-col-age" /><col className="ops-col-status" /><col className="ops-col-actions" /></colgroup><thead><tr><SortHeader label="Customer" sortKey="customer" sort={sort} onSort={toggleSort} /><SortHeader label="Technician" sortKey="technician" sort={sort} onSort={toggleSort} /><th scope="col">Progress</th><SortHeader label="Created" sortKey="created" sort={sort} onSort={toggleSort} /><SortHeader label="Age" sortKey="age" sort={sort} onSort={toggleSort} /><th scope="col">Status</th><th scope="col" className="ops-actions-col">Actions</th></tr></thead><tbody>{listed.map(visitRow)}</tbody></table></div>
         : <ul className="job-card-list">{listed.map(visitCard)}</ul>}</section>
     <section><h3>Service History</h3><p>Completed visits retain their server-authoritative history and final reports.</p></section>
   </section>;

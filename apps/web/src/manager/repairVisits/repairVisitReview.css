@@ -75,3 +75,4 @@
 @media (min-width: 1200px) {
   .rv-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+.rv-search { min-height: var(--tap); width: 100%; }

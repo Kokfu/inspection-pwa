@@ -119,14 +119,19 @@ export function CustomerRepairVisits({ customerId, state, onRetry, names, onOpen
   );
 }
 
-/** Repair visits waiting for approval, for the awaiting-approval list. */
+/** Repair visits waiting for approval, for the awaiting-approval list. Search narrows the loaded rows only. */
 export function AwaitingRepairVisits({ state, onRetry, names, onOpen }: ListProps) {
+  const [search, setSearch] = useState("");
   const rows = state.phase === "ready" ? awaitingRepairVisits(state.visits) : [];
+  const needle = search.trim().toLowerCase();
+  const shown = needle === "" ? rows : rows.filter(visit => `${names?.customers?.get(visit.customerId) ?? ""} ${names?.sites?.get(visit.siteId) ?? ""} ${visit.visitNumber}`.toLowerCase().includes(needle));
   return (
     <section className="rv-list" aria-label="Repair visits awaiting approval">
       <h3>Repair visits awaiting approval</h3>
       <ListShell state={state} onRetry={onRetry} empty="No repair visits are awaiting approval.">{awaitingRepairVisits}</ListShell>
-      {rows.length ? <ul className="rv-rows">{rows.map(visit => <RepairVisitRow key={visit.clientUuid} visit={visit} names={names} showCustomer onOpen={onOpen} />)}</ul> : null}
+      {rows.length ? <input type="search" className="rv-search" aria-label="Search repair visits by customer or reference" placeholder="Search customer or reference" value={search} onChange={event => setSearch(event.target.value)} /> : null}
+      {rows.length && !shown.length ? <p className="operational-message">No repair visits match this search.</p> : null}
+      {shown.length ? <ul className="rv-rows">{shown.map(visit => <RepairVisitRow key={visit.clientUuid} visit={visit} names={names} showCustomer onOpen={onOpen} />)}</ul> : null}
     </section>
   );
 }

@@ -35,24 +35,20 @@ const props = {
 test("normal job count appears once and routine refresh text is not rendered as a banner", () => {
   const jobs = Array.from({ length: 6 }, (_, index) => ({ ...baseJob, id: `job-${index + 1}`, reference: `SV-${index + 1}` }));
   const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={jobs} message="6 jobs available on this device" />);
-  assert.equal(html.match(/6 jobs available on this device/g)?.length, 1);
-  assert.doesNotMatch(html, /operational-message[^>]*>6 jobs available on this device/);
+  // The count now lives in the "Service visits (N)" section heading; the routine refresh text itself is never rendered.
+  assert.equal(html.match(/Service visits \(6\)/g)?.length, 1);
+  assert.doesNotMatch(html, /6 jobs available on this device/);
+  assert.doesNotMatch(html, /operational-message[^>]*>6 jobs available/);
 });
 
-test("technician job tabs show current work and completed history", () => {
+test("Open Work lists current service visits only and links to completed history", () => {
   const completed: InspectionJob = { ...baseJob, id: "job-completed", reference: "SV-HISTORY", status: "closed", completion: { ...baseJob.completion!, jobId: "job-completed", jobStatus: "closed", acceptedUnitCount: 1, completedAt: "2026-08-19T05:04:00.000Z", completedBy: { id: 1, username: "mobiletest" }, systems: [{ ...baseJob.completion!.systems[0], status: "accepted", units: [{ authorityKey: "primary", label: "Primary inspection", status: "accepted" }] }] } };
-  try {
-    sessionTab = "progress";
-    const current = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
-    assert.match(current, /In Progress \(1\)/);
-    assert.match(current, /Completed \(1\)/);
-    assert.match(current, /SV-20260819-1/);
-    assert.doesNotMatch(current, /SV-HISTORY/);
-    sessionTab = "completed";
-    const history = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
-    assert.match(history, /SV-HISTORY/);
-    assert.doesNotMatch(history, /SV-20260819-1/);
-  } finally { sessionTab = null; }
+  const html = renderToStaticMarkup(<TechnicianHome {...props} jobs={[baseJob, completed]} message="" />);
+  assert.match(html, /Open Work/);
+  assert.match(html, /Service visits \(1\)/);
+  assert.match(html, /SV-20260819-1/);
+  assert.doesNotMatch(html, /SV-HISTORY/, "a closed visit is history, not open work");
+  assert.match(html, /href="#\/technician-completed-services"[^>]*>Recent completed</, "completed history stays one tap away");
 });
 
 test("incomplete completion requirements use a collapsed disclosure and retain unit identity and reason", () => {
@@ -93,7 +89,7 @@ test("client-facing presentation removes the covered internal form and manager w
   assert.doesNotMatch(hoseReel, /temporarily allowed while source cardinality is pending confirmation/);
   assert.match(hoseReel, /Select all applicable drum types/);
   assert.doesNotMatch(manager, /Online, server-authoritative customer service assignments|Active revision/);
-  assert.match(manager, /Manage customer service assignments online/);
+  assert.match(manager, /Manage customer details, sites and services/);
 });
 
 test("new service visit availability states are distinct and do not infer an empty assignment", () => {

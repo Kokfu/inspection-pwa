@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { reportFontFaceCss } from "../../reports/pdf/reportFonts.js";
+import { formatDateOrTimestamp } from "../../reports/malaysiaTime.js";
 import { escapeHtml as e, escapeCssString } from "../../reports/template/renderReportHtml.js";
 import type { RepairVisitReportItem as Item, RepairVisitReportModel as Model, RepairVisitReportPhoto as Photo } from "./repairVisitReportModel.js";
 
@@ -24,12 +25,8 @@ body{overflow-wrap:anywhere} .source{margin:0 0 7pt;font-size:8pt}
 tr{break-inside:avoid} .repair-details tr{break-inside:auto}
 `;
 
-function date(value: string): string {
-  const iso = value.slice(0, 10);
-  const parsed = new Date(`${iso}T00:00:00Z`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) throw new Error("Invalid report date");
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(parsed);
-}
+// Calendar dates (visit dates) never shift; timestamps (approval, signature) are shown in Malaysia time.
+const date = formatDateOrTimestamp;
 function image(photo: Photo): string {
   const png = photo.content.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
   const jpeg = photo.content[0] === 255 && photo.content[1] === 216;
@@ -61,7 +58,7 @@ function cover(vm: Model, sections: Item[][]): string {
   // Transform only trusted static markup. Business text is inserted once, afterwards.
   let template = serviceCover.replaceAll("FIRE SYSTEM SERVICE REPORT", "FIRE SYSTEM REPAIR REPORT")
     .replace("MAINTENANCE, INSPECTION &amp; TESTING", "REPAIR RECORD")
-    .replace("Date of Service", "Repair Date").replace("Arrival / Departure", "Arrival Time")
+    .replace("Date of Service", "Repair Date")
     .replace("Frequency", "Previous Visit").replace("{{frequency}}", "{{previousVisit}}")
     .replace("Service Status", "Approval")
     .replace('<span class="box">&#10003;</span>COMPLETED &nbsp;&nbsp; <span class="box"></span>TO BE CONTINUED', "{{approval}}")
@@ -78,7 +75,7 @@ function cover(vm: Model, sections: Item[][]): string {
   const values: Record<string, unknown> = { ...vm.company, registrationNo: vm.company.registrationNo ? `(${vm.company.registrationNo})` : "", companyFax: vm.company.fax,
     reportNumber: vm.reportNumber, jobReference: c.visitNumber, issuedAt: vm.approvedAt ? date(vm.approvedAt) : "", customer: c.customer,
     siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone,c.fax].filter(Boolean).join(" / "),
-    contactPerson: c.contactPerson, serviceDate: date(c.visitDate), arrivalDeparture: c.arrivalTime, serviceCallNumber: c.serviceCallNumber,
+    contactPerson: c.contactPerson, serviceDate: date(c.visitDate), arrival: c.arrivalTime, serviceCallNumber: c.serviceCallNumber,
     contractNumber: c.contractNumber, previousVisit: previous(vm), approval: vm.mode === "final" ? `Approved by ${vm.approvedBy} · ${date(vm.approvedAt)}` : "PREVIEW — NOT APPROVED",
     testLeader: c.technician, team, verifiedBy: vm.approvedBy };
   const systems = [...new Set(sections.map(s => s[0].systemLabel))];

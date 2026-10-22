@@ -10,7 +10,7 @@ test("create/list/deactivate with cancel confirmation preventing the write", asy
     else await route.fulfill({ json: { technicians } });
   });
   await page.goto("/tests/manager-technicians.html");
-  await expect(page.getByText("No technicians.")).toBeVisible();
+  await expect(page.getByText("No staff yet.")).toBeVisible();
   await page.getByLabel("Username", { exact: true }).fill("new-technician");
   await page.getByLabel("Password", { exact: true }).fill("technician-password");
   await page.getByRole("button", { name: "Add Technician", exact: true }).click();
@@ -24,8 +24,8 @@ test("create/list/deactivate with cancel confirmation preventing the write", asy
   expect(deactivations).toBe(1);
   // Deactivated technicians drop off the default list, not just lose their Deactivate button.
   await expect(row).toHaveCount(0);
-  await expect(page.getByText("Show deactivated technicians (1)")).toBeVisible();
-  await page.getByLabel("Show deactivated technicians (1)").check();
+  await expect(page.getByText("Show deactivated staff (1)")).toBeVisible();
+  await page.getByLabel("Show deactivated staff (1)").check();
   await expect(row.getByText("Inactive", { exact: true })).toHaveClass(/status-badge--attention/);
   await expect(row.getByRole("button", { name: "Deactivate" })).toHaveCount(0);
 });
@@ -42,7 +42,7 @@ test("permanent removal requires an inactive account and exact username confirma
     } else await route.fulfill({ json: { technicians: technician ? [technician] : [] } });
   });
   await page.goto("/tests/manager-technicians.html");
-  await page.getByLabel("Show deactivated technicians (1)").check();
+  await page.getByLabel("Show deactivated staff (1)").check();
   const button = page.getByRole("button", { name: "Permanently remove" });
   page.once("dialog", (dialog) => dialog.dismiss());
   await button.click();
@@ -52,7 +52,7 @@ test("permanent removal requires an inactive account and exact username confirma
   expect(deletions).toBe(0);
   page.once("dialog", (dialog) => dialog.accept("unused-tech"));
   await button.click();
-  await expect(page.getByText("No technicians.")).toBeVisible();
+  await expect(page.getByText("No staff yet.")).toBeVisible();
   await expect(page.getByText("Technician removed from staff lists; historical records remain.")).toBeVisible();
   expect(deletions).toBe(1);
 });
@@ -134,12 +134,12 @@ test("search filters the technician list by username; clearing restores it", asy
   await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians } }));
   await page.goto("/tests/manager-technicians.html");
   await expect(page.locator("li")).toHaveCount(3);
-  await page.getByLabel("Filter by username").fill("alpha");
+  await page.getByLabel("Search staff").fill("alpha");
   await expect(page.locator("li")).toHaveCount(1);
   await expect(page.getByText("alpha-tech", { exact: true })).toBeVisible();
-  await page.getByLabel("Filter by username").fill("no-such-technician");
+  await page.getByLabel("Search staff").fill("no-such-technician");
   await expect(page.locator("li")).toHaveCount(0);
-  await expect(page.getByText('No technician matches "no-such-technician".')).toBeVisible();
+  await expect(page.getByText('No staff match "no-such-technician".')).toBeVisible();
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(page.locator("li")).toHaveCount(3);
 });
@@ -290,4 +290,25 @@ test.describe("admin sets a new password for a technician or supervisor", () => 
     await expect(form.getByLabel("Confirm new password")).toHaveValue("");
     await expect(form.getByRole("button", { name: "Set password" })).toBeDisabled();
   });
+});
+
+test("role tabs split Technicians and Admins, with counts and a role-aware empty state", async ({ page }) => {
+  const technicians = [
+    { id: 1, username: "alpha-tech", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-01T00:00:00.000Z", supervisorIds: [3] },
+    { id: 2, username: "beta-tech", displayName: null, role: "inspector", isActive: true, createdAt: "2026-09-02T00:00:00.000Z", supervisorIds: [] },
+    { id: 3, username: "review-lead", displayName: null, role: "supervisor", isActive: true, createdAt: "2026-09-03T00:00:00.000Z", supervisorIds: [] }
+  ];
+  await page.route("**/api/manager/technicians", (route) => route.fulfill({ json: { technicians } }));
+  await page.goto("/tests/manager-technicians.html");
+  await expect(page.getByRole("tab", { name: "All (3)" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Technicians (2)" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Admins (1)" })).toBeVisible();
+  await page.getByRole("tab", { name: "Admins (1)" }).click();
+  await expect(page.locator("li")).toHaveCount(1);
+  await expect(page.getByLabel("Role")).toHaveValue("supervisor");
+  await page.getByRole("tab", { name: "Technicians (2)" }).click();
+  await expect(page.locator("li")).toHaveCount(2);
+  await expect(page.getByRole("group", { name: "Assigned Admins for alpha-tech" })).toBeVisible();
+  await page.getByLabel("Search staff").fill("review");
+  await expect(page.getByText('No technicians match "review".')).toBeVisible();
 });

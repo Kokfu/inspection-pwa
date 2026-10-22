@@ -1,6 +1,8 @@
-import { requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
+import { foreignVisitRefusal, requireOwnJobOrForbidden, requireTechnicianOwnership } from "../jobs/technicianOwnership.js";
 import { visitHasCorrections } from "./managerCorrections.js";
-import { deriveReportApproval, loadLatestCorrectionAt, loadReportApprovalEvents, visitReportApproval } from "../reports/reportApproval.js";
+import { buildServiceSummary } from "../reports/reportServiceSummary.js";
+import { buildSystemPages } from "../reports/reportViewModel.js";
+import { deriveReportApproval,loadLatestCorrectionAt, loadReportApprovalEvents, visitReportApproval } from "../reports/reportApproval.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import type { PoolClient } from "pg";
 import { auditLog } from "../audit/auditLog.js";
@@ -231,10 +233,13 @@ export function createFinalReportHandler({ database = pool, loadReport = loadFin
         sources.set(key, { captureSource: row.captureSource, capturedAt: row.capturedAt });
       }
       response.setHeader("Cache-Control", "private, no-store");
+      const summaries = buildSystemPages(report).map(buildServiceSummary);
       response.json({ report: {
         ...report,
-        sections: report.sections.map(({ evidence, ...section }) => ({
+        sections: report.sections.map(({ evidence, ...section }, index) => ({
           ...section,
+          // Additive on-screen roll-up (findings first); absent for legacy records, which keep the field list.
+          ...(summaries[index] ? { summary: summaries[index] } : {}),
           // I-45: a Roller Shutter photo says which shutter it belongs to; every other system's line is unchanged.
           evidence: evidence.map((item) => ({ field: item.field, ...(section.systemKey === "fire_rated_roller_shutter" && item.caption ? { caption: item.caption } : {}), available: true,
             captureSource: sources.get(JSON.stringify([section.systemKey, section.location?.instanceKey ?? "primary", item.field]))?.captureSource ?? null,
@@ -353,14 +358,14 @@ inspectionJobsRouter.post(
 inspectionJobsRouter.get(
   "/inspection-jobs/:jobId/final-report",
   requireRole("admin", "inspector"),
-  requireTechnicianOwnership("job", (request) => request.params.jobId),
+  requireOwnJobOrForbidden((request) => request.params.jobId),
   createFinalReportHandler()
 );
 
 inspectionJobsRouter.get(
   "/inspection-jobs/:jobId/final-report.pdf",
   requireRole("admin", "inspector"),
-  requireTechnicianOwnership("job", (request) => request.params.jobId),
+  requireOwnJobOrForbidden((request) => request.params.jobId),
   createFinalReportPdfHandler()
 );
 
@@ -554,7 +559,7 @@ export function createInspectionJobDetailHandler(
       if (actor.role === "inspector") {
         const row = (await database.query<{ owned: boolean }>(`SELECT COALESCE(created_by_user_id=$2,false) AS owned FROM inspection_jobs WHERE id=$1`, [jobId, actor.id])).rows[0];
         if (!row) { response.status(404).json({ error: "JOB_NOT_FOUND" }); return; }
-        if (row.owned !== true) { response.status(403).json({ error: "FORBIDDEN", message: "Only the technician who owns this service visit can open its details." }); return; }
+        if (row.owned !== true) { response.status(403).json(foreignVisitRefusal); return; }
       }
       const job = await loadJob(jobId, database);
       if (!job) { response.status(404).json({ error: "JOB_NOT_FOUND" }); return; }

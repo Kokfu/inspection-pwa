@@ -50,6 +50,25 @@ corrected-visit PDF support (currently blocked), Supervisor correction rights (c
 Admin and Supervisor), no password-reset feature/recovery procedure, and historical V6 baseline exception.
 No P0/P1 introduced by the verified location changes was identified.
 
+## Final retest — 2026-10-22 (dev PC, build `build-20261021T182047Z`, source HEAD `22bd6bc` plus uncommitted changes)
+
+Full evidence, issue register (FR-01 …) and per-step results: [`docs/testing/final-retest/PROGRESS.md`](../testing/final-retest/PROGRESS.md).
+**Verdict: NO-GO until FR-12 (P1) is re-verified on the phone** (code fix done 2026-10-22, uncommitted; tests green). Production-host rows stay open.
+
+| Local check | Status | Evidence / limit |
+|-------------|--------|------------------|
+| Typecheck, builds, `git diff --check` | ☑ | API/web typecheck + build pass (only the chunk-size warning). |
+| API suite, cold disposable Postgres | ☑ with exceptions | 137 files: 768 pass / 4 fail in 3 files — two need their own env/db (pass with it), one real: `technicianOwnership` 403 vs 404 (FR-09). |
+| Web Node suite | ☑ with exceptions | 719 tests: 716 pass; 3 stale test files (FR-01..03). |
+| Full Playwright (explicit spec list) | ☑ with exceptions | 720 pass / 41 fail / 16 skipped; 40 failures reproduce, classified stale tests (FR-16); plain `npx playwright test` cannot load (FR-04). |
+| Live V7 browser gate | ⛔ | Both specs fail at sign-in heading text (FR-11, stale). |
+| Rebuild, health, headers, restart/persistence, backup, verify, restore drill, exposure | ☑ | Counts identical after `restart postgres/api` and `--force-recreate api`; uploads 133 files unchanged; restore drill matched live counts; only proxy 80/443 published. |
+| Every role, every screen, all 12 systems, approvals, reports/PDF, repair visits, scheduling | ☑ with exceptions | **Portable Fire Extinguisher cannot sync (FR-12, P1)**; no departure time (FR-14); PDF "Issued" date is the UTC date (FR-15). |
+| Physical phone offline/fault/force-close round trip | ☑ | Real Wi-Fi off + proxy stop, real force-close, real camera, real sign-out dialog; exactly one server row per UUID for dropresp / cutreq / slow / fake 401 / unreachable / api stop. |
+| Production hostname on the phone (sign-in, camera, airplane mode) | ⛔ | Needs the owner to sign in on `app.mfets.com`; installed WebAPK updated to the new build and shows valid HTTPS + service worker. |
+| `/sw.js` caching on the dev domain | ⛔ | Cloudflare rewrites `Cache-Control` to `max-age=14400` (FR-05); client Cloudflare must follow `docs/DEPLOY_TO_CLIENT_PC.md` step 4. |
+| Client-PC reboot, fresh-install on the client PC | ☐ | Owner-only; `Prepare-ClientPC.ps1` direct mode verified on scratch folders. |
+
 ## 0. Go / no-go gates (before touching production)
 
 | # | Gate | Who | Status | Evidence |
@@ -59,7 +78,7 @@ No P0/P1 introduced by the verified location changes was identified.
 | 0.3 | Level 1/2 gates green on that commit: web + API typecheck, web build, Node suites, the V7/V6 integration suites against the **disposable** Postgres (127.0.0.1:55432 only), full Playwright, `git diff --check`. | Agent | ☑ | 2026-10-09 on code commit `2465503` (docs-only commits since): web + API typecheck/build exit 0; web Node **377/377**; Playwright **190/190**; legacy-rejection script 5/5; API **519/519** over 101 files, one process each, 0 skipped, disposable PG removed afterwards; `git diff --check` clean. Diff scan: no secrets/IPs, no protected-scope files touched. (A first API re-run showed 14 failures caused by my gate script omitting `REPORT_CHROMIUM_PATH`; fixed in the script, no product change.) |
 | 0.4 | Production secrets prepared **outside Git**: unique `POSTGRES_PASSWORD` (same value URL-encoded in `DATABASE_URL`), session/cookie secrets, `CLOUDFLARE_TUNNEL_TOKEN`, reminder e-mail credentials if used. Nothing from `.env` committed (`git status` shows no `.env`). | Owner | ☐ | |
 | 0.5 | Client has accepted in writing: they own the domain, Cloudflare account and renewals; Cloudflare Tunnel free tier has **no uptime SLA** (accepted trade-off). | Owner | ☐ | |
-| 0.6 | Production database starts **empty** (no demo customers/visits, no demo accounts such as the test technician/manager/supervisor logins). Demo data stays on the dev machine. | Owner | ☐ | |
+| 0.6 | Production database starts **empty** (no demo customers/visits, no demo accounts such as the test technician/manager/supervisor logins). Demo data stays on the dev machine. | Owner | ☐ | Code side done 2026-10-21: production start no longer seeds the Mak Siti / Hokuden customers (`productionSeedNoCustomers.integration.test.ts`). Still verify Manager → Customers is empty on the client PC. Hidden `is_demo` fixtures remain in the database by design. |
 
 ## 1. Domain, tunnel and `.env` (production PC)
 

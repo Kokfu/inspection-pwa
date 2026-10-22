@@ -38,7 +38,7 @@ test("dashboard routes Services to customer configuration and keeps Operations a
   expect(await page.locator(".trend-line").evaluate((line) => getComputedStyle(line).stroke)).not.toBe("none");
   const sidebar = page.getByLabel("Primary navigation");
   for (const [label, hash, heading] of [
-    ["Technician List", "manager-technicians", "Technician List"],
+    ["Staff", "manager-technicians", "Staff"],
     ["Services", "manager-customers", "Customers"],
     ["Operations", "manager-operations", "Operations"],
     ["Add Customer", "manager-add-customer", "Add Customer"],

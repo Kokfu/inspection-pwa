@@ -1,18 +1,89 @@
-# Client PC requirements (human checklist; this is NOT a Python pip requirements file).
-# See docs/client-install-and-public-access.md for setup and public access.
+# ============================================================================
+# CLIENT PC REQUIREMENTS - Inspection PWA
+# ============================================================================
+# This is a HUMAN CHECKLIST, not a Python file. Do NOT run `pip install -r`.
+# The app is Node/TypeScript and runs entirely inside Docker containers.
+# Step-by-step install: docs/DEPLOY_TO_CLIENT_PC.md
+# Last reviewed: 2026-10-21
+# ============================================================================
 
-Windows 10/11 PC supported by the current Docker Desktop for Windows release
-WSL 2 and CPU virtualization enabled; at least 8 GB system RAM
-Docker Desktop installed, licensed for the client's organization, running Linux containers
-Docker Compose v2 (included with Docker Desktop)
-Internet access for the first image build and future updates
-Project source folder, including docker-compose.yml and both package-lock.json files
-Private .env configured from .env.example with a unique PostgreSQL password and matching DATABASE_URL
-C:/InspectionSystem/runtime on a persistent disk with space for uploads, logs, releases, and backups
-PC kept powered, awake, connected, and maintained during service hours
-Off-device backup destination and a tested restore procedure
-Client-owned domain and either the documented static-IP/router path or a separately designed named tunnel
 
-# No host Python, pip, Node.js, npm, PostgreSQL, or Caddy installation is needed.
-# Docker builds/installs container dependencies from the two npm lockfiles.
-# A GitHub source download is not a prebuilt Docker image and does not install Docker Desktop.
+# ---- 1. THE PC -------------------------------------------------------------
+Windows 10/11 Pro (or Home with WSL 2) that Docker Desktop supports; not Windows Server
+64-bit CPU with virtualization enabled in BIOS/UEFI (Intel VT-x / AMD-V)
+8 GB RAM minimum (16 GB recommended)
+SSD with at least 60 GB free; keep 20% free at all times (photos grow every day)
+Wired Ethernet preferred; stable LAN IP (router DHCP reservation)
+Always on and awake during service hours AND at 09:00 daily (reminder emails)
+Sleep and hibernation disabled; Windows Update restart hours set outside work hours
+BIOS "restore on AC power loss" = On; a UPS is recommended
+
+
+# ---- 2. SOFTWARE TO INSTALL ON THE PC (only these) -------------------------
+Docker Desktop for Windows (Linux containers, WSL 2 backend, "Start when you sign in" ON)
+    - licensing: check Docker Desktop terms for the client's organisation size
+Git for Windows            (to download the release; or copy a release ZIP instead)
+PowerShell 5.1+            (already part of Windows)
+Docker Compose v2          (included with Docker Desktop)
+
+# NOT needed on the client PC: Python, Node.js, npm, PostgreSQL, Caddy, Chromium.
+# Docker downloads/builds all of them inside containers:
+#   postgres:16-alpine | node:22-alpine (+ Chromium for PDFs) | Caddy | cloudflared 2026.9.3
+# Packages are installed from apps/api/package-lock.json and apps/web/package-lock.json.
+
+
+# ---- 3. ACCOUNTS (owned by the CLIENT, not by the developer) ---------------
+Domain name, registered and renewed in the client's own name (e.g. Cloudflare Registrar)
+Cloudflare account (free plan) holding that domain's DNS      <- recommended route
+    - Zero Trust -> Networks -> Tunnels: one tunnel, public hostname app.<domain> -> http://proxy:80
+    - tunnel TOKEN copied into .env only (never into Git, chat or screenshots)
+Gmail address + Gmail "app password" for service-due reminder emails (optional feature)
+    - PC network must allow outbound TCP 587 to smtp.gmail.com
+Off-device backup place: external drive, NAS or encrypted cloud folder
+
+
+# ---- 4. ALTERNATIVE TO THE TUNNEL (only if the client already has these) ---
+ISP-confirmed STATIC public IPv4, not CGNAT
+Router forwards TCP 80 and TCP 443 to the PC; DNS A record points to the static IP
+PUBLIC_HOSTNAME in .env = bare hostname (no http://)
+
+
+# ---- 5. INTERNET --------------------------------------------------------
+Internet is needed for the first build and for every update (image registries, npm)
+Internet is needed for users to sync; phones keep working offline without it
+
+
+# ---- 6. THE RELEASE (what you copy to the PC) -----------------------------
+A CLEAN, COMMITTED release of the repo, tagged (e.g. release-YYYYMMDD) - no uncommitted edits
+Must contain: docker-compose.yml, apps/api, apps/web, infra/, scripts/, .env.example,
+              apps/api/package-lock.json, apps/web/package-lock.json
+Do NOT copy: your dev .env, node_modules, logs, test-results, client-material, client-input-private
+Do NOT copy your dev database: the client starts with a NEW, empty database
+
+
+# ---- 7. SECRETS (created on the client PC, kept out of Git) ----------------
+.env file in the project folder  (scripts/Prepare-ClientPC.ps1 creates it)
+    POSTGRES_PASSWORD   - unique, strong, generated by the script
+    DATABASE_URL        - same password
+    PUBLIC_HOSTNAME     - http://app.<domain> (tunnel) or app.<domain> (direct)
+    CLOUDFLARE_TUNNEL_TOKEN - tunnel route only
+First Manager (admin) account - created by command after first start; password 12+ characters
+service-due-email.key - auto-created in C:\InspectionSystem\runtime\operational\ on first start;
+    must be in the encrypted backup
+
+
+# ---- 8. FOLDERS CREATED ON THE PC (outside the repo) -----------------------
+C:\InspectionSystem\runtime\uploads            photos (business data!)
+C:\InspectionSystem\runtime\logs\api  logs\proxy  logs\postgres
+C:\InspectionSystem\runtime\backups\postgres  backups\uploads  backups\manifests
+C:\InspectionSystem\runtime\restore-staging
+C:\InspectionSystem\runtime\operational        email key
+C:\InspectionSystem\runtime\releases           web app versions (needed for safe PWA updates)
+# The database itself lives in the Docker volume "postgres_data" (NEVER run `docker compose down -v`).
+
+
+# ---- 9. PEOPLE & PROCESS ---------------------------------------------------
+One named person who checks the PC after every reboot / power cut / Windows Update
+A daily scheduled backup (database + photos) AND a copy that leaves the PC
+A restore test done once before go-live
+Technician phones: current Chrome (Android) or Safari (iPhone); HTTPS is mandatory for install/camera

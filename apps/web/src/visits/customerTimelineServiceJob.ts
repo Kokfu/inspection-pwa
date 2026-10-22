@@ -42,9 +42,18 @@ export function parseTimelineServiceJob(value: unknown, jobId: string, customerI
   }
   return j as InspectionJob;
 }
+export class ServiceVisitNotAuthorisedError extends Error {
+  constructor(message: string) { super(message); this.name = "ServiceVisitNotAuthorisedError"; }
+}
 export async function loadTimelineServiceJob(jobId: string, customerId: string, actor: AuthUser, signal: AbortSignal) {
   const response = await fetch(`/api/inspection-jobs/${encodeURIComponent(jobId)}`, { credentials: "same-origin", cache: "no-store", signal,
     headers: { "X-Expected-User-Id": String(actor.id) } });
+  if (response.status === 403) {
+    // FR-09: another technician's visit. Show the server's own wording, not a generic "server unavailable".
+    let message = "";
+    try { const data = await response.json() as { message?: unknown }; if (typeof data.message === "string") message = data.message.trim(); } catch { /* fall back below */ }
+    throw new ServiceVisitNotAuthorisedError(message || "You are not authorised to open this service visit. You can only open your own service visits.");
+  }
   if (!response.ok) throw new Error(`Service visit details could not be opened (${response.status}). Reconnect or sign in and retry.`);
   return parseTimelineServiceJob(await response.json(), jobId, customerId);
 }

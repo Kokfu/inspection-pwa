@@ -201,6 +201,39 @@ export function createManagerTechniciansRouter(database: Pick<Pool, "query" | "c
     } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
     finally { client?.release(); }
   });
+  router.post("/manager/technicians/:technicianId/reactivate", requireRole("admin"), async (request, response, next) => {
+    let client: PoolClient | undefined;
+    try {
+      const id = numericUserId(request.params.technicianId, "INVALID_TECHNICIAN_ID");
+      if (request.body !== undefined && (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length)) {
+        throw new ManagerTechnicianError("INVALID_REQUEST", "Request body must be empty.");
+      }
+      client = await database.connect();
+      await client.query("BEGIN");
+      // No display-name index exists. Serialize with all user writes, including create/rename,
+      // so the clash check and activation cannot race another account mutation.
+      await client.query("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE");
+      const target = (await client.query(`SELECT ${technicianColumns} FROM users WHERE id=$1 AND role IN ('inspector','supervisor') AND hidden_at IS NULL FOR UPDATE`, [id])).rows[0];
+      if (!target) throw new ManagerTechnicianError("TECHNICIAN_NOT_FOUND", "Technician was not found.", 404);
+      let technician = target;
+      if (!target.isActive) {
+        const clash = await client.query(
+          "SELECT id FROM users WHERE id<>$1 AND is_active=true AND (username=$2 OR ($3::text IS NOT NULL AND display_name=$3)) LIMIT 1",
+          [id, target.username, target.displayName]
+        );
+        if (clash.rows[0]) throw new ManagerTechnicianError("ACCOUNT_NAME_CLASH", "Another active account uses this username or person’s name. Change the person’s name before reactivating.", 409);
+        technician = (await client.query(`UPDATE users SET is_active=true, updated_at=now() WHERE id=$1 RETURNING ${technicianColumns}`, [id])).rows[0];
+        // Also invalidate any lingering session from an older/manual deactivation.
+        // Password, already revoked sessions and assignments stay untouched.
+        await client.query("UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL", [id]);
+        await audit(client, request.currentUser!.id, "manager_technician_reactivated", "user", String(id), `role=${target.role}`);
+      }
+      await client.query("COMMIT");
+      response.setHeader("Cache-Control", "private, no-store");
+      response.json({ technician });
+    } catch (error) { await client?.query("ROLLBACK").catch(() => undefined); next(error); }
+    finally { client?.release(); }
+  });
   // Admin sets a new password for a technician/supervisor. Admin accounts are recovered offline (see cli/resetAdminPassword.ts).
   router.post("/manager/technicians/:technicianId/password", requireRole("admin"), async (request, response, next) => {
     let client: PoolClient | undefined;

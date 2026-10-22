@@ -55,7 +55,7 @@ document.querySelector("#run").onclick = async () => {
     const invalid = await Promise.all(["ab", "line\nbreak", `zero${String.fromCharCode(0x200b)}width`, "x".repeat(301)].map((wording) => rejection(() => addSectionRemark(base(wording)))));
     check("short, multi-line, hidden-character and over-long text are refused", invalid.every((error) => error instanceof SectionRemarkInputError && error.code === "INVALID"));
     const badScope = await rejection(() => addSectionRemark(base("Valid wording here", { sectionKey: "checklist.waterTank.nope" })));
-    const badSystem = await rejection(() => addSectionRemark(base("Valid wording here", { systemKey: "hose_reel" })));
+    const badSystem = await rejection(() => addSectionRemark(base("Valid wording here", { systemKey: "no_such_system" })));
     check("an unknown section or system is refused", badScope instanceof SectionRemarkInputError && badSystem instanceof SectionRemarkInputError);
     check("refusals stored nothing", (await outboxItems()).length === 3 && (await cache()).length === 2);
 

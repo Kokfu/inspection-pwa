@@ -23,7 +23,13 @@ globalThis.fetch = async (input, init) => {
     const body = JSON.parse(init.body);
     window.__posts.push({ url, body });
     if (window.__proposalReply.status === 409) return json({ error: "LOCATION_PROPOSAL_ALREADY_PENDING", message: "already awaiting review" }, 409);
-    return json({ proposal: { id: body.id, status: "pending" } }, 201);
+    // The client validates the full server proposal shape and echoes of customer, system, job and submitter.
+    const [, customerId, systemKey] = /\/customers\/([^/]+)\/systems\/([^/]+)\/location-proposals/.exec(url);
+    return json({ proposal: {
+      id: body.id, customerId, customerDisplayName: "Layout Customer", systemKey, systemDisplayName: null, jobId: body.jobId, jobReference: null,
+      submittedByUserId: Number(init.headers["X-Expected-User-Id"] ?? 1), submittedBy: "browser-tech", submittedByRole: "inspector",
+      submittedAt: new Date().toISOString(), payload: body.patch, status: "pending", decision: null, edited: false
+    } }, 201);
   }
   throw new TypeError("Failed to fetch");
 };

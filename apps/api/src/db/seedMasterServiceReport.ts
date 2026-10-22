@@ -1735,7 +1735,17 @@ async function convergeDeterministicRegressionFixtureVisibility(client: PoolClie
   );
 }
 
-export async function seedMasterServiceReport(pool: Pool) {
+export async function seedMasterServiceReport(
+  pool: Pool,
+  options: {
+    /**
+     * Publish the Mak Siti and Hokuden operational customers. Defaults to true so tests and
+     * development databases keep their fixtures; the production entrypoints pass false so a
+     * client's database starts with no customers.
+     */
+    operationalCustomers?: boolean;
+  } = {}
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1745,7 +1755,7 @@ export async function seedMasterServiceReport(pool: Pool) {
     await assertExistingSprinklerFixtureBeforeSeed(client);
     await assertExistingPhotoSprinklerFixtureBeforeSeed(client);
     await seedDemoConfigurations(client);
-    await seedOperationalConfigurations(client);
+    if (options.operationalCustomers !== false) await seedOperationalConfigurations(client);
     await seedDemoJobs(client);
     await convergeDeterministicRegressionFixtureVisibility(client);
     await client.query("COMMIT");

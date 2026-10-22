@@ -15,7 +15,7 @@ export function managerNavLinks(supervisor: boolean): Array<[string, ManagerDash
   return supervisor
     ? [["Services", "manager-operations"], ["Current Services Done", "manager-services-done"], ["Approvals", "manager-approvals"], ["Photo KPI", "manager-photo-kpi"]]
     : [
-        ["Technician List", "manager-technicians"], ["Add Customer", "manager-add-customer"],
+        ["Staff", "manager-technicians"], ["Add Customer", "manager-add-customer"],
         ["Services", "manager-customers"], ["Service Catalog", "manager-service-catalog"],
         ["Operations", "manager-operations"], ["Current Services Done", "manager-services-done"],
         ["Next Upcoming Service", "manager-upcoming-services"],

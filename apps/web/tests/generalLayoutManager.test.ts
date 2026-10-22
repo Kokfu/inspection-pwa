@@ -58,24 +58,25 @@ test("Admin inbox reads a General-layout proposal and refuses more than 250 rows
   const oldFetch = globalThis.fetch;
   const row = (index: number) => ({ assetReference: `R-${index}`, locationText: `Place ${index}` });
   const proposal = (systemKey: string, count: number) => ({
-    id: crypto.randomUUID(), customerId: crypto.randomUUID(), customerDisplayName: "Test Customer", systemKey, jobId: crypto.randomUUID(),
+    id: crypto.randomUUID(), customerId: crypto.randomUUID(), customerDisplayName: "Test Customer", systemKey, systemDisplayName: null, jobId: crypto.randomUUID(), jobReference: null,
     submittedByUserId: 1, submittedBy: "Technician", submittedByRole: "inspector", submittedAt: "2026-10-11T00:00:00.000Z",
-    payload: { kind: "update-format", locationKey: "general", rows: Array.from({ length: count }, (_, index) => row(index)) }, status: "pending", decision: null
+    payload: { kind: "update-format", locationKey: "general", rows: Array.from({ length: count }, (_, index) => row(index)) }, status: "pending", decision: null, edited: false
   });
+  const counts = { pending: 1, approved: 0, rejected: 0, withdrawn: 0 };
   try {
     for (const systemKey of ["hydrant", "dry_wet_riser"]) {
       const accepted = [proposal(systemKey, 250)];
-      globalThis.fetch = async () => new Response(JSON.stringify({ proposals: accepted }), { status: 200 });
+      globalThis.fetch = async () => new Response(JSON.stringify({ proposals: accepted, counts }), { status: 200 });
       assert.deepEqual((await loadLocationProposals("pending")).proposals.length, 1, `${systemKey}: 250 rows`);
       const tooMany = [proposal(systemKey, 251)];
-      globalThis.fetch = async () => new Response(JSON.stringify({ proposals: tooMany }), { status: 200 });
+      globalThis.fetch = async () => new Response(JSON.stringify({ proposals: tooMany, counts }), { status: 200 });
       const result = await loadLocationProposals("pending");
       assert.deepEqual(result.proposals, [], `${systemKey}: 251 rows is not a decidable proposal`);
       assert.equal(result.unreadable.length, 1);
     }
     // CO2 keeps its larger zoned cap.
     const co2 = { ...proposal("co2_fire_extinguisher", 0), payload: { kind: "update-format", locationKey: "loc-a", rows: Array.from({ length: 300 }, () => ({ alarmZone: "Z", location: "L" })) } };
-    globalThis.fetch = async () => new Response(JSON.stringify({ proposals: [co2] }), { status: 200 });
+    globalThis.fetch = async () => new Response(JSON.stringify({ proposals: [co2], counts }), { status: 200 });
     assert.equal((await loadLocationProposals("pending")).proposals.length, 1);
   } finally { globalThis.fetch = oldFetch; }
 });

@@ -142,7 +142,7 @@ test("when the server holds the proposal behind an earlier one, the visit says s
   await page.getByLabel("Number of hydrants").fill("2");
   await page.getByRole("button", { name: "Start Inspection" }).click();
   await fillAndSubmit(page, ["Roof"]);
-  await expect(page.getByText("already waiting for Admin review, so this visit's layout was not sent.")).toBeVisible();
+  await expect(page.getByText("is waiting on an earlier request for the same location")).toBeVisible();
   await expect(page.getByText("needs attention")).toHaveCount(0);
   const state = await inspect(page);
   expect(state.outbox.find((item: any) => item.entityType === "technicianLocationProposal").status).toBe("Completed");

@@ -419,7 +419,7 @@ test("Summary of Testing PDF block renders numbered per-system conditions and pe
   assert.ok(pdf.length > cleanPdf.length, "Remarks blocks + conditionDetail lines add rendered content beyond the clean report");
 });
 
-test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Systems when present, and omits them cleanly when absent", async () => {
+test("cover page renders Telephone/Contact/Service Call No/Arrival Time/Systems when present, and omits them cleanly when absent", async () => {
   const base: FinalServiceReport = {
     customer: "Cover Customer", site: "Cover Site", serviceDate: "2026-09-13", jobReference: "SV-COVER-1",
     completedAt: "2026-09-13T00:00:00.000Z", completedBy: "inspector-one",
@@ -431,7 +431,7 @@ test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Sys
   };
   const withCoverFields: FinalServiceReport = {
     ...base,
-    telephone: "03-1234567", contact: "Ali Bin Ahmad", serviceCallNumber: "SC-4821", arrival: "09:15", departure: "11:45"
+    telephone: "03-1234567", contact: "Ali Bin Ahmad", serviceCallNumber: "SC-4821", arrival: "09:15"
   };
   const withPdf = await renderFinalServiceReportPdf(withCoverFields);
   assert.equal(withPdf.subarray(0, 5).toString("binary"), "%PDF-");
@@ -439,8 +439,8 @@ test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Sys
   assert.ok(withRendered.includes("TELEPHONE / FAX03-1234567"), "PDF cover carries Telephone");
   assert.ok(withRendered.includes("CONTACT PERSONAli Bin Ahmad"), "PDF cover carries Contact");
   assert.ok(withRendered.includes("SERVICE CALL NO.SC-4821"), "PDF cover carries Service Call No");
-  assert.ok(withRendered.includes("ARRIVAL / DEPARTURE09:15"), "PDF cover carries Arrival");
-  assert.ok(withRendered.includes("09:15 / 11:45"), "PDF cover carries Departure");
+  assert.ok(withRendered.includes("ARRIVAL TIME09:15"), "PDF cover carries Arrival Time");
+  assert.ok(!/departure/i.test(withRendered), "PDF cover has no Departure text");
   assert.ok(withRendered.includes("CO2 Fire Extinguisher System"));
   assert.ok(withRendered.includes("Hose Reel System"), "PDF cover derives the Systems checklist from report.systems");
 
@@ -452,7 +452,6 @@ test("cover page renders Telephone/Contact/Service Call No/Arrival/Departure/Sys
   assert.ok(!withoutRendered.includes("Ali Bin Ahmad"), "no blank Contact line for a job that never captured it");
   assert.ok(!withoutRendered.includes("SC-4821"), "no blank Service Call No line for a job that never captured it");
   assert.ok(!withoutRendered.includes("09:15"), "no blank Arrival line for a job that never captured it");
-  assert.ok(!withoutRendered.includes("11:45"), "no blank Departure line for a job that never captured it");
   // Systems is unconditional - it's always derivable from report.systems, old job or new.
   assert.ok(withoutRendered.includes("CO2 Fire Extinguisher System"));
   assert.ok(withoutRendered.includes("Hose Reel System"), "Systems checklist still renders for a job predating this feature");

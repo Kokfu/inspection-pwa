@@ -6,7 +6,9 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import "/src/styles/app.css";
-import { ManagerCustomerConfigurationDetail } from "/src/manager/ManagerCustomerConfiguration.tsx";
+// The customer record no longer embeds the history (it lives on Completed Services), so the default "configuration"
+// variant of the section is mounted directly with the props the record used to pass.
+import { ManagerCustomerServiceHistory } from "/src/manager/ManagerCustomerServiceHistory.tsx";
 
 /**
  * DoD (STEP 3.2 slice C): a read-only "Service history" section on the customer
@@ -115,10 +117,9 @@ document.querySelector("#run").onclick = async () => {
   const viewedReports = [];
   const downloadedReports = [];
   try {
-    createRoot(view).render(React.createElement(ManagerCustomerConfigurationDetail, {
+    createRoot(view).render(React.createElement(ManagerCustomerServiceHistory, {
       customer,
       onBack: () => {},
-      onSaved: () => {},
       onAuthorityFailure: () => { authorityFailures += 1; },
       onViewServiceVisit: (jobId) => { viewedProgress.push(jobId); },
       onViewFinalReport: (jobId) => { viewedReports.push(jobId); },

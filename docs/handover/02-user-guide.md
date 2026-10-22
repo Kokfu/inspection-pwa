@@ -50,6 +50,7 @@ the same destinations as cards. A red number on **Approvals** is the count of it
 ## 2.3 Manager features
 
 ### Staff accounts (Technician List)
+To reactivate a Technician or Admin, tick **Show deactivated staff**, press **Reactivate** on the inactive account and confirm; they can then sign in again.
 Create, rename, reset passwords, deactivate and delete Technician and Admin accounts, and assign
 Admins to Technicians. Full instructions: [01-accounts-and-access.md](01-accounts-and-access.md#17-create-edit-and-remove-technician-and-admin-accounts-in-the-app-as-manager).
 

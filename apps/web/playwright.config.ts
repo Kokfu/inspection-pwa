@@ -9,6 +9,8 @@ const liveSpecs = ["**/co2-v7-live-accepted-detail.spec.ts", "**/wet-chemical-v7
 
 export default defineConfig({
   testDir: "./tests",
+  // The node:test *.test.ts(x) files in tests/ run under tsx, not Playwright.
+  testMatch: "**/*.spec.ts",
   testIgnore: live ? [] : liveSpecs,
   fullyParallel: false,
   use: {

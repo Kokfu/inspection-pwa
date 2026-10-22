@@ -259,6 +259,8 @@ export async function runMigrations(
     finalServiceReportMigrationTarget?: FinalServiceReportMigrationTarget;
     /** Test-only: prepare schema/migrations without publishing deterministic fixtures. */
     seed?: boolean;
+    /** Production entrypoints pass false: do not publish the Mak Siti / Hokuden operational customers. */
+    operationalCustomers?: boolean;
     /** Test-only: stop before/within the offline repair-visit foundation. */
     repairVisitMigrationTarget?: 52 | 53 | 54 | 55;
   } = {}
@@ -711,6 +713,6 @@ export async function runMigrations(
   // 059 is additive and idempotent (ADD COLUMN IF NOT EXISTS; existing customers default to confirmed).
   await database.query(await readFile(new URL("../../migrations/059_customer_confirmation.sql", import.meta.url), "utf8"));
   if (options.seed !== false) {
-    await seedMasterServiceReport(database);
+    await seedMasterServiceReport(database, { operationalCustomers: options.operationalCustomers });
   }
 }

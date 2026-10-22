@@ -2353,7 +2353,7 @@ const pages = [
 export function sampleViewModel(): ReportViewModel {
  const vm = buildReportViewModel({customer:"HOKUDEN (MALAYSIA) SDN. BHD.", site:"ZONE 1", serviceDate:"18 SEPTEMBER 2026", jobReference:"JOB-2026-0412", completedAt:"2026-09-18T08:40:00.000Z", completedBy:"MOHD HAFIZ BIN ISMAIL", systems:[], sections:[]});
  vm.company = {...companyProfile};
- Object.assign(vm.cover, {reportNumber:"MFE/SR/2026/0918-01", issuedAt:"18 SEP 2026",siteAddress:"LOT 12, JALAN PERINDUSTRIAN BUKIT PASIR, 84300 MUAR, JOHOR.",telephone:"06-986 1234",fax:"06-986 1235",contactPerson:"MR. LIM WEI JIAN",arrival:"09:05",departure:"16:40",serviceCallNumber:"SC-26-0918",contractNumber:"MFE/HKD/AMC/2026",frequency:"QUARTERLY",technicians:["MOHD HAFIZ","TAN KAH SENG","RAJ KUMAR"]});
+ Object.assign(vm.cover, {reportNumber:"MFE/SR/2026/0918-01", issuedAt:"18 SEP 2026",siteAddress:"LOT 12, JALAN PERINDUSTRIAN BUKIT PASIR, 84300 MUAR, JOHOR.",telephone:"06-986 1234",fax:"06-986 1235",contactPerson:"MR. LIM WEI JIAN",arrival:"09:05",serviceCallNumber:"SC-26-0918",contractNumber:"MFE/HKD/AMC/2026",frequency:"QUARTERLY",technicians:["MOHD HAFIZ","TAN KAH SENG","RAJ KUMAR"]});
  // Deterministic synthetic evidence: the approved template has PHOTO placeholders.
  const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
  vm.systemPages = structuredClone(pages).map(page => ({...page,photos:((page as unknown as {photos:Array<Omit<SystemPage["photos"][number],"content">>}).photos).map(photo=>({...photo,content:pixel}))}));

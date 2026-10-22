@@ -93,7 +93,8 @@ test("a supervisor approves the report and the Operations chip updates", async (
   await expect(page.getByRole("button", { name: "Withdraw approval" })).toHaveCount(0);
 
   await page.getByRole("button", { name: /^Back to/ }).click();
-  await expect(page.getByText("Approved review-lead", { exact: false })).toBeVisible();
+  await expect(page.locator(".ops-row").getByText("Approved", { exact: true })).toBeVisible();
+  await expect(page.locator(".ops-row").getByText("review-lead", { exact: false })).toBeVisible();
 });
 
 test("an admin can withdraw an approval with a required note", async ({ page }) => {

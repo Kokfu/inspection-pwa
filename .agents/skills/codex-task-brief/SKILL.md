@@ -136,6 +136,19 @@ git diff --check          # clean (CRLF warnings only)
 ```
 Plus any task-specific tests named in the brief.
 
+**Full API suite (every `apps/api/src/**/*.test.ts`, one process per file):** run
+`powershell -File scripts\testing\Run-ApiGate.ps1` from the repo root instead of assembling the block above by hand.
+It creates its own cold container on `127.0.0.1:55432` (fails, never stops another run's DB, if the port is taken),
+creates the two databases whose names the tests assert, and removes the container in `finally`:
+
+| Test file | Env var it needs | Database (created by the script) |
+|---|---|---|
+| everything else | `SEED_INTEGRATION_DATABASE_URL` = `DATABASE_URL` | `phase6_seed_integration` |
+| `src/routes/customerVisitSummaries.test.ts` | `VISIT_SUMMARIES_TEST_DATABASE_URL` | `visit_summaries_test` |
+| `src/routes/managerCustomerDetails.integration.test.ts` | `SEED_INTEGRATION_DATABASE_URL` (per file) | `customer_records_s3a_test` |
+
+Never point these two at `phase6_seed_integration`; they refuse any other database name by design.
+
 ---
 
 ## Definition of Done — report as a table

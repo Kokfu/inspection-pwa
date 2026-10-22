@@ -37,7 +37,8 @@ test("the Add a New Location screen itself offers no system for a General layout
   await page.goto("/tests/technician-add-location-offer.html?system=hydrant&shape=general&view=proposal");
   await expect(page.getByRole("heading", { name: "Add a New Location" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "System" })).toHaveCount(0);
-  const empty = page.locator(".empty-state");
+  // The screen also lists this visit's earlier requests, whose own empty state is not under test here.
+  const empty = page.locator(".empty-state").filter({ hasText: "This service visit has no system" });
   await expect(empty).toContainText("This service visit has no system that can take a new named location.");
   await expect(empty).not.toContainText("CO2, Wet Chemical, or FM200");
 });
@@ -45,5 +46,5 @@ test("the Add a New Location screen itself offers no system for a General layout
 test("the Add a New Location screen lists a zoned Hydrant as a system that can take a location", async ({ page }) => {
   await page.goto("/tests/technician-add-location-offer.html?system=hydrant&shape=zoned&view=proposal");
   await expect(page.getByRole("combobox", { name: "System" })).toContainText("hydrant");
-  await expect(page.locator(".empty-state")).toHaveCount(0);
+  await expect(page.locator(".empty-state").filter({ hasText: "no system that can take" })).toHaveCount(0);
 });

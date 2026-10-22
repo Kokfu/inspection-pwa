@@ -49,15 +49,17 @@ test("cover prints Team only when it has names beyond the test leader", () => {
  vm.cover.technicians=['Lead','Tech B'];
  assert.match(renderReportHtml(vm),/Team: Tech B/);
 });
-test("optional telephone/fax and arrival/departure separators appear only between values", () => {
+test("optional telephone/fax and separators appear only between values, and the cover shows Arrival Time with no Departure", () => {
  const vm=buildReportViewModel({customer:'Customer',site:'Site',serviceDate:'2026-09-18',jobReference:'Job',completedAt:'2026-09-18T00:00:00Z',completedBy:'Inspector',systems:[],sections:[]});
  for(const [left,right,expected] of [[null,null,''],['012-123',null,'012-123'],[null,'03-456','03-456'],['012-123','03-456','012-123 / 03-456']] as const){
    vm.cover.telephone=left;vm.cover.fax=right;
    assert.match(renderReportHtml(vm),new RegExp(`data-bind="customer.contactPhone / customer.fax">${expected}<\\/td>`));
  }
- for(const [left,right,expected] of [[null,null,''],['09:00',null,'09:00'],[null,'17:00','17:00'],['09:00','17:00','09:00 / 17:00']] as const){
-   vm.cover.arrival=left;vm.cover.departure=right;
-   assert.match(renderReportHtml(vm),new RegExp(`data-bind="job.arrival / job.departure">${expected}<\\/td>`));
+ for(const [arrival,expected] of [[null,''],['09:00','09:00']] as const){
+   vm.cover.arrival=arrival;
+   const html=renderReportHtml(vm);
+   assert.match(html,new RegExp(`<td class="lbl">Arrival Time<\/td><td class="v" data-bind="job.arrival">${expected}<\/td>`));
+   assert.doesNotMatch(html,/departure/i);
  }
 });
 test("checklist Req/Unit and Reading pair, and Remarks hide only when the whole block is empty",()=>{

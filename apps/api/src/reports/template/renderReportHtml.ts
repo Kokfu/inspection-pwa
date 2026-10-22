@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { reportFontFaceCss } from "../pdf/reportFonts.js";
 import { resolveCompanyLogoFile } from "../companyProfile.js";
 import { summaryMainFinding, type ReportViewModel, type ReportBlock, type ReportResult, type SystemPage } from "../reportViewModel.js";
+import { formatMalaysiaDateTime } from "../malaysiaTime.js";
 
 const asset = (name: string) => readFileSync(new URL(name, import.meta.url), "utf8");
 const css = asset("./report.css");
@@ -68,7 +69,7 @@ function cover(vm: ReportViewModel): string {
   const c = vm.cover;
   const logo = logoDataUri(vm.company.logoFile);
   const values = { ...vm.company, ...c, registrationNo: vm.company.registrationNo ? `(${vm.company.registrationNo})` : "", companyFax: vm.company.fax,
-    siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone, c.fax].filter(Boolean).join(" / "), arrivalDeparture: [c.arrival, c.departure].filter(Boolean).join(" / "),
+    siteAddress: [c.site, c.siteAddress].filter(Boolean).join(" — "), telephoneFax: [c.telephone, c.fax].filter(Boolean).join(" / "), arrival: c.arrival ?? "",
     technicians: c.technicians.join(" · "), team: c.technicians.filter(name => name !== c.testLeader).join(", ") };
   // Parse only the static template: interpolated business text is never re-parsed.
   const numberedTemplate = c.reportNumber ? coverTemplate : coverTemplate.replace(/^[ \t]*<div><span>Report No\.<\/span><b data-bind="report\.number">\{\{reportNumber\}\}<\/b><\/div>\r?\n/m, "");
@@ -117,7 +118,7 @@ function system(page: SystemPage, last: boolean): string {
     return `<div class="photo"><div class="img"><img src="${e(`data:${mime};base64,${photo.content.toString("base64")}`)}" alt="${e(photo.caption)}" style="width:100%;height:100%;object-fit:contain"></div><div class="cap"><b>${e(photo.no)}. ${e(photo.caption)}</b></div></div>`;
   }).join("")}</div>` : "";
   const strip = `<table class="strip"><tr><td class="lbl">INSPECTION DATE</td><td style="width:120pt"><b>${e(page.inspection.date)}</b></td><td class="lbl">INSPECTED BY</td>${page.inspection.inspectedBy.map(name => `<td><b>${e(name)}</b></td>`).join("")}<td></td></tr><tr><td class="lbl">INITIAL</td><td></td><td></td>${page.inspection.inspectedBy.map(() => '<td class="sig"></td>').join("")}<td class="sig"></td></tr></table>`;
-  const review = page.review ? `<div style="margin:8pt 0;font-size:8pt"><b>Submitted by Technician:</b> ${e(page.review.submittedBy ?? "Identity unavailable")} · <b>${page.review.status === "reviewed" ? "Reviewed by Admin:" : "Pending Review"}</b>${page.review.status === "reviewed" ? ` ${e(page.review.reviewedBy ?? "Identity unavailable")}${page.review.reviewedAt ? ` · ${e(page.review.reviewedAt)}` : ""}` : ""}</div>` : "";
+  const review = page.review ? `<div style="margin:8pt 0;font-size:8pt"><b>Submitted by Technician:</b> ${e(page.review.submittedBy ?? "Identity unavailable")} · <b>${page.review.status === "reviewed" ? "Reviewed by Admin:" : "Pending Review"}</b>${page.review.status === "reviewed" ? ` ${e(page.review.reviewedBy ?? "Identity unavailable")}${page.review.reviewedAt ? ` · ${e(formatMalaysiaDateTime(page.review.reviewedAt))}` : ""}` : ""}</div>` : "";
   return `<section class="page system-page"><div class="system-title-first">${firstTitle}</div><table class="system-flow"><thead><tr><td style="padding:0;border:0">${continuationTitle}</td></tr></thead><tbody><tr style="break-inside:auto"><td style="padding:0;border:0">${advisory}${blocks(page)}${parts ? `<div class="two-col">${remark}${parts}</div>` : remark}${commentBox}${photos}${review}${strip}${last ? '<div style="margin-top:6pt;text-align:center;font-size:7.8pt;color:#555;letter-spacing:.2em">— END OF REPORT —</div>' : ""}</td></tr></tbody></table></section>`;
 }
 /** Cached CSS/cover markup plus a live local-disk logo lookup; does not mutate vm, consult the clock, or access the network. */

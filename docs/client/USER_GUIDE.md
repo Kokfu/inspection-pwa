@@ -29,7 +29,7 @@ Checked on 9 October 2026 by walking the real app (local demo, build `build-2026
 4. **[CONFIRM: install on the client's phone]** Android Chrome: open the browser menu and choose **Install app** or **Add to Home screen**, then confirm. iPhone Safari: Share → **Add to Home Screen** → **Add**. The wording depends on the phone and browser; installation was not tried on the client's phone.
 5. Technician: sign in online, use **Refresh**, open the visits/forms you will need and wait for **Offline ready**. Check each needed visit says **Ready for offline use** before leaving coverage.
 
-Offline work is for prepared inspection forms: typing, saving drafts and taking photos continue without internet. Starting a **New Service Visit**, and all manager screens, need the server. See section 12 (Known limits). Do not clear site/app data to fix a connection problem.
+Offline work is for prepared inspection forms: typing, saving drafts and taking photos continue without internet. A **New Service Visit** for a customer and site already on the phone can also be started offline; adding a new site, completing a visit and all manager screens need the server. See `OFFLINE_GUIDE.md` and section 12 (Known limits). Do not clear site/app data to fix a connection problem.
 
 ### Menus
 
@@ -197,7 +197,7 @@ Reminders go to each selected address individually at **09:00 Malaysia time on t
 - **Corrected visits cannot download a PDF yet.** When a visit has audited corrections, the browser report shows the corrected values but **Download PDF** stays unavailable. Do not distribute an earlier PDF as if it contained the corrections. This needs a product change; ask support.
 - **No password reset feature.** See section 2, step 5 for the workaround (deactivate and recreate a technician/Admin; IT command for an administrator).
 - **Offline needs the job opened online once.** A visit can be used without internet only after it has been downloaded to that phone online (it says **Ready for offline use**) and its form has been opened. A visit created or assigned while the phone was offline cannot be started.
-- **New visits need to be online.** **+ New Service Visit**, **Add Customer** and all manager screens need the server. Only filling in, saving and photographing prepared inspections works offline.
+- **Some actions need the server.** Adding a new site, completing a service visit, viewing Upcoming/Completed Services and reports, and all manager screens need a connection. New Service Visit, Add Customer, filling in, saving and photographing work offline for customers and sites already downloaded (see `OFFLINE_GUIDE.md`).
 - **Accounts using the Admin card see only their assigned technicians' visits** and have no Operations screen.
 - **A rejected photo cannot be replaced on the same record.** Use **Start corrected copy** (section 6).
 - **Reminders are never retried automatically**, and an accepted inspection cannot be deleted (only unfinished visits can).

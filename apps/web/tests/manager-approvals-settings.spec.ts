@@ -181,14 +181,14 @@ for (const hash of ["manager-settings", "manager-email-reminders", "manager-comp
 test("reports render oldest first, paginate, open existing report, approve and re-fetch on return", async ({ page }) => {
   const requests = await install(page); await enter(page, "manager-report-approvals");
   await expect(page.locator(".report-approval-row")).toHaveCount(1);
-  await expect(page.locator(".report-approval-row")).toContainText(["Customer 1SV-20261019-1Completed"]);
+  await expect(page.locator(".report-approval-row")).toContainText(["Customer 1"]);
   await expect(page.getByText("Awaiting approval", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Load more" }).click();
-  await expect(page.locator(".report-approval-row > strong")).toHaveText(["Customer 1", "Customer 2"]);
+  await expect(page.locator(".report-approval-row strong")).toHaveText(["Customer 1", "Customer 2"]);
   await expect(page.getByText("Re-approval needed", { exact: true })).toBeVisible();
   expect(requests).toContain("/api/manager/service-visits?reportApproval=awaiting_approval&cursor=page-two");
   await expect(page.getByRole("button", { name: "Load more" })).toHaveCount(0);
-  await page.locator(".report-approval-row").first().click();
+  await page.locator(".report-approval-row").first().getByRole("button", { name: /Review service report/ }).click();
   await expect(page).toHaveURL(new RegExp(`#/manager-final-report/${uuid(1)}$`));
   await page.getByRole("button", { name: "Approve report", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Report approved", exact: true })).toBeVisible();
@@ -196,6 +196,18 @@ test("reports render oldest first, paginate, open existing report, approve and r
   await expect(page.getByText("No reports are waiting for approval.")).toBeVisible();
   expect(requests.filter(path => path === "/api/manager/service-visits?reportApproval=awaiting_approval")).toHaveLength(2);
   expect(requests.some(path => path === `/api/manager/service-visits/${uuid(1)}`)).toBe(false);
+});
+test("report filter chips and search narrow the loaded rows", async ({ page }) => {
+  await install(page); await enter(page, "manager-report-approvals");
+  await page.getByRole("button", { name: "Load more" }).click();
+  await expect(page.locator(".report-approval-row")).toHaveCount(2);
+  await page.getByRole("button", { name: /^Re-approval needed/ }).click();
+  await expect(page.locator(".report-approval-row")).toHaveCount(1);
+  await page.getByRole("button", { name: /^All/ }).click();
+  await page.getByLabel("Search reports by customer or reference").fill("customer 2");
+  await expect(page.locator(".report-approval-row")).toHaveCount(1);
+  await page.getByLabel("Search reports by customer or reference").fill("zzz");
+  await expect(page.getByText("No reports match this filter.")).toBeVisible();
 });
 test("reports load failure alerts and Retry reloads", async ({ page }) => {
   await install(page, { reportFailure: true }); await enter(page, "manager-report-approvals");

@@ -48,7 +48,7 @@ test("detail HTTP gates refuse foreign technicians for service and repair; retai
       assert.equal((await get()).status, 401);
       detailReads = 0; owner = 2;
       const denied = await get("inspector"); assert.equal(denied.status, 403);
-      assert.match((await denied.json()).message, /technician who owns this/); assert.equal(detailReads, 0);
+      assert.match((await denied.json()).message, path.startsWith("/inspection-jobs") ? /You can only open your own service visits/ : /technician who owns this repair visit/); assert.equal(detailReads, 0);
       owner = null; assert.equal((await get("inspector")).status, 403);
       owner = 1; assert.equal((await get("inspector")).status, 200); assert.ok(detailReads > 0);
       assert.equal((await get("inspector", { "x-expected-user-id": "2" })).status, 409);

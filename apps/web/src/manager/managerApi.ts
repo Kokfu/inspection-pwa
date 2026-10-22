@@ -224,6 +224,11 @@ export async function deactivateManagerTechnician(id: number): Promise<ManagerTe
   if (!isTechnician(result) || result.id !== id || result.isActive) unavailable();
   return result;
 }
+export async function reactivateManagerTechnician(id: number): Promise<ManagerTechnician> {
+  const result = await managerRequest<unknown>(`/api/manager/technicians/${id}/reactivate`, "POST", "technician");
+  if (!isTechnician(result) || result.id !== id || !result.isActive) unavailable();
+  return result;
+}
 export async function deleteManagerTechnician(id: number, username: string): Promise<"deleted" | "hidden"> {
   const result = await managerRequest<Record<string, unknown>>(`/api/manager/technicians/${id}`, "DELETE", null, { username });
   if (result.removedId !== id || (result.disposition !== "deleted" && result.disposition !== "hidden")) unavailable();

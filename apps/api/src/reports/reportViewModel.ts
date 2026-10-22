@@ -2,6 +2,7 @@ import {
   deriveSystemCondition, sectionRemarkLines, v7DisplayLabelLookup, v7DisplayResponseKeyAliases,
   type FinalReportReview, type FinalReportSection, type FinalReportSystemCondition, type FinalServiceReport
 } from "./finalServiceReport.js";
+import { formatMalaysiaIsoDate } from "./malaysiaTime.js";
 import { currentCompanyProfile, type CompanyProfile } from "./companyProfile.js";
 import { rollerShutterRowsInDisplayOrder, rollerShutterZones } from "./rollerShutterDisplay.js";
 export { companyProfile, companyProfileAssetPath, currentCompanyProfile, defaultCompanyProfile, loadCompanyProfile, type CompanyProfile } from "./companyProfile.js";
@@ -53,7 +54,7 @@ export type ReportCover = {
   reportNumber: string | null; issuedAt: string | null;
   customer: string; site: string; siteAddress: string | null;
   telephone: string | null; fax: string | null; contactPerson: string | null;
-  serviceDate: string; arrival: string | null; departure: string | null;
+  serviceDate: string; arrival: string | null;
   serviceCallNumber: string | null; jobReference: string;
   contractNumber: string | null; frequency: string | null;
   serviceStatus: "completed"; completedAt: string;
@@ -403,10 +404,10 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
   const serviced = new Set(report.systems.map((system) => system.systemKey));
   const frequency = report.serviceFrequency ? ({ MONTHLY: "Monthly", QUARTERLY: "Quarterly", HALF_YEARLY: "Half-yearly", ANNUALLY: "Annually" } as const)[report.serviceFrequency as "MONTHLY" | "QUARTERLY" | "HALF_YEARLY" | "ANNUALLY"] ?? null : null;
   const cover: ReportCover = {
-    reportNumber: report.reportNumber ?? null, issuedAt: report.completedAt ? report.completedAt.slice(0, 10) : null,
+    reportNumber: report.reportNumber ?? null, issuedAt: report.completedAt ? formatMalaysiaIsoDate(report.completedAt) : null,
     customer: report.customer, site: report.site, siteAddress: report.siteAddress ?? null,
     telephone: report.telephone ?? null, fax: report.fax ?? null, contactPerson: report.contact ?? null,
-    serviceDate: report.serviceDate, arrival: report.arrival ?? null, departure: report.departure ?? null,
+    serviceDate: report.serviceDate, arrival: report.arrival ?? null,
     serviceCallNumber: report.serviceCallNumber ?? null, jobReference: report.jobReference,
     contractNumber: report.contractNumber ?? null, frequency,
     serviceStatus: "completed", completedAt: report.completedAt,
@@ -417,7 +418,17 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
       ...report.systems.filter((system) => !coverSystems.some(([key]) => key === system.systemKey)).map((system) => ({ systemKey: system.systemKey, label: system.label, serviced: true }))
     ]
   };
-  const systemPages: SystemPage[] = report.sections.map((section, index) => {
+  const systemPages = buildSystemPages(report);
+  const summary: ReportSummaryRow[] = systemPages.map((page) => ({
+    no: page.no, systemKey: page.systemKey, label: page.title, location: page.location, frequency,
+    condition: page.condition, conditionDetail: page.conditionDetail, mainFinding: summaryMainFinding(page.remarks)
+  }));
+  return { company, cover, summary, systemPages };
+}
+
+/** One page per report section; shared by the PDF view model and the on-screen per-service summary. */
+export function buildSystemPages(report: FinalServiceReport): SystemPage[] {
+  return report.sections.map((section, index) => {
     const structured = structuredBlocks(section);
     let page: Pick<SystemPage, "blocks" | "remarks" | "comments">;
     let condition: FinalReportSystemCondition; let conditionDetail: string;
@@ -444,9 +455,4 @@ export function buildReportViewModel(report: FinalServiceReport, options: { comp
       ...(section.review ? { review: section.review } : {})
     };
   });
-  const summary: ReportSummaryRow[] = systemPages.map((page) => ({
-    no: page.no, systemKey: page.systemKey, label: page.title, location: page.location, frequency,
-    condition: page.condition, conditionDetail: page.conditionDetail, mainFinding: summaryMainFinding(page.remarks)
-  }));
-  return { company, cover, summary, systemPages };
 }

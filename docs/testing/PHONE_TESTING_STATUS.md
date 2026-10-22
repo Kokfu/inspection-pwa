@@ -718,3 +718,13 @@ Changes under test: Admin eyebrow on every page, Customers header buttons one wi
 
 Checks used CDP to read state and navigate by hash; the update, sign-out, role choice and Sign in were real taps. Not tested: installed WebAPK, HTTPS, camera, true offline. No new issues; the 2026-10-22 P3 (Customers buttons and Back to Home) is fixed. The phone is now signed in as technician-demo.
 
+## Final retest 2026-10 (build `build-20261021T182047Z`)
+
+Full pass before client deployment; details, issue register and evidence in `docs/testing/final-retest/PROGRESS.md`.
+Phone (CPH2375) real actions: Wi-Fi off + proxy stop, `am force-stop` Chrome, real camera capture (stream black, phone face-down),
+real Sign out dialog with queued work, real sign-in taps. Faults exercised: `dropresp:sync`, `cutreq:/api/v7-evidence/stage`,
+`slow:20000:sync`, `status:401:/api/sync`, `Set-ServerUnreachable`, `docker stop inspection_pwa-api-1` — each left exactly one server row.
+New gotchas: the phone showed a Phone Manager "risky app" overlay (tap Ignore); the role chooser flashes while the session restores;
+a background `localhost:8081` tab freezes CDP once `app.mfets.com` is in front (`curl http://127.0.0.1:9222/json/activate/<id>`);
+`window.confirm` returns false for scripted clicks in the desktop browser pane (stub it); scripted writes into disabled preset inputs make the server reject a Hydrant record (fail-closed, not a bug).
+P1 FR-12 (Portable Fire Extinguisher sync): code fixed and tested 2026-10-22 (uncommitted); phone re-test of Portable submit/sync still to do. Production-host phone rows wait for the owner's sign-in.

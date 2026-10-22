@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createManagerTechnician, deactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, resetManagerTechnicianPassword, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
+import { createManagerTechnician, deactivateManagerTechnician, reactivateManagerTechnician, deleteManagerTechnician, loadManagerTechnicians, resetManagerTechnicianPassword, setTechnicianSupervisorAssignment, updateManagerTechnicianDisplayName, ManagerApiError, type AssignedManagerTechnician, type ManagerTechnician } from "./managerApi";
 import { WorkspaceEyebrow } from "./WorkspaceEyebrow";
 
 const passwordMin = 12;
 const passwordMax = 1024;
+
+type RoleFilter = "all" | "inspector" | "supervisor";
+const roleFilters: Array<[RoleFilter, string]> = [["all", "All"], ["inspector", "Technicians"], ["supervisor", "Admins"]];
 
 /** Owns the typed passwords so they exist only while this form is mounted; cleared on submit, cancel and unmount. */
 function PasswordResetForm({ technician, busy, message, onSubmit, onCancel }: { technician: ManagerTechnician; busy: boolean; message: string; onSubmit: (password: string) => void; onCancel: () => void }) {
@@ -44,6 +47,7 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const [busy, setBusy] = useState(true);
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
@@ -53,9 +57,9 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
     }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => { mounted.current = false; controller.abort(); };
   }, []);
-  async function mutate(action: () => Promise<unknown>) {
+  async function mutate(action: () => Promise<unknown>, successNotice?: string) {
     setBusy(true); setMessage(""); setNotice("");
-    try { await action(); if (!mounted.current) return; const rows = await loadManagerTechnicians(); if (mounted.current) setTechnicians(rows); }
+    try { await action(); if (!mounted.current) return; const rows = await loadManagerTechnicians(); if (mounted.current) { setTechnicians(rows); if (successNotice) setNotice(successNotice); } }
     catch (error) {
       if (!mounted.current) return;
       if (error instanceof ManagerApiError && error.kind === "domain") setMessage(error.message);
@@ -66,13 +70,24 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
   const deactivatedCount = technicians.filter((row) => !row.isActive).length;
   const statusFiltered = showDeactivated ? technicians : technicians.filter((row) => row.isActive);
   const trimmedQuery = query.trim().toLowerCase();
+  const roleCounts: Record<RoleFilter, number> = {
+    all: statusFiltered.length,
+    inspector: statusFiltered.filter((row) => row.role === "inspector").length,
+    supervisor: statusFiltered.filter((row) => row.role === "supervisor").length
+  };
+  const roleFiltered = roleFilter === "all" ? statusFiltered : statusFiltered.filter((row) => row.role === roleFilter);
   const visibleTechnicians = useMemo(() => trimmedQuery
-    ? statusFiltered.filter((technician) => technician.username.toLowerCase().includes(trimmedQuery))
-    : statusFiltered, [statusFiltered, trimmedQuery]);
-  return <section className="page-stack" aria-labelledby="technicians-title"><div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="technicians-title">Technician List</h2></div></div>
+    ? roleFiltered.filter((technician) => technician.username.toLowerCase().includes(trimmedQuery))
+    : roleFiltered, [roleFiltered, trimmedQuery]);
+  const roleLabel = roleFilter === "inspector" ? "technicians" : roleFilter === "supervisor" ? "Admins" : "staff";
+  function selectRoleFilter(next: RoleFilter) {
+    setRoleFilter(next);
+    if (next !== "all") setRole(next);
+  }
+  return <section className="page-stack" aria-labelledby="technicians-title"><div className="workspace-heading"><div><WorkspaceEyebrow /><h2 id="technicians-title">Staff</h2></div></div>
     <form className="manager-inline-form" onSubmit={(event) => {
       event.preventDefault();
-      void mutate(async () => { await createManagerTechnician({ username, password, displayName: newDisplayName.trim() || null, role }); setUsername(""); setPassword(""); setNewDisplayName(""); setRole("inspector"); });
+      void mutate(async () => { await createManagerTechnician({ username, password, displayName: newDisplayName.trim() || null, role }); setUsername(""); setPassword(""); setNewDisplayName(""); setRole(roleFilter === "supervisor" ? "supervisor" : "inspector"); });
     }}><h3>Add Technician</h3>
       <label>Username<input required maxLength={100} autoComplete="off" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
       <label>Person’s name<input maxLength={160} autoComplete="name" value={newDisplayName} onChange={(event) => setNewDisplayName(event.target.value)} /></label>
@@ -88,16 +103,28 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
     {busy && <p role="status">Updating technicians…</p>}
     {deactivatedCount > 0 && <label className="manager-show-archived">
       <input type="checkbox" checked={showDeactivated} onChange={(event) => setShowDeactivated(event.target.checked)} />
-      {` Show deactivated technicians (${deactivatedCount})`}
+      {` Show deactivated staff (${deactivatedCount})`}
     </label>}
-    {technicians.length ? <div className="manager-search-form" role="search" aria-label="Filter technicians">
-      <label htmlFor="manager-technician-search">Filter by username</label>
+    {technicians.length ? <div className="job-tabs" role="tablist" aria-label="Show staff by type">
+      {roleFilters.map(([value, name]) => <button key={value} type="button" role="tab" id={`staff-tab-${value}`} aria-selected={roleFilter === value} tabIndex={roleFilter === value ? 0 : -1}
+        onClick={() => selectRoleFilter(value)}
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const index = roleFilters.findIndex(([key]) => key === value);
+          const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? roleFilters.length - 1 : (index + (event.key === "ArrowRight" ? 1 : roleFilters.length - 1)) % roleFilters.length;
+          const next = roleFilters[nextIndex]![0];
+          selectRoleFilter(next); document.getElementById(`staff-tab-${next}`)?.focus();
+        }}>{`${name} (${roleCounts[value]})`}</button>)}
+    </div> : null}
+    {technicians.length ? <div className="manager-search-form" role="search" aria-label="Filter staff">
+      <label htmlFor="manager-technician-search">Search staff</label>
       <div className="manager-search-row">
         <input id="manager-technician-search" type="search" autoComplete="off" maxLength={200} value={query} onChange={(event) => setQuery(event.target.value)} />
         {query ? <button type="button" className="secondary-command" onClick={() => setQuery("")}>Clear</button> : null}
       </div>
     </div> : null}
-    {statusFiltered.length && !visibleTechnicians.length ? <p className="empty-state">No technician matches "{query.trim()}".</p> : null}
+    {roleFiltered.length && !visibleTechnicians.length ? <p className="empty-state">No {roleLabel} match "{query.trim()}".</p> : null}
     <ul className="manager-technician-list">{visibleTechnicians.map((technician) => <li key={technician.id}>
       {onOpen && technician.role === "inspector"
         ? <button type="button" className="manager-technician-open" aria-label={`View ${technician.username} service visits`} onClick={() => onOpen(technician)}><strong>{technician.username}</strong><span aria-hidden="true">View visits ›</span></button>
@@ -126,6 +153,12 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
       {technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         if (window.confirm(`Deactivate this ${technician.role === "supervisor" ? "Admin" : "technician"}? They will no longer be able to log in.`)) void mutate(() => deactivateManagerTechnician(technician.id));
       }}>Deactivate</button>}
+      {!technician.isActive && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
+        if (window.confirm(`Reactivate this ${technician.role === "supervisor" ? "Admin" : "technician"}? They will be able to sign in again.`)) {
+          setPasswordTargetId(null);
+          void mutate(() => reactivateManagerTechnician(technician.id), `${technician.displayName ?? technician.username} reactivated.`);
+        }
+      }}>Reactivate</button>}
       {!technician.isActive && technician.role === "inspector" && <button type="button" className="secondary-command" disabled={busy} onClick={() => {
         const confirmation = window.prompt(`Permanently remove ${technician.username} from staff lists? This cannot be undone. Used accounts keep their historical records; unused accounts are deleted. Type the username to confirm.`);
         if (confirmation === technician.username) void mutate(async () => {
@@ -134,6 +167,6 @@ export function ManagerTechnicians({ onAuthorityFailure, onOpen }: { onAuthority
         });
       }}>Permanently remove</button>}
     </li>)}</ul>
-    {!busy && !statusFiltered.length && <p className="empty-state">{technicians.length ? "No active technicians." : "No technicians."}</p>}
+    {!busy && !roleFiltered.length && <p className="empty-state">{technicians.length ? `No ${showDeactivated ? "" : "active "}${roleLabel}.` : "No staff yet."}</p>}
   </section>;
 }
