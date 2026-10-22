@@ -26,7 +26,7 @@ test("I-06: at 360px the header has 44px buttons, >=12px status text and no hori
   const box = (await signOut.boundingBox())!;
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(box.width).toBeGreaterThanOrEqual(44);
-  for (const selector of [".app-build", ".app-header .eyebrow", ".connection-state", ".sync-summary", ".app-account button"]) {
+  for (const selector of [".app-header .eyebrow", ".connection-state", ".sync-summary", ".app-account button"]) {
     const size = await page.locator(selector).first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
     expect(size, selector).toBeGreaterThanOrEqual(12);
   }

@@ -101,7 +101,7 @@ Full evidence, issue register (FR-01 …) and per-step results: [`docs/testing/f
 | 2.4 | **Only the proxy** is reachable from outside; PostgreSQL does **not** publish 5432; the API container publishes nothing; under the tunnel model no host ports at all (`docker compose ps`, `netstat`). | Both | ☐ | |
 | 2.5 | `.\scripts\Health-Check.ps1 -BaseUrl https://app.<domain> -StrictCertificateCheck` returns OK; the health response reveals minimal information (status only, no versions/paths/DB details). | Both | ☐ | |
 | 2.6 | First admin created with `apps/api/src/cli/createAdmin.ts` (strong password ≥ 12 chars via temporary env vars, never saved); no demo logins exist. Technician and supervisor accounts created by the admin. | Owner | ☐ | |
-| 2.7 | The build id shown in the app header equals the deployed build (`docker compose exec -T proxy cat /srv/releases/active-release` and the "Support build …" text). | Both | ☐ | |
+| 2.7 | The build id (see below) equals the deployed build (`docker compose exec -T proxy cat /srv/releases/active-release`; the build is no longer shown on screen — in the browser console run `document.documentElement.dataset.appBuild`). | Both | ☐ | |
 
 ## 3. Persistence and restart (AGENTS.md Level 3)
 

@@ -56,15 +56,14 @@ for (const width of [360, 320]) {
   });
 }
 
-for (const width of [360, 320]) test(`I-28: at ${width}px Server unreachable and the build id stay visible, nothing overflows, controls keep 44 px`, async ({ page }) => {
+for (const width of [360, 320]) test(`I-28: at ${width}px Server unreachable stays visible and the build id is hidden, nothing overflows, controls keep 44 px`, async ({ page }) => {
   await signIn(page, width, "abort");
   await expect(page.locator(".connection-state")).toHaveText("Server unreachable");
   const m = await measure(page);
   expect(m.overflowX).toBe(false);
   expect(m.menu.bottom).toBeLessThan(m.viewport * 0.4);
   for (const control of m.controls) { expect(control.h, control.name).toBeGreaterThanOrEqual(44); expect(control.right).toBeLessThanOrEqual(width); }
-  await expect(page.locator(".app-build")).toBeVisible();
-  await expect(page.locator(".app-build")).toHaveAttribute("aria-label", /Application build/);
+  await expect(page.locator(".app-build")).toHaveCount(0);
   const chip = (await page.locator(".connection-state").boundingBox())!;
   const signOut = (await page.getByRole("button", { name: "Sign out" }).boundingBox())!;
   expect(chip.x + chip.width, "chip does not overlap Sign out").toBeLessThanOrEqual(signOut.x);

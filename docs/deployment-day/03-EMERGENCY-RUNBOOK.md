@@ -134,5 +134,5 @@ docker compose --profile tunnel up -d --build
 ## 7. Escalation
 
 Developer: **[FILL IN name, phone, hours]**. Send: what you did, the exact error text, the output of
-`docker compose --profile tunnel ps`, the last 100 lines of the failing service's log, the **Support build** shown
-in the app, and a visit reference if relevant. Never send passwords, `.env`, the tunnel token or the e-mail key.
+`docker compose --profile tunnel ps`, the last 100 lines of the failing service's log, the release name from RELEASE.txt
+(in the app folder), and a visit reference if relevant. Never send passwords, `.env`, the tunnel token or the e-mail key.

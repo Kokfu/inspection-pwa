@@ -29,7 +29,6 @@ Tell support:
 
 - what you were doing, and the exact message on the screen (a photo of the screen helps);
 - the visit number (**SV-…** or **RV-…**), if there is one;
-- the **Support build** shown at the top of the app;
 - who was signed in.
 
 **Never** send passwords, the system's secret settings file, or backup files by chat or e-mail.

@@ -74,7 +74,7 @@ Open items / remarks:
 
 ## 10.5 Versions installed
 
-| Date | Version | Support build shown in the app | Installed by | Notes |
+| Date | Version | Release (RELEASE.txt) | Installed by | Notes |
 |---|---|---|---|---|
 | | | | | First installation |
 | | | | | |

@@ -72,3 +72,10 @@ test("I-42: the header chip follows the browser's online flag over any auth/serv
     assert.equal(headerConnectionChip({ ...base, authStatus, browserOnline: false, connectivityRecoveryActive: true }).label, "Offline");
   }
 });
+
+test("the build id is never rendered; it is only a DevTools data attribute", () => {
+  const app = readFileSync(join(import.meta.dirname, "../src/App.tsx"), "utf8");
+  const main = readFileSync(join(import.meta.dirname, "../src/main.tsx"), "utf8");
+  assert.doesNotMatch(app, /APP_BUILD_ID|Support build/);
+  assert.match(main, /documentElement\.dataset\.appBuild = APP_BUILD_ID/);
+});

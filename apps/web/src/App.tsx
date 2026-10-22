@@ -230,7 +230,6 @@ import { headerConnectionChip, useBrowserOnline } from "./pwa/browserOnline";
 import { useServerUnreachable } from "./jobs/serverHealth";
 import { isServerUnreachable, serverRecentlyUnreachable } from "./jobs/serverReachability";
 import { createQuietPreparer } from "./jobs/quietOfflinePreparation";
-import { APP_BUILD_ID } from "./pwa/buildInfo";
 import { PwaUpdateNotice } from "./pwa/PwaUpdateNotice";
 import { OtherTabsNotice } from "./pwa/OtherTabsNotice";
 import { SlowLocalSaveNotice, useSlowLocalSave } from "./pwa/useSlowLocalSave";
@@ -2460,7 +2459,6 @@ if(activePortable){setActivePortable(await returnFailedPortableToDraft(activePor
           <div>
             <p className="eyebrow">MFE Services Sdn. Bhd.</p>
             <h1 id="app-title">{managerExperience || selectedExperience === "manager" || selectedExperience === "supervisor" ? "Field Service Management" : "Field Service Inspections"}</h1>
-            <span className="app-build" aria-label={`Application build ${APP_BUILD_ID}`}>Support build {APP_BUILD_ID}</span>
           </div>
         </div>
         {headerUser ? <div className="header-utilities">

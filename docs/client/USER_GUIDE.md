@@ -22,7 +22,7 @@ Checked on 9 October 2026 by walking the real app (local demo, build `build-2026
 | Technician | Look at the top of the screen: **All submitted changes synced** means nothing submitted is waiting. It does not include drafts you have not submitted. |
 | Admin | Review accepted work (**Current Services Done** → customer → **View Progress** → **Review / correct** → **Approve review**) and location proposals. |
 | Admin/Manager | Keep both database and photo backups, their matching verification files, and the separate encrypted email key backup. See Appendix A. |
-| If something fails | Do not clear the phone's app data. Note the message, the visit reference (for example SV-20261008-79) and the **Support build** shown at the top; call **[CONFIRM: support contact]**. |
+| If something fails | Do not clear the phone's app data. Note the message, the visit reference (for example SV-20261008-79); call **[CONFIRM: support contact]**. |
 
 ## 1. Sign in, sign out and prepare a phone
 
@@ -178,7 +178,7 @@ Reminders go to each selected address individually at **09:00 Malaysia time on t
 2. Daily: arrange both database and photo backups using Appendix A. Keep their matching verification files and copy the set securely off the PC. **[CONFIRM: backup schedule, storage location and responsible person]** Backup scheduling/retention are client setup, not automatic app features.
 3. Weekly: verify recent backups, review upcoming dates/recipients and confirm a current encrypted off-device copy of the email key exists. The database/photo scripts do not include this key.
 4. After power loss or Windows updates: check Docker Desktop and the app before staff resume. IT startup and health checks are in Appendix A.
-5. For help, contact **[CONFIRM: support name, telephone/email, office-PC custodian and escalation hours]**. Supply the error, visit reference and Support build; do not send passwords or the email key.
+5. For help, contact **[CONFIRM: support name, telephone/email, office-PC custodian and escalation hours]**. Supply the error and visit reference; do not send passwords or the email key.
 
 ## 11. Troubleshooting
 
